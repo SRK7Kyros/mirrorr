@@ -1,0 +1,33 @@
+[project]
+name = "mirrorr-core"
+version = "0.1.0"
+description = "Mirrorr's server module. Basically a FastAPI server that talks to a process manager and a database gateway."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "aiosqlite>=0.22.1",
+    "fastapi>=0.136.3",
+    "httpx>=0.28.1",
+    "local-ffmpeg>=0.1.4",
+    "loguru>=0.7.3",
+    "nats-py>=2.15.0",
+    "pendulum>=3.2.0",
+    "psutil>=7.2.2",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.1",
+    "pytest>=9.0.3",
+    "setproctitle>=1.3.7",
+    "sqlmodel>=0.0.38",
+    "uvicorn>=0.49.0",
+    "yt-dlp>=2026.3.17",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[project.scripts]
+mirrorr = "src.main:main"
