@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>Open in Outplayer</title>
+        <style>
+            html,
+            body {
+                margin: 0;
+                padding: 0;
+                width: 100%;
+                height: 100%;
+                background: #0b0b0b;
+                color: #f2f2f2;
+                font-family: Arial, sans-serif;
+            }
+            body {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .card {
+                max-width: 560px;
+                padding: 24px;
+                background: #151515;
+                border: 1px solid #2a2a2a;
+                border-radius: 10px;
+            }
+            a {
+                color: #7cc5ff;
+                text-decoration: none;
+            }
+            a:hover {
+                text-decoration: underline;
+            }
+            .muted {
+                color: #9a9a9a;
+                font-size: 13px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h2>Open in Outplayer</h2>
+            <p id="status">Preparing link...</p>
+            <p class="muted" id="detail"></p>
+            <p><a id="fallback" href="#">Open Outplayer</a></p>
+        </div>
+
+        <script>
+            function toAbsoluteUrl(src) {
+                return new URL(src, window.location.href).toString();
+            }
+
+            (function () {
+                var params = new URLSearchParams(window.location.search);
+                var target =
+                    params.get("url") || params.get("src") || "stream.m3u8";
+
+                var status = document.getElementById("status");
+                var detail = document.getElementById("detail");
+                var fallback = document.getElementById("fallback");
+
+                var decoded = toAbsoluteUrl(decodeURIComponent(target));
+                var schemeUrl =
+                    "outplayer://x-callback-url/play?url=" +
+                    encodeURIComponent(decoded) +
+                    "&x-success=true";
+
+                fallback.href = schemeUrl;
+                status.textContent = "Redirecting...";
+                detail.textContent = decoded;
+
+                setTimeout(function () {
+                    status.textContent = "Redirect failed";
+                    detail.textContent =
+                        "Outplayer may not be installed. Try the fallback link.";
+                }, 3000);
+
+                window.location.href = schemeUrl;
+            })();
+        </script>
+    </body>
+</html>

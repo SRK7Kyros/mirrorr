@@ -1,0 +1,112 @@
+import asyncio
+import json
+from datetime import datetime
+
+from loguru import logger
+from sqlalchemy.orm import selectinload
+from sqlmodel import select
+
+from src.event_bus.nats import bus
+from src.event_bus.event import MirrorrEvent
+from src.storage.models import Autorun, Session, SessionStatus, Profile
+from src.storage import crud
+from src.startup.config import MirrorrSettings
+
+
+async def autorun_scheduler_loop(settings: MirrorrSettings, stop_event) -> None:
+    """Background loop that starts/stops sessions based on Autorun schedules.
+
+    Runs every ``settings.autorun_check_interval`` seconds until *stop_event* is set.
+    """
+    from src.storage.database import create_db_engine
+
+    interval = settings.autorun_check_interval
+    logger.info(f"Autorun scheduler started (interval={interval}s)")
+
+    db_engine, session_factory = create_db_engine(settings)
+    try:
+        while not stop_event.is_set():
+            try:
+                await _tick(db_engine, session_factory, settings)
+            except Exception as e:
+                logger.error(f"Autorun scheduler tick failed: {e}")
+
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=interval)
+                break  # stop_event was set
+            except asyncio.TimeoutError:
+                pass  # normal — just means the interval elapsed
+    finally:
+        await db_engine.dispose()
+        logger.info("Autorun scheduler stopped")
+
+
+async def _tick(db_engine, session_factory, settings: MirrorrSettings) -> None:
+    now = datetime.now()
+
+    async with session_factory() as db:
+        # ── 1. Start autoruns whose start_time has arrived ────────────
+        stmt = (
+            select(Autorun)
+            .where(Autorun.start_time <= now)
+            .options(
+                selectinload(Autorun.profile).selectinload(Profile.resolver),  # ty:ignore[invalid-argument-type]
+                selectinload(Autorun.engine),  # ty:ignore[invalid-argument-type]
+                selectinload(Autorun.session),  # ty:ignore[invalid-argument-type]
+            )
+        )
+        result = await db.exec(stmt)
+        due_autoruns: list[Autorun] = list(result.all())
+
+        for autorun in due_autoruns:
+            # Skip if a session already exists for this autorun
+            if autorun.session:
+                continue
+
+            logger.info(f"Autorun {autorun.id} ({autorun.user_friendly_name}): "
+                        f"start_time reached, creating session")
+
+            session = Session(
+                profile_id=autorun.profile_id,
+                autorun_id=autorun.id,
+                engine_id=autorun.engine_id,
+                requester_user_token=f"autorun:{autorun.id}",
+                recording=autorun.recording,
+            )
+            session = await crud.create(db, session)
+            await bus.emit(MirrorrEvent.SESSION_CREATED(id=session.id))
+
+    async with session_factory() as db:
+        # ── 2. Stop autoruns whose end_time has passed ────────────────
+        stmt = (
+            select(Session)
+            .where(
+                Session.autorun_id.is_not(None),  # ty:ignore
+                Session.status.in_([SessionStatus.ACTIVE, SessionStatus.RECORDING]),  # ty:ignore
+            )
+            .options(selectinload(Session.autorun))  # ty:ignore
+        )
+        result = await db.exec(stmt)
+        active_sessions: list[Session] = list(result.all())
+
+        for session in active_sessions:
+            if not session.autorun or session.autorun.end_time > now:
+                continue
+
+            logger.info(f"Autorun {session.autorun_id}: end_time reached, "
+                        f"stopping session {session.id}")
+
+            event = MirrorrEvent.SESSION_STOP_REQUESTED(id=session.id, command="stop")
+            try:
+                msg = await bus.nc.request(
+                    f"session.{session.id}.control",
+                    event.model_dump_json().encode(),
+                    timeout=5.0,
+                )
+                reply = json.loads(msg.data.decode())
+                if "error" in reply:
+                    logger.error(f"Autorun {session.autorun_id}: stop failed for session {session.id}: {reply['error']}")
+                else:
+                    logger.info(f"Autorun {session.autorun_id}: stop acknowledged for session {session.id}")
+            except Exception:
+                logger.warning(f"Autorun {session.autorun_id}: session {session.id} supervisor not responding")
