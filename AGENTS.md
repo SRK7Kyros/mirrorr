@@ -8,6 +8,9 @@ This file provides a highly optimized, high-precision context map of the **Mirro
 
 **This is the most important section. All code written for Mirrorr MUST follow these principles.**
 
+### Mandatory first step for new sessions
+Before any coding, **read AGENTS.md in full** and confirm understanding. If it is stale or missing coverage for the task, report what is outdated or missing before proceeding. Do not assume — verify against the actual source files if anything is uncertain.
+
 ### Less is more
 More code is often bad code. Elegant, compact code is preferred over verbose, ceremonial code. Every line must earn its place. If something can be inlined, inline it. If a class can be a function, make it a function. If a dataclass can be a plain dict, use a dict. Only introduce abstraction when it removes real complexity — not when it just makes things look more "designed".
 
@@ -139,14 +142,23 @@ All models in `src/storage/models.py` using **SQLModel** (SQLAlchemy + Pydantic)
 | Model | Purpose | Status |
 |---|---|---|
 | **Resolver** | Plugin that resolves config → `Source` (URL + headers) | Implemented |
-| **Engine** | Plugin that consumes `Source`, runs subprocesses to write HLS | Implemented |
-| **Profile** | Ties a Resolver + JSON config to a default Engine | Implemented |
-| **Session** | Active/past stream operation. Links Profile + Engine. Has `recording` flag and `session_urls` (label→URL pairs for HLS/static files). | Implemented |
-| **Autorun** | Scheduled session with `start_time`/`end_time`, `recording` flag, links Profile + Engine | Implemented |
+| **Engine** | Plugin that consumes `Source`, runs subprocesses to write HLS. Has `retry_modes_schema` dict (JSON Schema per mode). | Implemented |
+| **Profile** | Ties a Resolver + JSON config to a default Engine. Has `retry_mode`/`retry_config` as defaults for sessions using this profile. | Implemented |
+| **Session** | Active/past stream operation. Links Profile + Engine. Has `recording`, optional `retry_mode`/`retry_config` overrides (None = inherit from profile), `retry_attempts`, and `session_urls`. | Implemented |
+| **Autorun** | Scheduled session with `start_time`/`end_time`, `recording`, optional `retry_mode`/`retry_config` overrides, links Profile + Engine | Implemented |
 | **Recording** | Denormalized snapshot of a completed recording (profile/engine/resolver names, path, metadata, `size_bytes`). | Implemented |
 | **Source** | Pydantic model: `url` + optional `headers` dict | Used by Resolver → Engine handoff |
 | **Capabilities** | Pydantic model: `can_record` / `can_playlist` | Used by Engine |
+| **NoRetry / RetryAlways / RetryCount** | Retry mode schemas (Pydantic models). Defined in `models.py`, used by `EngineInterface.retry_modes` | Implemented |
+| **`build_retry_modes_schema`** | Generates `{mode: {schema, default_params}}` dict for DB/API transport | Implemented |
+| **`get_retry_delay` / `get_retry_max_attempts`** | Helpers that extract retry policy from mode+config | Implemented |
 | **SessionStatus** | Enum: `ACTIVE`, `RECORDING`, `REMUXING`, `COMPLETED`, `FAILED` | Implemented |
+| **ResourceType** | Enum: `SESSION`, `PROFILE`, `AUTORUN`, `RECORDING` | Implemented |
+| **Client** | API client identified by hashed API key, linked to many Users | Implemented |
+| **User** | Username + password auth with roles (`admin`/`user`), linked to many Clients | Implemented |
+| **ClientUser** | Many-to-many join table: Client ↔ User | Implemented |
+| **EventSubscription** | Tracks which user owns interest in which resource, for notification routing | Implemented |
+| **Notification** | Notification toast for a user, triggered by major events (started, stopped, etc.) | Implemented |
 
 ---
 
@@ -161,9 +173,12 @@ mirrorr-core/
 │   │   └── resolvers/static.py          # Passthrough URL + headers from config
 │   ├── api/                     # FastAPI web server
 │   │   ├── api.py               # App init, exception handlers, router registration
-│   │   ├── dependencies.py      # DB session dependency injection (set_session_factory)
-│   │   ├── ws.py                # WebSocket NATS event forwarding
+│   │   ├── auth.py              # Auth infrastructure: password hashing, user/client resolution, subscription/notification helpers
+│   │   ├── jwt.py               # JWT token creation and validation
+│   │   ├── dependencies.py      # DB session DI, AuthState (client + user + is_admin), require_auth/require_admin
+│   │   ├── ws.py                # WebSocket event mirroring + notification push
 │   │   └── routers/
+│   │       ├── auth.py          # Registration, login, user management, client management, notifications
 │   │       ├── crud.py          # Dynamic CRUD router generator + session control endpoints
 │   │       └── test.py          # Test endpoint for manual session creation
 │   ├── event_bus/               # NATS-based event system
@@ -171,17 +186,19 @@ mirrorr-core/
 │   │   ├── nats.py              # NatsRegistry: connect, emit, subscribe, on()
 │   │   └── handlers/
 │   │       ├── __init__.py      # Auto-imports all modules in this directory
-│   │       └── handlers.py      # Process registry + lifecycle handlers (spawn/kill supervisors)
+│   │       └── handlers.py      # Process registry + lifecycle handlers + notification creation
 │   ├── services/                # Process supervisors and background tasks
 │   │   ├── managed_process.py   # Subprocess wrapper + event-driven lifecycle + telemetry
 │   │   ├── process_bus.py       # In-process async event bus (pub/sub)
 │   │   ├── session_supervisor.py# Per-session orchestrator (runs in own OS process)
+│   │   ├── recording.py        # Segment stash + remux-to-MP4 lifecycle
 │   │   └── autorun_scheduler.py # Background loop that starts/stops autorun sessions
 │   ├── startup/                 # Boot sequence and environment checks
 │   │   ├── config.py            # MirrorrSettings (Pydantic model + create_from_env)
 │   │   ├── ensure_db.py         # Schema sync: create tables + add/remove columns
-│   │   ├── ensure_engines.py    # Filesystem → DB sync + JIT loader for engines
-│   │   ├── ensure_resolvers.py  # Filesystem → DB sync + JIT loader for resolvers
+│   │   ├── ensure_engines.py    # Thin wrapper: engine-specific extractors for generic sync
+│   │   ├── ensure_resolvers.py  # Thin wrapper: resolver-specific extractors for generic sync
+│   │   ├── ensure_plugins.py    # Generic plugin sync: filesystem ↔ DB + JIT loader
 │   │   ├── ensure_ffmpeg.py     # Locates/bundles FFmpeg binary
 │   │   ├── ensure_nats_server.py# NatsServerManager: downloads/runs local NATS server
 │   │   ├── api_bootstrap.py     # Uvicorn server startup
@@ -208,13 +225,15 @@ mirrorr-core/
 ### Architecture Patterns
 - **Plugins are interfaces**: Engines implement `EngineInterface`, Resolvers implement `ResolverInterface`. Both are ABCs. Default plugins live in `src/default_plugins/`; user plugins are copied to `{engines_dir}` / `{resolvers_dir}` at boot.
 - **Plugins are stateless**: They are loaded JIT via `importlib`, instantiated, used, and discarded. No persistent state in plugins.
-- **Plugins are hash-verified**: `ensure_engines.py` and `ensure_resolvers.py` compute SHA-256 of plugin files at startup and sync to DB. JIT loaders verify hashes before execution.
+- **Plugins are hash-verified**: `ensure_plugins.py` provides a generic `sync_plugins_db()` that `ensure_engines.py` and `ensure_resolvers.py` call with plugin-specific extractors. JIT loaders verify hashes before execution.
+- **Plugins declare schemas for their config**: Resolvers expose `config_model → model_json_schema()`. Engines expose `retry_modes → dict[str, type[BaseModel]]` → serialized via `build_retry_modes_schema()`. Both are stored as JSON columns on their DB rows.
+- **Retry modes are engine-driven**: Each engine inherits a default `{none, always, count}` retry set via `EngineInterface.retry_modes`. Engines can override this property to customize available modes. The supervisor reads `Session.effective_retry_mode()` + `Session.effective_retry_config()` (session override → profile default → hardcoded default) and loops `_run_attempt()` until success, stop, or exhaustion.
 - **Events are typed Pydantic models**: Each event is a class with a `ClassVar[str]` subject. Register handlers with `@bus.on(MirrorrEvent.EVENT_NAME)`.
 - **Long-running work happens in separate OS processes**: The event handler for `SessionCreated` spawns `multiprocessing.Process`. The supervisor must be fully self-contained.
 - **DB schema auto-syncs**: Add/remove columns in SQLModel classes and `ensure_db.py` handles ALTER TABLE at startup. No manual migrations.
 - **All dependencies are passed, never global**: `MirrorrSettings` is passed to every subsystem. No module-level singletons for settings, DB engine, or session factory. The only singleton is the NATS event bus (`bus`).
 - **Event mapping lives in the CRUD router**: `event_map` dict maps model classes to their `(created, updated, deleted)` event tuples. Domain models do NOT carry event references.
-- **Supervisor-owned fields are protected**: `PUT /sessions/{id}` strips `status`, `recording`, `started_at`, `ended_at`. Clients must use dedicated control endpoints.
+- **Supervisor-owned fields are protected**: `PUT /sessions/{id}` strips `status`, `recording`, `retry_attempts`, `started_at`, `ended_at`. Clients must use dedicated control endpoints.
 
 ### Import Conventions
 - Settings: `MirrorrSettings` passed via constructor. No module-level import of a settings singleton.
@@ -238,7 +257,7 @@ mirrorr-core/
 - **CLI interface**: Project description implies CLI tool, but no CLI entry points exist yet.
 
 ### Structural Concerns
-- **`ensure_engines.py` / `ensure_resolvers.py`** — ~90% duplicated code. Could be refactored into a generic `sync_plugins_db()` function.
+
 
 ---
 
@@ -253,16 +272,22 @@ mirrorr-core/
 | `src/storage/database.py` | `create_db_engine(settings)` → `(engine, session_factory)`. |
 | `src/event_bus/nats.py` | `NatsRegistry` singleton (`bus`): connect, emit, on(), start_subscriptions(). |
 | `src/event_bus/event.py` | Event class definitions. Each has a NATS subject string. |
-| `src/event_bus/handlers/handlers.py` | Process registry + lifecycle handlers: spawns/kills supervisors, handles autorun deletion. |
-| `src/services/session_supervisor.py` | Per-session orchestrator. Loads plugins JIT, resolves source, starts engine, manages recording stash/remux. Builds `session_urls` for static files + HLS playlist. |
+| `src/event_bus/handlers/handlers.py` | Process registry + lifecycle handlers: spawns/kills supervisors, handles autorun deletion. Creates notifications for major events. |
+| `src/services/session_supervisor.py` | Per-session orchestrator. Loads plugins JIT, resolves source, starts engine, manages retries. Composes `RecordingManager` for stash/remux. Builds `session_urls` for static files + HLS playlist. |
+| `src/services/recording.py` | `RecordingManager` dataclass: segment stash during streaming, remux-to-MP4 on finalize, Recording DB entry creation. Composed into `SessionSupervisor`. |
 | `src/services/autorun_scheduler.py` | Background loop: creates sessions for due autoruns, stops sessions when autorun end_time passes (via NATS request/reply with feedback). |
 | `src/services/managed_process.py` | Subprocess wrapper with event-driven lifecycle, telemetry polling, log capture. |
 | `src/services/process_bus.py` | In-process async pub/sub bus. Topic-based message passing via `asyncio.Queue`. |
-| `src/startup/ensure_engines.py` | `load_engine_jit(engines_dir, origin, hash)` + `sync_engines_db(engines_dir, session_factory)`. |
-| `src/startup/ensure_resolvers.py` | `load_resolver_jit(resolvers_dir, origin, hash)` + `sync_resolvers_db(resolvers_dir, session_factory)`. |
+| `src/startup/ensure_plugins.py` | Generic plugin sync: `load_plugin_jit()` + `sync_plugins_db()` with extractors. |
+| `src/startup/ensure_engines.py` | Thin wrapper: `load_engine_jit()` + `sync_engines_db()` with engine-specific field extractors. |
+| `src/startup/ensure_resolvers.py` | Thin wrapper: `load_resolver_jit()` + `sync_resolvers_db()` with resolver-specific field extractors. |
 | `src/startup/ensure_db.py` | `ensure_db(engine)` — schema auto-migration (add/remove columns). |
 | `src/startup/ensure_nats_server.py` | `NatsServerManager(settings)` — downloads/runs local NATS server binary. |
-| `src/api/routers/crud.py` | CRUD router with protected fields + session control endpoints (stop, recording enable/disable via NATS request/reply). Orphan cleanup on 504. |
-| `src/api/ws.py` | WebSocket mirrors all NATS events to connected clients. |
+| `src/api/routers/crud.py` | CRUD router with protected fields + ownership-based access control + session control endpoints (stop, recording enable/disable via NATS request/reply). Orphan cleanup on 504. Subscriptions auto-created on resource creation. |
+| `src/api/auth.py` | Auth infrastructure: password hashing (`bcrypt`), API key hashing, client/user resolution, subscription/notification helpers. |
+| `src/api/jwt.py` | JWT token creation (`create_access_token`) and validation (`decode_access_token`) using HS256. |
+| `src/api/routers/auth.py` | Registration, login (`/auth/register`, `/auth/login`), `/auth/me`, password change, admin user/client management, notifications. |
+| `src/api/dependencies.py` | DB session DI, `AuthState` (client, user, is_admin), `require_auth`/`require_admin`/`get_auth`/`ws_auth` dependencies. |
+| `src/api/ws.py` | WebSocket event mirroring (user-filtered via JWT/API key) + real-time notification push (`/ws/notifications`). |
 | `src/default_plugins/engines/yt_dlp_piped.py` | Example engine: `yt-dlp` piped to `ffmpeg` → HLS output. |
 | `src/default_plugins/resolvers/static.py` | Example resolver: passthrough URL + headers from config. |

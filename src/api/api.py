@@ -1,33 +1,45 @@
 from src.event_bus.nats import bus
 from fastapi import FastAPI, Request
 from fastapi.concurrency import asynccontextmanager
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import HTMLResponse, JSONResponse
+from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Mount
 from src.api.routers.crud import crud_routers, session_control_router
-from src.api.routers.test import test_router
+from src.api.routers.auth import auth_router, notifications_router
 from src.api.ws import ws_router
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     yield
-    try:
-        await bus.nc.drain()
-    except Exception:
-        pass
 
 
-API = FastAPI(lifespan=lifespan)
+API = FastAPI(lifespan=lifespan, redirect_slashes=False)
+
+
+@API.get("/favicon.ico")
+async def favicon():
+    return Response(status_code=204)
+
+# Allow all origins for development
+API.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 API.include_router(crud_routers)
 API.include_router(session_control_router)
+API.include_router(auth_router)
+API.include_router(notifications_router)
 API.include_router(ws_router)
-API.include_router(test_router)
 
 
 @API.exception_handler(ValidationError)

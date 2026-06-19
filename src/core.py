@@ -145,19 +145,16 @@ class MirrorrCore:
         from src.services.autorun_scheduler import autorun_scheduler_loop
         self._scheduler_stop = asyncio.Event()
         self._scheduler_task = asyncio.create_task(
-            autorun_scheduler_loop(self.settings, self._scheduler_stop)
+            autorun_scheduler_loop(self.settings, self._session_factory, self._scheduler_stop)
         )
 
         logger.success("MirrorrCore boot complete.")
 
         # Log resolved configuration
-        s = self.settings
-        logger.info(
-            f"Config: base_dir={s.base_dir} | api={s.api_host}:{s.api_port} | "
-            f"nats_port={s.nats_port} | hls_window={s.hls_window}s | "
-            f"segment_duration={s.segment_duration}s | "
-            f"autorun_check_interval={s.autorun_check_interval}s"
-        )
+        logger.info("----- CONFIGURATION -----")
+        for k, v in self.settings.model_dump().items():
+            logger.info(f"{k}={v}")
+        logger.info("------------------------")
 
     # ── shutdown ───────────────────────────────────────────────────────
 
@@ -178,12 +175,11 @@ class MirrorrCore:
         from src.event_bus.handlers.handlers import kill_all_supervisors
         kill_all_supervisors()
 
-        # 1. Disconnect NATS client first, while the server is still alive.
-        #    bus.nc.close() sends a proper protocol-level disconnect so the
-        #    server sees a clean close instead of a broken pipe.
+        # 1. Drain NATS client first — unsubscribes all callbacks cleanly
+        #    before closing, avoiding noisy "connection closed" log spam.
         from src.event_bus.nats import bus
         try:
-            await bus.nc.close()
+            await bus.nc.drain()
         except Exception:
             pass
 

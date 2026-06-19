@@ -3,13 +3,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-from multiprocessing.synchronize import Event as ShutdownEvent
 import os
 import shutil
 import subprocess
 import sys
 from datetime import datetime
+from multiprocessing.synchronize import Event as ShutdownEvent
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 from sqlmodel import select
@@ -22,13 +23,232 @@ from src.storage.models import (
     ResolverContext,
     Session,
     SessionStatus,
-    Recording,
     Profile,
 )
 from src.services.process_bus import ProcessBus, EngineDone, EngineCrashed
 from src.services.managed_process import ManagedProcess
+from src.services.recording import RecordingManager
 from src.startup.config import MirrorrSettings
 from nats.aio.client import Client as NATS
+
+
+
+
+# ── Private helper functions ──────────────────────────────────────────
+
+async def _update_session_status(
+    settings: MirrorrSettings,
+    session_id: int,
+    status: SessionStatus,
+    set_started: bool = False,
+    nc: NATS | None = None,
+) -> None:
+    """Update the session status in the database and emit a NATS event."""
+    from src.storage.database import create_db_engine
+    from src.storage import crud
+    from src.event_bus.event import MirrorrEvent
+
+    db_engine, session_factory = create_db_engine(settings)
+    try:
+        async with session_factory() as db_session:
+            session = await crud.get_by_id(db_session, Session, session_id)
+            if session:
+                session.status = status
+                if set_started:
+                    session.started_at = datetime.now()
+                if status in (SessionStatus.COMPLETED, SessionStatus.FAILED):
+                    session.ended_at = datetime.now()
+                await crud.update(db_session, Session, session_id, session)
+    except Exception as e:
+        logger.error(f"Failed to update session status: {e}")
+    finally:
+        await db_engine.dispose()
+
+    if nc is None:
+        return
+
+    try:
+        subject_map = {
+            (SessionStatus.ACTIVE, True): MirrorrEvent.SESSION_STARTED,
+            SessionStatus.COMPLETED: MirrorrEvent.SESSION_STOPPED,
+            SessionStatus.FAILED: MirrorrEvent.SESSION_CRASHED,
+        }
+        key = (status, set_started) if set_started else status
+        event_cls = subject_map.get(key)
+        if event_cls:
+            await nc.publish(
+                event_cls.subject,
+                event_cls(id=session_id).model_dump_json().encode(),
+            )
+    except Exception as e:
+        logger.opt(colors=True).error(f"Failed to emit NATS event for session <green>{session_id}</green>: {e}")
+
+
+async def _delete_session(settings: MirrorrSettings, session_id: int, session_folder: Path | None = None) -> None:
+    """Delete the session DB row and folder, then emit SESSION_DELETED."""
+    from src.storage.database import create_db_engine
+    from src.storage import crud
+
+    db_engine, session_factory = create_db_engine(settings)
+    try:
+        async with session_factory() as db:
+            await crud.delete(db, Session, session_id)
+    except Exception as e:
+        logger.error(f"Failed to delete session {session_id}: {e}")
+    finally:
+        await db_engine.dispose()
+
+    if session_folder and session_folder.exists():
+        shutil.rmtree(session_folder, ignore_errors=True)
+
+
+def _make_session_dirs(
+    session_folder: Path,
+    logs_folder: Path,
+    segments_folder: Path,
+    settings: MirrorrSettings,
+) -> None:
+    """Create session directories and copy static assets."""
+    session_folder.mkdir(parents=True, exist_ok=True)
+    logs_folder.mkdir(parents=True, exist_ok=True)
+    segments_folder.mkdir(parents=True, exist_ok=True)
+    _copy_static_assets(session_folder, settings)
+    _build_session_urls(session_folder, segments_folder, settings)
+
+
+def _copy_static_assets(session_folder: Path, settings: MirrorrSettings) -> None:
+    """Copy player/vlc/outplayer HTML into the session folder."""
+    from src.startup.config import _PACKAGE_ROOT
+    static_dir = _PACKAGE_ROOT / "static_files"
+    if not static_dir.exists():
+        return
+    for f in static_dir.glob("*.html"):
+        shutil.copy2(f, session_folder / f.name)
+
+
+def _build_session_urls(
+    session_folder: Path,
+    segments_folder: Path,
+    settings: MirrorrSettings,
+) -> list[dict[str, str]]:
+    """Build session_urls with label->URL pairs for the session folder."""
+    web_url = settings.web_url.rstrip("/")
+    if not web_url:
+        return []
+
+    try:
+        rel = session_folder.relative_to(settings.content_dir)
+    except ValueError:
+        return []
+
+    base = f"{web_url}/content/{rel.as_posix()}"
+    urls: list[dict[str, str]] = []
+
+    if (session_folder / "player.html").exists():
+        urls.append({"label": "HTML", "url": f"{base}/player.html?src=stream.m3u8"})
+
+    urls.append({"label": "M3U8", "url": f"{base}/stream.m3u8"})
+
+    if (session_folder / "outplayer.html").exists():
+        urls.append({"label": "Outplayer", "url": f"{base}/outplayer.html?src=stream.m3u8"})
+
+    if (session_folder / "vlc.html").exists():
+        urls.append({"label": "VLC", "url": f"{base}/vlc.html?src=stream.m3u8"})
+
+    urls.append({"label": "Session", "url": base + "/"})
+    return urls
+
+
+async def _persist_session_urls(
+    settings: MirrorrSettings,
+    session_id: int,
+    session_urls: list[dict[str, str]],
+) -> None:
+    """Save session_urls to the database."""
+    from src.storage.database import create_db_engine
+    from src.storage import crud
+
+    if not session_urls:
+        return
+
+    db_engine, session_factory = create_db_engine(settings)
+    try:
+        async with session_factory() as db_session:
+            session = await crud.get_by_id(db_session, Session, session_id)
+            if session:
+                session.session_urls = session_urls
+                await crud.update(db_session, Session, session_id, session)
+    except Exception as e:
+        logger.error(f"Failed to persist session_urls: {e}")
+    finally:
+        await db_engine.dispose()
+
+
+async def _update_recording_flag(
+    settings: MirrorrSettings,
+    session_id: int,
+    value: bool,
+) -> None:
+    """Update the recording flag in the database."""
+    from src.storage.database import create_db_engine
+    from src.storage import crud
+
+    db_engine, session_factory = create_db_engine(settings)
+    try:
+        async with session_factory() as db_session:
+            session = await crud.get_by_id(db_session, Session, session_id)
+            if session:
+                session.recording = value
+                await crud.update(db_session, Session, session_id, session)
+    except Exception as e:
+        logger.error(f"Failed to update recording flag: {e}")
+    finally:
+        await db_engine.dispose()
+
+
+async def _load_session_from_db(
+    settings: MirrorrSettings,
+    session_id: int,
+) -> tuple[Session, EngineInterface, ResolverInterface]:
+    """Load the session from DB, JIT-load plugins, return components."""
+    from src.storage.database import create_db_engine
+    from src.storage import crud
+    from src.startup.ensure_engines import load_engine_jit
+    from src.startup.ensure_resolvers import load_resolver_jit
+
+    engine, session_factory = create_db_engine(settings)
+    try:
+        async with session_factory() as db_session:
+            stmt = (
+                select(Session)
+                .where(Session.id == session_id)
+                .options(
+                    selectinload(Session.engine),  # ty:ignore
+                    selectinload(Session.profile).selectinload(Profile.resolver),  # ty:ignore
+                    selectinload(Session.autorun),  # ty:ignore
+                )
+            )
+            result = await db_session.exec(stmt)
+            session: Session | None = result.one_or_none()
+
+            if session is None:
+                raise ValueError(f"Session with id {session_id} not found")
+            if not session.profile:
+                raise ValueError("Session missing profile")
+
+            engine_interface = load_engine_jit(
+                settings.engines_dir,
+                session.engine.origin,
+                session.engine.origin_hash,
+            )
+            resolver_interface = load_resolver_jit(
+                settings.resolvers_dir,
+                session.profile.resolver.origin,
+                session.profile.resolver.origin_hash,
+            )
+            return session, engine_interface, resolver_interface
+    finally:
+        await engine.dispose()
 
 
 class SessionSupervisor:
@@ -62,7 +282,7 @@ class SessionSupervisor:
         self.engine_ctx: EngineContext | None = None
         self.resolver_ctx: ResolverContext | None = None
         self._control_sub = None
-        self._stash_task: asyncio.Task | None = None
+        self._recording: RecordingManager | None = None
         self._telemetry_tasks: list[asyncio.Task] = []
 
         # Resolve session folder
@@ -82,14 +302,94 @@ class SessionSupervisor:
         self.session_folder = self.session_folder.resolve()
         self.logs_folder = self.session_folder / "logs"
         self.segments_folder = self.session_folder / "segments"
-        self._stash_folder: Path = self.session_folder / "stash"
-        self._stash_seen: set[str] = set()  # segment filenames already stashed
+        self._recording = (
+            RecordingManager(
+                session_id=self.session_id,
+                session=self.session,
+                settings=self.settings,
+                session_folder=self.session_folder,
+                stash_folder=self.session_folder / "stash",
+                segments_folder=self.segments_folder,
+            )
+            if self.session.recording
+            else None
+        )
 
     # ── public ────────────────────────────────────────────────────────
 
     async def run(self) -> None:
-        """Run the session to completion."""
-        self._make_dirs()
+        """Run the session to completion, with retry logic if configured."""
+        retry_config = {
+            "mode": self.session.effective_retry_mode(),
+            "params": self.session.effective_retry_config(),
+        }
+        attempt = 0
+
+        while True:
+            attempt += 1
+            self.session.retry_attempts = attempt
+            logger.opt(colors=True).info(
+                f"starting attempt <yellow>{attempt}</yellow>"
+                f" (retry_mode={retry_config['mode']})"
+            )
+
+            outcome, signal = await self._run_attempt()
+
+            if outcome == "stopped":
+                return
+
+            # Check retry for both crashes and done signals
+            if outcome == "crashed" and isinstance(signal, EngineCrashed):
+                retry, delay = await self.engine.should_retry(
+                    crash=signal,
+                    attempt=attempt,
+                    config=retry_config,
+                )
+                if retry:
+                    logger.opt(colors=True).info(
+                        f"retrying in <yellow>{delay}s</yellow> after: {signal.reason}"
+                    )
+                    await self._cleanup(reason="retry")
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                    continue
+                logger.opt(colors=True).error(
+                    f"giving up after attempt <yellow>{attempt}</yellow>: {signal.reason}"
+                )
+                await self._cleanup(reason="failed")
+                await _update_session_status(self.settings, self.session_id, SessionStatus.FAILED, nc=self._nc)
+                return
+
+            if outcome == "done" and signal is not None:
+                # Engine reported done — check if exit_code mode wants to retry
+                # Build a synthetic crash from the done returncode for retry evaluation
+                if signal.returncode is not None and retry_config["mode"] == "exit_code":
+                    synthetic = EngineCrashed(
+                        reason=f"completed with exit code {signal.returncode}",
+                        returncode=signal.returncode,
+                    )
+                    retry, delay = await self.engine.should_retry(
+                        crash=synthetic,
+                        attempt=attempt,
+                        config=retry_config,
+                    )
+                    if retry:
+                        logger.opt(colors=True).info(
+                            f"retrying in <yellow>{delay}s</yellow> after: {synthetic.reason}"
+                        )
+                        await self._cleanup(reason="retry")
+                        if delay > 0:
+                            await asyncio.sleep(delay)
+                        continue
+
+                # No retry — finalize the session
+                await self._cleanup(reason="stop")
+                await self._finalize_session()
+                return
+
+    async def _run_attempt(self) -> tuple[str, EngineCrashed | EngineDone | None]:
+        """Single resolve→start→wait cycle. Returns (outcome, signal)."""
+        _make_session_dirs(self.session_folder, self.logs_folder, self.segments_folder, self.settings)
 
         self.engine_ctx = EngineContext(
             bus=self.bus,
@@ -104,8 +404,8 @@ class SessionSupervisor:
             session_folder=self.session_folder,
         )
 
-        await self._update_status(SessionStatus.ACTIVE, set_started=True)
-        await self._persist_session_urls()
+        await _update_session_status(self.settings, self.session_id, SessionStatus.ACTIVE, set_started=True, nc=self._nc)
+        await _persist_session_urls(self.settings, self.session_id, _build_session_urls(self.session_folder, self.segments_folder, self.settings))
 
         # 1. Resolve source via resolver
         try:
@@ -119,31 +419,30 @@ class SessionSupervisor:
             source = await self.resolver.resolve(config, self.resolver_ctx)
         except Exception as e:
             logger.error(f"Failed to resolve source: {e}")
-            await self._update_status(SessionStatus.FAILED)
-            await self._delete_self()
-            return
+            await _update_session_status(self.settings, self.session_id, SessionStatus.FAILED, nc=self._nc)
+            await _delete_session(self.settings, self.session_id, self.session_folder)
+            return "done", None
 
         # 2. Start engine
         try:
             self.processes = await self.engine.start(self.engine_ctx, source)
         except Exception as e:
             logger.error(f"Failed to start engine: {e}")
-            await self.bus.emit("engine.crashed", EngineCrashed(reason=str(e)))
-            await self._update_status(SessionStatus.FAILED)
-            await self._delete_self()
-            return
+            crash = EngineCrashed(reason=str(e))
+            await self.bus.emit("engine.crashed", crash)
+            return "crashed", crash
 
         for proc in self.processes:
             await proc.start()
             proc.close_pipes()
 
-        logger.success(f"Session {self.session_id} bootstrapped — "
+        logger.opt(colors=True).success(f"<green>Session</green> bootstrapped — "
                        f"{len(self.processes)} processes running")
 
         # 3. NATS bridge + recording stash
         await self._start_nats_bridge()
-        if self.session.recording:
-            self._start_stash_task()
+        if self._recording:
+            self._recording.start_stash()
 
         # 4. Wait for engine lifecycle signal or stop command
         done_q = self.bus.subscribe("engine.done")
@@ -167,276 +466,89 @@ class SessionSupervisor:
                 except asyncio.CancelledError:
                     pass
 
-        # 5. Determine outcome
         result = finished.pop().result()
-        if isinstance(result, EngineCrashed):
-            logger.error(f"Session {self.session_id} crashed: {result.reason}")
-            await self._cleanup()
-            await self._update_status(SessionStatus.FAILED)
-        elif isinstance(result, EngineDone):
-            logger.success(f"Session {self.session_id} completed: {result.reason}")
-            await self._finalize_session()
+
+        # If a stop was also pending alongside a crash/done, drain it
+        # so we treat the outcome as a clean stop.
+        stop_also_pending = not stop_task.done()
+        if stop_also_pending:
+            stop_task.cancel()
+            try:
+                await stop_task
+            except asyncio.CancelledError:
+                pass
+
+        if isinstance(result, EngineDone):
+            logger.opt(colors=True).success(f"<green>Session</green> completed: {result.reason}")
+            return "done", result
+        elif isinstance(result, EngineCrashed):
+            if stop_also_pending:
+                logger.info(f"stop requested (ignoring crash: {result.reason})")
+                await self._cleanup(reason="stop")
+                await self._finalize_session()
+                return "stopped", None
+            logger.opt(colors=True).error(f"<red>Session failed</red>: {result.reason}")
+            return "crashed", result
         else:
-            logger.info(f"Session {self.session_id}: stop requested")
+            logger.info(f"stop requested")
+            await self._cleanup(reason="stop")
             await self._finalize_session()
+            return "stopped", None
 
     # ── recording / remux ────────────────────────────────────────────
 
-    def _start_stash_task(self) -> None:
-        """Start background task that copies oldest segments to stash
-        before ffmpeg's delete_segments flag removes them."""
-        self._segment_count = self.settings.hls_window // self.settings.segment_duration
-        self._stash_batch = max(1, int(0.10 * self._segment_count))
-        self._stash_folder.mkdir(exist_ok=True)
-        self._stash_seen.clear()
-        self._stash_task = asyncio.create_task(self._stash_loop())
-        logger.info(f"Session {self.session_id}: recording stash task started "
-                     f"(batch={self._stash_batch}, window={self._segment_count} segments)")
-
-    async def _stash_loop(self) -> None:
-        """Periodically copy the oldest N segments to the stash folder."""
-        interval = self.settings.segment_duration * self._stash_batch
-        try:
-            while True:
-                await asyncio.sleep(interval)
-                await self._stash_batch_copy()
-        except asyncio.CancelledError:
-            await self._stash_batch_copy()
-
-    async def _stash_batch_copy(self) -> None:
-        segments = sorted(self.segments_folder.glob("*.ts"))
-        batch = segments[:self._stash_batch]
-        for seg in batch:
-            name = seg.name
-            if name not in self._stash_seen:
-                dest = self._stash_folder / name
-                if not dest.exists():
-                    try:
-                        shutil.copy2(seg, dest)
-                    except FileNotFoundError:
-                        logger.debug(f"Segment {name} deleted before stash, skipping")
-                self._stash_seen.add(name)
-
     async def _finalize_session(self) -> None:
         """Cleanup processes, then remux and create Recording if applicable."""
-        await self._cleanup()
+        await self._cleanup(reason="stop")
 
-        if not self.session.recording:
-            await self._update_status(SessionStatus.COMPLETED)
-            await self._delete_self()
+        if not self._recording:
+            await _update_session_status(self.settings, self.session_id, SessionStatus.COMPLETED, nc=self._nc)
+            await _delete_session(self.settings, self.session_id, self.session_folder)
             return
 
-        await self._update_status(SessionStatus.REMUXING)
+        await _update_session_status(self.settings, self.session_id, SessionStatus.REMUXING, nc=self._nc)
         try:
-            recording = await self._remux_and_finalize()
-            logger.success(f"Session {self.session_id}: recording created at {recording.disk_path}")
-            await self._update_status(SessionStatus.COMPLETED)
-            await self._delete_self()
+            await self._recording.remux()
+            logger.success(f"recording created")
+            await _update_session_status(self.settings, self.session_id, SessionStatus.COMPLETED, nc=self._nc)
+            await _delete_session(self.settings, self.session_id)
+            # Folder already moved to recordings/ by remux(), no need to delete
         except Exception as e:
-            logger.error(f"Session {self.session_id}: remux failed: {e}")
-            await self._update_status(SessionStatus.FAILED)
-            await self._delete_self()
-
-    async def _remux_and_finalize(self) -> Recording:
-        """Concatenate stash + segments into MP4, move to recordings, create DB entry."""
-        # 1. Gather segments: stash first (chronological), then remaining live segments
-        stash_segments = sorted(self._stash_folder.glob("*.ts")) if self._stash_folder and self._stash_folder.exists() else []
-        live_segments = sorted(self.segments_folder.glob("*.ts"))
-
-        # Deduplicate: live segments that are already in stash (by filename)
-        stash_names = {s.name for s in stash_segments}
-        live_only = [s for s in live_segments if s.name not in stash_names]
-
-        ordered_segments = stash_segments + live_only
-        if not ordered_segments:
-            raise RuntimeError("No segments found to remux")
-
-        logger.info(f"Session {self.session_id}: remuxing {len(ordered_segments)} segments "
-                     f"({len(stash_segments)} from stash + {len(live_only)} from live)")
-
-        # 2. Write concat list
-        concat_list = self.session_folder / "concat.txt"
-        with open(concat_list, "w") as f:
-            for seg in ordered_segments:
-                f.write(f"file '{seg.resolve()}'\n")
-
-        # 3. Concat to MP4 — name it after the session folder, log progress
-        mp4_name = self.session_folder.name + ".mp4"
-        mp4_path = self.session_folder / mp4_name
-        ffmpeg_bin = os.environ.get("FFMPEG_EXECUTABLE") or shutil.which("ffmpeg")
-        if not ffmpeg_bin:
-            raise RuntimeError("ffmpeg not found")
-
-        logger.info(f"Session {self.session_id}: starting remux ({len(ordered_segments)} segments)")
-
-        proc = await asyncio.create_subprocess_exec(
-            ffmpeg_bin,
-            "-hide_banner", "-loglevel", "info",
-            "-stats",
-            "-f", "concat", "-safe", "0",
-            "-i", str(concat_list),
-            "-c", "copy",
-            str(mp4_path),
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-        )
-
-        # Read stderr line by line to log ffmpeg progress
-        total = len(ordered_segments)
-        assert proc.stderr is not None
-        while True:
-            line = await proc.stderr.readline()
-            if not line:
-                break
-            text = line.decode("utf-8", errors="replace").strip()
-            if text:
-                logger.debug(f"Session {self.session_id}: remux: {text}")
-
-        await proc.wait()
-        if proc.returncode != 0:
-            raise RuntimeError(f"ffmpeg concat failed (code {proc.returncode})")
-
-        logger.success(f"Session {self.session_id}: remux complete — {total} segments → {mp4_name}")
-
-        # 4. Move session folder to recordings dir
-        recordings_dir = self.settings.recordings_dir
-        recordings_dir.mkdir(parents=True, exist_ok=True)
-        dest = recordings_dir / self.session_folder.name
-        if dest.exists():
-            i = 2
-            while dest.exists():
-                dest = recordings_dir / f"{self.session_folder.name}_{i}"
-                i += 1
-
-        # Clean up temporary files before moving
-        concat_list.unlink(missing_ok=True)
-        stream_m3u8 = self.session_folder / "stream.m3u8"
-        stream_m3u8.unlink(missing_ok=True)
-        if self._stash_folder and self._stash_folder.exists():
-            shutil.rmtree(self._stash_folder)
-        for seg in self.segments_folder.iterdir():
-            seg.unlink()
-        self.segments_folder.rmdir()
-
-        shutil.move(str(self.session_folder), str(dest))
-        logger.info(f"Session {self.session_id}: moved to {dest}")
-
-        # 5. Compute recording metadata
-        mp4_in_dest = dest / mp4_name
-        stat = mp4_in_dest.stat()
-        size_bytes = stat.st_size
-        started_at = self.session.started_at or datetime.now()
-        ended_at = datetime.now()
-        duration_seconds = await self._probe_duration(mp4_in_dest)
-
-        # 6. Create Recording DB entry
-        from src.storage.database import create_db_engine
-        from src.storage import crud
-
-        db_engine, session_factory = create_db_engine(self.settings)
-        try:
-            async with session_factory() as db_session:
-                recording = Recording(
-                    user_friendly_name=self.session.profile.name,
-                    snake_case_name=dest.name,
-                    disk_path=str(dest),
-                    content_url=f"{self.settings.web_url}/content/recordings/{dest.name}/{dest.name}.mp4",
-                    profile_name=self.session.profile.name,
-                    engine_name=self.session.engine.name,
-                    resolver_name=self.session.profile.resolver.name,
-                    started_at=started_at,
-                    ended_at=ended_at,
-                    duration_seconds=duration_seconds,
-                    size_bytes=size_bytes,
-                )
-                recording = await crud.create(db_session, recording)
-        finally:
-            await db_engine.dispose()
-
-        return recording
-
-    # ── helpers ──────────────────────────────────────────────────────
-
-    async def _probe_duration(self, path: Path) -> float:
-        """Get actual video duration via ffprobe."""
-        ffprobe_bin = os.environ.get("FFPROBE_EXECUTABLE") or shutil.which("ffprobe")
-        if not ffprobe_bin:
-            logger.warning("ffprobe not found — falling back to wall-clock duration")
-            return 0.0
-
-        proc = await asyncio.create_subprocess_exec(
-            ffprobe_bin,
-            "-v", "quiet",
-            "-print_format", "json",
-            "-show_format",
-            str(path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        stdout, _ = await proc.communicate()
-        if proc.returncode != 0:
-            return 0.0
-
-        try:
-            info = json.loads(stdout)
-            return float(info["format"]["duration"])
-        except (KeyError, json.JSONDecodeError, ValueError):
-            return 0.0
+            logger.error(f"remux failed: {e}")
+            await _update_session_status(self.settings, self.session_id, SessionStatus.FAILED, nc=self._nc)
+            await _delete_session(self.settings, self.session_id, self.session_folder)
 
     # ── control channel ──────────────────────────────────────────────
 
     async def _handle_control(self, command: str) -> None:
         """Handle commands received on the NATS control channel."""
         if command == "stop":
-            logger.info(f"Session {self.session_id}: received stop command")
+            logger.info(f"received stop command")
             await self.bus.emit("session.stop_requested")
         elif command == "enable_recording":
             if not self.session.recording:
                 self.session.recording = True
-                self._start_stash_task()
-                await self._update_recording_flag(True)
-                logger.info(f"Session {self.session_id}: recording enabled mid-run")
+                self._recording = RecordingManager(
+                    session_id=self.session_id,
+                    session=self.session,
+                    settings=self.settings,
+                    session_folder=self.session_folder,
+                    stash_folder=self.session_folder / "stash",
+                    segments_folder=self.segments_folder,
+                )
+                self._recording.start_stash()
+                await _update_recording_flag(self.settings, self.session_id, True)
+                logger.info(f"recording enabled mid-run")
         elif command == "disable_recording":
             if self.session.recording:
                 self.session.recording = False
-                if self._stash_task and not self._stash_task.done():
-                    self._stash_task.cancel()
-                await self._update_recording_flag(False)
-                logger.info(f"Session {self.session_id}: recording disabled mid-run")
+                if self._recording:
+                    await self._recording.stop_stash()
+                    self._recording = None
+                await _update_recording_flag(self.settings, self.session_id, False)
+                logger.info(f"recording disabled mid-run")
 
-    async def _update_recording_flag(self, value: bool) -> None:
-        from src.storage.database import create_db_engine
-        from src.storage import crud
 
-        db_engine, session_factory = create_db_engine(self.settings)
-        try:
-            async with session_factory() as db_session:
-                session = await crud.get_by_id(db_session, Session, self.session_id)
-                if session:
-                    session.recording = value
-                    await crud.update(db_session, Session, self.session_id, session)
-        except Exception as e:
-            logger.error(f"Failed to update recording flag: {e}")
-        finally:
-            await db_engine.dispose()
-
-    async def _delete_self(self) -> None:
-        """Delete the session DB row and folder, then emit SESSION_DELETED."""
-        from src.storage.database import create_db_engine
-        from src.storage import crud
-
-        db_engine, session_factory = create_db_engine(self.settings)
-        try:
-            async with session_factory() as db:
-                await crud.delete(db, Session, self.session_id)
-        except Exception as e:
-            logger.error(f"Failed to delete session {self.session_id}: {e}")
-        finally:
-            await db_engine.dispose()
-
-        if self.session_folder.exists():
-            shutil.rmtree(self.session_folder, ignore_errors=True)
-            logger.info(f"Session {self.session_id}: folder deleted")
 
     # ── internal ──────────────────────────────────────────────────────
 
@@ -491,88 +603,15 @@ class SessionSupervisor:
 
                 self._telemetry_tasks.append(asyncio.create_task(_forward_telemetry(telemetry_q, proc_name)))
 
-            logger.info(f"Session {self.session_id}: NATS control channel active")
+            logger.info(f"NATS control channel active")
         except Exception as e:
             logger.error(f"Failed to setup NATS bridge: {e}")
 
-    def _make_dirs(self) -> None:
-        self.session_folder.mkdir(parents=True, exist_ok=True)
-        self.logs_folder.mkdir(parents=True, exist_ok=True)
-        self.segments_folder.mkdir(parents=True, exist_ok=True)
-        self._copy_static_assets()
-        self._build_session_urls()
 
-    def _copy_static_assets(self) -> None:
-        """Copy player/vlc/outplayer HTML into the session folder."""
-        from src.startup.config import _PACKAGE_ROOT
-        static_dir = _PACKAGE_ROOT / "static_files"
-        if not static_dir.exists():
-            return
-        for f in static_dir.glob("*.html"):
-            shutil.copy2(f, self.session_folder / f.name)
-
-    def _build_session_urls(self) -> None:
-        """Build session_urls with label->URL pairs for the session folder,
-        static HTML files, and the HLS playlist."""
-        web_url = self.settings.web_url.rstrip("/")
-        if not web_url:
-            return
-
-        # Relative path from content_dir to session_folder
-        try:
-            rel = self.session_folder.relative_to(self.settings.content_dir)
-        except ValueError:
-            return
-
-        base = f"{web_url}/content/{rel.as_posix()}"
-
-        urls: list[dict[str, str]] = [
-            {"label": "Session", "url": base + "/"},
-        ]
-
-        # Static HTML files with human-friendly labels
-        label_map = {
-            "player.html": "HTML",
-            "vlc.html": "VLC",
-            "outplayer.html": "Outplayer",
-        }
-        for f in sorted(self.session_folder.glob("*.html")):
-            label = label_map.get(f.name, f.stem)
-            urls.append({"label": label, "url": f"{base}/{f.name}"})
-
-        # HLS playlist
-        urls.append({"label": "M3U8", "url": f"{base}/stream.m3u8"})
-
-        self.session.session_urls = urls
-
-    async def _persist_session_urls(self) -> None:
-        """Save session_urls to the database."""
-        from src.storage.database import create_db_engine
-        from src.storage import crud
-
-        if not self.session.session_urls:
-            return
-
-        db_engine, session_factory = create_db_engine(self.settings)
-        try:
-            async with session_factory() as db_session:
-                session = await crud.get_by_id(db_session, Session, self.session_id)
-                if session:
-                    session.session_urls = self.session.session_urls
-                    await crud.update(db_session, Session, self.session_id, session)
-        except Exception as e:
-            logger.error(f"Failed to persist session_urls: {e}")
-        finally:
-            await db_engine.dispose()
-
-    async def _cleanup(self) -> None:
+    async def _cleanup(self, reason: str = "stop") -> None:
         """Gracefully stop engine + resolver, then terminate all processes."""
-        if self._stash_task and not self._stash_task.done():
-            self._stash_task.cancel()
-            try:
-                await self._stash_task
-            except asyncio.CancelledError:
-                pass
+        if self._recording:
+            await self._recording.stop_stash()
 
         # Cancel engine-spawned tasks (pipe wiring, coordination, etc.)
         if self.engine_ctx and self.engine_ctx._tasks:
@@ -583,7 +622,7 @@ class SessionSupervisor:
             self.engine_ctx._tasks.clear()
 
         if self.engine_ctx:
-            await self.engine.stop(self.engine_ctx)
+            await self.engine.stop(self.engine_ctx, reason=reason)
         if self.resolver_ctx:
             self.resolver.stop(self.resolver_ctx)
 
@@ -604,10 +643,10 @@ class SessionSupervisor:
 
         for proc in self.processes:
             if proc.running:
-                logger.warning(f"Force-killing [{proc.name}]")
+                logger.opt(colors=True).warning(f"Force-killing [<cyan>{proc.name}</cyan>]")
                 await proc.kill()
 
-        logger.info(f"Session {self.session_id}: all processes terminated")
+        logger.info(f"all processes terminated")
 
         # Wait for internal reader/telemetry tasks to finish so pipe transports are clean
         for proc in self.processes:
@@ -634,90 +673,6 @@ class SessionSupervisor:
                 pass
             self._nc = None
 
-    async def _update_status(self, status: SessionStatus, set_started: bool = False) -> None:
-        """Update the session status in the database and emit a NATS event."""
-        from src.storage.database import create_db_engine
-        from src.storage import crud
-        from src.event_bus.event import MirrorrEvent
-
-        db_engine, session_factory = create_db_engine(self.settings)
-        try:
-            async with session_factory() as db_session:
-                session = await crud.get_by_id(db_session, Session, self.session_id)
-                if session:
-                    session.status = status
-                    if set_started:
-                        session.started_at = datetime.now()
-                    if status in (SessionStatus.COMPLETED, SessionStatus.FAILED):
-                        session.ended_at = datetime.now()
-                    await crud.update(db_session, Session, self.session_id, session)
-        except Exception as e:
-            logger.error(f"Failed to update session status: {e}")
-        finally:
-            await db_engine.dispose()
-
-        if self._nc is None:
-            return
-
-        try:
-            subject_map = {
-                (SessionStatus.ACTIVE, True): MirrorrEvent.SESSION_STARTED,
-                SessionStatus.COMPLETED: MirrorrEvent.SESSION_STOPPED,
-                SessionStatus.FAILED: MirrorrEvent.SESSION_CRASHED,
-            }
-            key = (status, set_started) if set_started else status
-            event_cls = subject_map.get(key)
-            if event_cls:
-                await self._nc.publish(
-                    event_cls.subject,
-                    event_cls(id=self.session_id).model_dump_json().encode(),
-                )
-        except Exception as e:
-            logger.error(f"Failed to emit NATS event for session {self.session_id}: {e}")
-
-    @classmethod
-    async def create(cls, session_id: int, settings: MirrorrSettings) -> SessionSupervisor:
-        """Load the session from DB, JIT-load plugins, return a ready supervisor."""
-        from src.storage.database import create_db_engine
-        from src.storage import crud
-        from src.startup.ensure_engines import load_engine_jit
-        from src.startup.ensure_resolvers import load_resolver_jit
-
-        engine, session_factory = create_db_engine(settings)
-        try:
-            async with session_factory() as db_session:
-                stmt = (
-                    select(Session)
-                    .where(Session.id == session_id)
-                    .options(
-                        selectinload(Session.engine),  # ty:ignore
-                        selectinload(Session.profile).selectinload(Profile.resolver),  # ty:ignore
-                        selectinload(Session.autorun),  # ty:ignore
-                    )
-                )
-                result = await db_session.exec(stmt)
-                session: Session | None = result.one_or_none()
-
-                if session is None:
-                    raise ValueError(f"Session with id {session_id} not found")
-                if not session.profile:
-                    raise ValueError("Session missing profile")
-
-                engine_interface = load_engine_jit(
-                    settings.engines_dir,
-                    session.engine.origin,
-                    session.engine.origin_hash,
-                )
-                resolver_interface = load_resolver_jit(
-                    settings.resolvers_dir,
-                    session.profile.resolver.origin,
-                    session.profile.resolver.origin_hash,
-                )
-        finally:
-            await engine.dispose()
-
-        return cls(session_id, session, engine_interface, resolver_interface, settings)
-
 
 # ── Entry point for multiprocessing ───────────────────────────────────
 
@@ -726,9 +681,10 @@ async def runner(session_id: int, settings: MirrorrSettings, shutdown_event: Shu
     setup_logging()
 
     try:
-        logger.info(f"Starting session supervisor for session {session_id}")
-        supervisor = await SessionSupervisor.create(session_id, settings)
-        logger.success(f"Supervisor created for session {session_id}")
+        logger.opt(colors=True).info(f"Starting session supervisor for session <green>{session_id}</green>")
+        session, engine_interface, resolver_interface = await _load_session_from_db(settings, session_id)
+        supervisor = SessionSupervisor(session_id, session, engine_interface, resolver_interface, settings)
+        logger.opt(colors=True).success(f"Supervisor created for session <green>{session_id}</green>")
 
         # Monitor the cross-platform shutdown event and emit a stop into the ProcessBus
         async def _watch_shutdown():
@@ -737,7 +693,7 @@ async def runner(session_id: int, settings: MirrorrSettings, shutdown_event: Shu
                     logger.info(f"Session {session_id}: shutdown event received")
                     await supervisor.bus.emit("session.stop_requested")
                     return
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)
 
         if shutdown_event:
             asyncio.create_task(_watch_shutdown())
