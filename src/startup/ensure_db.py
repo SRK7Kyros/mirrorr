@@ -15,6 +15,11 @@ async def ensure_db(engine: AsyncEngine) -> None:
             inspector_obj = inspect(sync_conn)
             dialect = sync_conn.dialect
 
+            # Log all tables and their columns
+            for table_name in inspector_obj.get_table_names():
+                columns = [c["name"] for c in inspector_obj.get_columns(table_name)]
+                logger.debug(f"Table {table_name} columns: {columns}")
+
             for table_name, table in SQLModel.metadata.tables.items():
                 if not inspector_obj.has_table(table_name):
                     continue
@@ -28,8 +33,14 @@ async def ensure_db(engine: AsyncEngine) -> None:
                         type_str = column.type.compile(dialect=dialect)
                         statement = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {type_str}"
                         if not column.nullable and column.default is None:
-                            statement += " DEFAULT ''"
+                            # Use JSON-compatible default for JSON columns
+                            if type_str.upper() == "JSON":
+                                statement += " DEFAULT '{}'"
+                            else:
+                                statement += " DEFAULT ''"
+                        logger.debug(f"SQL: {statement}")
                         sync_conn.execute(text(statement))
+                        logger.info(f"Added column {table_name}.{col_name}")
 
                 for db_col_name in db_columns.keys():
                     if db_col_name not in model_columns:
