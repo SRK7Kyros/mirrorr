@@ -123,6 +123,10 @@ async def sync_plugins_db(
                             await crud.create(session, new_obj)
                             db_items[instance.name] = new_obj
                             logger.info(f"{plugin_label.capitalize()} {instance.name} saved to database")
+                            # Log schema on first creation
+                            for key, value in fields.items():
+                                if "schema" in key.lower() and value:
+                                    logger.info(f"  Set {key} with {len(str(value))} chars")
 
                         elif schema_changed(instance, existing, module_hash):
                             updated_obj = model_type(id=existing.id, **fields)  # ty:ignore[unresolved-attribute]
@@ -133,6 +137,10 @@ async def sync_plugins_db(
                                 f"The hash for the {plugin_label} <b><yellow>{instance.name}</yellow></b> "
                                 f"<b>changed</b>, updated its database entry"
                             )
+                            # Log schema update specifically
+                            for key, value in fields.items():
+                                if "schema" in key.lower() and value:
+                                    logger.info(f"  Updated {key} with {len(str(value))} chars")
 
                         else:
                             logger.opt(colors=True).info(

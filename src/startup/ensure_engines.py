@@ -28,9 +28,11 @@ def _extract_db_fields(instance: EngineInterface, module_hash: str) -> dict[str,
 def _schema_changed(instance: EngineInterface, existing: Engine | None, module_hash: str) -> bool:
     if existing is None:
         return False
+    new_schema = build_retry_modes_schema(instance.retry_modes)
     return (
         existing.origin_hash != module_hash
-        or existing.retry_modes_schema != build_retry_modes_schema(instance.retry_modes)
+        or existing.retry_modes_schema != new_schema
+        or bool(existing.retry_modes_schema == {} and new_schema)
     )
 
 
