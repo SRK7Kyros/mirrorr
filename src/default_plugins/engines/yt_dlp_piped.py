@@ -83,6 +83,7 @@ class YtDlpPipedEngine(EngineInterface):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             stdin=subprocess.DEVNULL,
+            capture_stdout=False,  # stdout is piped to ffmpeg, not logged
         )
         ffmpeg = ManagedProcess(
             name="ffmpeg",
@@ -95,10 +96,14 @@ class YtDlpPipedEngine(EngineInterface):
 
         # Wire yt-dlp stdout -> ffmpeg stdin via a Python pipe task
         async def _pipe():
+            # Wait for both processes to be started
+            while ytdlp._process is None or ffmpeg._process is None:
+                await asyncio.sleep(0.01)
+
             ytdlp_proc = ytdlp._process
             ffmpeg_proc = ffmpeg._process
-            assert ytdlp_proc is not None and ytdlp_proc.stdout is not None
-            assert ffmpeg_proc is not None and ffmpeg_proc.stdin is not None
+            assert ytdlp_proc.stdout is not None
+            assert ffmpeg_proc.stdin is not None
             try:
                 while True:
                     chunk = await ytdlp_proc.stdout.read(65536)
@@ -131,6 +136,7 @@ class YtDlpPipedEngine(EngineInterface):
                 await context.bus.emit("engine.crashed", EngineCrashed(
                     reason=f"yt-dlp exited with code {ytdlp_exit.returncode}",
                     source_process="yt-dlp",
+                    returncode=ytdlp_exit.returncode,
                 ))
                 return
 
@@ -139,11 +145,12 @@ class YtDlpPipedEngine(EngineInterface):
             ffmpeg_exit = await ffmpeg_exit_q.get()
 
             if ffmpeg_exit.intentional or ffmpeg_exit.returncode == 0:
-                await context.bus.emit("engine.done", EngineDone(reason="completed"))
+                await context.bus.emit("engine.done", EngineDone(reason="completed", returncode=ffmpeg_exit.returncode))
             else:
                 await context.bus.emit("engine.crashed", EngineCrashed(
                     reason=f"ffmpeg exited with code {ffmpeg_exit.returncode}",
                     source_process="ffmpeg",
+                    returncode=ffmpeg_exit.returncode,
                 ))
 
         async def _watch_ffmpeg():
@@ -154,6 +161,7 @@ class YtDlpPipedEngine(EngineInterface):
                 await context.bus.emit("engine.crashed", EngineCrashed(
                     reason=f"ffmpeg exited unexpectedly with code {ffmpeg_exit.returncode}",
                     source_process="ffmpeg",
+                    returncode=ffmpeg_exit.returncode,
                 ))
 
         context._tasks.append(asyncio.create_task(_coordinate()))

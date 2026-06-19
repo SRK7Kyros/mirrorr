@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 class StaticConfig(BaseModel):
     url: str
-    headers: dict = {}
+    headers: dict[str, str] = {}
 
 
 class StaticResolver(ResolverInterface[StaticConfig]):

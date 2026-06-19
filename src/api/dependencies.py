@@ -1,10 +1,134 @@
+"""Shared FastAPI dependencies: DB sessions, auth middleware, request state."""
+
+from __future__ import annotations
+
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import Depends, HTTPException, Request, WebSocket
+from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
+from sqlmodel.ext.asyncio.session import AsyncSession
+
 from src.storage.database import get_session_factory
+from src.storage.models import Client, User
+
+_api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+_bearer_scheme = HTTPBearer(auto_error=False)
+
+
+# ── DB session ───────────────────────────────────────────────────────
 
 
 async def _get_db_session() -> AsyncGenerator[AsyncSession, Any]:
     async with get_session_factory()() as session:
         yield session
+
+
+# ── Request state for auth ───────────────────────────────────────────
+
+
+@dataclass
+class AuthState:
+    """Populated by the auth dependency on validated requests."""
+    client: Client | None = None
+    user: User | None = None
+    is_admin: bool = False
+
+
+async def get_auth(
+    request: Request,
+    x_api_key: str | None = Depends(_api_key_header),
+    bearer: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+    db: AsyncSession = Depends(_get_db_session),
+) -> AuthState:
+    """FastAPI dependency: validate API key + JWT, resolve client + user.
+
+    Returns AuthState with whatever was resolved. Endpoints that require
+    specific auth should use require_auth or require_admin instead.
+    """
+    client = None
+    user = None
+    is_admin = False
+
+    # Validate API key (swallow errors for bootstrap)
+    if x_api_key:
+        from src.api.auth import resolve_client
+        try:
+            client = await resolve_client(db, x_api_key)
+        except HTTPException:
+            pass
+
+    # Validate JWT
+    if bearer:
+        from src.api.jwt import decode_access_token
+        payload = decode_access_token(bearer.credentials)
+        if payload and "username" in payload:
+            from src.api.auth import resolve_user
+            try:
+                user = await resolve_user(db, payload["username"])
+                is_admin = user.role == "admin"
+            except HTTPException:
+                pass
+
+    return AuthState(client=client, user=user, is_admin=is_admin)
+
+
+async def require_auth(
+    auth: AuthState = Depends(get_auth),
+) -> AuthState:
+    """Requires a valid JWT token. API key is optional (app identity)."""
+    if not auth.user:
+        raise HTTPException(status_code=401, detail="JWT token required")
+    return auth
+
+
+async def require_admin(
+    auth: AuthState = Depends(require_auth),
+) -> AuthState:
+    """Like require_auth but raises 403 if not admin."""
+    if not auth.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return auth
+
+
+# ── WebSocket auth ───────────────────────────────────────────────────
+
+
+async def ws_auth(
+    websocket: WebSocket,
+) -> tuple[AuthState | None, str | None]:
+    """Resolve auth from WebSocket connection (query params or headers)."""
+    from src.api.jwt import decode_access_token
+    from src.api.auth import resolve_client, resolve_user
+
+    api_key = websocket.query_params.get("api_key", "")
+    if not api_key:
+        api_key = websocket.headers.get("x-api-key", "")
+
+    token = websocket.query_params.get("token", "")
+
+    async with get_session_factory()() as db:
+        client = None
+        user = None
+        is_admin = False
+
+        if api_key:
+            try:
+                client = await resolve_client(db, api_key)
+            except HTTPException:
+                pass
+
+        if token:
+            payload = decode_access_token(token)
+            if payload and "username" in payload:
+                try:
+                    user = await resolve_user(db, payload["username"])
+                    is_admin = user.role == "admin"
+                except HTTPException:
+                    pass
+
+        if not client and not user:
+            return None, None
+
+        return AuthState(client=client, user=user, is_admin=is_admin), None

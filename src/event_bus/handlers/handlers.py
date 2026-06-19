@@ -7,6 +7,7 @@ from loguru import logger
 from src.event_bus.nats import bus
 from src.event_bus.event import MirrorrEvent
 from src.services import session_supervisor
+from src.storage.models import ResourceType
 
 # ── Process registry: session_id → (Process, ShutdownEvent) ──────────
 _sessions: dict[int, tuple[multiprocessing.Process, ShutdownEvent]] = {}
@@ -91,11 +92,56 @@ async def handle_autorun_deleted(data: MirrorrEvent.AUTORUN_DELETED):
         await db_engine.dispose()
 
 
-# ── Recording lifecycle ──────────────────────────────────────────────
+# ── Notification-producing event handlers ────────────────────────────
+
+async def _create_notification(resource_type: str, resource_id: int, event_type: str, title: str, body: str = "") -> None:
+    """Create notifications for all subscribed users via a standalone DB session."""
+    from src.storage.database import create_db_engine
+    from src.api.auth import notify_subscribers
+
+    db_engine, session_factory = create_db_engine(bus._settings)
+    try:
+        async with session_factory() as db:
+            count = await notify_subscribers(db, resource_type, resource_id, event_type, title, body)
+            if count:
+                logger.info(f"Notification: {title} → {count} user(s)")
+    except Exception as e:
+        logger.error(f"Failed to create notification: {e}")
+    finally:
+        await db_engine.dispose()
+
+
+@bus.on(MirrorrEvent.SESSION_STARTED)
+async def handle_session_started(data: MirrorrEvent.SESSION_STARTED):
+    await _create_notification(
+        ResourceType.SESSION, data.id, "session.started",
+        title=f"Session {data.id} started",
+    )
+
+
+@bus.on(MirrorrEvent.SESSION_STOPPED)
+async def handle_session_stopped(data: MirrorrEvent.SESSION_STOPPED):
+    await _create_notification(
+        ResourceType.SESSION, data.id, "session.stopped",
+        title=f"Session {data.id} stopped",
+    )
+
+
+@bus.on(MirrorrEvent.SESSION_CRASHED)
+async def handle_session_crashed(data: MirrorrEvent.SESSION_CRASHED):
+    await _create_notification(
+        ResourceType.SESSION, data.id, "session.crashed",
+        title=f"Session {data.id} crashed",
+        body="The session terminated unexpectedly.",
+    )
+
 
 @bus.on(MirrorrEvent.RECORDING_CREATED)
 async def handle_recording_created(data: MirrorrEvent.RECORDING_CREATED):
-    logger.info(f"Recording {data.id} created")
+    await _create_notification(
+        ResourceType.RECORDING, data.id, "recording.created",
+        title=f"Recording {data.id} created",
+    )
 
 
 # ── Cleanup on shutdown ──────────────────────────────────────────────
@@ -157,4 +203,4 @@ def kill_all_supervisors() -> None:
             process.join(timeout=3)
 
     if done:
-        logger.info(f"All {len(done)} supervisor(s) stopped gracefully")
+        logger.success(f"All {len(done)} supervisor(s) stopped gracefully")

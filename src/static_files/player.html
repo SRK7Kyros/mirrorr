@@ -54,7 +54,7 @@
 
                 // --- Source resolution ---
                 var params = new URLSearchParams(window.location.search);
-                var src = params.get("url") || params.get("src");
+                var src = params.get("src");
                 if (!src) {
                     document.title = "Mirrorr Player — no source";
                     return;

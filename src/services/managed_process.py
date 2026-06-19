@@ -37,6 +37,7 @@ class ManagedProcess:
         stderr: Any = asyncio.subprocess.PIPE,
         env: dict[str, str] | None = None,
         cwd: str | Path | None = None,
+        capture_stdout: bool = True,
     ) -> None:
         self.name = name
         self.command = command
@@ -46,6 +47,7 @@ class ManagedProcess:
         self._stderr = stderr
         self._env = env
         self._cwd = str(cwd) if cwd else None
+        self._capture_stdout = capture_stdout
 
         self._process: asyncio.subprocess.Process | None = None
         self._started = False
@@ -100,6 +102,13 @@ class ManagedProcess:
         if self._started:
             raise RuntimeError(f"ManagedProcess '{self.name}' already started")
 
+        kwargs: dict[str, Any] = {}
+        if sys.platform == "win32":
+            import subprocess
+            kwargs["creationflags"] = (
+                subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+            )
+
         self._process = await asyncio.create_subprocess_exec(
             *self.command,
             stdin=self._stdin,
@@ -107,11 +116,12 @@ class ManagedProcess:
             stderr=self._stderr,
             env=self._env,
             cwd=self._cwd,
+            **kwargs,
         )
         self._started = True
 
         # Spawn readers
-        if self._process.stdout:
+        if self._process.stdout and self._capture_stdout:
             self._tasks.append(asyncio.create_task(self._read_stream(self._process.stdout, "stdout")))
         if self._process.stderr:
             self._tasks.append(asyncio.create_task(self._read_stream(self._process.stderr, "stderr")))
@@ -123,7 +133,7 @@ class ManagedProcess:
         # Spawn exit watcher
         self._tasks.append(asyncio.create_task(self._wait_for_exit()))
 
-        logger.info(f"[{self.name}] Started (pid={self._process.pid})")
+        logger.opt(colors=True).info(f"[<cyan>{self.name}</cyan>] Started (pid={self._process.pid})")
 
     async def terminate(self) -> None:
         """Ask the process to stop gracefully."""
@@ -138,9 +148,17 @@ class ManagedProcess:
             self._process.kill()
 
     async def close(self) -> None:
-        """Wait for all internal tasks to finish and close subprocess pipe handles."""
+        """Wait for internal tasks to finish and close subprocess pipe handles."""
         if self._tasks:
-            await asyncio.gather(*self._tasks, return_exceptions=True)
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*self._tasks, return_exceptions=True),
+                    timeout=5.0,
+                )
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                for t in self._tasks:
+                    if not t.done():
+                        t.cancel()
             self._tasks.clear()
         # Explicitly close the subprocess transport to prevent
         # _ProactorBasePipeTransport.__del__ ResourceWarning on Windows.
@@ -218,11 +236,11 @@ class ManagedProcess:
         await self.bus.emit(f"proc.{self.name}.exit", exit_event)
 
         if self._intentionally_stopped:
-            logger.info(f"[{self.name}] Exited (code {returncode}, stopped intentionally)")
+            logger.opt(colors=True).info(f"[<cyan>{self.name}</cyan>] Exited (code {returncode}, stopped intentionally)")
         elif returncode == 0:
-            logger.info(f"[{self.name}] Exited cleanly (code 0)")
+            logger.opt(colors=True).info(f"[<cyan>{self.name}</cyan>] Exited cleanly (code 0)")
         else:
-            logger.warning(f"[{self.name}] Exited with code {returncode}")
+            logger.opt(colors=True).warning(f"[<cyan>{self.name}</cyan>] Exited with code {returncode}")
 
     async def _telemetry_loop(self) -> None:
         """Poll process resource usage at high frequency and publish samples."""

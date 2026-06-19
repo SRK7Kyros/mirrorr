@@ -3,19 +3,49 @@ import sys
 import logging
 from loguru import logger
 
+_NOISY_LOGGERS = frozenset({
+    "websockets.server",
+    "websockets.legacy.server",
+    "websockets.legacy.protocol",
+    "uvicorn.access",
+})
+
+# Websocket lifecycle messages that uvicorn logs through its own logger
+_NOISY_MESSAGES = frozenset({"connection open", "connection closed"})
+
+
+def _is_noisy(record: logging.LogRecord) -> bool:
+    """Return True if this record should be silently dropped."""
+    if record.name in _NOISY_LOGGERS:
+        return True
+    msg = record.getMessage()
+    if msg in _NOISY_MESSAGES:
+        return True
+    # Uvicorn logs WebSocket access via its error logger with a
+    # characteristic "WebSocket ..." [accepted] format — drop those too.
+    if '"WebSocket ' in msg:
+        return True
+    return False
+
+
 class InterceptHandler(logging.Handler):
-    """Redirects standard library logs to Loguru with detailed format"""
+    """Redirects standard library logs to Loguru with detailed format."""
     def emit(self, record):
+        if _is_noisy(record):
+            return
+
         try:
             level = logger.level(record.levelname).name
         except ValueError:
             level = record.levelno
 
-        logger.bind(name=record.name).opt(depth=6, exception=record.exc_info).log(
-            level, record.getMessage()
+        logger.opt(exception=record.exc_info).bind(
+            name=record.name,
+        ).opt(depth=6).log(
+            level, record.getMessage(),
         )
 
-_process_name_length = 16
+_process_name_length = 19
 
 # 2. Configure standard logging to use our InterceptHandler
 def setup_logging():
@@ -28,6 +58,8 @@ def setup_logging():
         if process_name == "MainProcess":
             process_name = "Master"
         record["extra"]["process"] = process_name
+        # Ensure 'name' always exists in extra for the format string.
+        record["extra"].setdefault("name", record["name"])
 
     logger.configure(patcher=patcher)
 
@@ -36,11 +68,11 @@ def setup_logging():
     format_string = (
         start_str +
         "<cyan>{extra[process]: <###}</cyan> | ".replace("###", str(_process_name_length)) +
-        "<magenta>{name}</magenta> - {message}"
+        "<magenta>{extra[name]}</magenta> - {message}"
     )
 
     def _is_uvicorn(rec):
-        return rec["name"].startswith("uvicorn")
+        return rec["extra"].get("name", rec["name"]).startswith("uvicorn")
 
     def _is_taskiq(rec):
         return rec["name"].startswith("taskiq")

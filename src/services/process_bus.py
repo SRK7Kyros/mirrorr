@@ -61,6 +61,7 @@ class ProcessOutput:
 class EngineDone:
     """Published to ``engine.done`` when the engine considers the session complete."""
     reason: str = "completed"
+    returncode: int | None = None
 
 
 @dataclass(frozen=True)
@@ -68,3 +69,4 @@ class EngineCrashed:
     """Published to ``engine.crashed`` when the engine considers the session failed."""
     reason: str = "unknown"
     source_process: str | None = None
+    returncode: int | None = None

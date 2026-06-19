@@ -3,6 +3,7 @@ import json
 from datetime import datetime
 
 from loguru import logger
+from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncEngine
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
@@ -13,21 +14,22 @@ from src.storage import crud
 from src.startup.config import MirrorrSettings
 
 
-async def autorun_scheduler_loop(settings: MirrorrSettings, stop_event) -> None:
+async def autorun_scheduler_loop(
+    settings: MirrorrSettings,
+    session_factory: async_sessionmaker,
+    stop_event,
+) -> None:
     """Background loop that starts/stops sessions based on Autorun schedules.
 
     Runs every ``settings.autorun_check_interval`` seconds until *stop_event* is set.
     """
-    from src.storage.database import create_db_engine
-
     interval = settings.autorun_check_interval
     logger.info(f"Autorun scheduler started (interval={interval}s)")
 
-    db_engine, session_factory = create_db_engine(settings)
     try:
         while not stop_event.is_set():
             try:
-                await _tick(db_engine, session_factory, settings)
+                await _tick(session_factory, settings)
             except Exception as e:
                 logger.error(f"Autorun scheduler tick failed: {e}")
 
@@ -37,11 +39,10 @@ async def autorun_scheduler_loop(settings: MirrorrSettings, stop_event) -> None:
             except asyncio.TimeoutError:
                 pass  # normal — just means the interval elapsed
     finally:
-        await db_engine.dispose()
         logger.info("Autorun scheduler stopped")
 
 
-async def _tick(db_engine, session_factory, settings: MirrorrSettings) -> None:
+async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) -> None:
     now = datetime.now()
 
     async with session_factory() as db:
