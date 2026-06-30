@@ -115,6 +115,12 @@ class MirrorrCore:
 
         # 3. Database
         self._db_engine, self._session_factory = create_db_engine(self.settings)
+
+        # 3a. Dev reset: truncate all tables before anything else if DEV_RESET_DATABASE is set
+        if self.settings.dev_reset_database:
+            from src.startup.ensure_db import reset_database
+            await reset_database(self._db_engine)
+
         await ensure_db(self._db_engine)
 
         # Wire the session factory into the FastAPI dependency
@@ -124,7 +130,7 @@ class MirrorrCore:
         # 4. FFmpeg
         ensure_ffmpeg(self.settings)
 
-        # 5. Plugins → DB sync
+        # 5. Plugins → DB sync (this repopulates the tables after a reset)
         await sync_engines_db(self.settings.engines_dir, self._session_factory)
         await sync_resolvers_db(self.settings.resolvers_dir, self._session_factory)
 

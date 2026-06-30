@@ -95,6 +95,7 @@ class MirrorrSettings(BaseModel):
     api_host: str = "localhost"
     api_port: int = 8000
     dev_serve_files: bool = False  # mount content_dir as static files in uvicorn (dev only)
+    dev_reset_database: bool = False  # truncate all DB tables on boot (dev only)
 
     # ── validators / computed ──────────────────────────────────────────
 
@@ -189,6 +190,7 @@ class MirrorrSettings(BaseModel):
             API_HOST: str = "localhost"
             API_PORT: int = 8000
             DEV_SERVE_FILES: bool = False
+            DEV_RESET_DATABASE: bool = False
             WEB_URL: str = ""
 
             @model_validator(mode="after")
@@ -222,6 +224,7 @@ class MirrorrSettings(BaseModel):
             "plugins_dir", "engines_dir", "resolvers_dir", "nats_server_dir",
             "binaries_dir", "db_file", "nats_port", "use_system_ffmpeg",
             "use_system_nats", "api_host", "api_port", "dev_serve_files",
+            "dev_reset_database",
             "hls_window", "segment_duration", "autorun_check_interval",
             "web_url",
         ):

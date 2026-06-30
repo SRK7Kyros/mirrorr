@@ -261,6 +261,13 @@ class SessionStatus(str, PyEnum):
     FAILED = "failed"
 
 
+class AutorunStatus(str, PyEnum):
+    SCHEDULED = "scheduled"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class ResourceType(str, PyEnum):
     SESSION = "session"
     PROFILE = "profile"
@@ -331,6 +338,9 @@ class Autorun(SQLModel, table=True):
     snake_case_name: str
     profile_id: int = Field(foreign_key="profiles.id")
     engine_id: int = Field(foreign_key="engines.id")
+    status: AutorunStatus = Field(
+        default=AutorunStatus.SCHEDULED, sa_column=Column(SQLEnum(AutorunStatus))
+    )
     start_time: datetime
     end_time: datetime
     recording: bool = Field(default=True)

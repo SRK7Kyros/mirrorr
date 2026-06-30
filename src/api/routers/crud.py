@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 
 from sqlalchemy.exc import IntegrityError
 from loguru import logger
@@ -125,9 +126,19 @@ async def get_autorun(id: int, db: AsyncSession = Depends(_get_db_session), auth
     return item
 
 
+def _parse_datetimes(item: dict[str, Any], fields: list[str]) -> dict[str, Any]:
+    """Parse ISO datetime strings into naive UTC datetime objects for SQLAlchemy."""
+    for f in fields:
+        if f in item and isinstance(item[f], str):
+            # Convert to aware UTC, then strip tzinfo for SQLite compatibility
+            item[f] = datetime.fromisoformat(item[f].replace("Z", "+00:00")).replace(tzinfo=None)
+    return item
+
+
 @autoruns_router.post("/")
 async def create_autorun(item: dict[str, Any] = Body(...), db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    payload = Autorun.model_validate_json(json.dumps(item))
+    item = _parse_datetimes(item, ["start_time", "end_time"])
+    payload = Autorun.model_validate(item)
     if not payload.requester_user_token:
         assert auth.user is not None
         payload.requester_user_token = auth.user.username
@@ -147,7 +158,8 @@ async def update_autorun(id: int, item: dict[str, Any] = Body(...), db: AsyncSes
         raise HTTPException(status_code=404, detail="Autorun not found")
     if not _is_owner_or_admin(auth, existing):
         raise HTTPException(status_code=403, detail="Not your autorun")
-    payload = Autorun.model_validate_json(json.dumps(item))
+    item = _parse_datetimes(item, ["start_time", "end_time"])
+    payload = Autorun.model_validate(item)
     if not payload.requester_user_token:
         assert auth.user is not None
         payload.requester_user_token = auth.user.username

@@ -21,6 +21,8 @@ from src.storage.models import (
     EngineContext,
     ResolverInterface,
     ResolverContext,
+    Autorun,
+    AutorunStatus,
     Session,
     SessionStatus,
     Profile,
@@ -55,9 +57,9 @@ async def _update_session_status(
             if session:
                 session.status = status
                 if set_started:
-                    session.started_at = datetime.now()
+                    session.started_at = datetime.utcnow()
                 if status in (SessionStatus.COMPLETED, SessionStatus.FAILED):
-                    session.ended_at = datetime.now()
+                    session.ended_at = datetime.utcnow()
                 await crud.update(db_session, Session, session_id, session)
     except Exception as e:
         logger.error(f"Failed to update session status: {e}")
@@ -68,6 +70,12 @@ async def _update_session_status(
         return
 
     try:
+        # Always emit SESSION_UPDATED so WS clients get every status change
+        await nc.publish(
+            MirrorrEvent.SESSION_UPDATED.subject,
+            MirrorrEvent.SESSION_UPDATED(id=session_id).model_dump_json().encode(),
+        )
+
         subject_map = {
             (SessionStatus.ACTIVE, True): MirrorrEvent.SESSION_STARTED,
             SessionStatus.COMPLETED: MirrorrEvent.SESSION_STOPPED,
@@ -100,6 +108,41 @@ async def _delete_session(settings: MirrorrSettings, session_id: int, session_fo
 
     if session_folder and session_folder.exists():
         shutil.rmtree(session_folder, ignore_errors=True)
+
+
+async def _update_autorun_status(
+    settings: MirrorrSettings,
+    session: Session,
+    status: AutorunStatus,
+    nc: NATS | None = None,
+) -> None:
+    """Update the autorun status based on session outcome."""
+    if not session.is_autorun:
+        return
+
+    from src.storage.database import create_db_engine
+    from src.storage import crud
+
+    db_engine, session_factory = create_db_engine(settings)
+    try:
+        async with session_factory() as db:
+            autorun = await crud.get_by_id(db, Autorun, session.autorun_id)
+            if autorun:
+                autorun.status = status
+                await crud.update(db, Autorun, autorun.id, autorun)
+    except Exception as e:
+        logger.error(f"Failed to update autorun {session.autorun_id} status: {e}")
+    finally:
+        await db_engine.dispose()
+
+    if nc is not None:
+        try:
+            await nc.publish(
+                MirrorrEvent.AUTORUN_UPDATED.subject,
+                MirrorrEvent.AUTORUN_UPDATED(id=session.autorun_id).model_dump_json().encode(),
+            )
+        except Exception as e:
+            logger.error(f"Failed to emit AUTORUN_UPDATED: {e}")
 
 
 def _make_session_dirs(
@@ -358,6 +401,7 @@ class SessionSupervisor:
                 )
                 await self._cleanup(reason="failed")
                 await _update_session_status(self.settings, self.session_id, SessionStatus.FAILED, nc=self._nc)
+                await _update_autorun_status(self.settings, self.session, AutorunStatus.FAILED, self._nc)
                 return
 
             if outcome == "done" and signal is not None:
@@ -420,6 +464,7 @@ class SessionSupervisor:
         except Exception as e:
             logger.error(f"Failed to resolve source: {e}")
             await _update_session_status(self.settings, self.session_id, SessionStatus.FAILED, nc=self._nc)
+            await _update_autorun_status(self.settings, self.session, AutorunStatus.FAILED, self._nc)
             await _delete_session(self.settings, self.session_id, self.session_folder)
             return "done", None
 
@@ -503,6 +548,7 @@ class SessionSupervisor:
 
         if not self._recording:
             await _update_session_status(self.settings, self.session_id, SessionStatus.COMPLETED, nc=self._nc)
+            await _update_autorun_status(self.settings, self.session, AutorunStatus.COMPLETED, self._nc)
             await _delete_session(self.settings, self.session_id, self.session_folder)
             return
 
@@ -511,11 +557,12 @@ class SessionSupervisor:
             await self._recording.remux()
             logger.success(f"recording created")
             await _update_session_status(self.settings, self.session_id, SessionStatus.COMPLETED, nc=self._nc)
+            await _update_autorun_status(self.settings, self.session, AutorunStatus.COMPLETED, self._nc)
             await _delete_session(self.settings, self.session_id)
-            # Folder already moved to recordings/ by remux(), no need to delete
         except Exception as e:
             logger.error(f"remux failed: {e}")
             await _update_session_status(self.settings, self.session_id, SessionStatus.FAILED, nc=self._nc)
+            await _update_autorun_status(self.settings, self.session, AutorunStatus.FAILED, self._nc)
             await _delete_session(self.settings, self.session_id, self.session_folder)
 
     # ── control channel ──────────────────────────────────────────────

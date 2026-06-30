@@ -203,8 +203,8 @@ class RecordingManager:
 
         mp4_in_dest = dest / mp4_name
         stat = mp4_in_dest.stat()
-        started_at = self.session.started_at or datetime.now()
-        ended_at = datetime.now()
+        started_at = self.session.started_at or datetime.utcnow()
+        ended_at = datetime.utcnow()
         duration_seconds = await self._probe_duration(mp4_in_dest)
 
         db_engine, session_factory = create_db_engine(self.settings)
@@ -229,5 +229,15 @@ class RecordingManager:
                     db, self.session.requester_user_token,
                     "recording", recording.id,
                 )
+                await db.commit()
+                recording_id = recording.id
         finally:
             await db_engine.dispose()
+
+        # Emit event so WS clients and notification handlers get notified
+        try:
+            from src.event_bus.nats import bus
+            from src.event_bus.event import MirrorrEvent
+            await bus.emit(MirrorrEvent.RECORDING_CREATED(id=recording_id))
+        except Exception as e:
+            logger.error(f"Failed to emit RECORDING_CREATED: {e}")
