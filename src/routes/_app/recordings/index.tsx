@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card"
 import { Trash2, Film, Clock, HardDrive, Play, Loader2 } from "lucide-react"
 import { Label } from "@/components/ui/label"
 import { InfoGrid } from "@/components/info-grid"
+import { formatLocalDate } from "@/lib/utils"
 import { formatDuration, formatBytes, cn } from "@/lib/utils"
 import { useState } from "react"
 import { toast } from "sonner"
@@ -106,7 +107,7 @@ function RecordingDetail({ recording, onBack, onDelete, deleting }: { recording:
           { label: "Name", value: recording.user_friendly_name },
           { label: "Duration", value: formatDuration(recording.duration_seconds) },
           { label: "Size", value: formatBytes(recording.size_bytes) },
-          { label: "Created", value: recording.created_at ? new Date(recording.created_at).toLocaleString() : "—" },
+          { label: "Created", value: formatLocalDate(recording.created_at) },
         ]} />
       </div>
     </div>

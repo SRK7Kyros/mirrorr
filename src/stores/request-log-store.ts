@@ -66,5 +66,5 @@ export const useRequestLogStore = create<RequestLogState>()((set, get) => ({
         });
     },
 
-    clear: () => set({ entries: [], nextId: 1 }),
+    clear: () => set({ entries: [], nextId: 1, backendStatus: "checking", lastSuccessAt: null, lastErrorAt: null }),
 }));

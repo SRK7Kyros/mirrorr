@@ -15,7 +15,7 @@ import { DateTimePicker } from "@/components/datetime-picker"
 import { TimeInput as RelativeTimeInput } from "@/components/masked-input"
 import { EtaDisplay } from "@/components/eta-display"
 import { Plus, Trash2, CalendarClock, Loader2, Upload, Download, Clock, ArrowRight } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { cn, formatLocalDate, parseUtcDate } from "@/lib/utils"
 import { useState, useMemo, useEffect, useRef } from "react"
 import { toast } from "sonner"
 import { ImportDialog } from "@/components/import-dialog"
@@ -93,9 +93,9 @@ function AutorunsPage() {
                   <div className="text-[13px] font-medium truncate pr-20">{a.user_friendly_name}</div>
                   <div className="flex items-center gap-1.5 mt-1 text-[10px] text-muted-foreground/60">
                     <Clock className="size-3" />
-                    <span>{new Date(a.start_time).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} {new Date(a.start_time).toLocaleTimeString(undefined, { hour12: false, hour: "2-digit", minute: "2-digit" })}</span>
+                    <span>{formatLocalDate(a.start_time, { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</span>
                     <ArrowRight className="size-3" />
-                    <span>{new Date(a.end_time).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} {new Date(a.end_time).toLocaleTimeString(undefined, { hour12: false, hour: "2-digit", minute: "2-digit" })}</span>
+                    <span>{formatLocalDate(a.end_time, { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</span>
                   </div>
                 </div>
               ))
@@ -176,8 +176,8 @@ function AutorunDetail({ autorun, onBack, onDelete, deleting, profileMap, engine
         ]} />
         {/* Row 2: Start Time, End Time */}
         <div className="flex gap-4">
-          {autorun.start_time && <div className="space-y-1 shrink-0"><Label className="text-[11px] text-muted-foreground">Start Time</Label><p className="text-xs">{new Date(autorun.start_time).toLocaleString()}</p></div>}
-          {autorun.end_time && <div className="space-y-1 shrink-0"><Label className="text-[11px] text-muted-foreground">End Time</Label><p className="text-xs">{new Date(autorun.end_time).toLocaleString()}</p></div>}
+          {autorun.start_time && <div className="space-y-1 shrink-0"><Label className="text-[11px] text-muted-foreground">Start Time</Label><p className="text-xs">{formatLocalDate(autorun.start_time)}</p></div>}
+          {autorun.end_time && <div className="space-y-1 shrink-0"><Label className="text-[11px] text-muted-foreground">End Time</Label><p className="text-xs">{formatLocalDate(autorun.end_time)}</p></div>}
         </div>
       </div>
     </div>

@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils"
 import { useState, useMemo, useRef } from "react"
 import { toast } from "sonner"
 import { ImportDialog } from "@/components/import-dialog"
+import { InfoGrid } from "@/components/info-grid"
 
 export const Route = createFileRoute("/_app/profiles/")({
   component: ProfilesPage,
@@ -32,6 +33,16 @@ function ProfilesPage() {
   const { data: profiles = [], isLoading } = useQuery({
     queryKey: ["profiles"],
     queryFn: () => profilesApi.list() as Promise<any[]>,
+  })
+
+  const { data: engines = [] } = useQuery({
+    queryKey: ["engines"],
+    queryFn: () => pluginsApi.engines() as Promise<any[]>,
+  })
+
+  const { data: resolvers = [] } = useQuery({
+    queryKey: ["resolvers"],
+    queryFn: () => pluginsApi.resolvers() as Promise<any[]>,
   })
 
   const deleteMutation = useMutation({
@@ -87,8 +98,8 @@ function ProfilesPage() {
                     </Button>
                   </div>
                   <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground/60">
-                    <span className="flex items-center gap-0.5"><Cpu className="size-3" />Engine #{p.default_engine_id}</span>
-                    <span className="flex items-center gap-0.5"><Zap className="size-3" />Resolver #{p.resolver_id}</span>
+                    <span className="flex items-center gap-0.5"><Cpu className="size-3" />{engines.find((e: any) => e.id === p.default_engine_id)?.name ?? `Engine #${p.default_engine_id}`}</span>
+                    <span className="flex items-center gap-0.5"><Zap className="size-3" />{resolvers.find((r: any) => r.id === p.resolver_id)?.name ?? `Resolver #${p.resolver_id}`}</span>
                   </div>
                 </div>
               ))
@@ -157,12 +168,15 @@ function ProfileDetail({ profile, onBack, onDelete, deleting }: { profile: any; 
         </div>
       </div>
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1"><Label className="text-[11px] text-muted-foreground">Name</Label><p className="text-xs">{profile.name}</p></div>
-          <div className="space-y-1"><Label className="text-[11px] text-muted-foreground">Retry Mode</Label><p className="text-xs">{profile.retry_mode ?? "none"}</p></div>
-          <div className="space-y-1"><Label className="text-[11px] text-muted-foreground">Default Engine</Label><p className="text-xs">{engine?.name ?? `#${profile.default_engine_id}`}</p></div>
-          <div className="space-y-1"><Label className="text-[11px] text-muted-foreground">Resolver</Label><p className="text-xs">{resolver?.name ?? `#${profile.resolver_id}`}</p></div>
-        </div>
+        <InfoGrid
+          columns={2}
+          fields={[
+            { label: "Name", value: profile.name },
+            { label: "Retry Mode", value: profile.retry_mode ?? "none" },
+            { label: "Engine", value: engine?.name ?? `#${profile.default_engine_id}` },
+            { label: "Resolver", value: resolver?.name ?? `#${profile.resolver_id}` },
+          ]}
+        />
         <KeyValueTable title="Resolver Config" entries={Object.entries(profile.resolver_config ?? {})} json={profile.resolver_config} emptyText="None" />
         <KeyValueTable title="Retry Config" entries={Object.entries(profile.retry_config ?? {})} json={profile.retry_config} emptyText="None" />
       </div>

@@ -3,6 +3,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { CopyButton } from "@/components/schema-viewer"
 import { Braces } from "lucide-react"
 import { ReactNode } from "react"
+import { cn } from "@/lib/utils"
 
 interface KeyValueTableProps {
   title: string
@@ -12,9 +13,11 @@ interface KeyValueTableProps {
   json?: unknown
   /** Render the value cell custom. Receives the raw value and should return a ReactNode. */
   renderValue?: (key: string, value: unknown) => ReactNode
+  /** Align values to the left instead of the default right */
+  leftAlignValues?: boolean
 }
 
-export function KeyValueTable({ title, entries, emptyText, json, renderValue }: KeyValueTableProps) {
+export function KeyValueTable({ title, entries, emptyText, json, renderValue, leftAlignValues }: KeyValueTableProps) {
   const [jsonOpen, setJsonOpen] = useState(false)
   const isEmpty = entries.length === 0
 
@@ -43,7 +46,7 @@ export function KeyValueTable({ title, entries, emptyText, json, renderValue }: 
                   <td className="px-4 py-2.5">
                     <code className="font-mono font-semibold text-foreground text-[12px]">{key}</code>
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td className={cn("px-4 py-2.5", !leftAlignValues && "text-right")}>
                     {renderValue
                       ? renderValue(key, value)
                       : isValidElement(value)

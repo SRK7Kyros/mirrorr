@@ -173,6 +173,7 @@ async function _fetchJson<T = unknown>(
       statusText: res.statusText,
       duration,
       ok: true,
+      responseBody: JSON.stringify(data),
     })
     return data
   } catch (err) {
@@ -340,10 +341,10 @@ export const authApi = {
 // ── Sessions API ───────────────────────────────────────────────────
 
 export const sessionsApi = {
-  list: () => apiRequest<Array<Record<string, unknown>>>("/sessions"),
+  list: () => apiRequest<Array<Record<string, unknown>>>("/sessions/"),
   get: (id: number) => apiRequest<Record<string, unknown>>(`/sessions/${id}`),
   create: (data: Record<string, unknown>) =>
-    apiRequest<Record<string, unknown>>("/sessions", { method: "POST", body: data }),
+    apiRequest<Record<string, unknown>>("/sessions/", { method: "POST", body: data }),
   delete: (id: number) =>
     apiRequest<unknown>(`/sessions/${id}`, { method: "DELETE" }),
   stop: (id: number) =>
@@ -357,10 +358,10 @@ export const sessionsApi = {
 // ── Autoruns API ───────────────────────────────────────────────────
 
 export const autorunsApi = {
-  list: () => apiRequest<Array<Record<string, unknown>>>("/autoruns"),
+  list: () => apiRequest<Array<Record<string, unknown>>>("/autoruns/"),
   get: (id: number) => apiRequest<Record<string, unknown>>(`/autoruns/${id}`),
   create: (data: Record<string, unknown>) =>
-    apiRequest<Record<string, unknown>>("/autoruns", { method: "POST", body: data }),
+    apiRequest<Record<string, unknown>>("/autoruns/", { method: "POST", body: data }),
   update: (id: number, data: Record<string, unknown>) =>
     apiRequest<Record<string, unknown>>(`/autoruns/${id}`, { method: "PUT", body: data }),
   delete: (id: number) =>
@@ -370,7 +371,7 @@ export const autorunsApi = {
 // ── Recordings API ─────────────────────────────────────────────────
 
 export const recordingsApi = {
-  list: () => apiRequest<Array<Record<string, unknown>>>("/recordings"),
+  list: () => apiRequest<Array<Record<string, unknown>>>("/recordings/"),
   get: (id: number) => apiRequest<Record<string, unknown>>(`/recordings/${id}`),
   delete: (id: number) =>
     apiRequest<unknown>(`/recordings/${id}`, { method: "DELETE" }),
@@ -379,10 +380,10 @@ export const recordingsApi = {
 // ── Profiles API ───────────────────────────────────────────────────
 
 export const profilesApi = {
-  list: () => apiRequest<Array<Record<string, unknown>>>("/profiles"),
+  list: () => apiRequest<Array<Record<string, unknown>>>("/profiles/"),
   get: (id: number) => apiRequest<Record<string, unknown>>(`/profiles/${id}`),
   create: (data: Record<string, unknown>) =>
-    apiRequest<Record<string, unknown>>("/profiles", { method: "POST", body: data }),
+    apiRequest<Record<string, unknown>>("/profiles/", { method: "POST", body: data }),
   update: (id: number, data: Record<string, unknown>) =>
     apiRequest<Record<string, unknown>>(`/profiles/${id}`, { method: "PUT", body: data }),
   delete: (id: number) =>
@@ -392,9 +393,9 @@ export const profilesApi = {
 // ── Plugins API ────────────────────────────────────────────────────
 
 export const pluginsApi = {
-  engines: () => apiRequest<Array<Record<string, unknown>>>("/engines"),
+  engines: () => apiRequest<Array<Record<string, unknown>>>("/engines/"),
   engine: (id: number) => apiRequest<Record<string, unknown>>(`/engines/${id}`),
-  resolvers: () => apiRequest<Array<Record<string, unknown>>>("/resolvers"),
+  resolvers: () => apiRequest<Array<Record<string, unknown>>>("/resolvers/"),
   resolver: (id: number) => apiRequest<Record<string, unknown>>(`/resolvers/${id}`),
 }
 
@@ -414,7 +415,7 @@ export const importExportApi = {
 // ── Notifications API ──────────────────────────────────────────────
 
 export const notificationsApi = {
-  list: () => apiRequest<Array<Record<string, unknown>>>("/notifications"),
+  list: () => apiRequest<Array<Record<string, unknown>>>("/notifications/"),
 }
 
 // ── WebSocket URLs ─────────────────────────────────────────────────
