@@ -5,6 +5,21 @@ from sqlmodel import SQLModel, inspect, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 
+async def reset_database(engine: AsyncEngine) -> None:
+    """Delete all rows from all tables. Called when DEV_RESET_DATABASE is set."""
+    async with engine.begin() as conn:
+        def _truncate(sync_conn):
+            inspector_obj = inspect(sync_conn)
+            # Disable FK checks so we can truncate in any order
+            sync_conn.execute(text("PRAGMA foreign_keys = OFF"))
+            for table_name in inspector_obj.get_table_names():
+                logger.warning(f"DEV_RESET_DATABASE: truncating table {table_name}")
+                sync_conn.execute(text(f"DELETE FROM {table_name}"))
+            sync_conn.execute(text("PRAGMA foreign_keys = ON"))
+        await conn.run_sync(_truncate)
+    logger.warning("DEV_RESET_DATABASE: all tables truncated")
+
+
 async def ensure_db(engine: AsyncEngine) -> None:
     """Initializes the database, ensuring the DB file exists and syncing the schema."""
     async with engine.begin() as conn:

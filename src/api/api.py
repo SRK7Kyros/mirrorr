@@ -1,4 +1,5 @@
 from src.event_bus.nats import bus
+from loguru import logger
 from fastapi import FastAPI, Request
 from fastapi.concurrency import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,6 +12,7 @@ from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Mount
 from src.api.routers.crud import crud_routers, session_control_router
 from src.api.routers.auth import auth_router, notifications_router
+from src.api.routers.import_export import import_export_router
 from src.api.ws import ws_router
 
 
@@ -39,6 +41,7 @@ API.include_router(crud_routers)
 API.include_router(session_control_router)
 API.include_router(auth_router)
 API.include_router(notifications_router)
+API.include_router(import_export_router)
 API.include_router(ws_router)
 
 
@@ -55,6 +58,15 @@ async def sqlalchemy_exception_handler(_request: Request, _exc: IntegrityError):
     return JSONResponse(
         status_code=400,
         content={"detail": "Database constraint violated (e.g., duplicate entry)."},
+    )
+
+
+@API.exception_handler(Exception)
+async def catch_all_exception_handler(_request: Request, exc: Exception):
+    logger.exception(f"Unhandled exception: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc)},
     )
 
 

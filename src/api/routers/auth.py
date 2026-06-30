@@ -13,7 +13,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.api.dependencies import _get_db_session, get_auth, require_auth, require_admin, AuthState
 from src.api.auth import hash_api_key, hash_password, verify_password
-from src.api.jwt import create_access_token
+from src.api.jwt import create_access_token, create_refresh_token, decode_refresh_token
 from src.storage.models import (
     Client, User, ClientUser, EventSubscription, Notification,
     ResourceType,
@@ -22,6 +22,14 @@ from src.storage import crud
 
 auth_router = APIRouter(prefix="/auth")
 notifications_router = APIRouter(prefix="/notifications")
+
+
+@auth_router.get("/status")
+async def auth_status(db: AsyncSession = Depends(_get_db_session)):
+    """Check if any users exist. Used by the register page to detect first-user setup."""
+    result = await db.exec(select(User))
+    has_users = len(list(result.all())) > 0
+    return {"has_users": has_users}
 
 
 # ── Registration & Login ────────────────────────────────────────────
@@ -71,10 +79,12 @@ async def register(
         await db.commit()
 
     token = create_access_token({"username": user.username, "role": user.role})
+    refresh_token = create_refresh_token({"username": user.username, "role": user.role})
 
     return {
         "user": {"id": user.id, "username": user.username, "role": user.role},
         "access_token": token,
+        "refresh_token": refresh_token,
     }
 
 
@@ -95,10 +105,12 @@ async def login(
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     token = create_access_token({"username": user.username, "role": user.role})
+    refresh_token = create_refresh_token({"username": user.username, "role": user.role})
 
     return {
         "user": {"id": user.id, "username": user.username, "role": user.role},
         "access_token": token,
+        "refresh_token": refresh_token,
     }
 
 
@@ -117,6 +129,37 @@ async def get_me(auth: AuthState = Depends(require_auth)):
             "id": auth.client.id,
             "name": auth.client.name,
         } if auth.client else None,
+    }
+
+
+@auth_router.post("/refresh")
+async def refresh(
+    item: dict[str, Any] = Body(...),
+    db: AsyncSession = Depends(_get_db_session),
+):
+    """Refresh an access token using a refresh token."""
+    rt_str = item.get("refresh_token", "")
+    if not rt_str:
+        raise HTTPException(status_code=400, detail="Refresh token required")
+
+    payload = decode_refresh_token(rt_str)
+    if not payload or "username" not in payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
+    # Resolve user
+    stmt = select(User).where(User.username == payload["username"])
+    result = await db.exec(stmt)
+    user = result.first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    # Issue new token pair (rotation)
+    new_access = create_access_token({"username": user.username, "role": user.role})
+    new_refresh = create_refresh_token({"username": user.username, "role": user.role})
+
+    return {
+        "access_token": new_access,
+        "refresh_token": new_refresh,
     }
 
 

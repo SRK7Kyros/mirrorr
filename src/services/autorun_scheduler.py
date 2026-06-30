@@ -1,6 +1,6 @@
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncEngine
@@ -9,7 +9,7 @@ from sqlmodel import select
 
 from src.event_bus.nats import bus
 from src.event_bus.event import MirrorrEvent
-from src.storage.models import Autorun, Session, SessionStatus, Profile
+from src.storage.models import Autorun, AutorunStatus, Session, SessionStatus, Profile
 from src.storage import crud
 from src.startup.config import MirrorrSettings
 
@@ -43,29 +43,33 @@ async def autorun_scheduler_loop(
 
 
 async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) -> None:
-    now = datetime.now()
+    # Use naive UTC to match the naive UTC datetimes stored in the DB
+    # (SQLite strips tzinfo, and _parse_datetimes stores naive UTC)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    just_created_ids: set[int] = set()
 
     async with session_factory() as db:
-        # ── 1. Start autoruns whose start_time has arrived ────────────
+        # ── 1. Start scheduled autoruns whose start_time has arrived ──
         stmt = (
             select(Autorun)
-            .where(Autorun.start_time <= now)
+            .where(
+                Autorun.start_time <= now,
+                Autorun.status == AutorunStatus.SCHEDULED,
+            )
             .options(
                 selectinload(Autorun.profile).selectinload(Profile.resolver),  # ty:ignore[invalid-argument-type]
                 selectinload(Autorun.engine),  # ty:ignore[invalid-argument-type]
-                selectinload(Autorun.session),  # ty:ignore[invalid-argument-type]
             )
         )
         result = await db.exec(stmt)
         due_autoruns: list[Autorun] = list(result.all())
 
         for autorun in due_autoruns:
-            # Skip if a session already exists for this autorun
-            if autorun.session:
-                continue
-
             logger.info(f"Autorun {autorun.id} ({autorun.user_friendly_name}): "
                         f"start_time reached, creating session")
+
+            autorun.status = AutorunStatus.RUNNING
+            db.add(autorun)
 
             session = Session(
                 profile_id=autorun.profile_id,
@@ -75,7 +79,11 @@ async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) 
                 recording=autorun.recording,
             )
             session = await crud.create(db, session)
+            just_created_ids.add(session.id)
             await bus.emit(MirrorrEvent.SESSION_CREATED(id=session.id))
+            await bus.emit(MirrorrEvent.AUTORUN_UPDATED(id=autorun.id))
+
+        await db.commit()
 
     async with session_factory() as db:
         # ── 2. Stop autoruns whose end_time has passed ────────────────
@@ -92,6 +100,13 @@ async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) 
 
         for session in active_sessions:
             if not session.autorun or session.autorun.end_time > now:
+                continue
+
+            # Don't stop a session we just created this tick — the supervisor
+            # hasn't started its NATS bridge yet, so the stop would fail.
+            if session.id in just_created_ids:
+                logger.debug(f"Autorun {session.autorun_id}: session {session.id} "
+                             f"just created, deferring stop to next tick")
                 continue
 
             logger.info(f"Autorun {session.autorun_id}: end_time reached, "
