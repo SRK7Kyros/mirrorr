@@ -265,7 +265,11 @@ class SessionStatus(str, PyEnum):
 
 class AutorunStatus(str, PyEnum):
     SCHEDULED = "scheduled"
-    RUNNING = "running"
+    ACTIVE = "active"
+    RECORDING = "recording"
+    TERMINATING = "terminating"
+    REMUXING = "remuxing"
+    FINALIZING = "finalizing"
     COMPLETED = "completed"
     FAILED = "failed"
 
