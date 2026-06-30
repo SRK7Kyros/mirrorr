@@ -256,7 +256,9 @@ class ResolverInterface(ABC, Generic[ConfigT]):
 class SessionStatus(str, PyEnum):
     ACTIVE = "active"
     RECORDING = "recording"
+    TERMINATING = "terminating"
     REMUXING = "remuxing"
+    FINALIZING = "finalizing"
     COMPLETED = "completed"
     FAILED = "failed"
 
