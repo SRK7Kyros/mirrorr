@@ -7,6 +7,7 @@ const statusStyle: Record<string, { bg: string; text: string; label: string }> =
   recording:   { bg: "bg-amber-500/15",   text: "text-amber-600 dark:text-amber-400",   label: "Recording" },
   terminating: { bg: "bg-orange-500/15",  text: "text-orange-600 dark:text-orange-400", label: "Terminating" },
   remuxing:    { bg: "bg-blue-500/15",    text: "text-blue-600 dark:text-blue-400",     label: "Remuxing" },
+  finalizing:  { bg: "bg-indigo-500/15",  text: "text-indigo-600 dark:text-indigo-400", label: "Finalizing" },
   deleting:    { bg: "bg-violet-500/15",  text: "text-violet-600 dark:text-violet-400", label: "Deleting" },
   completed:   { bg: "bg-blue-500/15",    text: "text-blue-600 dark:text-blue-400",     label: "Completed" },
   failed:      { bg: "bg-red-500/15",     text: "text-red-600 dark:text-red-400",       label: "Failed" },
@@ -15,7 +16,7 @@ const statusStyle: Record<string, { bg: string; text: string; label: string }> =
 const dotColor: Record<string, string> = {
   scheduled: "bg-sky-500", active: "bg-emerald-500", running: "bg-emerald-500",
   recording: "bg-amber-500", terminating: "bg-orange-500", remuxing: "bg-blue-500",
-  deleting: "bg-violet-500", completed: "bg-blue-500", failed: "bg-red-500",
+  finalizing: "bg-indigo-500", deleting: "bg-violet-500", completed: "bg-blue-500", failed: "bg-red-500",
 }
 
 export function StatusBadge({ status }: { status: string }) {
