@@ -36,6 +36,11 @@ class ProcessBus:
         """How many subscribers exist for *topic*."""
         return len(self._subscribers.get(topic, []))
 
+    def clear(self) -> None:
+        """Remove all subscribers. Call between retry attempts so stale
+        queues from a previous attempt don't bleed into the next one."""
+        self._subscribers.clear()
+
 
 # ── Standardized process exit data ────────────────────────────────────
 

@@ -87,9 +87,9 @@ class RecordingManager:
 
     # ── remux ───────────────────────────────────────────────────────
 
-    async def remux(self) -> None:
+    async def remux(self) -> int:
         """Concatenate stash + remaining segments into MP4, move to recordings,
-        create Recording DB entry."""
+        create Recording DB entry. Returns the recording ID."""
         # 1. Gather and deduplicate segments
         stash_segments = (
             sorted(self.stash_folder.glob("*.ts"))
@@ -171,7 +171,8 @@ class RecordingManager:
         logger.info(f"Session {self.session_id}: moved to {dest}")
 
         # 4. Create Recording DB entry
-        await self._create_recording_entry(dest, mp4_name)
+        recording_id = await self._create_recording_entry(dest, mp4_name)
+        return recording_id
 
     async def _probe_duration(self, path: Path) -> float:
         ffprobe_bin = os.environ.get("FFPROBE_EXECUTABLE") or shutil.which("ffprobe")
@@ -195,7 +196,8 @@ class RecordingManager:
         except (KeyError, json.JSONDecodeError, ValueError):
             return 0.0
 
-    async def _create_recording_entry(self, dest: Path, mp4_name: str) -> None:
+    async def _create_recording_entry(self, dest: Path, mp4_name: str) -> int:
+        """Create the recording DB entry. Returns the recording ID."""
         from src.storage.database import create_db_engine
         from src.storage.models import Recording
         from src.storage import crud
@@ -234,10 +236,4 @@ class RecordingManager:
         finally:
             await db_engine.dispose()
 
-        # Emit event so WS clients and notification handlers get notified
-        try:
-            from src.event_bus.nats import bus
-            from src.event_bus.event import MirrorrEvent
-            await bus.emit(MirrorrEvent.RECORDING_CREATED(id=recording_id))
-        except Exception as e:
-            logger.error(f"Failed to emit RECORDING_CREATED: {e}")
+        return recording_id

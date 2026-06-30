@@ -68,7 +68,7 @@ async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) 
             logger.info(f"Autorun {autorun.id} ({autorun.user_friendly_name}): "
                         f"start_time reached, creating session")
 
-            autorun.status = AutorunStatus.RUNNING
+            autorun.status = AutorunStatus.ACTIVE
             db.add(autorun)
 
             session = Session(

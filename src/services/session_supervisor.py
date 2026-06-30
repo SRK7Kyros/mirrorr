@@ -31,6 +31,7 @@ from src.services.process_bus import ProcessBus, EngineDone, EngineCrashed
 from src.services.managed_process import ManagedProcess
 from src.services.recording import RecordingManager
 from src.startup.config import MirrorrSettings
+from src.event_bus.event import MirrorrEvent
 from nats.aio.client import Client as NATS
 
 
@@ -45,12 +46,12 @@ async def _update_session_status(
     set_started: bool = False,
     nc: NATS | None = None,
 ) -> None:
-    """Update the session status in the database and emit a NATS event."""
+    """Update the session status in the DB, propagate to autorun, and emit NATS events."""
     from src.storage.database import create_db_engine
     from src.storage import crud
-    from src.event_bus.event import MirrorrEvent
 
     db_engine, session_factory = create_db_engine(settings)
+    autorun_id: int | None = None
     try:
         async with session_factory() as db_session:
             session = await crud.get_by_id(db_session, Session, session_id)
@@ -61,6 +62,24 @@ async def _update_session_status(
                 if status in (SessionStatus.COMPLETED, SessionStatus.FAILED):
                     session.ended_at = datetime.utcnow()
                 await crud.update(db_session, Session, session_id, session)
+
+                # Propagate to autorun — mirror the session status
+                if session.autorun_id:
+                    autorun = await crud.get_by_id(db_session, Autorun, session.autorun_id)
+                    if autorun:
+                        # Map session status to autorun status
+                        status_map = {
+                            SessionStatus.ACTIVE: AutorunStatus.ACTIVE,
+                            SessionStatus.RECORDING: AutorunStatus.RECORDING,
+                            SessionStatus.TERMINATING: AutorunStatus.TERMINATING,
+                            SessionStatus.REMUXING: AutorunStatus.REMUXING,
+                            SessionStatus.FINALIZING: AutorunStatus.FINALIZING,
+                            SessionStatus.COMPLETED: AutorunStatus.COMPLETED,
+                            SessionStatus.FAILED: AutorunStatus.FAILED,
+                        }
+                        autorun.status = status_map.get(status, AutorunStatus.ACTIVE)
+                        await crud.update(db_session, Autorun, autorun.id, autorun)
+                        autorun_id = autorun.id
     except Exception as e:
         logger.error(f"Failed to update session status: {e}")
     finally:
@@ -75,6 +94,13 @@ async def _update_session_status(
             MirrorrEvent.SESSION_UPDATED.subject,
             MirrorrEvent.SESSION_UPDATED(id=session_id).model_dump_json().encode(),
         )
+
+        # Also emit AUTORUN_UPDATED if we propagated to an autorun
+        if autorun_id:
+            await nc.publish(
+                MirrorrEvent.AUTORUN_UPDATED.subject,
+                MirrorrEvent.AUTORUN_UPDATED(id=autorun_id).model_dump_json().encode(),
+            )
 
         subject_map = {
             (SessionStatus.ACTIVE, True): MirrorrEvent.SESSION_STARTED,
@@ -108,41 +134,6 @@ async def _delete_session(settings: MirrorrSettings, session_id: int, session_fo
 
     if session_folder and session_folder.exists():
         shutil.rmtree(session_folder, ignore_errors=True)
-
-
-async def _update_autorun_status(
-    settings: MirrorrSettings,
-    session: Session,
-    status: AutorunStatus,
-    nc: NATS | None = None,
-) -> None:
-    """Update the autorun status based on session outcome."""
-    if not session.is_autorun:
-        return
-
-    from src.storage.database import create_db_engine
-    from src.storage import crud
-
-    db_engine, session_factory = create_db_engine(settings)
-    try:
-        async with session_factory() as db:
-            autorun = await crud.get_by_id(db, Autorun, session.autorun_id)
-            if autorun:
-                autorun.status = status
-                await crud.update(db, Autorun, autorun.id, autorun)
-    except Exception as e:
-        logger.error(f"Failed to update autorun {session.autorun_id} status: {e}")
-    finally:
-        await db_engine.dispose()
-
-    if nc is not None:
-        try:
-            await nc.publish(
-                MirrorrEvent.AUTORUN_UPDATED.subject,
-                MirrorrEvent.AUTORUN_UPDATED(id=session.autorun_id).model_dump_json().encode(),
-            )
-        except Exception as e:
-            logger.error(f"Failed to emit AUTORUN_UPDATED: {e}")
 
 
 def _make_session_dirs(
@@ -368,68 +359,78 @@ class SessionSupervisor:
         }
         attempt = 0
 
-        while True:
-            attempt += 1
-            self.session.retry_attempts = attempt
-            logger.opt(colors=True).info(
-                f"starting attempt <yellow>{attempt}</yellow>"
-                f" (retry_mode={retry_config['mode']})"
-            )
-
-            outcome, signal = await self._run_attempt()
-
-            if outcome == "stopped":
-                return
-
-            # Check retry for both crashes and done signals
-            if outcome == "crashed" and isinstance(signal, EngineCrashed):
-                retry, delay = await self.engine.should_retry(
-                    crash=signal,
-                    attempt=attempt,
-                    config=retry_config,
+        try:
+            while True:
+                attempt += 1
+                self.session.retry_attempts = attempt
+                logger.opt(colors=True).info(
+                    f"starting attempt <yellow>{attempt}</yellow>"
+                    f" (retry_mode={retry_config['mode']})"
                 )
-                if retry:
-                    logger.opt(colors=True).info(
-                        f"retrying in <yellow>{delay}s</yellow> after: {signal.reason}"
-                    )
-                    await self._cleanup(reason="retry")
-                    if delay > 0:
-                        await asyncio.sleep(delay)
-                    continue
-                logger.opt(colors=True).error(
-                    f"giving up after attempt <yellow>{attempt}</yellow>: {signal.reason}"
-                )
-                await self._cleanup(reason="failed")
-                await _update_session_status(self.settings, self.session_id, SessionStatus.FAILED, nc=self._nc)
-                await _update_autorun_status(self.settings, self.session, AutorunStatus.FAILED, self._nc)
-                return
 
-            if outcome == "done" and signal is not None:
-                # Engine reported done — check if exit_code mode wants to retry
-                # Build a synthetic crash from the done returncode for retry evaluation
-                if signal.returncode is not None and retry_config["mode"] == "exit_code":
-                    synthetic = EngineCrashed(
-                        reason=f"completed with exit code {signal.returncode}",
-                        returncode=signal.returncode,
-                    )
+                outcome, signal = await self._run_attempt()
+
+                if outcome == "stopped":
+                    return
+
+                # Check retry for both crashes and done signals
+                if outcome == "crashed" and isinstance(signal, EngineCrashed):
                     retry, delay = await self.engine.should_retry(
-                        crash=synthetic,
+                        crash=signal,
                         attempt=attempt,
                         config=retry_config,
                     )
                     if retry:
                         logger.opt(colors=True).info(
-                            f"retrying in <yellow>{delay}s</yellow> after: {synthetic.reason}"
+                            f"retrying in <yellow>{delay}s</yellow> after: {signal.reason}"
                         )
                         await self._cleanup(reason="retry")
+                        await self._reset_for_retry()
                         if delay > 0:
                             await asyncio.sleep(delay)
                         continue
+                    logger.opt(colors=True).error(
+                        f"giving up after attempt <yellow>{attempt}</yellow>: {signal.reason}"
+                    )
+                    await self._cleanup(reason="failed")
+                    await _update_session_status(self.settings, self.session_id, SessionStatus.FAILED, nc=self._nc)
+                    return
 
-                # No retry — finalize the session
+                if outcome == "done" and signal is not None:
+                    # Engine reported done — check if exit_code mode wants to retry
+                    if signal.returncode is not None and retry_config["mode"] == "exit_code":
+                        synthetic = EngineCrashed(
+                            reason=f"completed with exit code {signal.returncode}",
+                            returncode=signal.returncode,
+                        )
+                        retry, delay = await self.engine.should_retry(
+                            crash=synthetic,
+                            attempt=attempt,
+                            config=retry_config,
+                        )
+                        if retry:
+                            logger.opt(colors=True).info(
+                                f"retrying in <yellow>{delay}s</yellow> after: {synthetic.reason}"
+                            )
+                            await self._cleanup(reason="retry")
+                            await self._reset_for_retry()
+                            if delay > 0:
+                                await asyncio.sleep(delay)
+                            continue
+
+                    # No retry — finalize the session
+                    await self._cleanup(reason="stop")
+                    await self._finalize_session()
+                    return
+
+                # Should never reach here
+                logger.error(f"Unexpected outcome: {outcome} — stopping")
                 await self._cleanup(reason="stop")
                 await self._finalize_session()
                 return
+        finally:
+            # Always disconnect NATS last, after all status updates
+            await self._disconnect_nats()
 
     async def _run_attempt(self) -> tuple[str, EngineCrashed | EngineDone | None]:
         """Single resolve→start→wait cycle. Returns (outcome, signal)."""
@@ -448,10 +449,17 @@ class SessionSupervisor:
             session_folder=self.session_folder,
         )
 
-        await _update_session_status(self.settings, self.session_id, SessionStatus.ACTIVE, set_started=True, nc=self._nc)
+        # 1. Connect NATS early so status updates emit WS events
+        await self._connect_nats()
+
+        await _update_session_status(
+            self.settings, self.session_id,
+            SessionStatus.RECORDING if self.session.recording else SessionStatus.ACTIVE,
+            set_started=True, nc=self._nc,
+        )
         await _persist_session_urls(self.settings, self.session_id, _build_session_urls(self.session_folder, self.segments_folder, self.settings))
 
-        # 1. Resolve source via resolver
+        # 2. Resolve source via resolver
         try:
             from src.startup.ensure_resolvers import get_validated_config
             config = get_validated_config(
@@ -464,9 +472,8 @@ class SessionSupervisor:
         except Exception as e:
             logger.error(f"Failed to resolve source: {e}")
             await _update_session_status(self.settings, self.session_id, SessionStatus.FAILED, nc=self._nc)
-            await _update_autorun_status(self.settings, self.session, AutorunStatus.FAILED, self._nc)
             await _delete_session(self.settings, self.session_id, self.session_folder)
-            return "done", None
+            return "stopped", None
 
         # 2. Start engine
         try:
@@ -484,8 +491,8 @@ class SessionSupervisor:
         logger.opt(colors=True).success(f"<green>Session</green> bootstrapped — "
                        f"{len(self.processes)} processes running")
 
-        # 3. NATS bridge + recording stash
-        await self._start_nats_bridge()
+        # 4. Wire telemetry + recording stash
+        self._wire_telemetry()
         if self._recording:
             self._recording.start_stash()
 
@@ -543,27 +550,36 @@ class SessionSupervisor:
     # ── recording / remux ────────────────────────────────────────────
 
     async def _finalize_session(self) -> None:
-        """Cleanup processes, then remux and create Recording if applicable."""
-        await self._cleanup(reason="stop")
+        """Cleanup processes, then remux and create Recording if applicable.
+
+        Note: _cleanup() is called by the caller (run()), not here.
+        NATS is disconnected at the very end of run().
+        """
 
         if not self._recording:
             await _update_session_status(self.settings, self.session_id, SessionStatus.COMPLETED, nc=self._nc)
-            await _update_autorun_status(self.settings, self.session, AutorunStatus.COMPLETED, self._nc)
             await _delete_session(self.settings, self.session_id, self.session_folder)
             return
 
         await _update_session_status(self.settings, self.session_id, SessionStatus.REMUXING, nc=self._nc)
         try:
-            await self._recording.remux()
+            recording_id = await self._recording.remux()
             logger.success(f"recording created")
             await _update_session_status(self.settings, self.session_id, SessionStatus.FINALIZING, nc=self._nc)
             await _update_session_status(self.settings, self.session_id, SessionStatus.COMPLETED, nc=self._nc)
-            await _update_autorun_status(self.settings, self.session, AutorunStatus.COMPLETED, self._nc)
             await _delete_session(self.settings, self.session_id)
+            # Emit RECORDING_CREATED via our own NATS connection
+            if recording_id and self._nc:
+                try:
+                    await self._nc.publish(
+                        MirrorrEvent.RECORDING_CREATED.subject,
+                        MirrorrEvent.RECORDING_CREATED(id=recording_id).model_dump_json().encode(),
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to emit RECORDING_CREATED: {e}")
         except Exception as e:
             logger.error(f"remux failed: {e}")
             await _update_session_status(self.settings, self.session_id, SessionStatus.FAILED, nc=self._nc)
-            await _update_autorun_status(self.settings, self.session, AutorunStatus.FAILED, self._nc)
             await _delete_session(self.settings, self.session_id, self.session_folder)
 
     # ── control channel ──────────────────────────────────────────────
@@ -587,6 +603,7 @@ class SessionSupervisor:
                 )
                 self._recording.start_stash()
                 await _update_recording_flag(self.settings, self.session_id, True)
+                await _update_session_status(self.settings, self.session_id, SessionStatus.RECORDING, nc=self._nc)
                 logger.info(f"recording enabled mid-run")
         elif command == "disable_recording":
             if self.session.recording:
@@ -595,15 +612,21 @@ class SessionSupervisor:
                     await self._recording.stop_stash()
                     self._recording = None
                 await _update_recording_flag(self.settings, self.session_id, False)
+                await _update_session_status(self.settings, self.session_id, SessionStatus.ACTIVE, nc=self._nc)
                 logger.info(f"recording disabled mid-run")
 
 
 
     # ── internal ──────────────────────────────────────────────────────
 
-    async def _start_nats_bridge(self) -> None:
-        """Connect a NATS client that listens for control commands
-        and forwards telemetry to NATS for WebSocket clients."""
+    async def _connect_nats(self) -> None:
+        """Connect NATS and subscribe to the control channel.
+
+        Call this early — before any status update that needs to emit WS events.
+        Idempotent: does nothing if already connected.
+        """
+        if self._nc and self._nc.is_connected:
+            return
         try:
             self._nc = NATS()
             await self._nc.connect(self.settings.nats_url)
@@ -634,31 +657,36 @@ class SessionSupervisor:
                             pass
 
             self._control_sub = await self._nc.subscribe(control_subject, cb=on_control)
-
-            for proc in self.processes:
-                telemetry_q = self.bus.subscribe(f"proc.{proc.name}.telemetry")
-                proc_name = proc.name
-
-                async def _forward_telemetry(q, pname):
-                    while True:
-                        data = await q.get()
-                        subject = f"session.{self.session_id}.telemetry.{pname}"
-                        try:
-                            if self._nc is None:
-                                raise RuntimeError("NATS client is not connected")
-                            await self._nc.publish(subject, json.dumps(data).encode())
-                        except Exception:
-                            return
-
-                self._telemetry_tasks.append(asyncio.create_task(_forward_telemetry(telemetry_q, proc_name)))
-
             logger.info(f"NATS control channel active")
         except Exception as e:
-            logger.error(f"Failed to setup NATS bridge: {e}")
+            logger.error(f"Failed to connect NATS: {e}")
+
+    def _wire_telemetry(self) -> None:
+        """Forward per-process telemetry to NATS. Call after processes start."""
+        if not self._nc:
+            return
+        for proc in self.processes:
+            telemetry_q = self.bus.subscribe(f"proc.{proc.name}.telemetry")
+            proc_name = proc.name
+
+            async def _forward_telemetry(q, pname):
+                while True:
+                    data = await q.get()
+                    subject = f"session.{self.session_id}.telemetry.{pname}"
+                    try:
+                        await self._nc.publish(subject, json.dumps(data).encode())
+                    except Exception:
+                        return
+
+            self._telemetry_tasks.append(asyncio.create_task(_forward_telemetry(telemetry_q, proc_name)))
 
 
     async def _cleanup(self, reason: str = "stop") -> None:
-        """Gracefully stop engine + resolver, then terminate all processes."""
+        """Gracefully stop engine + resolver, then terminate all processes.
+
+        Does NOT disconnect NATS — call _disconnect_nats() after all
+        status updates are sent.
+        """
         if self._recording:
             await self._recording.stop_stash()
 
@@ -701,26 +729,53 @@ class SessionSupervisor:
         for proc in self.processes:
             await proc.close()
 
-        if self._nc:
-            # Cancel telemetry forwarding tasks before disconnecting NATS
-            if self._telemetry_tasks:
-                for t in self._telemetry_tasks:
-                    if not t.done():
-                        t.cancel()
-                await asyncio.gather(*self._telemetry_tasks, return_exceptions=True)
-                self._telemetry_tasks.clear()
+    async def _reset_for_retry(self) -> None:
+        """Tear down attempt-specific state before retrying.
 
-            if self._control_sub:
-                try:
-                    await self._control_sub.unsubscribe()
-                except Exception:
-                    pass
-                self._control_sub = None
+        Cancels stale telemetry forwarding tasks, clears the ProcessBus
+        so old queues don't bleed into the next attempt, and resets
+        process/engine/resolver contexts.
+        """
+        # Cancel telemetry forwarding tasks from this attempt
+        if self._telemetry_tasks:
+            for t in self._telemetry_tasks:
+                if not t.done():
+                    t.cancel()
+            await asyncio.gather(*self._telemetry_tasks, return_exceptions=True)
+            self._telemetry_tasks.clear()
+
+        # Wipe all subscriber queues — stale data from the previous attempt
+        # must not leak into the next one
+        self.bus.clear()
+
+        self.processes.clear()
+        self.engine_ctx = None
+        self.resolver_ctx = None
+
+    async def _disconnect_nats(self) -> None:
+        """Disconnect NATS. Call LAST, after all status updates are sent."""
+        if not self._nc:
+            return
+
+        # Cancel telemetry forwarding tasks
+        if self._telemetry_tasks:
+            for t in self._telemetry_tasks:
+                if not t.done():
+                    t.cancel()
+            await asyncio.gather(*self._telemetry_tasks, return_exceptions=True)
+            self._telemetry_tasks.clear()
+
+        if self._control_sub:
             try:
-                await self._nc.drain()
+                await self._control_sub.unsubscribe()
             except Exception:
                 pass
-            self._nc = None
+            self._control_sub = None
+        try:
+            await self._nc.drain()
+        except Exception:
+            pass
+        self._nc = None
 
 
 # ── Entry point for multiprocessing ───────────────────────────────────
@@ -750,9 +805,12 @@ async def runner(session_id: int, settings: MirrorrSettings, shutdown_event: Shu
         await supervisor.run()
     except ValueError as e:
         logger.error(e)
+        # Session not found or missing profile — mark FAILED
+        await _update_session_status(settings, session_id, SessionStatus.FAILED)
         raise
     except Exception as e:
         logger.error(f"Session {session_id} failed with exception: {e}")
+        await _update_session_status(settings, session_id, SessionStatus.FAILED)
         raise
 
 
