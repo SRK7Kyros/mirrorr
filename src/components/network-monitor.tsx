@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Rnd } from "react-rnd";
 import {
     useRequestLogStore,
@@ -44,14 +45,9 @@ export function NetworkStatusDot() {
     const backendStatus = useRequestLogStore((s) => s.backendStatus);
     const lastErrorAt = useRequestLogStore((s) => s.lastErrorAt);
     const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+    const token = useAuthStore((s) => s.token);
     const [showAge, setShowAge] = useState<string | null>(null);
-    const [auth, setAuth] = useState(tokenStatus);
-
-    // Poll token status every 30s
-    useEffect(() => {
-        const id = setInterval(() => setAuth(tokenStatus()), 30_000);
-        return () => clearInterval(id);
-    }, []);
+    const auth = tokenStatus();
 
     useEffect(() => {
         if (!lastErrorAt) {
@@ -114,6 +110,53 @@ export function NetworkStatusDot() {
 }
 
 // ── Floating network monitor window ─────────────────────────────
+export function NetworkStatusTracker() {
+  const entries = useRequestLogStore((s) => s.entries);
+  const token = useAuthStore((s) => s.token);
+
+  // Track backend health from API responses
+  useEffect(() => {
+    if (entries.length === 0) return;
+    const latest = entries[0];
+    if (latest.ok === true) {
+      useRequestLogStore.getState().setBackendStatus("connected");
+    }
+  }, [entries]);
+
+  // Periodic health ping — the single source of truth for backend status
+  useEffect(() => {
+    if (!token) return;
+    const base = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+    let mounted = true;
+
+    const check = async () => {
+      try {
+        const res = await fetch(`${base}/auth/status`, { method: "GET" });
+        if (!mounted) return;
+        if (res.ok) {
+          useRequestLogStore.getState().setBackendStatus("connected");
+        } else {
+          useRequestLogStore.getState().setBackendStatus("disconnected");
+        }
+      } catch {
+        if (mounted) {
+          useRequestLogStore.getState().setBackendStatus("disconnected");
+        }
+      }
+    };
+
+    // Initial check immediately
+    check();
+    const interval = setInterval(check, 15_000);
+    return () => { mounted = false; clearInterval(interval); };
+  }, [token]);
+
+  return null;
+}
+
+function tryParseJson(str: string): unknown {
+    try { return JSON.parse(str); } catch { return str; }
+}
 
 export function NetworkMonitor({
     open,
@@ -133,21 +176,6 @@ export function NetworkMonitor({
     const [pos, setPos] = useState({ x: 80, y: 80 });
     const [hasPositioned, setHasPositioned] = useState(false);
 
-    // Track backend health by observing API responses
-    useEffect(() => {
-        const log = useRequestLogStore.getState();
-        if (entries.length === 0) return;
-        const latest = entries[0];
-        if (latest.ok === true) {
-            log.setBackendStatus("connected");
-        } else if (
-            latest.ok === false &&
-            latest.status !== 401 &&
-            latest.status !== 403
-        ) {
-            log.setBackendStatus("disconnected");
-        }
-    }, [entries]);
 
     // Position below the trigger when first opened
     useEffect(() => {
@@ -247,7 +275,16 @@ export function NetworkMonitor({
                                 <p className="text-[11px]">No requests yet</p>
                             </div>
                         ) : (
-                            <div className="divide-y divide-border/50">
+                            <div>
+                                {/* Header row */}
+                                <div className="grid px-3" style={{ gridTemplateColumns: "70px 56px 32px 1fr 48px 40px" }}>
+                                    <span className="text-[9px] text-muted-foreground/60 font-mono uppercase py-1">Time</span>
+                                    <span className="text-[9px] text-muted-foreground/60 font-mono uppercase py-1">Method</span>
+                                    <span className="text-[9px] text-muted-foreground/60 font-mono uppercase py-1">St</span>
+                                    <span className="text-[9px] text-muted-foreground/60 font-mono uppercase py-1">Path</span>
+                                    <span className="text-[9px] text-muted-foreground/60 font-mono uppercase py-1 text-right">Dur</span>
+                                    <span className="py-1" />
+                                </div>
                                 {entries.map((entry) => (
                                     <RequestRow
                                         key={entry.id}
@@ -282,6 +319,7 @@ function RequestRow({
     expanded: boolean;
     onToggle: () => void;
 }) {
+    const [copiedAll, setCopiedAll] = useState(false);
     const methodColor =
         {
             GET: "text-emerald-600 dark:text-emerald-400",
@@ -308,72 +346,71 @@ function RequestRow({
     });
 
     return (
-        <div className="group" onClick={onToggle}>
-            <div className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted/30 cursor-pointer transition-colors">
-                <span className="text-[10px] text-muted-foreground/60 font-mono shrink-0 w-[58px]">
-                    {time}
-                </span>
-                <span
-                    className={cn(
-                        "text-[10px] font-bold font-mono uppercase w-14 shrink-0",
-                        methodColor,
-                    )}
-                >
-                    {entry.method}
-                </span>
-                <span
-                    className={cn(
-                        "text-[10px] font-mono w-8 shrink-0",
-                        statusColor,
-                    )}
-                >
-                    {entry.status ?? "—"}
-                </span>
-                <span className="text-[11px] truncate flex-1 min-w-0 text-muted-foreground">
-                    {entry.path}
-                </span>
-                <span className="text-[10px] text-muted-foreground/60 font-mono shrink-0 w-12 text-right">
+        <div>
+            {/* Main row — its own grid */}
+            <div
+                className="grid px-3 cursor-pointer hover:bg-muted/30 transition-colors"
+                style={{ gridTemplateColumns: "70px 56px 32px 1fr 48px 40px" }}
+                onClick={onToggle}
+            >
+                <span className="text-[10px] text-muted-foreground/60 font-mono py-1.5 flex items-center">{time}</span>
+                <span className={cn("text-[10px] font-bold font-mono uppercase py-1.5 flex items-center", methodColor)}>{entry.method}</span>
+                <span className={cn("text-[10px] font-mono py-1.5 flex items-center", statusColor)}>{entry.status ?? "—"}</span>
+                <span className="text-[11px] truncate text-muted-foreground py-1.5 flex items-center">{entry.path}</span>
+                <span className="text-[10px] text-muted-foreground/60 font-mono text-right py-1.5 flex items-center justify-end">
                     {entry.duration !== null
                         ? entry.duration < 1000
                             ? `${entry.duration}ms`
                             : `${(entry.duration / 1000).toFixed(1)}s`
                         : "—"}
                 </span>
-                {expanded ? (
-                    <ChevronDown className="size-3 shrink-0 text-muted-foreground/40" />
-                ) : (
-                    <ChevronRight className="size-3 shrink-0 text-muted-foreground/40" />
-                )}
+                <span className="py-1.5 flex items-center justify-center gap-0.5">
+                    <span
+                        className="p-0.5 rounded hover:bg-muted/50 transition-colors"
+                        title="Copy all as JSON"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            const obj: Record<string, unknown> = {
+                                method: entry.method,
+                                url: entry.url,
+                                path: entry.path,
+                                status: entry.status,
+                                duration_ms: entry.duration,
+                            };
+                            if (entry.requestBody) obj.requestBody = tryParseJson(entry.requestBody);
+                            if (entry.responseBody) obj.responseBody = tryParseJson(entry.responseBody);
+                            if (entry.error) obj.error = entry.error;
+                            navigator.clipboard.writeText(JSON.stringify(obj, null, 2)).then(() => {
+                                setCopiedAll(true);
+                                setTimeout(() => setCopiedAll(false), 1500);
+                            });
+                        }}
+                    >
+                        {copiedAll
+                            ? <Check className="size-3 text-emerald-500" />
+                            : <Copy className="size-3 text-muted-foreground/40" />}
+                    </span>
+                    {expanded
+                        ? <ChevronDown className="size-3 text-muted-foreground/40" />
+                        : <ChevronRight className="size-3 text-muted-foreground/40" />}
+                </span>
             </div>
+            {/* Expanded details — card layout */}
             {expanded && (
-                <div className="px-3 pb-2 pt-1 space-y-2 bg-muted/10 border-t border-border/30">
-                    <DetailBlock label="URL" value={entry.url} />
-                    {entry.requestBody && (
-                        <DetailBlock
-                            label="Request Body"
-                            value={entry.requestBody}
-                            mono
-                        />
-                    )}
-                    {entry.responseBody && (
-                        <DetailBlock
-                            label="Response"
-                            value={entry.responseBody}
-                            mono
-                        />
-                    )}
-                    {entry.error && (
-                        <DetailBlock label="Error" value={entry.error} />
-                    )}
+                <div className="px-2 pb-2 pt-1 space-y-1.5 bg-muted/15 border-t border-border/35">
+                    <DetailCard label="URL" value={entry.url} />
+                    {entry.requestBody && <DetailCard label="Request Body" value={entry.requestBody} mono />}
+                    {entry.responseBody && <DetailCard label="Response" value={entry.responseBody} mono />}
+                    {entry.error && <DetailCard label="Error" value={entry.error} />}
                 </div>
             )}
         </div>
     );
 }
 
-// ── Detail block ────────────────────────────────────────────────
+// ── Detail card ─────────────────────────────────────────────────
 
-function DetailBlock({
+function DetailCard({
     label,
     value,
     mono,
@@ -382,11 +419,25 @@ function DetailBlock({
     value: string;
     mono?: boolean;
 }) {
-    const [hovered, setHovered] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [expanded, setExpanded] = useState(false);
 
-    function handleCopy(e: React.MouseEvent) {
-        e.stopPropagation();
+    // Pretty-print JSON if it has more than 2 top-level keys
+    const displayValue = (() => {
+        if (!mono) return value;
+        try {
+            const parsed = JSON.parse(value);
+            if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) && Object.keys(parsed).length > 2) {
+                return JSON.stringify(parsed, null, 2);
+            }
+            if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === "object" && parsed[0] !== null && Object.keys(parsed[0]).length > 2) {
+                return JSON.stringify(parsed, null, 2);
+            }
+        } catch { /* not JSON */ }
+        return value;
+    })();
+
+    function handleCopy() {
         navigator.clipboard.writeText(value).then(() => {
             setCopied(true);
             setTimeout(() => setCopied(false), 1200);
@@ -394,39 +445,87 @@ function DetailBlock({
     }
 
     return (
-        <div className="space-y-0.5">
-            <p className="text-[9px] text-muted-foreground/60 uppercase tracking-wider">
-                {label}
-            </p>
-            <div
-                className={cn(
-                    "text-[10px] rounded bg-background/50 px-2 py-1.5 max-h-24 overflow-auto break-all",
-                    mono
-                        ? "font-mono text-muted-foreground"
-                        : "text-foreground",
-                )}
-                onMouseEnter={() => setHovered(true)}
-                onMouseLeave={() => setHovered(false)}
-            >
-                <div className="flex items-start gap-1.5">
-                    <span className="flex-1 min-w-0 whitespace-pre-wrap">
-                        {value}
+        <>
+            <div className="rounded-md border border-border/60 bg-muted/30 overflow-hidden">
+                {/* Card header */}
+                <div className="flex items-center gap-1 px-2 py-1 border-b border-border/40 bg-muted/20">
+                    <span className="text-[9px] text-muted-foreground/70 uppercase tracking-wider flex-1">
+                        {label}
                     </span>
-                    {hovered && (
-                        <button
-                            className="shrink-0 mt-0.5 p-0.5 rounded hover:bg-muted transition-colors"
-                            onClick={handleCopy}
-                            title="Copy to clipboard"
-                        >
-                            {copied ? (
-                                <Check className="size-3 text-emerald-500" />
-                            ) : (
-                                <Copy className="size-3 text-muted-foreground/60" />
-                            )}
-                        </button>
+                    <button
+                        className="p-0.5 rounded hover:bg-muted transition-colors"
+                        onClick={(e) => { e.stopPropagation(); setExpanded(true); }}
+                        title="Expand"
+                    >
+                        <Maximize2 className="size-3 text-muted-foreground/50" />
+                    </button>
+                    <button
+                        className="p-0.5 rounded hover:bg-muted transition-colors"
+                        onClick={(e) => { e.stopPropagation(); handleCopy(); }}
+                        title="Copy to clipboard"
+                    >
+                        {copied
+                            ? <Check className="size-3 text-emerald-500" />
+                            : <Copy className="size-3 text-muted-foreground/50" />}
+                    </button>
+                </div>
+                {/* Card content */}
+                <div
+                    className={cn(
+                        "text-[10px] px-2 py-1.5 max-h-32 overflow-x-auto overflow-y-auto break-words scrollbar-thin",
+                        mono
+                            ? "font-mono text-muted-foreground"
+                            : "text-foreground",
                     )}
+                >
+                    <span className="whitespace-pre">{displayValue}</span>
                 </div>
             </div>
-        </div>
+
+            {/* Fullscreen panel — portaled to body to escape Rnd's transform */}
+            {expanded && createPortal(
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+                    onClick={() => setExpanded(false)}
+                >
+                    <div
+                        className="bg-card border rounded-lg shadow-xl w-[90vw] max-w-3xl h-[80vh] flex flex-col"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-between px-4 py-2.5 border-b shrink-0">
+                            <h3 className="text-xs font-semibold">{label}</h3>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    className="p-1 rounded hover:bg-muted transition-colors"
+                                    onClick={(e) => { e.stopPropagation(); handleCopy(); }}
+                                    title="Copy to clipboard"
+                                >
+                                    {copied
+                                        ? <Check className="size-3.5 text-emerald-500" />
+                                        : <Copy className="size-3.5 text-muted-foreground" />}
+                                </button>
+                                <button
+                                    className="text-xs text-muted-foreground hover:text-foreground"
+                                    onClick={() => setExpanded(false)}
+                                >
+                                    Close
+                                </button>
+                            </div>
+                        </div>
+                        <ScrollArea className="flex-1 min-h-0">
+                            <pre className={cn(
+                                "p-4 text-[11px] leading-relaxed whitespace-pre",
+                                mono
+                                    ? "font-mono text-muted-foreground"
+                                    : "text-foreground",
+                            )}>
+                                {displayValue}
+                            </pre>
+                        </ScrollArea>
+                    </div>
+                </div>,
+                document.body,
+            )}
+        </>
     );
 }

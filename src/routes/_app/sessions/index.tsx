@@ -19,7 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { StatusBadge } from "@/components/status-badge";
 import { InfoGrid, StatusField } from "@/components/info-grid";
 import { KeyValueTable } from "@/components/key-value-table";
-import { formatDuration, cn } from "@/lib/utils";
+import { formatDuration, cn, formatLocalDate, parseUtcDate } from "@/lib/utils";
 import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 
@@ -176,16 +176,16 @@ function SessionEntry({
 }) {
     const [liveSeconds, setLiveSeconds] = useState(() => {
         if (session.started_at && session.ended_at) {
-            return (new Date(session.ended_at).getTime() - new Date(session.started_at).getTime()) / 1000;
+            return ((parseUtcDate(session.ended_at)?.getTime() ?? 0) - (parseUtcDate(session.started_at)?.getTime() ?? 0)) / 1000;
         }
-        return session.started_at ? (Date.now() - new Date(session.started_at).getTime()) / 1000 : 0;
+        return session.started_at ? (Date.now() - (parseUtcDate(session.started_at)?.getTime() ?? 0)) / 1000 : 0;
     });
 
     useEffect(() => {
         if (session.ended_at) return;
         const id = setInterval(() => {
             if (session.started_at) {
-                setLiveSeconds((Date.now() - new Date(session.started_at).getTime()) / 1000);
+                setLiveSeconds((Date.now() - (parseUtcDate(session.started_at)?.getTime() ?? 0)) / 1000);
             }
         }, 1000);
         return () => clearInterval(id);
@@ -236,16 +236,16 @@ function SessionDetail({
     // Live count-up duration that ticks every second
     const [liveSeconds, setLiveSeconds] = useState(() => {
         if (session.started_at && session.ended_at) {
-            return (new Date(session.ended_at).getTime() - new Date(session.started_at).getTime()) / 1000;
+            return ((parseUtcDate(session.ended_at)?.getTime() ?? 0) - (parseUtcDate(session.started_at)?.getTime() ?? 0)) / 1000;
         }
-        return session.started_at ? (Date.now() - new Date(session.started_at).getTime()) / 1000 : 0;
+        return session.started_at ? (Date.now() - (parseUtcDate(session.started_at)?.getTime() ?? 0)) / 1000 : 0;
     });
 
     useEffect(() => {
         if (session.ended_at) return; // Don't tick if session is done
         const id = setInterval(() => {
             if (session.started_at) {
-                setLiveSeconds((Date.now() - new Date(session.started_at).getTime()) / 1000);
+                setLiveSeconds((Date.now() - (parseUtcDate(session.started_at)?.getTime() ?? 0)) / 1000);
             }
         }, 1000);
         return () => clearInterval(id);
@@ -319,13 +319,13 @@ function SessionDetail({
                     {session.started_at && (
                         <div className="space-y-1 shrink-0">
                             <Label className="text-[11px] text-muted-foreground">Started</Label>
-                            <p className="text-xs">{new Date(session.started_at).toLocaleString()}</p>
+                            <p className="text-xs">{formatLocalDate(session.started_at)}</p>
                         </div>
                     )}
                     {session.ended_at && (
                         <div className="space-y-1 shrink-0">
                             <Label className="text-[11px] text-muted-foreground">Ended</Label>
-                            <p className="text-xs">{new Date(session.ended_at).toLocaleString()}</p>
+                            <p className="text-xs">{formatLocalDate(session.ended_at)}</p>
                         </div>
                     )}
                 </div>
@@ -338,6 +338,7 @@ function SessionDetail({
                 {session.session_urls?.length > 0 && (
                     <KeyValueTable
                         title="Public URLs"
+                        leftAlignValues
                         entries={session.session_urls.map((entry: Record<string, string>) => [
                             entry.label,
                             <a href={entry.url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-mono text-foreground/80 hover:text-foreground hover:underline">{entry.url}</a>,
@@ -351,8 +352,8 @@ function SessionDetail({
                             `#${a.attempt_number}`,
                             <div className="flex items-center gap-2 text-[11px] font-mono">
                                 <StatusBadge status={a.status ?? "active"} />
-                                {a.started_at && <span className="text-muted-foreground">{new Date(a.started_at).toLocaleString()}</span>}
-                                {a.ended_at && <span className="text-muted-foreground">→ {new Date(a.ended_at).toLocaleString()}</span>}
+                                {a.started_at && <span className="text-muted-foreground">{formatLocalDate(a.started_at)}</span>}
+                                {a.ended_at && <span className="text-muted-foreground">→ {formatLocalDate(a.ended_at)}</span>}
                                 {a.returncode != null && <span className={a.returncode === 0 ? "text-emerald-500" : "text-red-500"}>rc:{a.returncode}</span>}
                                 {a.exit_reason && <span className="text-muted-foreground">({a.exit_reason})</span>}
                                 {a.error_message && <span className="text-destructive">{a.error_message}</span>}

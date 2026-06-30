@@ -13,17 +13,21 @@ interface InfoGridProps {
   className?: string
 }
 
-export function InfoGrid({ fields, columns = 5, className }: InfoGridProps) {
+export function InfoGrid({ fields, columns: _, className }: InfoGridProps) {
   return (
     <div
       className={cn("grid gap-x-4 gap-y-1 justify-items-start w-fit", className)}
-      style={{ gridTemplateColumns: `repeat(${columns}, minmax(4.5rem, auto))` }}
+      style={{ gridTemplateRows: "auto auto", gridAutoFlow: "column", gridAutoColumns: "auto" }}
     >
       {fields.map((f) => (
-        <span key={f.label} className="text-[11px] text-muted-foreground">{f.label}</span>
-      ))}
-      {fields.map((f) => (
-        <span key={f.label} className="text-xs">{f.value}</span>
+        <div
+          key={f.label}
+          className="grid gap-y-px"
+          style={{ gridRow: "span 2", gridTemplateRows: "subgrid" }}
+        >
+          <span className="text-[11px] text-muted-foreground">{f.label}</span>
+          <span className="text-xs">{f.value}</span>
+        </div>
       ))}
     </div>
   )

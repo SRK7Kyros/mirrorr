@@ -8,6 +8,7 @@ import {
   type MakeLinkOptions,
 } from "@tanstack/react-router"
 import { useAuthStore } from "@/stores/auth-store"
+import { formatLocalDate } from "@/lib/utils"
 import { useRequestLogStore } from "@/stores/request-log-store"
 import { useTheme } from "next-themes"
 import { useWsEvents } from "@/hooks/use-ws-events"
@@ -31,7 +32,7 @@ import {
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { startTokenRefresh, stopTokenRefresh } from "@/lib/api"
-import { NetworkStatusDot, NetworkMonitor } from "@/components/network-monitor"
+import { NetworkStatusDot, NetworkMonitor, NetworkStatusTracker } from "@/components/network-monitor"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
@@ -232,7 +233,7 @@ function AppLayout() {
                           <p className="text-xs text-muted-foreground leading-relaxed">{notif.body}</p>
                         )}
                         <p className="text-[10px] text-muted-foreground/70">
-                          {notif.resource_type} · {new Date(notif.created_at).toLocaleString()}
+                          {notif.resource_type} · {formatLocalDate(notif.created_at)}
                         </p>
                       </div>
                     ))}
@@ -337,6 +338,7 @@ function AppLayout() {
       </main>
 
       {/* ── Floating network monitor ─────────────────────────── */}
+      <NetworkStatusTracker />
       <NetworkMonitor open={netOpen} onClose={() => setNetOpen(false)} defaultPos={netPos} />
     </div>
   )

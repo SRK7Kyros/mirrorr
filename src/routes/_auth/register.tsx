@@ -63,7 +63,7 @@ function RegisterPage() {
   return (
     <Card className="w-full max-w-sm">
       <CardHeader className="text-center">
-        <CardTitle className="text-xl">Create account</CardTitle>
+        <CardTitle className="text-xl">{isFirstUser ? "Create Admin Account" : "Create Account"}</CardTitle>
         <CardDescription>
           {isFirstUser ? "Set up the admin account" : "Request a new account"}
         </CardDescription>
