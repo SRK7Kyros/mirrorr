@@ -556,6 +556,7 @@ class SessionSupervisor:
         try:
             await self._recording.remux()
             logger.success(f"recording created")
+            await _update_session_status(self.settings, self.session_id, SessionStatus.FINALIZING, nc=self._nc)
             await _update_session_status(self.settings, self.session_id, SessionStatus.COMPLETED, nc=self._nc)
             await _update_autorun_status(self.settings, self.session, AutorunStatus.COMPLETED, self._nc)
             await _delete_session(self.settings, self.session_id)
@@ -571,6 +572,7 @@ class SessionSupervisor:
         """Handle commands received on the NATS control channel."""
         if command == "stop":
             logger.info(f"received stop command")
+            await _update_session_status(self.settings, self.session_id, SessionStatus.TERMINATING, nc=self._nc)
             await self.bus.emit("session.stop_requested")
         elif command == "enable_recording":
             if not self.session.recording:
