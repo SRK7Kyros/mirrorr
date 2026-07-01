@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy.exc import IntegrityError
 from loguru import logger
 from src.event_bus.nats import bus
-from src.event_bus.event import MirrorrEvent
+from src.event_bus.event import MirrorrEvent, BaseEvent
 from typing import Type, TypeVar, Any  # noqa: F401
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlmodel import SQLModel, select
@@ -35,6 +35,26 @@ def _is_owner_or_admin(auth: AuthState, obj) -> bool:
         return True
     assert auth.user is not None
     return getattr(obj, "requester_user_token", None) == auth.user.username
+
+
+async def _safe_emit(event: BaseEvent) -> None:
+    """Emit a NATS event, logging but not raising on failure.
+
+    The DB write already committed — a failed emit should not crash the
+    HTTP request.  The WS cache will refresh on the next user action.
+    """
+    try:
+        await bus.emit(event)
+    except Exception as e:
+        logger.warning(f"Failed to emit {event.subject} (id={getattr(event, 'id', '?')}): {e}")
+
+
+async def _safe_delete(db: AsyncSession, model: type, id: int) -> None:
+    """Delete via CRUD, raising 404 if the entity vanished mid-request."""
+    try:
+        await crud.delete(db, model, id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail=f"{model.__name__} {id} not found")
 
 
 # ── Sessions ──────────────────────────────────────────────────────────
@@ -73,7 +93,7 @@ async def create_session(item: dict[str, Any] = Body(...), db: AsyncSession = De
     except IntegrityError as e:
         raise HTTPException(status_code=400, detail=f"Database integrity error: {e.orig}")
     await subscribe_requester(db, payload.requester_user_token, ResourceType.SESSION, obj.id)
-    await bus.emit(MirrorrEvent.SESSION_CREATED(id=obj.id))
+    await _safe_emit(MirrorrEvent.SESSION_CREATED(id=obj.id))
     return obj
 
 
@@ -91,12 +111,12 @@ async def delete_session(id: int, db: AsyncSession = Depends(_get_db_session), a
             return await _send_control(id, "stop")
         except HTTPException as e:
             if e.status_code == 504:
-                await bus.emit(MirrorrEvent.SESSION_DELETED(id=id))
-                await crud.delete(db, Session, id)
+                await _safe_delete(db, Session, id)
+                await _safe_emit(MirrorrEvent.SESSION_DELETED(id=id))
                 return {"status": "orphan_cleaned", "session_id": id}
             raise
-    await bus.emit(MirrorrEvent.SESSION_DELETED(id=id))
-    await crud.delete(db, Session, id)
+    await _safe_delete(db, Session, id)
+    await _safe_emit(MirrorrEvent.SESSION_DELETED(id=id))
 
 
 crud_routers.include_router(sessions_router)
@@ -147,7 +167,7 @@ async def create_autorun(item: dict[str, Any] = Body(...), db: AsyncSession = De
     except IntegrityError as e:
         raise HTTPException(status_code=400, detail=f"Database integrity error: {e.orig}")
     await subscribe_requester(db, payload.requester_user_token, ResourceType.AUTORUN, obj.id)
-    await bus.emit(MirrorrEvent.AUTORUN_CREATED(id=obj.id))
+    await _safe_emit(MirrorrEvent.AUTORUN_CREATED(id=obj.id))
     return obj
 
 
@@ -165,10 +185,12 @@ async def update_autorun(id: int, item: dict[str, Any] = Body(...), db: AsyncSes
         payload.requester_user_token = auth.user.username
     try:
         obj = await crud.update(db, Autorun, id, payload)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Autorun not found")
     except IntegrityError as e:
         raise HTTPException(status_code=400, detail=f"Database integrity error: {e.orig}")
     await subscribe_requester(db, payload.requester_user_token, ResourceType.AUTORUN, id)
-    await bus.emit(MirrorrEvent.AUTORUN_UPDATED(id=id))
+    await _safe_emit(MirrorrEvent.AUTORUN_UPDATED(id=id))
     return obj
 
 
@@ -179,8 +201,8 @@ async def delete_autorun(id: int, db: AsyncSession = Depends(_get_db_session), a
         raise HTTPException(status_code=404, detail="Not found")
     if not _is_owner_or_admin(auth, obj):
         raise HTTPException(status_code=403, detail="Not your autorun")
-    await bus.emit(MirrorrEvent.AUTORUN_DELETED(id=id))
-    await crud.delete(db, Autorun, id)
+    await _safe_delete(db, Autorun, id)
+    await _safe_emit(MirrorrEvent.AUTORUN_DELETED(id=id))
 
 
 crud_routers.include_router(autoruns_router)
@@ -217,8 +239,8 @@ async def delete_recording(id: int, db: AsyncSession = Depends(_get_db_session),
         raise HTTPException(status_code=404, detail="Not found")
     if not _is_owner_or_admin(auth, obj):
         raise HTTPException(status_code=403, detail="Not your recording")
-    await bus.emit(MirrorrEvent.RECORDING_DELETED(id=id))
-    await crud.delete(db, Recording, id)
+    await _safe_delete(db, Recording, id)
+    await _safe_emit(MirrorrEvent.RECORDING_DELETED(id=id))
 
 
 crud_routers.include_router(recordings_router)
@@ -259,7 +281,7 @@ async def create_profile(item: dict[str, Any] = Body(...), db: AsyncSession = De
     except IntegrityError as e:
         raise HTTPException(status_code=400, detail=f"Database integrity error: {e.orig}")
     await subscribe_requester(db, payload.requester_user_token, ResourceType.PROFILE, obj.id)
-    await bus.emit(MirrorrEvent.PROFILE_CREATED(id=obj.id))
+    await _safe_emit(MirrorrEvent.PROFILE_CREATED(id=obj.id))
     return obj
 
 
@@ -276,10 +298,12 @@ async def update_profile(id: int, item: dict[str, Any] = Body(...), db: AsyncSes
         payload.requester_user_token = auth.user.username
     try:
         obj = await crud.update(db, Profile, id, payload)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Profile not found")
     except IntegrityError as e:
         raise HTTPException(status_code=400, detail=f"Database integrity error: {e.orig}")
     await subscribe_requester(db, payload.requester_user_token, ResourceType.PROFILE, id)
-    await bus.emit(MirrorrEvent.PROFILE_UPDATED(id=id))
+    await _safe_emit(MirrorrEvent.PROFILE_UPDATED(id=id))
     return obj
 
 
@@ -290,8 +314,8 @@ async def delete_profile(id: int, db: AsyncSession = Depends(_get_db_session), a
         raise HTTPException(status_code=404, detail="Not found")
     if not _is_owner_or_admin(auth, obj):
         raise HTTPException(status_code=403, detail="Not your profile")
-    await bus.emit(MirrorrEvent.PROFILE_DELETED(id=id))
-    await crud.delete(db, Profile, id)
+    await _safe_delete(db, Profile, id)
+    await _safe_emit(MirrorrEvent.PROFILE_DELETED(id=id))
 
 
 crud_routers.include_router(profiles_router)
