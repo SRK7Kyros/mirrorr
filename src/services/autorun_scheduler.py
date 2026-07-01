@@ -12,6 +12,7 @@ from src.event_bus.event import MirrorrEvent
 from src.storage.models import Autorun, AutorunStatus, Session, SessionStatus, Profile
 from src.storage import crud
 from src.startup.config import MirrorrSettings
+from src.services.session_lifecycle import update_autorun
 
 
 async def autorun_scheduler_loop(
@@ -64,12 +65,16 @@ async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) 
         result = await db.exec(stmt)
         due_autoruns: list[Autorun] = list(result.all())
 
+        created_session_ids: list[int] = []
+        updated_autorun_ids: list[int] = []
+
         for autorun in due_autoruns:
             logger.info(f"Autorun {autorun.id} ({autorun.user_friendly_name}): "
                         f"start_time reached, creating session")
 
             autorun.status = AutorunStatus.ACTIVE
             db.add(autorun)
+            # Note: AUTORUN_UPDATED is emitted after commit below
 
             session = Session(
                 profile_id=autorun.profile_id,
@@ -80,10 +85,16 @@ async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) 
             )
             session = await crud.create(db, session)
             just_created_ids.add(session.id)
-            await bus.emit(MirrorrEvent.SESSION_CREATED(id=session.id))
-            await bus.emit(MirrorrEvent.AUTORUN_UPDATED(id=autorun.id))
+            created_session_ids.append(session.id)
+            updated_autorun_ids.append(autorun.id)
 
         await db.commit()
+
+        # Emit AFTER commit so the UI re-fetches fresh data
+        for sid in created_session_ids:
+            await bus.emit(MirrorrEvent.SESSION_CREATED(id=sid))
+        for aid in updated_autorun_ids:
+            await bus.emit(MirrorrEvent.AUTORUN_UPDATED(id=aid))
 
     async with session_factory() as db:
         # ── 2. Stop autoruns whose end_time has passed ────────────────

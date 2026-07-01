@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
@@ -25,29 +26,61 @@ async def websocket_endpoint(websocket: WebSocket):
     subscriptions. Unauthenticated connections receive all events.
     """
     await websocket.accept()
+    connected_at = time.monotonic()
 
     auth, _ = await ws_auth(websocket)
+    username = auth.user.username if auth and auth.user else None
+    logger.info(f"[ws/events] connected — user={username}")
 
     subscribed_resources: set[tuple[str, int]] | None = None
     if auth and auth.user:
         subscribed_resources = await _get_subscribed_resources(auth.user.username)
+        logger.debug(f"[ws/events] user={username} subscribed to {len(subscribed_resources)} resources")
+
+    sent_count = 0
 
     async def nats_event_handler(msg):
+        nonlocal sent_count
         try:
+            subject = msg.subject
+
+            # Skip high-frequency telemetry — not useful for WS clients
+            if ".telemetry." in subject:
+                return
+            # Skip NATS request-reply inbox subjects
+            if subject.startswith("_INBOX."):
+                return
+
             if subscribed_resources is not None:
-                subject = msg.subject
                 if not _is_relevant_event(subject, subscribed_resources):
+                    logger.debug(f"[ws/events] filtered event for user={username}: {subject}")
                     return
-            await websocket.send_text(msg.data.decode())
-        except Exception:
-            pass
+            # Inject the NATS subject as the "event" field so the frontend
+            # can map it to query keys (e.g. "autorun.updated" → ["autoruns"])
+            payload = json.loads(msg.data.decode())
+            payload["event"] = subject
+            await websocket.send_text(json.dumps(payload))
+            sent_count += 1
+            logger.debug(
+                f"[ws/events] → user={username} event={subject} "
+                f"id={payload.get('id')} total={sent_count}"
+            )
+        except Exception as e:
+            logger.warning(f"[ws/events] send failed for user={username}: {e}")
 
     sub = await bus.nc.subscribe(">", cb=nats_event_handler)
+    logger.debug(f"[ws/events] NATS wildcard subscription active for user={username}")
 
     try:
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
+        elapsed = time.monotonic() - connected_at
+        logger.info(f"[ws/events] disconnected — user={username}, duration={elapsed:.1f}s, events_sent={sent_count}")
+        await sub.unsubscribe()
+    except Exception as e:
+        elapsed = time.monotonic() - connected_at
+        logger.error(f"[ws/events] error — user={username}, duration={elapsed:.1f}s: {e}")
         await sub.unsubscribe()
 
 
@@ -59,9 +92,11 @@ async def notifications_endpoint(websocket: WebSocket):
     On connect, sends all unread notifications, then pushes new ones.
     """
     await websocket.accept()
+    connected_at = time.monotonic()
 
     auth, _ = await ws_auth(websocket)
     if not auth or not auth.user:
+        logger.warning("[ws/notifications] unauthenticated connection — closing")
         try:
             await websocket.close(code=4001, reason="Authentication required")
         except Exception:
@@ -69,6 +104,7 @@ async def notifications_endpoint(websocket: WebSocket):
         return
 
     user = auth.user
+    logger.info(f"[ws/notifications] connected — user={user.username}")
 
     # Send existing unread notifications
     async with get_session_factory()() as db:
@@ -80,6 +116,7 @@ async def notifications_endpoint(websocket: WebSocket):
         result = await db.exec(stmt)
         unread = list(result.all())
 
+    logger.debug(f"[ws/notifications] user={user.username} has {len(unread)} unread notifications")
     for notif in unread:
         try:
             await websocket.send_text(json.dumps({
@@ -94,15 +131,26 @@ async def notifications_endpoint(websocket: WebSocket):
                     "created_at": notif.created_at.isoformat(),
                 },
             }))
-        except Exception:
+        except Exception as e:
+            logger.warning(f"[ws/notifications] failed to send unread notif to user={user.username}: {e}")
             return
 
     # Subscribe to NATS for new notifications
     subscribed_resources = await _get_subscribed_resources(user.username)
+    logger.debug(f"[ws/notifications] user={user.username} subscribed to {len(subscribed_resources)} resources")
+
+    sent_count = 0
 
     async def notification_handler(msg):
+        nonlocal sent_count
         try:
             subject = msg.subject
+            # Skip high-frequency telemetry
+            if ".telemetry." in subject:
+                return
+            # Skip NATS request-reply inbox subjects
+            if subject.startswith("_INBOX."):
+                return
             if not _is_relevant_event(subject, subscribed_resources):
                 return
             data = json.loads(msg.data.decode())
@@ -121,8 +169,9 @@ async def notifications_endpoint(websocket: WebSocket):
                     "created_at": data.get("timestamp", ""),
                 },
             }))
-        except Exception:
-            pass
+            sent_count += 1
+        except Exception as e:
+            logger.warning(f"[ws/notifications] send failed for user={user.username}: {e}")
 
     sub = await bus.nc.subscribe(">", cb=notification_handler)
 
@@ -130,6 +179,12 @@ async def notifications_endpoint(websocket: WebSocket):
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
+        elapsed = time.monotonic() - connected_at
+        logger.info(f"[ws/notifications] disconnected — user={user.username}, duration={elapsed:.1f}s, notifs_sent={sent_count}")
+        await sub.unsubscribe()
+    except Exception as e:
+        elapsed = time.monotonic() - connected_at
+        logger.error(f"[ws/notifications] error — user={user.username}, duration={elapsed:.1f}s: {e}")
         await sub.unsubscribe()
 
 

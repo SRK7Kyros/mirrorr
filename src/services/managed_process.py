@@ -192,24 +192,28 @@ class ManagedProcess:
                     if buf:
                         line = buf.decode("utf-8", errors="replace").rstrip("\n\r")
                         if line:
-                            self._emit_line(line, log_file, stream_name)
+                            await self._emit_line(line, log_file, stream_name)
                     break
 
                 if byte in (b"\n", b"\r"):
                     line = buf.decode("utf-8", errors="replace").rstrip("\n\r")
                     buf.clear()
                     if line:
-                        self._emit_line(line, log_file, stream_name)
+                        await self._emit_line(line, log_file, stream_name)
                 else:
                     buf.extend(byte)
         finally:
             if log_file:
                 log_file.close()
 
-    def _emit_line(self, line: str, log_file, stream_name: str) -> None:
+    async def _emit_line(self, line: str, log_file, stream_name: str) -> None:
         if log_file:
             log_file.write(f"{datetime.now(timezone.utc).isoformat()} | {line}\n")
             log_file.flush()
+        await self.bus.emit(
+            f"proc.{self.name}.{stream_name}",
+            ProcessOutput(line=line, name=self.name, stream=stream_name),
+        )
 
     async def _wait_for_exit(self) -> None:
         """Wait for the process to exit and publish the exit event."""
