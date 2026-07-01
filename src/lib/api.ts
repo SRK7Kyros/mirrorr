@@ -111,6 +111,7 @@ async function _fetchJson<T = unknown>(
 
   // Log the request
   const logEntry = {
+    type: "http" as const,
     timestamp: Date.now(),
     method,
     url: url.toString(),
