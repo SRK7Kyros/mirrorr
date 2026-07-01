@@ -379,6 +379,7 @@ class Session(SQLModel, table=True):
     ended_at: datetime | None = Field(default=None)
     requester_user_token: str
     session_urls: list[dict[str, str]] = Field(default_factory=list, sa_column=Column(SAJSON))
+    attempts: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(SAJSON))
 
     profile: "Profile" = Relationship(back_populates="sessions")
     autorun: "Autorun" = Relationship(back_populates="session")
@@ -387,6 +388,7 @@ class Session(SQLModel, table=True):
     @property
     def is_autorun(self) -> bool:
         return self.autorun_id is not None
+
 
     def effective_retry_mode(self) -> str:
         """Session override if set, otherwise fall back to profile default."""
