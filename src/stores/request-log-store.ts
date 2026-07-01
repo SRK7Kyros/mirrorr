@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 export interface RequestLogEntry {
     id: number;
+    type: "http" | "ws-event" | "ws-notif";
     timestamp: number;
     method: string;
     url: string;

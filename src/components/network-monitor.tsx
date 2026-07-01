@@ -321,13 +321,17 @@ function RequestRow({
 }) {
     const [copiedAll, setCopiedAll] = useState(false);
     const methodColor =
-        {
-            GET: "text-emerald-600 dark:text-emerald-400",
-            POST: "text-blue-600 dark:text-blue-400",
-            PUT: "text-amber-600 dark:text-amber-400",
-            DELETE: "text-red-600 dark:text-red-400",
-            PATCH: "text-purple-600 dark:text-purple-400",
-        }[entry.method] ?? "text-muted-foreground";
+        entry.type === "ws-event"
+            ? "text-cyan-600 dark:text-cyan-400"
+            : entry.type === "ws-notif"
+              ? "text-violet-600 dark:text-violet-400"
+              : {
+                    GET: "text-emerald-600 dark:text-emerald-400",
+                    POST: "text-blue-600 dark:text-blue-400",
+                    PUT: "text-amber-600 dark:text-amber-400",
+                    DELETE: "text-red-600 dark:text-red-400",
+                    PATCH: "text-purple-600 dark:text-purple-400",
+                }[entry.method] ?? "text-muted-foreground";
 
     const statusColor =
         entry.status === null

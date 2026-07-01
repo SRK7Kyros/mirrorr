@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from "react"
 import { getWsNotificationsUrl } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
+import { useRequestLogStore } from "@/stores/request-log-store"
 import type { Notification } from "@/lib/schemas"
 
 /**
@@ -34,6 +35,21 @@ export function useWsNotifications() {
               if (prev.some((n) => n.id === notif.id)) return prev
               return [notif, ...prev]
             })
+            // Log notification to network monitor
+            useRequestLogStore.getState().addEntry({
+              type: "ws-notif",
+              timestamp: Date.now(),
+              method: "WS",
+              url: "/ws/notifications",
+              path: data.data.event_type ?? "notification",
+              status: 200,
+              statusText: "OK",
+              duration: null,
+              ok: true,
+              error: null,
+              requestBody: null,
+              responseBody: JSON.stringify(data),
+            })
           }
         } catch {
           // ignore
@@ -41,7 +57,9 @@ export function useWsNotifications() {
       }
 
       ws.onclose = () => {
-        if (useAuthStore.getState().isAuthenticated) {
+        // Only reconnect if this WS is still the active one.
+        // If wsRef.current was nulled by cleanup, this close was intentional.
+        if (wsRef.current === ws && useAuthStore.getState().isAuthenticated) {
           reconnectTimeout.current = setTimeout(connect, 3000)
         }
       }
