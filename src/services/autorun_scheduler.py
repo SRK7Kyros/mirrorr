@@ -88,6 +88,13 @@ async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) 
             created_session_ids.append(session.id)
             updated_autorun_ids.append(autorun.id)
 
+            # Subscribe the autorun's owner to session events so they
+            # receive per-resource WS events (telemetry, recording state, etc.)
+            if autorun.requester_user_token:
+                from src.api.auth import subscribe_requester
+                from src.storage.models import ResourceType
+                await subscribe_requester(db, autorun.requester_user_token, ResourceType.SESSION, session.id)
+
         await db.commit()
 
         # Emit AFTER commit so the UI re-fetches fresh data

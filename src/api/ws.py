@@ -59,7 +59,18 @@ async def websocket_endpoint(websocket: WebSocket):
             # can map it to query keys (e.g. "autorun.updated" → ["autoruns"])
             payload = json.loads(msg.data.decode())
             payload["event"] = subject
-            await websocket.send_text(json.dumps(payload))
+
+            # Enrich the payload with the full entity so the frontend
+            # can patch its React Query cache without a round-trip.
+            if subject not in ("session.deleted", "autorun.deleted",
+                               "recording.deleted", "profile.deleted"):
+                entity_id = payload.get("id")
+                if entity_id is not None:
+                    entity_data = await _fetch_entity(subject, entity_id)
+                    if entity_data is not None:
+                        payload["data"] = entity_data
+
+            await websocket.send_text(json.dumps(payload, default=str))
             sent_count += 1
             logger.debug(
                 f"[ws/events] → user={username} event={subject} "
@@ -213,11 +224,33 @@ async def _get_subscribed_resources(
 
 
 def _is_relevant_event(subject: str, subscribed_resources: set[tuple[str, int]]) -> bool:
-    """Check if a NATS subject matches any subscribed resource."""
+    """Check if a NATS subject should be forwarded to the client.
+
+    Strategy:
+    - Broadcast CRUD events (e.g. ``session.created``, ``autorun.updated``)
+      are always relevant because the frontend uses them to invalidate
+      query caches and react to changes.
+    - Per-resource events (e.g. ``session.5.telemetry``) are only relevant
+      when the user is subscribed to that specific resource.
+    - Session control subjects (``session.{id}.control``) are forwarded so
+      the UI can observe stop/restart commands.
+    """
+    # Broadcast CRUD events — always relevant
+    _BROADCAST_PREFIXES = (
+        "session.created", "session.updated", "session.deleted",
+        "session.started", "session.stopped", "session.crashed",
+        "autorun.created", "autorun.updated", "autorun.deleted",
+        "recording.created", "recording.updated", "recording.deleted",
+        "profile.created", "profile.updated", "profile.deleted",
+    )
+    if subject in _BROADCAST_PREFIXES:
+        return True
+
+    # Per-resource events — relevant if user is subscribed
     for resource_type, resource_id in subscribed_resources:
-        prefix = f"{resource_type}.{resource_id}"
-        if subject.startswith(prefix):
+        if subject.startswith(f"{resource_type}.{resource_id}"):
             return True
+
     return False
 
 
@@ -232,3 +265,51 @@ def _parse_resource_from_subject(subject: str) -> tuple[str | None, int | None]:
                 except ValueError:
                     pass
     return None, None
+
+
+# ── Entity enrichment for zero-roundtrip updates ─────────────────────
+
+_MODEL_MAP: dict[str, type] = {}
+
+def _get_model_map() -> dict[str, type]:
+    """Lazy import of SQLModel classes to avoid circular imports."""
+    if not _MODEL_MAP:
+        from src.storage.models import Session, Autorun, Recording, Profile
+        _MODEL_MAP.update({
+            "session": Session,
+            "autorun": Autorun,
+            "recording": Recording,
+            "profile": Profile,
+        })
+    return _MODEL_MAP
+
+
+async def _fetch_entity(subject: str, entity_id: int) -> dict | None:
+    """Look up the full entity from the database for event enrichment.
+
+    Returns a JSON-safe dict of the entity's fields, or ``None`` if the
+    entity no longer exists (e.g. a race between delete and the WS relay).
+    """
+    # Extract the resource type from the first dot-separated segment.
+    # Works for both broadcast subjects ("session.created") and
+    # per-resource subjects ("session.5.telemetry").
+    resource_type = subject.split(".")[0] if "." in subject else None
+    if resource_type not in ("session", "autorun", "recording", "profile"):
+        return None
+
+    model_map = _get_model_map()
+    model = model_map.get(resource_type)
+    if model is None:
+        return None
+
+    try:
+        async with get_session_factory()() as db:
+            obj = await db.get(model, entity_id)
+            if obj is None:
+                return None
+            # SQLModel.model_dump produces a plain dict; omit
+            # relationship attributes to keep the payload lean.
+            return obj.model_dump(mode="json")
+    except Exception as e:
+        logger.debug(f"[ws/events] enrichment failed for {subject} id={entity_id}: {e}")
+        return None
