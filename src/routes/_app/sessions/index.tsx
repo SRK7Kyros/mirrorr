@@ -52,7 +52,6 @@ function SessionsPage() {
     const deleteMutation = useMutation({
         mutationFn: (id: number) => sessionsApi.delete(id),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["sessions"] });
             toast.success("Session deletion requested");
         },
         onError: (err: Error) => {
@@ -65,8 +64,6 @@ function SessionsPage() {
             session.recording
                 ? sessionsApi.disableRecording(session.id)
                 : sessionsApi.enableRecording(session.id),
-        onSuccess: () =>
-            queryClient.invalidateQueries({ queryKey: ["sessions"] }),
         onError: (err: Error) =>
             toast.error(`Failed to toggle recording: ${err.message}`),
     });
@@ -384,7 +381,6 @@ function CreateSessionPanel({ onClose }: { onClose: () => void }) {
     const createMutation = useMutation({
         mutationFn: (data: Record<string, unknown>) => sessionsApi.create(data),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["sessions"] });
             onClose();
             toast.success("Session created");
         },

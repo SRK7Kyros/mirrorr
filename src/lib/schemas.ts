@@ -159,6 +159,7 @@ export const autorunSchema = z.object({
   snake_case_name: z.string(),
   profile_id: z.number(),
   engine_id: z.number(),
+  status: z.string().default("scheduled"),
   start_time: z.string(),
   end_time: z.string(),
   recording: z.boolean(),
