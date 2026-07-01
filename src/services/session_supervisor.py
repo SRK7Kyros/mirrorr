@@ -7,7 +7,6 @@ import os
 import shutil
 import subprocess
 import sys
-from datetime import datetime
 from multiprocessing.synchronize import Event as ShutdownEvent
 from pathlib import Path
 from typing import Any
@@ -22,7 +21,6 @@ from src.storage.models import (
     ResolverInterface,
     ResolverContext,
     Autorun,
-    AutorunStatus,
     Session,
     SessionStatus,
     Profile,
@@ -30,6 +28,7 @@ from src.storage.models import (
 from src.services.process_bus import ProcessBus, EngineDone, EngineCrashed
 from src.services.managed_process import ManagedProcess
 from src.services.recording import RecordingManager
+from src.services.session_lifecycle import update_session, delete_session
 from src.startup.config import MirrorrSettings
 from src.event_bus.event import MirrorrEvent
 from nats.aio.client import Client as NATS
@@ -39,101 +38,8 @@ from nats.aio.client import Client as NATS
 
 # ── Private helper functions ──────────────────────────────────────────
 
-async def _update_session_status(
-    settings: MirrorrSettings,
-    session_id: int,
-    status: SessionStatus,
-    set_started: bool = False,
-    nc: NATS | None = None,
-) -> None:
-    """Update the session status in the DB, propagate to autorun, and emit NATS events."""
-    from src.storage.database import create_db_engine
-    from src.storage import crud
-
-    db_engine, session_factory = create_db_engine(settings)
-    autorun_id: int | None = None
-    try:
-        async with session_factory() as db_session:
-            session = await crud.get_by_id(db_session, Session, session_id)
-            if session:
-                session.status = status
-                if set_started:
-                    session.started_at = datetime.utcnow()
-                if status in (SessionStatus.COMPLETED, SessionStatus.FAILED):
-                    session.ended_at = datetime.utcnow()
-                await crud.update(db_session, Session, session_id, session)
-
-                # Propagate to autorun — mirror the session status
-                if session.autorun_id:
-                    autorun = await crud.get_by_id(db_session, Autorun, session.autorun_id)
-                    if autorun:
-                        # Map session status to autorun status
-                        status_map = {
-                            SessionStatus.ACTIVE: AutorunStatus.ACTIVE,
-                            SessionStatus.RECORDING: AutorunStatus.RECORDING,
-                            SessionStatus.TERMINATING: AutorunStatus.TERMINATING,
-                            SessionStatus.REMUXING: AutorunStatus.REMUXING,
-                            SessionStatus.FINALIZING: AutorunStatus.FINALIZING,
-                            SessionStatus.COMPLETED: AutorunStatus.COMPLETED,
-                            SessionStatus.FAILED: AutorunStatus.FAILED,
-                        }
-                        autorun.status = status_map.get(status, AutorunStatus.ACTIVE)
-                        await crud.update(db_session, Autorun, autorun.id, autorun)
-                        autorun_id = autorun.id
-    except Exception as e:
-        logger.error(f"Failed to update session status: {e}")
-    finally:
-        await db_engine.dispose()
-
-    if nc is None:
-        return
-
-    try:
-        # Always emit SESSION_UPDATED so WS clients get every status change
-        await nc.publish(
-            MirrorrEvent.SESSION_UPDATED.subject,
-            MirrorrEvent.SESSION_UPDATED(id=session_id).model_dump_json().encode(),
-        )
-
-        # Also emit AUTORUN_UPDATED if we propagated to an autorun
-        if autorun_id:
-            await nc.publish(
-                MirrorrEvent.AUTORUN_UPDATED.subject,
-                MirrorrEvent.AUTORUN_UPDATED(id=autorun_id).model_dump_json().encode(),
-            )
-
-        subject_map = {
-            (SessionStatus.ACTIVE, True): MirrorrEvent.SESSION_STARTED,
-            SessionStatus.COMPLETED: MirrorrEvent.SESSION_STOPPED,
-            SessionStatus.FAILED: MirrorrEvent.SESSION_CRASHED,
-        }
-        key = (status, set_started) if set_started else status
-        event_cls = subject_map.get(key)
-        if event_cls:
-            await nc.publish(
-                event_cls.subject,
-                event_cls(id=session_id).model_dump_json().encode(),
-            )
-    except Exception as e:
-        logger.opt(colors=True).error(f"Failed to emit NATS event for session <green>{session_id}</green>: {e}")
-
-
-async def _delete_session(settings: MirrorrSettings, session_id: int, session_folder: Path | None = None) -> None:
-    """Delete the session DB row and folder, then emit SESSION_DELETED."""
-    from src.storage.database import create_db_engine
-    from src.storage import crud
-
-    db_engine, session_factory = create_db_engine(settings)
-    try:
-        async with session_factory() as db:
-            await crud.delete(db, Session, session_id)
-    except Exception as e:
-        logger.error(f"Failed to delete session {session_id}: {e}")
-    finally:
-        await db_engine.dispose()
-
-    if session_folder and session_folder.exists():
-        shutil.rmtree(session_folder, ignore_errors=True)
+# Session status updates and deletes are handled by src.services.session_lifecycle.
+# Import them at the top of this file for use throughout the supervisor.
 
 
 def _make_session_dirs(
@@ -193,51 +99,9 @@ def _build_session_urls(
     return urls
 
 
-async def _persist_session_urls(
-    settings: MirrorrSettings,
-    session_id: int,
-    session_urls: list[dict[str, str]],
-) -> None:
-    """Save session_urls to the database."""
-    from src.storage.database import create_db_engine
-    from src.storage import crud
-
-    if not session_urls:
-        return
-
-    db_engine, session_factory = create_db_engine(settings)
-    try:
-        async with session_factory() as db_session:
-            session = await crud.get_by_id(db_session, Session, session_id)
-            if session:
-                session.session_urls = session_urls
-                await crud.update(db_session, Session, session_id, session)
-    except Exception as e:
-        logger.error(f"Failed to persist session_urls: {e}")
-    finally:
-        await db_engine.dispose()
-
-
-async def _update_recording_flag(
-    settings: MirrorrSettings,
-    session_id: int,
-    value: bool,
-) -> None:
-    """Update the recording flag in the database."""
-    from src.storage.database import create_db_engine
-    from src.storage import crud
-
-    db_engine, session_factory = create_db_engine(settings)
-    try:
-        async with session_factory() as db_session:
-            session = await crud.get_by_id(db_session, Session, session_id)
-            if session:
-                session.recording = value
-                await crud.update(db_session, Session, session_id, session)
-    except Exception as e:
-        logger.error(f"Failed to update recording flag: {e}")
-    finally:
-        await db_engine.dispose()
+# _persist_session_urls and _update_recording_flag are no longer needed —
+# use update_session(settings, session_id, session_urls=..., nc=nc) and
+# update_session(settings, session_id, recording=True/False, nc=nc) instead.
 
 
 async def _load_session_from_db(
@@ -344,6 +208,9 @@ class SessionSupervisor:
                 session_folder=self.session_folder,
                 stash_folder=self.session_folder / "stash",
                 segments_folder=self.segments_folder,
+                bus=self.bus,
+                logs_folder=self.logs_folder,
+                nc=self._nc,
             )
             if self.session.recording
             else None
@@ -393,7 +260,7 @@ class SessionSupervisor:
                         f"giving up after attempt <yellow>{attempt}</yellow>: {signal.reason}"
                     )
                     await self._cleanup(reason="failed")
-                    await _update_session_status(self.settings, self.session_id, SessionStatus.FAILED, nc=self._nc)
+                    await update_session(self.settings, self.session_id, status=SessionStatus.FAILED, nc=self._nc)
                     return
 
                 if outcome == "done" and signal is not None:
@@ -452,12 +319,12 @@ class SessionSupervisor:
         # 1. Connect NATS early so status updates emit WS events
         await self._connect_nats()
 
-        await _update_session_status(
+        await update_session(
             self.settings, self.session_id,
-            SessionStatus.RECORDING if self.session.recording else SessionStatus.ACTIVE,
-            set_started=True, nc=self._nc,
+            status=SessionStatus.RECORDING if self.session.recording else SessionStatus.ACTIVE,
+            session_urls=_build_session_urls(self.session_folder, self.segments_folder, self.settings),
+            nc=self._nc,
         )
-        await _persist_session_urls(self.settings, self.session_id, _build_session_urls(self.session_folder, self.segments_folder, self.settings))
 
         # 2. Resolve source via resolver
         try:
@@ -471,8 +338,11 @@ class SessionSupervisor:
             source = await self.resolver.resolve(config, self.resolver_ctx)
         except Exception as e:
             logger.error(f"Failed to resolve source: {e}")
-            await _update_session_status(self.settings, self.session_id, SessionStatus.FAILED, nc=self._nc)
-            await _delete_session(self.settings, self.session_id, self.session_folder)
+            await update_session(self.settings, self.session_id, status=SessionStatus.FAILED, nc=self._nc)
+            await delete_session(
+                self.settings, self.session_id, self.session_folder,
+                nc=self._nc, autorun_id=self.session.autorun_id,
+            )
             return "stopped", None
 
         # 2. Start engine
@@ -557,17 +427,23 @@ class SessionSupervisor:
         """
 
         if not self._recording:
-            await _update_session_status(self.settings, self.session_id, SessionStatus.COMPLETED, nc=self._nc)
-            await _delete_session(self.settings, self.session_id, self.session_folder)
+            await update_session(self.settings, self.session_id, status=SessionStatus.COMPLETED, nc=self._nc)
+            await delete_session(
+                self.settings, self.session_id, self.session_folder,
+                nc=self._nc, autorun_id=self.session.autorun_id,
+            )
             return
 
-        await _update_session_status(self.settings, self.session_id, SessionStatus.REMUXING, nc=self._nc)
+        await update_session(self.settings, self.session_id, status=SessionStatus.REMUXING, nc=self._nc)
         try:
             recording_id = await self._recording.remux()
             logger.success(f"recording created")
-            await _update_session_status(self.settings, self.session_id, SessionStatus.FINALIZING, nc=self._nc)
-            await _update_session_status(self.settings, self.session_id, SessionStatus.COMPLETED, nc=self._nc)
-            await _delete_session(self.settings, self.session_id)
+            await update_session(self.settings, self.session_id, status=SessionStatus.FINALIZING, nc=self._nc)
+            await update_session(self.settings, self.session_id, status=SessionStatus.COMPLETED, nc=self._nc)
+            await delete_session(
+                self.settings, self.session_id,
+                nc=self._nc, autorun_id=self.session.autorun_id,
+            )
             # Emit RECORDING_CREATED via our own NATS connection
             if recording_id and self._nc:
                 try:
@@ -579,8 +455,11 @@ class SessionSupervisor:
                     logger.error(f"Failed to emit RECORDING_CREATED: {e}")
         except Exception as e:
             logger.error(f"remux failed: {e}")
-            await _update_session_status(self.settings, self.session_id, SessionStatus.FAILED, nc=self._nc)
-            await _delete_session(self.settings, self.session_id, self.session_folder)
+            await update_session(self.settings, self.session_id, status=SessionStatus.FAILED, nc=self._nc)
+            await delete_session(
+                self.settings, self.session_id, self.session_folder,
+                nc=self._nc, autorun_id=self.session.autorun_id,
+            )
 
     # ── control channel ──────────────────────────────────────────────
 
@@ -588,7 +467,7 @@ class SessionSupervisor:
         """Handle commands received on the NATS control channel."""
         if command == "stop":
             logger.info(f"received stop command")
-            await _update_session_status(self.settings, self.session_id, SessionStatus.TERMINATING, nc=self._nc)
+            await update_session(self.settings, self.session_id, status=SessionStatus.TERMINATING, nc=self._nc)
             await self.bus.emit("session.stop_requested")
         elif command == "enable_recording":
             if not self.session.recording:
@@ -600,10 +479,12 @@ class SessionSupervisor:
                     session_folder=self.session_folder,
                     stash_folder=self.session_folder / "stash",
                     segments_folder=self.segments_folder,
+                    bus=self.bus,
+                    logs_folder=self.logs_folder,
+                    nc=self._nc,
                 )
                 self._recording.start_stash()
-                await _update_recording_flag(self.settings, self.session_id, True)
-                await _update_session_status(self.settings, self.session_id, SessionStatus.RECORDING, nc=self._nc)
+                await update_session(self.settings, self.session_id, recording=True, status=SessionStatus.RECORDING, nc=self._nc)
                 logger.info(f"recording enabled mid-run")
         elif command == "disable_recording":
             if self.session.recording:
@@ -611,8 +492,7 @@ class SessionSupervisor:
                 if self._recording:
                     await self._recording.stop_stash()
                     self._recording = None
-                await _update_recording_flag(self.settings, self.session_id, False)
-                await _update_session_status(self.settings, self.session_id, SessionStatus.ACTIVE, nc=self._nc)
+                await update_session(self.settings, self.session_id, recording=False, status=SessionStatus.ACTIVE, nc=self._nc)
                 logger.info(f"recording disabled mid-run")
 
 
@@ -658,6 +538,10 @@ class SessionSupervisor:
 
             self._control_sub = await self._nc.subscribe(control_subject, cb=on_control)
             logger.info(f"NATS control channel active")
+
+            # Propagate NATS connection to recording manager
+            if self._recording:
+                self._recording.nc = self._nc
         except Exception as e:
             logger.error(f"Failed to connect NATS: {e}")
 
@@ -806,11 +690,11 @@ async def runner(session_id: int, settings: MirrorrSettings, shutdown_event: Shu
     except ValueError as e:
         logger.error(e)
         # Session not found or missing profile — mark FAILED
-        await _update_session_status(settings, session_id, SessionStatus.FAILED)
+        await update_session(settings, session_id, status=SessionStatus.FAILED)
         raise
     except Exception as e:
         logger.error(f"Session {session_id} failed with exception: {e}")
-        await _update_session_status(settings, session_id, SessionStatus.FAILED)
+        await update_session(settings, session_id, status=SessionStatus.FAILED)
         raise
 
 
