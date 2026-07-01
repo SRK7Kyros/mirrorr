@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+from datetime import datetime
 from multiprocessing.synchronize import Event as ShutdownEvent
 from pathlib import Path
 from typing import Any
@@ -230,12 +231,45 @@ class SessionSupervisor:
             while True:
                 attempt += 1
                 self.session.retry_attempts = attempt
+                attempt_started_at = datetime.utcnow()
                 logger.opt(colors=True).info(
                     f"starting attempt <yellow>{attempt}</yellow>"
                     f" (retry_mode={retry_config['mode']})"
                 )
 
+                # Emit the attempt record immediately so the UI shows it
+                # as running.  We update it after the attempt finishes.
+                attempt_record: dict[str, Any] = {
+                    "index": attempt,
+                    "started_at": attempt_started_at.isoformat(),
+                    "ended_at": None,
+                    "duration_seconds": None,
+                    "returncode": None,
+                    "reason": None,
+                }
+                self.session.attempts = (self.session.attempts or []) + [attempt_record]
+                await update_session(
+                    self.settings, self.session_id,
+                    retry_attempts=attempt,
+                    attempts=self.session.attempts,
+                    nc=self._nc,
+                )
+
                 outcome, signal = await self._run_attempt()
+
+                # Finalize the attempt record in-place
+                attempt_ended_at = datetime.utcnow()
+                attempt_duration = (attempt_ended_at - attempt_started_at).total_seconds()
+                attempt_record["ended_at"] = attempt_ended_at.isoformat()
+                attempt_record["duration_seconds"] = round(attempt_duration, 2)
+                attempt_record["returncode"] = getattr(signal, "returncode", None) if signal else None
+                attempt_record["reason"] = getattr(signal, "reason", None) if signal else ("stopped" if outcome == "stopped" else None)
+
+                await update_session(
+                    self.settings, self.session_id,
+                    attempts=self.session.attempts,
+                    nc=self._nc,
+                )
 
                 if outcome == "stopped":
                     return
