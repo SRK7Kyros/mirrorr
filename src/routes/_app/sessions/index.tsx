@@ -20,7 +20,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { InfoGrid, StatusField } from "@/components/info-grid";
 import { KeyValueTable } from "@/components/key-value-table";
 import { formatDuration, cn, formatLocalDate, parseUtcDate } from "@/lib/utils";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/sessions/")({
@@ -171,22 +171,10 @@ function SessionEntry({
     selected: boolean;
     onSelect: () => void;
 }) {
-    const [liveSeconds, setLiveSeconds] = useState(() => {
-        if (session.started_at && session.ended_at) {
-            return ((parseUtcDate(session.ended_at)?.getTime() ?? 0) - (parseUtcDate(session.started_at)?.getTime() ?? 0)) / 1000;
-        }
-        return session.started_at ? (Date.now() - (parseUtcDate(session.started_at)?.getTime() ?? 0)) / 1000 : 0;
-    });
-
-    useEffect(() => {
-        if (session.ended_at) return;
-        const id = setInterval(() => {
-            if (session.started_at) {
-                setLiveSeconds((Date.now() - (parseUtcDate(session.started_at)?.getTime() ?? 0)) / 1000);
-            }
-        }, 1000);
-        return () => clearInterval(id);
-    }, [session.started_at, session.ended_at]);
+    const completedDuration = (session.attempts || [])
+        .filter((a: any) => a.duration_seconds != null)
+        .reduce((sum: number, a: any) => sum + a.duration_seconds, 0)
+    const runningAttempt = (session.attempts || []).find((a: any) => a.ended_at == null)
 
     const displayName = autorun?.user_friendly_name ?? `Session #${session.id}`;
 
@@ -207,12 +195,44 @@ function SessionEntry({
                 </span>
                 <span className="text-[10px] text-muted-foreground/60 shrink-0 flex items-center gap-1">
                     <Clock className="size-3" />
-                    {formatDuration(liveSeconds)}
+                    <LiveCountup startedAt={runningAttempt?.started_at ?? null} offset={completedDuration} />
                 </span>
             </div>
             <div className="mt-1 h-[14px]" />
         </div>
     );
+}
+
+/**
+ * Live-updating elapsed time counter. Shows `offset + (now - startedAt)`.
+ * - `startedAt`: ISO timestamp to count from
+ * - `offset`: seconds already elapsed (e.g. sum of completed attempts)
+ * Ticks every 100ms. When `startedAt` is null, just shows `offset` statically.
+ */
+function LiveCountup({ startedAt, offset = 0 }: { startedAt: string | null; offset?: number }) {
+    const startedAtRef = useRef(startedAt)
+    startedAtRef.current = startedAt
+
+    const offsetRef = useRef(offset)
+    offsetRef.current = offset
+
+    const [elapsed, setElapsed] = useState(() => {
+        if (!startedAt) return offset
+        return offset + (Date.now() - (parseUtcDate(startedAt)?.getTime() ?? Date.now())) / 1000
+    })
+
+    useEffect(() => {
+        if (!startedAtRef.current) { setElapsed(offsetRef.current); return }
+        const id = setInterval(() => {
+            const sa = startedAtRef.current
+            if (sa) {
+                setElapsed(offsetRef.current + (Date.now() - (parseUtcDate(sa)?.getTime() ?? Date.now())) / 1000)
+            }
+        }, 100)
+        return () => clearInterval(id)
+    }, [startedAt])
+
+    return <span className="tabular-nums">{formatDuration(elapsed)}</span>
 }
 
 function SessionDetail({
@@ -230,23 +250,13 @@ function SessionDetail({
 }) {
     if (!session) return null;
 
-    // Live count-up duration that ticks every second
-    const [liveSeconds, setLiveSeconds] = useState(() => {
-        if (session.started_at && session.ended_at) {
-            return ((parseUtcDate(session.ended_at)?.getTime() ?? 0) - (parseUtcDate(session.started_at)?.getTime() ?? 0)) / 1000;
-        }
-        return session.started_at ? (Date.now() - (parseUtcDate(session.started_at)?.getTime() ?? 0)) / 1000 : 0;
-    });
+    // Compute offset: sum of durations of all completed attempts
+    const completedDuration = (session.attempts || [])
+        .filter((a: any) => a.duration_seconds != null)
+        .reduce((sum: number, a: any) => sum + a.duration_seconds, 0)
 
-    useEffect(() => {
-        if (session.ended_at) return; // Don't tick if session is done
-        const id = setInterval(() => {
-            if (session.started_at) {
-                setLiveSeconds((Date.now() - (parseUtcDate(session.started_at)?.getTime() ?? 0)) / 1000);
-            }
-        }, 1000);
-        return () => clearInterval(id);
-    }, [session.started_at, session.ended_at]);
+    // Find the currently running attempt (if any)
+    const runningAttempt = (session.attempts || []).find((a: any) => a.ended_at == null)
 
     const { data: profiles = [] } = useQuery({ queryKey: ["profiles"], queryFn: () => profilesApi.list() as Promise<any[]> });
     const { data: engines = [] } = useQuery({ queryKey: ["engines"], queryFn: () => pluginsApi.engines() as Promise<any[]> });
@@ -307,7 +317,7 @@ function SessionDetail({
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
                 <InfoGrid columns={5} fields={[
                     { label: "Status", value: <StatusField status={session.status} /> },
-                    { label: "Duration", value: formatDuration(liveSeconds) },
+                    { label: "Duration", value: <LiveCountup startedAt={runningAttempt?.started_at ?? null} offset={completedDuration} /> },
                     { label: "Profile", value: profile?.name ?? `#${session.profile_id}` },
                     { label: "Engine", value: engine?.name ?? `#${session.engine_id}` },
                     { label: "Resolver", value: resolver?.name ?? "?" },
@@ -343,20 +353,58 @@ function SessionDetail({
                     />
                 )}
                 {session.attempts?.length > 0 && (
-                    <KeyValueTable
-                        title="Attempts"
-                        entries={session.attempts.map((a: any) => [
-                            `#${a.attempt_number}`,
-                            <div className="flex items-center gap-2 text-[11px] font-mono">
-                                <StatusBadge status={a.status ?? "active"} />
-                                {a.started_at && <span className="text-muted-foreground">{formatLocalDate(a.started_at)}</span>}
-                                {a.ended_at && <span className="text-muted-foreground">→ {formatLocalDate(a.ended_at)}</span>}
-                                {a.returncode != null && <span className={a.returncode === 0 ? "text-emerald-500" : "text-red-500"}>rc:{a.returncode}</span>}
-                                {a.exit_reason && <span className="text-muted-foreground">({a.exit_reason})</span>}
-                                {a.error_message && <span className="text-destructive">{a.error_message}</span>}
-                            </div>,
-                        ])}
-                    />
+                    <div className="space-y-1.5">
+                        <Label className="text-[11px] text-muted-foreground">
+                            Attempts ({session.attempts.length})
+                        </Label>
+                        <div className="border rounded-lg overflow-hidden">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow className="h-7">
+                                        <TableHead className="text-[10px] font-medium h-7 px-2">#</TableHead>
+                                        <TableHead className="text-[10px] font-medium h-7 px-2">Started</TableHead>
+                                        <TableHead className="text-[10px] font-medium h-7 px-2">Ended</TableHead>
+                                        <TableHead className="text-[10px] font-medium h-7 px-2">Duration</TableHead>
+                                        <TableHead className="text-[10px] font-medium h-7 px-2">Exit Code</TableHead>
+                                        <TableHead className="text-[10px] font-medium h-7 px-2">Reason</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {session.attempts.map((a: any) => (
+                                        <TableRow key={a.index} className="h-7">
+                                            <TableCell className="text-[11px] font-mono px-2 py-1">{a.index}</TableCell>
+                                            <TableCell className="text-[11px] font-mono px-2 py-1 text-muted-foreground">
+                                                {a.started_at ? formatLocalDate(a.started_at) : "—"}
+                                            </TableCell>
+                                            <TableCell className="text-[11px] font-mono px-2 py-1 text-muted-foreground">
+                                                {a.ended_at
+                                                    ? formatLocalDate(a.ended_at)
+                                                    : <span className="inline-flex items-center gap-1">
+                                                        <Loader2 className="size-3 animate-spin" />
+                                                        running…
+                                                      </span>}
+                                            </TableCell>
+                                            <TableCell className="text-[11px] font-mono px-2 py-1 text-muted-foreground tabular-nums">
+                                                {a.duration_seconds != null
+                                                    ? formatDuration(a.duration_seconds)
+                                                    : a.ended_at == null
+                                                        ? <LiveCountup startedAt={a.started_at} />
+                                                        : "—"}
+                                            </TableCell>
+                                            <TableCell className="text-[11px] font-mono px-2 py-1">
+                                                {a.returncode != null
+                                                    ? <span className={a.returncode === 0 ? "text-emerald-500" : "text-red-500"}>{a.returncode}</span>
+                                                    : <span className="text-muted-foreground/40">—</span>}
+                                            </TableCell>
+                                            <TableCell className="text-[11px] font-mono px-2 py-1 text-muted-foreground max-w-[200px] truncate">
+                                                {a.reason ?? "—"}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    </div>
                 )}
             </div>
         </div>

@@ -125,6 +125,15 @@ export const sessionStatusSchema = z.enum([
   "failed",
 ])
 
+const attemptSchema = z.object({
+  index: z.number(),
+  started_at: z.string().optional(),
+  ended_at: z.string().optional(),
+  duration_seconds: z.number().optional(),
+  returncode: z.number().nullable().optional(),
+  reason: z.string().nullable().optional(),
+})
+
 export const sessionSchema = z.object({
   id: z.number(),
   profile_id: z.number(),
@@ -139,6 +148,7 @@ export const sessionSchema = z.object({
   ended_at: z.string().nullable(),
   requester_user_token: z.string(),
   session_urls: z.array(z.record(z.string())),
+  attempts: z.array(attemptSchema).default([]),
 })
 
 export type Session = z.infer<typeof sessionSchema>

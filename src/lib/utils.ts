@@ -32,10 +32,17 @@ export function formatBytes(bytes: number, decimals = 2): string {
 }
 
 export function formatDuration(seconds: number): string {
-  const h = Math.floor(seconds / 3600)
+  const d = Math.floor(seconds / 86400)
+  const h = Math.floor((seconds % 86400) / 3600)
   const m = Math.floor((seconds % 3600) / 60)
-  const s = Math.floor(seconds % 60)
-  if (h > 0) return `${h}h ${m}m ${s}s`
-  if (m > 0) return `${m}m ${s}s`
-  return `${s}s`
+  const s = seconds % 60
+
+  // Show decimals only when the value is below the first display threshold (6s)
+  const showDecimals = seconds < 6
+  const sFmt = showDecimals ? Math.round(s * 10) / 10 : Math.floor(s)
+
+  if (d > 0) return `${d}d ${h}h ${m}m ${Math.floor(s)}s`
+  if (h > 0) return `${h}h ${m}m ${Math.floor(s)}s`
+  if (seconds >= 6) return `${m}m ${sFmt}s`
+  return `${sFmt}s`
 }
