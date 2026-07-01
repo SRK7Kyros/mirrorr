@@ -25,6 +25,7 @@ const sessionEventSchema = z.object({
   event_id: z.string().optional(),
   timestamp: z.string().optional(),
   command: z.string().optional(),
+  data: z.record(z.any()).optional(),
 })
 
 const autorunEventSchema = z.object({
@@ -36,6 +37,7 @@ const autorunEventSchema = z.object({
   id: z.number().optional(),
   event_id: z.string().optional(),
   timestamp: z.string().optional(),
+  data: z.record(z.any()).optional(),
 })
 
 const recordingEventSchema = z.object({
@@ -47,6 +49,7 @@ const recordingEventSchema = z.object({
   id: z.number().optional(),
   event_id: z.string().optional(),
   timestamp: z.string().optional(),
+  data: z.record(z.any()).optional(),
 })
 
 const profileEventSchema = z.object({
@@ -58,6 +61,7 @@ const profileEventSchema = z.object({
   id: z.number().optional(),
   event_id: z.string().optional(),
   timestamp: z.string().optional(),
+  data: z.record(z.any()).optional(),
 })
 
 const telemetryEventSchema = z.object({

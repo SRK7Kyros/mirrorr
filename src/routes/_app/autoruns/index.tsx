@@ -45,7 +45,7 @@ function AutorunsPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => autorunsApi.delete(id),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["autoruns"] }); toast.success("Autorun deleted") },
+    onSuccess: () => { toast.success("Autorun deleted") },
     onError: (err: Error) => toast.error(`Failed to delete autorun: ${err.message}`),
   })
 
@@ -207,7 +207,7 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
 
   const createMutation = useMutation({
     mutationFn: (data: any) => autorunsApi.create(data),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["autoruns"] }); onClose(); toast.success("Autorun created") },
+    onSuccess: () => { onClose(); toast.success("Autorun created") },
     onError: (err: Error) => toast.error(`Failed to create autorun: ${err.message}`),
   })
 

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
-import { sessionsApi, recordingsApi, profilesApi } from "@/lib/api"
+import { sessionsApi, recordingsApi, profilesApi, autorunsApi } from "@/lib/api"
 import { Radio, Film, Settings, CalendarClock, Plug } from "lucide-react"
 import { Link } from "@tanstack/react-router"
 import { cn } from "@/lib/utils"

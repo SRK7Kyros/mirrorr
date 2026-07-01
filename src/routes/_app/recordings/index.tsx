@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useQuery, useMutation } from "@tanstack/react-query"
 import { recordingsApi } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -17,7 +17,6 @@ export const Route = createFileRoute("/_app/recordings/")({
 })
 
 function RecordingsPage() {
-  const queryClient = useQueryClient()
   const [selectedId, setSelectedId] = useState<number | null>(null)
 
   const { data: recordings = [], isLoading } = useQuery({
@@ -27,7 +26,7 @@ function RecordingsPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => recordingsApi.delete(id),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["recordings"] }); toast.success("Recording deleted") },
+    onSuccess: () => { toast.success("Recording deleted") },
     onError: (err: Error) => toast.error(`Failed to delete recording: ${err.message}`),
   })
 

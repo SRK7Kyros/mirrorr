@@ -47,7 +47,7 @@ function ProfilesPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => profilesApi.delete(id),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["profiles"] }); toast.success("Profile deleted") },
+    onSuccess: () => { toast.success("Profile deleted") },
     onError: (err: Error) => toast.error(`Failed to delete profile: ${err.message}`),
   })
 
@@ -246,7 +246,7 @@ function CreateProfilePanel({ onClose }: { onClose: () => void }) {
 
   const createMutation = useMutation({
     mutationFn: (data: any) => profilesApi.create(data),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["profiles"] }); onClose(); toast.success("Profile created") },
+    onSuccess: () => { onClose(); toast.success("Profile created") },
     onError: (err: Error) => toast.error(`Failed to create profile: ${err.message}`),
   })
 
