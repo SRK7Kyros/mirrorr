@@ -1,20 +1,24 @@
-import json
 from datetime import datetime
 
 from sqlalchemy.exc import IntegrityError
 from loguru import logger
 from src.event_bus.nats import bus
 from src.event_bus.event import MirrorrEvent, BaseEvent
-from typing import Type, TypeVar, Any  # noqa: F401
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from src.api.dependencies import _get_db_session, require_auth, AuthState
 from src.api.auth import subscribe_requester
+from src.api.schemas import (
+    CreateSessionRequest,
+    CreateAutorunRequest,
+    UpdateAutorunRequest,
+    CreateProfileRequest,
+    UpdateProfileRequest,
+)
 from src.storage.models import Session, Autorun, Recording, Profile, Engine, Resolver, SessionStatus, ResourceType
 from src.storage import crud
-
-T = TypeVar("T", bound=SQLModel)
 
 event_map: dict[type, tuple[type, type, type]] = {
     Session: (MirrorrEvent.SESSION_CREATED, MirrorrEvent.SESSION_UPDATED, MirrorrEvent.SESSION_DELETED),
@@ -83,8 +87,8 @@ async def get_session(id: int, db: AsyncSession = Depends(_get_db_session), auth
 
 
 @sessions_router.post("/")
-async def create_session(item: dict[str, Any] = Body(...), db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    payload = Session.model_validate_json(json.dumps(item))
+async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+    payload = Session.model_validate(item.model_dump())
     if not payload.requester_user_token:
         assert auth.user is not None
         payload.requester_user_token = auth.user.username
@@ -156,9 +160,11 @@ def _parse_datetimes(item: dict[str, Any], fields: list[str]) -> dict[str, Any]:
 
 
 @autoruns_router.post("/")
-async def create_autorun(item: dict[str, Any] = Body(...), db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    item = _parse_datetimes(item, ["start_time", "end_time"])
-    payload = Autorun.model_validate(item)
+async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+    payload_data = item.model_dump()
+    payload_data["start_time"] = item.start_time.replace(tzinfo=None) if item.start_time.tzinfo else item.start_time
+    payload_data["end_time"] = item.end_time.replace(tzinfo=None) if item.end_time.tzinfo else item.end_time
+    payload = Autorun.model_validate(payload_data)
     if not payload.requester_user_token:
         assert auth.user is not None
         payload.requester_user_token = auth.user.username
@@ -172,14 +178,18 @@ async def create_autorun(item: dict[str, Any] = Body(...), db: AsyncSession = De
 
 
 @autoruns_router.put("/{id}")
-async def update_autorun(id: int, item: dict[str, Any] = Body(...), db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     existing = await crud.get_by_id(db, Autorun, id)
     if not existing:
         raise HTTPException(status_code=404, detail="Autorun not found")
     if not _is_owner_or_admin(auth, existing):
         raise HTTPException(status_code=403, detail="Not your autorun")
-    item = _parse_datetimes(item, ["start_time", "end_time"])
-    payload = Autorun.model_validate(item)
+    payload_data = item.model_dump(exclude_unset=True)
+    if "start_time" in payload_data and payload_data["start_time"] is not None:
+        payload_data["start_time"] = payload_data["start_time"].replace(tzinfo=None) if payload_data["start_time"].tzinfo else payload_data["start_time"]
+    if "end_time" in payload_data and payload_data["end_time"] is not None:
+        payload_data["end_time"] = payload_data["end_time"].replace(tzinfo=None) if payload_data["end_time"].tzinfo else payload_data["end_time"]
+    payload = Autorun.model_validate({**existing.model_dump(), **payload_data})
     if not payload.requester_user_token:
         assert auth.user is not None
         payload.requester_user_token = auth.user.username
@@ -271,8 +281,8 @@ async def get_profile(id: int, db: AsyncSession = Depends(_get_db_session), auth
 
 
 @profiles_router.post("/")
-async def create_profile(item: dict[str, Any] = Body(...), db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    payload = Profile.model_validate_json(json.dumps(item))
+async def create_profile(item: CreateProfileRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+    payload = Profile.model_validate(item.model_dump())
     if not payload.requester_user_token:
         assert auth.user is not None
         payload.requester_user_token = auth.user.username
@@ -286,13 +296,14 @@ async def create_profile(item: dict[str, Any] = Body(...), db: AsyncSession = De
 
 
 @profiles_router.put("/{id}")
-async def update_profile(id: int, item: dict[str, Any] = Body(...), db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+async def update_profile(id: int, item: UpdateProfileRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     existing = await crud.get_by_id(db, Profile, id)
     if not existing:
         raise HTTPException(status_code=404, detail="Profile not found")
     if not _is_owner_or_admin(auth, existing):
         raise HTTPException(status_code=403, detail="Not your profile")
-    payload = Profile.model_validate_json(json.dumps(item))
+    payload_data = item.model_dump(exclude_unset=True)
+    payload = Profile.model_validate({**existing.model_dump(), **payload_data})
     if not payload.requester_user_token:
         assert auth.user is not None
         payload.requester_user_token = auth.user.username

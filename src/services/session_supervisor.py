@@ -1,153 +1,33 @@
 from __future__ import annotations
 
-import argparse
 import asyncio
 import json
-import os
-import shutil
-import subprocess
-import sys
 from datetime import datetime
-from multiprocessing.synchronize import Event as ShutdownEvent
-from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from sqlmodel import select
-from sqlalchemy.orm import selectinload
 
-from src.storage.models import (
+from src.plugins.interfaces import (
     EngineInterface,
     EngineContext,
     ResolverInterface,
     ResolverContext,
-    Autorun,
-    Session,
-    SessionStatus,
-    Profile,
 )
+from src.storage.enums import SessionStatus
+from src.storage.models import Autorun, Session, Profile
 from src.services.process_bus import ProcessBus, EngineDone, EngineCrashed
 from src.services.managed_process import ManagedProcess
 from src.services.recording import RecordingManager
 from src.services.session_lifecycle import update_session, delete_session
+from src.services.session_helpers import make_session_dirs, build_session_urls, load_session_from_db
 from src.startup.config import MirrorrSettings
 from src.event_bus.event import MirrorrEvent
 from nats.aio.client import Client as NATS
 
 
-
-
-# ── Private helper functions ──────────────────────────────────────────
-
-# Session status updates and deletes are handled by src.services.session_lifecycle.
-# Import them at the top of this file for use throughout the supervisor.
-
-
-def _make_session_dirs(
-    session_folder: Path,
-    logs_folder: Path,
-    segments_folder: Path,
-    settings: MirrorrSettings,
-) -> None:
-    """Create session directories and copy static assets."""
-    session_folder.mkdir(parents=True, exist_ok=True)
-    logs_folder.mkdir(parents=True, exist_ok=True)
-    segments_folder.mkdir(parents=True, exist_ok=True)
-    _copy_static_assets(session_folder, settings)
-    _build_session_urls(session_folder, segments_folder, settings)
-
-
-def _copy_static_assets(session_folder: Path, settings: MirrorrSettings) -> None:
-    """Copy player/vlc/outplayer HTML into the session folder."""
-    from src.startup.config import _PACKAGE_ROOT
-    static_dir = _PACKAGE_ROOT / "static_files"
-    if not static_dir.exists():
-        return
-    for f in static_dir.glob("*.html"):
-        shutil.copy2(f, session_folder / f.name)
-
-
-def _build_session_urls(
-    session_folder: Path,
-    segments_folder: Path,
-    settings: MirrorrSettings,
-) -> list[dict[str, str]]:
-    """Build session_urls with label->URL pairs for the session folder."""
-    web_url = settings.web_url.rstrip("/")
-    if not web_url:
-        return []
-
-    try:
-        rel = session_folder.relative_to(settings.content_dir)
-    except ValueError:
-        return []
-
-    base = f"{web_url}/content/{rel.as_posix()}"
-    urls: list[dict[str, str]] = []
-
-    if (session_folder / "player.html").exists():
-        urls.append({"label": "HTML", "url": f"{base}/player.html?src=stream.m3u8"})
-
-    urls.append({"label": "M3U8", "url": f"{base}/stream.m3u8"})
-
-    if (session_folder / "outplayer.html").exists():
-        urls.append({"label": "Outplayer", "url": f"{base}/outplayer.html?src=stream.m3u8"})
-
-    if (session_folder / "vlc.html").exists():
-        urls.append({"label": "VLC", "url": f"{base}/vlc.html?src=stream.m3u8"})
-
-    urls.append({"label": "Session", "url": base + "/"})
-    return urls
-
-
-# _persist_session_urls and _update_recording_flag are no longer needed —
-# use update_session(settings, session_id, session_urls=..., nc=nc) and
-# update_session(settings, session_id, recording=True/False, nc=nc) instead.
-
-
-async def _load_session_from_db(
-    settings: MirrorrSettings,
-    session_id: int,
-) -> tuple[Session, EngineInterface, ResolverInterface]:
-    """Load the session from DB, JIT-load plugins, return components."""
-    from src.storage.database import create_db_engine
-    from src.storage import crud
-    from src.startup.ensure_engines import load_engine_jit
-    from src.startup.ensure_resolvers import load_resolver_jit
-
-    engine, session_factory = create_db_engine(settings)
-    try:
-        async with session_factory() as db_session:
-            stmt = (
-                select(Session)
-                .where(Session.id == session_id)
-                .options(
-                    selectinload(Session.engine),  # ty:ignore
-                    selectinload(Session.profile).selectinload(Profile.resolver),  # ty:ignore
-                    selectinload(Session.autorun),  # ty:ignore
-                )
-            )
-            result = await db_session.exec(stmt)
-            session: Session | None = result.one_or_none()
-
-            if session is None:
-                raise ValueError(f"Session with id {session_id} not found")
-            if not session.profile:
-                raise ValueError("Session missing profile")
-
-            engine_interface = load_engine_jit(
-                settings.engines_dir,
-                session.engine.origin,
-                session.engine.origin_hash,
-            )
-            resolver_interface = load_resolver_jit(
-                settings.resolvers_dir,
-                session.profile.resolver.origin,
-                session.profile.resolver.origin_hash,
-            )
-            return session, engine_interface, resolver_interface
-    finally:
-        await engine.dispose()
+# ═══════════════════════════════════════════════════════════════════════
+# SessionSupervisor class
+# ═══════════════════════════════════════════════════════════════════════
 
 
 class SessionSupervisor:
@@ -335,7 +215,7 @@ class SessionSupervisor:
 
     async def _run_attempt(self) -> tuple[str, EngineCrashed | EngineDone | None]:
         """Single resolve→start→wait cycle. Returns (outcome, signal)."""
-        _make_session_dirs(self.session_folder, self.logs_folder, self.segments_folder, self.settings)
+        make_session_dirs(self.session_folder, self.logs_folder, self.segments_folder, self.settings)
 
         self.engine_ctx = EngineContext(
             bus=self.bus,
@@ -356,7 +236,7 @@ class SessionSupervisor:
         await update_session(
             self.settings, self.session_id,
             status=SessionStatus.RECORDING if self.session.recording else SessionStatus.ACTIVE,
-            session_urls=_build_session_urls(self.session_folder, self.segments_folder, self.settings),
+            session_urls=build_session_urls(self.session_folder, self.segments_folder, self.settings),
             nc=self._nc,
         )
 
@@ -696,60 +576,7 @@ class SessionSupervisor:
         self._nc = None
 
 
-# ── Entry point for multiprocessing ───────────────────────────────────
-
-async def runner(session_id: int, settings: MirrorrSettings, shutdown_event: ShutdownEvent | None = None) -> None:
-    from src.startup.logging import setup_logging
-    setup_logging()
-
-    try:
-        logger.opt(colors=True).info(f"Starting session supervisor for session <green>{session_id}</green>")
-        session, engine_interface, resolver_interface = await _load_session_from_db(settings, session_id)
-        supervisor = SessionSupervisor(session_id, session, engine_interface, resolver_interface, settings)
-        logger.opt(colors=True).success(f"Supervisor created for session <green>{session_id}</green>")
-
-        # Monitor the cross-platform shutdown event and emit a stop into the ProcessBus
-        async def _watch_shutdown():
-            while True:
-                if shutdown_event and shutdown_event.is_set():
-                    logger.info(f"Session {session_id}: shutdown event received")
-                    await supervisor.bus.emit("session.stop_requested")
-                    return
-                await asyncio.sleep(0.1)
-
-        if shutdown_event:
-            asyncio.create_task(_watch_shutdown())
-
-        await supervisor.run()
-    except ValueError as e:
-        logger.error(e)
-        # Session not found or missing profile — mark FAILED
-        await update_session(settings, session_id, status=SessionStatus.FAILED)
-        raise
-    except Exception as e:
-        logger.error(f"Session {session_id} failed with exception: {e}")
-        await update_session(settings, session_id, status=SessionStatus.FAILED)
-        raise
-
-
-def main(session_id: int, settings: MirrorrSettings, shutdown_event: ShutdownEvent | None = None) -> None:
-    # On Windows, ignore Ctrl+C in child processes — the parent controls
-    # shutdown via the multiprocessing.Event. Without this, CTRL_C_EVENT
-    # raises KeyboardInterrupt inside asyncio.run() and tears down the
-    # event loop before cleanup can run, leaking pipe transports.
-    if sys.platform == "win32" and shutdown_event is not None:
-        import signal as _signal
-        _signal.signal(_signal.SIGINT, _signal.SIG_IGN)
-
-    try:
-        asyncio.run(runner(session_id, settings, shutdown_event))
-    except KeyboardInterrupt:
-        pass
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--session-id", type=int, required=True)
-    args = parser.parse_args()
-    settings = MirrorrSettings.create_from_env(".env")
-    main(args.session_id, settings)
+# ── Backward-compatible re-exports ───────────────────────────────────
+# runner() and main() now live in session_runner.py.
+# Import from there for new code.
+from src.services.session_runner import runner, main  # noqa: F401, E402

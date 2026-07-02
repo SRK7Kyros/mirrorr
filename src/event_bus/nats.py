@@ -7,9 +7,10 @@ import json
 from typing import Any, Awaitable, Type, TypeVar
 from nats.aio.client import Client as NATS
 from src.event_bus.event import BaseEvent, MirrorrEvent, T
+from src.event_bus.protocol import EventBus
 
 
-class NatsRegistry:
+class NatsRegistry(EventBus):
     def __init__(self) -> None:
         self.nc = NATS()
         self._handlers: dict[str, list[tuple[Callable[..., Awaitable[None]], Type[BaseEvent]]]] = {}
@@ -65,6 +66,13 @@ class NatsRegistry:
             except Exception as e:
                 logger.error(f"Failed to register subscription for <blue>{subject}</blue>: {e}")
         logger.info("Subscriptions registered successfully.")
+
+    async def drain(self) -> None:
+        """Gracefully drain in-flight NATS messages before closing."""
+        try:
+            await self.nc.drain()
+        except Exception:
+            pass
 
     def get_handlers(self, event: Type[BaseEvent]) -> list[tuple[Callable[..., Awaitable[None]], Type[BaseEvent]]]:
         return self._handlers.get(event.subject, [])
