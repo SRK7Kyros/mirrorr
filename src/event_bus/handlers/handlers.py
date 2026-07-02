@@ -69,11 +69,11 @@ async def handle_autorun_created(data: MirrorrEvent.AUTORUN_CREATED):
 @bus.on(MirrorrEvent.AUTORUN_DELETED)
 async def handle_autorun_deleted(data: MirrorrEvent.AUTORUN_DELETED):
     """When an autorun is deleted, stop its session if one is running."""
-    from src.storage.database import create_db_engine
+    from src.di import container
     from src.storage.models import Session, SessionStatus
     from sqlmodel import select
 
-    db_engine, session_factory = create_db_engine(bus._settings)
+    session_factory = container.session_factory
     try:
         async with session_factory() as db:
             stmt = select(Session).where(Session.autorun_id == data.id)
@@ -87,22 +87,20 @@ async def handle_autorun_deleted(data: MirrorrEvent.AUTORUN_DELETED):
                 await db.commit()  # commit the kill before updating status
                 from src.services.session_lifecycle import update_session
                 await update_session(
-                    bus._settings, session.id, status=SessionStatus.FAILED,
+                    container.settings, session.id, status=SessionStatus.FAILED,
                 )
     except Exception as e:
         logger.error(f"Failed to handle autorun deletion {data.id}: {e}")
-    finally:
-        await db_engine.dispose()
 
 
 # ── Notification-producing event handlers ────────────────────────────
 
 async def _create_notification(resource_type: str, resource_id: int, event_type: str, title: str, body: str = "") -> None:
     """Create notifications for all subscribed users via a standalone DB session."""
-    from src.storage.database import create_db_engine
+    from src.di import container
     from src.api.auth import notify_subscribers
 
-    db_engine, session_factory = create_db_engine(bus._settings)
+    session_factory = container.session_factory
     try:
         async with session_factory() as db:
             count = await notify_subscribers(db, resource_type, resource_id, event_type, title, body)
@@ -110,8 +108,6 @@ async def _create_notification(resource_type: str, resource_id: int, event_type:
                 logger.info(f"Notification: {title} → {count} user(s)")
     except Exception as e:
         logger.error(f"Failed to create notification: {e}")
-    finally:
-        await db_engine.dispose()
 
 
 @bus.on(MirrorrEvent.SESSION_STARTED)

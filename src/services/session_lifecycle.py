@@ -12,6 +12,10 @@ which guarantee:
    - If session status changed: autorun status is propagated
    - If session was deleted: SESSION_DELETED + AUTORUN_UPDATED
 
+DB access strategy:
+- Main process: uses the DI container's shared session_factory
+- Subprocess (supervisor): falls back to creating a fresh engine from settings
+
 Usage:
     from src.services.session_lifecycle import update_session, delete_session, update_autorun
 
@@ -31,12 +35,17 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import shutil
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 from loguru import logger
+from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.event_bus.event import MirrorrEvent
 from src.storage.models import (
@@ -64,6 +73,35 @@ _STATUS_MAP: dict[SessionStatus, AutorunStatus] = {
 }
 
 
+@asynccontextmanager
+async def _get_session_factory(
+    settings: MirrorrSettings | None = None,
+) -> AsyncGenerator[async_sessionmaker, None]:
+    """Get a session factory, preferring the DI container.
+
+    In the main process, the DI container holds a shared factory.
+    In subprocesses (supervisor), the container isn't wired, so we
+    create a fresh engine from settings and dispose it when done.
+    """
+    # Try DI container first (main process)
+    try:
+        from src.di import container
+        yield container.session_factory
+        return
+    except (RuntimeError, ImportError):
+        pass
+
+    # Fallback: create engine from settings (subprocess)
+    if settings is None:
+        raise RuntimeError("No DI container and no settings — cannot get session factory")
+    from src.storage.database import create_db_engine
+    db_engine, session_factory = create_db_engine(settings)
+    try:
+        yield session_factory
+    finally:
+        await db_engine.dispose()
+
+
 async def update_session(
     settings: MirrorrSettings,
     session_id: int,
@@ -81,63 +119,60 @@ async def update_session(
     - ``status`` is terminal → set ``ended_at``
     - Any field changed → emit ``SESSION_UPDATED``
     """
-    from src.storage.database import create_db_engine
     from src.storage import crud
 
     if not fields:
         return {}
 
-    db_engine, session_factory = create_db_engine(settings)
     diff: dict[str, tuple[Any, Any]] = {}
     autorun_id: int | None = None
     try:
-        async with session_factory() as db:
-            session = await crud.get_by_id(db, Session, session_id)
-            if not session:
-                logger.warning(f"update_session: session {session_id} not found")
-                return {}
+        async with _get_session_factory(settings) as session_factory:
+            async with session_factory() as db:
+                session = await crud.get_by_id(db, Session, session_id)
+                if not session:
+                    logger.warning(f"update_session: session {session_id} not found")
+                    return {}
 
-            # ── Compute diff and apply ───────────────────────────────
-            for key, new_val in fields.items():
-                old_val = getattr(session, key, None)
-                if old_val != new_val:
-                    diff[key] = (old_val, new_val)
-                    setattr(session, key, new_val)
+                # ── Compute diff and apply ───────────────────────────────
+                for key, new_val in fields.items():
+                    old_val = getattr(session, key, None)
+                    if old_val != new_val:
+                        diff[key] = (old_val, new_val)
+                        setattr(session, key, new_val)
 
-            # ── Auto-set timestamps based on status transitions ──────
-            if "status" in diff:
-                new_status = diff["status"][1]
+                # ── Auto-set timestamps based on status transitions ──────
+                if "status" in diff:
+                    new_status = diff["status"][1]
 
-                # Set started_at when transitioning to an active state
-                if new_status in (SessionStatus.ACTIVE, SessionStatus.RECORDING):
-                    if not session.started_at:
-                        session.started_at = datetime.utcnow()
-                        diff["started_at"] = (None, session.started_at)
+                    # Set started_at when transitioning to an active state
+                    if new_status in (SessionStatus.ACTIVE, SessionStatus.RECORDING):
+                        if not session.started_at:
+                            session.started_at = datetime.utcnow()
+                            diff["started_at"] = (None, session.started_at)
 
-                # Set ended_at when reaching a terminal state
-                if new_status in (SessionStatus.COMPLETED, SessionStatus.FAILED):
-                    if not session.ended_at:
-                        session.ended_at = datetime.utcnow()
-                        diff["ended_at"] = (None, session.ended_at)
+                    # Set ended_at when reaching a terminal state
+                    if new_status in (SessionStatus.COMPLETED, SessionStatus.FAILED):
+                        if not session.ended_at:
+                            session.ended_at = datetime.utcnow()
+                            diff["ended_at"] = (None, session.ended_at)
 
-            # ── Commit ───────────────────────────────────────────────
-            if diff:
-                await crud.update(db, Session, session_id, session)
+                # ── Commit ───────────────────────────────────────────────
+                if diff:
+                    await crud.update(db, Session, session_id, session)
 
-                # ── Propagate status to autorun ──────────────────────
-                if "status" in diff and session.autorun_id:
-                    autorun = await crud.get_by_id(db, Autorun, session.autorun_id)
-                    if autorun:
-                        new_status = diff["status"][1]
-                        mapped = _STATUS_MAP.get(new_status)
-                        if mapped and autorun.status != mapped:
-                            autorun.status = mapped
-                            await crud.update(db, Autorun, autorun.id, autorun)
-                            autorun_id = autorun.id
+                    # ── Propagate status to autorun ──────────────────────
+                    if "status" in diff and session.autorun_id:
+                        autorun = await crud.get_by_id(db, Autorun, session.autorun_id)
+                        if autorun:
+                            new_status = diff["status"][1]
+                            mapped = _STATUS_MAP.get(new_status)
+                            if mapped and autorun.status != mapped:
+                                autorun.status = mapped
+                                await crud.update(db, Autorun, autorun.id, autorun)
+                                autorun_id = autorun.id
     except Exception as e:
         logger.error(f"Failed to update session {session_id}: {e}")
-    finally:
-        await db_engine.dispose()
 
     # ── Emit NATS events based on diff ────────────────────────────────
     if diff:
@@ -155,17 +190,14 @@ async def delete_session(
     autorun_id: int | None = None,
 ) -> None:
     """Delete session DB row + folder, emit SESSION_DELETED + AUTORUN_UPDATED."""
-    from src.storage.database import create_db_engine
     from src.storage import crud
 
-    db_engine, session_factory = create_db_engine(settings)
     try:
-        async with session_factory() as db:
-            await crud.delete(db, Session, session_id)
+        async with _get_session_factory(settings) as session_factory:
+            async with session_factory() as db:
+                await crud.delete(db, Session, session_id)
     except Exception as e:
         logger.error(f"Failed to delete session {session_id}: {e}")
-    finally:
-        await db_engine.dispose()
 
     if session_folder and session_folder.exists():
         shutil.rmtree(session_folder, ignore_errors=True)
@@ -200,33 +232,30 @@ async def update_autorun(
     Returns the diff dict ``{field_name: (old_value, new_value)}`` for
     every field that actually changed.
     """
-    from src.storage.database import create_db_engine
     from src.storage import crud
 
     if not fields:
         return {}
 
-    db_engine, session_factory = create_db_engine(settings)
     diff: dict[str, tuple[Any, Any]] = {}
     try:
-        async with session_factory() as db:
-            autorun = await crud.get_by_id(db, Autorun, autorun_id)
-            if not autorun:
-                logger.warning(f"update_autorun: autorun {autorun_id} not found")
-                return {}
+        async with _get_session_factory(settings) as session_factory:
+            async with session_factory() as db:
+                autorun = await crud.get_by_id(db, Autorun, autorun_id)
+                if not autorun:
+                    logger.warning(f"update_autorun: autorun {autorun_id} not found")
+                    return {}
 
-            for key, new_val in fields.items():
-                old_val = getattr(autorun, key, None)
-                if old_val != new_val:
-                    diff[key] = (old_val, new_val)
-                    setattr(autorun, key, new_val)
+                for key, new_val in fields.items():
+                    old_val = getattr(autorun, key, None)
+                    if old_val != new_val:
+                        diff[key] = (old_val, new_val)
+                        setattr(autorun, key, new_val)
 
-            if diff:
-                await crud.update(db, Autorun, autorun_id, autorun)
+                if diff:
+                    await crud.update(db, Autorun, autorun_id, autorun)
     except Exception as e:
         logger.error(f"Failed to update autorun {autorun_id}: {e}")
-    finally:
-        await db_engine.dispose()
 
     if diff:
         _nc = _resolve_nc(nc)

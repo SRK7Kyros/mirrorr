@@ -147,6 +147,14 @@ class MirrorrCore:
         await bus.connect([self.settings.nats_url])
         await bus.start_subscriptions()
 
+        # 7a. Wire the DI container
+        from src.di import container
+        container.configure(
+            settings=self.settings,
+            session_factory=self._session_factory,
+            event_bus=bus,
+        )
+
         # 8. Autorun scheduler
         from src.services.autorun_scheduler import autorun_scheduler_loop
         self._scheduler_stop = asyncio.Event()
@@ -199,6 +207,12 @@ class MirrorrCore:
                 await asyncio.wait_for(self._db_engine.dispose(), timeout=3.0)
             except Exception:
                 pass
+
+        # 4. Reset DI container
+        from src.di import container
+        container.reset()
+
+        logger.info("MirrorrCore shutdown complete.")
 
         logger.success("MirrorrCore stopped gracefully.")
 

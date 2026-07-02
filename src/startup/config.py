@@ -96,6 +96,7 @@ class MirrorrSettings(BaseModel):
     api_port: int = 8000
     dev_serve_files: bool = False  # mount content_dir as static files in uvicorn (dev only)
     dev_reset_database: bool = False  # truncate all DB tables on boot (dev only)
+    jwt_secret_key: str = ""  # JWT signing key. If empty, auto-generated on first use.
 
     # ── validators / computed ──────────────────────────────────────────
 
@@ -192,6 +193,7 @@ class MirrorrSettings(BaseModel):
             DEV_SERVE_FILES: bool = False
             DEV_RESET_DATABASE: bool = False
             WEB_URL: str = ""
+            JWT_SECRET_KEY: str = ""
 
             @model_validator(mode="after")
             def _derive_paths(self) -> Self:
@@ -224,7 +226,7 @@ class MirrorrSettings(BaseModel):
             "plugins_dir", "engines_dir", "resolvers_dir", "nats_server_dir",
             "binaries_dir", "db_file", "nats_port", "use_system_ffmpeg",
             "use_system_nats", "api_host", "api_port", "dev_serve_files",
-            "dev_reset_database",
+            "dev_reset_database", "jwt_secret_key",
             "hls_window", "segment_duration", "autorun_check_interval",
             "web_url",
         ):

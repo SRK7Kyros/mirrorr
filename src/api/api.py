@@ -28,14 +28,35 @@ API = FastAPI(lifespan=lifespan, redirect_slashes=False)
 async def favicon():
     return Response(status_code=204)
 
-# Allow all origins for development
-API.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
+def setup_cors(app: FastAPI, allowed_origins: list[str] | None = None) -> None:
+    """Configure CORS middleware with the given allowed origins.
+
+    In production, allowed_origins should be set via CORS_ALLOWED_ORIGINS env var.
+    If not configured, defaults to localhost origins for development.
+    """
+    if allowed_origins is None:
+        allowed_origins = [
+            "http://localhost:5173",  # Vite dev server
+            "http://localhost:3000",  # Alternative dev port
+            "http://localhost:8000",  # Backend API
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:8000",
+        ]
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+# Setup CORS with default development origins
+# Production should override via CORS_ALLOWED_ORIGINS env var
+setup_cors(API)
 
 API.include_router(crud_routers)
 API.include_router(session_control_router)
