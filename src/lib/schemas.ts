@@ -136,13 +136,15 @@ const attemptSchema = z.object({
 
 export const sessionSchema = z.object({
   id: z.number(),
-  profile_id: z.number(),
+  profile_id: z.number().nullable(),
   autorun_id: z.number().nullable(),
   engine_id: z.number(),
+  resolver_id: z.number(),
+  resolver_config: z.record(z.any()),
+  retry_mode: z.string(),
+  retry_config: z.record(z.any()),
   status: sessionStatusSchema,
   recording: z.boolean(),
-  retry_mode_override: z.string().nullable(),
-  retry_config_override: z.record(z.any()).nullable(),
   retry_attempts: z.number(),
   started_at: z.string().nullable(),
   ended_at: z.string().nullable(),
@@ -154,11 +156,13 @@ export const sessionSchema = z.object({
 export type Session = z.infer<typeof sessionSchema>
 
 export const createSessionSchema = z.object({
-  profile_id: z.number({ required_error: "Profile is required" }),
+  profile_id: z.number().optional(),
   engine_id: z.number({ required_error: "Engine is required" }),
+  resolver_id: z.number({ required_error: "Resolver is required" }),
+  resolver_config: z.record(z.any()).default({}),
+  retry_mode: z.string().default("none"),
+  retry_config: z.record(z.any()).default({}),
   recording: z.boolean().default(false),
-  retry_mode_override: z.string().optional(),
-  retry_config_override: z.record(z.any()).optional(),
 })
 
 // ── Autorun ────────────────────────────────────────────────────────
@@ -167,14 +171,16 @@ export const autorunSchema = z.object({
   id: z.number(),
   user_friendly_name: z.string(),
   snake_case_name: z.string(),
-  profile_id: z.number(),
+  profile_id: z.number().nullable(),
   engine_id: z.number(),
+  resolver_id: z.number(),
+  resolver_config: z.record(z.any()),
+  retry_mode: z.string(),
+  retry_config: z.record(z.any()),
   status: z.string().default("scheduled"),
   start_time: z.string(),
   end_time: z.string(),
   recording: z.boolean(),
-  retry_mode_override: z.string().nullable(),
-  retry_config_override: z.record(z.any()).nullable(),
   requester_user_token: z.string(),
 })
 
@@ -183,13 +189,15 @@ export type Autorun = z.infer<typeof autorunSchema>
 export const createAutorunSchema = z.object({
   user_friendly_name: z.string().min(1, "Name is required"),
   snake_case_name: z.string().min(1, "Slug is required"),
-  profile_id: z.number({ required_error: "Profile is required" }),
+  profile_id: z.number().optional(),
   engine_id: z.number({ required_error: "Engine is required" }),
+  resolver_id: z.number({ required_error: "Resolver is required" }),
+  resolver_config: z.record(z.any()).default({}),
+  retry_mode: z.string().default("none"),
+  retry_config: z.record(z.any()).default({}),
   start_time: z.string().min(1, "Start time is required"),
   end_time: z.string().min(1, "End time is required"),
   recording: z.boolean().default(true),
-  retry_mode_override: z.string().nullable().default(null),
-  retry_config_override: z.record(z.any()).nullable().default(null),
 })
 
 // ── Recording ──────────────────────────────────────────────────────

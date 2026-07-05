@@ -378,8 +378,15 @@ export const authApi = {
 export const sessionsApi = {
   list: () => apiRequest<Session[]>("/sessions/"),
   get: (id: number) => apiRequest<Session>(`/sessions/${id}`),
-  create: (data: Record<string, unknown>) =>
-    apiRequest<Session>("/sessions/", { method: "POST", body: data }),
+  create: (data: {
+    profile_id?: number
+    engine_id: number
+    resolver_id: number
+    resolver_config?: Record<string, unknown>
+    retry_mode?: string
+    retry_config?: Record<string, unknown>
+    recording?: boolean
+  }) => apiRequest<Session>("/sessions/", { method: "POST", body: data }),
   delete: (id: number) =>
     apiRequest<void>(`/sessions/${id}`, { method: "DELETE" }),
   stop: (id: number) =>
@@ -388,6 +395,8 @@ export const sessionsApi = {
     apiRequest<Session>(`/sessions/${id}/recording/enable`, { method: "POST" }),
   disableRecording: (id: number) =>
     apiRequest<Session>(`/sessions/${id}/recording/disable`, { method: "POST" }),
+  saveAsProfile: (sessionId: number, name: string) =>
+    apiRequest<Profile>(`/sessions/${sessionId}/save-as-profile`, { method: "POST", body: { name } }),
 }
 
 // ── Autoruns API ───────────────────────────────────────────────────
@@ -395,8 +404,19 @@ export const sessionsApi = {
 export const autorunsApi = {
   list: () => apiRequest<Autorun[]>("/autoruns/"),
   get: (id: number) => apiRequest<Autorun>(`/autoruns/${id}`),
-  create: (data: Record<string, unknown>) =>
-    apiRequest<Autorun>("/autoruns/", { method: "POST", body: data }),
+  create: (data: {
+    user_friendly_name: string
+    snake_case_name: string
+    profile_id?: number
+    engine_id: number
+    resolver_id: number
+    resolver_config?: Record<string, unknown>
+    retry_mode?: string
+    retry_config?: Record<string, unknown>
+    start_time: string
+    end_time: string
+    recording?: boolean
+  }) => apiRequest<Autorun>("/autoruns/", { method: "POST", body: data }),
   update: (id: number, data: Record<string, unknown>) =>
     apiRequest<Autorun>(`/autoruns/${id}`, { method: "PUT", body: data }),
   delete: (id: number) =>
