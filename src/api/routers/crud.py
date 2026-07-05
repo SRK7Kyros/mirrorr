@@ -228,6 +228,31 @@ async def delete_autorun(id: int, db: AsyncSession = Depends(_get_db_session), a
     await _safe_delete(db, Autorun, id)
     await _safe_emit(MirrorrEvent.AUTORUN_DELETED(id=id))
 
+# ── Save Autorun as Profile ────────────────────────────────────────────
+
+
+@crud_routers.post("/autoruns/{autorun_id}/save-as-profile")
+async def save_autorun_as_profile(autorun_id: int, req: SaveProfileRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+    autorun = await crud.get_by_id(db, Autorun, autorun_id)
+    if not autorun:
+        raise HTTPException(status_code=404, detail="Autorun not found")
+    if not _is_owner_or_admin(auth, autorun):
+        raise HTTPException(status_code=403, detail="Not your autorun")
+    profile = Profile(
+        name=req.name,
+        default_engine_id=autorun.engine_id,
+        resolver_id=autorun.resolver_id,
+        resolver_config=autorun.resolver_config,
+        retry_mode=autorun.retry_mode,
+        retry_config=autorun.retry_config,
+        requester_user_token=auth.user.username if auth.user else "",
+    )
+    db.add(profile)
+    await db.commit()
+    await db.refresh(profile)
+    await subscribe_requester(db, profile.requester_user_token, ResourceType.PROFILE, profile.id)
+    await _safe_emit(MirrorrEvent.PROFILE_CREATED(id=profile.id))
+    return profile
 
 crud_routers.include_router(autoruns_router)
 
