@@ -16,6 +16,7 @@ from src.api.schemas import (
     UpdateAutorunRequest,
     CreateProfileRequest,
     UpdateProfileRequest,
+    SaveProfileRequest,
 )
 from src.storage.models import Session, Autorun, Recording, Profile, Engine, Resolver, SessionStatus, ResourceType
 from src.storage import crud
@@ -88,10 +89,16 @@ async def get_session(id: int, db: AsyncSession = Depends(_get_db_session), auth
 
 @sessions_router.post("/")
 async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    payload = Session.model_validate(item.model_dump())
-    if not payload.requester_user_token:
-        assert auth.user is not None
-        payload.requester_user_token = auth.user.username
+    payload = Session(
+        profile_id=item.profile_id,
+        engine_id=item.engine_id,
+        resolver_id=item.resolver_id,
+        resolver_config=item.resolver_config,
+        retry_mode=item.retry_mode,
+        retry_config=item.retry_config,
+        recording=item.recording,
+        requester_user_token=item.requester_user_token or (auth.user.username if auth.user else ""),
+    )
     try:
         obj = await crud.create(db, payload)
     except IntegrityError as e:
@@ -161,13 +168,20 @@ def _parse_datetimes(item: dict[str, Any], fields: list[str]) -> dict[str, Any]:
 
 @autoruns_router.post("/")
 async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    payload_data = item.model_dump()
-    payload_data["start_time"] = item.start_time.replace(tzinfo=None) if item.start_time.tzinfo else item.start_time
-    payload_data["end_time"] = item.end_time.replace(tzinfo=None) if item.end_time.tzinfo else item.end_time
-    payload = Autorun.model_validate(payload_data)
-    if not payload.requester_user_token:
-        assert auth.user is not None
-        payload.requester_user_token = auth.user.username
+    payload = Autorun(
+        user_friendly_name=item.user_friendly_name,
+        snake_case_name=item.snake_case_name,
+        profile_id=item.profile_id,
+        engine_id=item.engine_id,
+        resolver_id=item.resolver_id,
+        resolver_config=item.resolver_config,
+        retry_mode=item.retry_mode,
+        retry_config=item.retry_config,
+        start_time=item.start_time.replace(tzinfo=None) if item.start_time.tzinfo else item.start_time,
+        end_time=item.end_time.replace(tzinfo=None) if item.end_time.tzinfo else item.end_time,
+        recording=item.recording,
+        requester_user_token=item.requester_user_token or (auth.user.username if auth.user else ""),
+    )
     try:
         obj = await crud.create(db, payload)
     except IntegrityError as e:
@@ -216,6 +230,33 @@ async def delete_autorun(id: int, db: AsyncSession = Depends(_get_db_session), a
 
 
 crud_routers.include_router(autoruns_router)
+
+# ── Save as Profile ────────────────────────────────────────────────────
+
+
+@crud_routers.post("/sessions/{session_id}/save-as-profile")
+async def save_session_as_profile(session_id: int, req: SaveProfileRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+    session = await crud.get_by_id(db, Session, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if not _is_owner_or_admin(auth, session):
+        raise HTTPException(status_code=403, detail="Not your session")
+    profile = Profile(
+        name=req.name,
+        default_engine_id=session.engine_id,
+        resolver_id=session.resolver_id,
+        resolver_config=session.resolver_config,
+        retry_mode=session.retry_mode,
+        retry_config=session.retry_config,
+        requester_user_token=auth.user.username if auth.user else "",
+    )
+    db.add(profile)
+    await db.commit()
+    await db.refresh(profile)
+    await subscribe_requester(db, profile.requester_user_token, ResourceType.PROFILE, profile.id)
+    await _safe_emit(MirrorrEvent.PROFILE_CREATED(id=profile.id))
+    return profile
+
 
 # ── Recordings ─────────────────────────────────────────────────────────
 
