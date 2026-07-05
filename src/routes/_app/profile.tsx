@@ -244,5 +244,6 @@ function AdminSection() {
           </div>
         )}
       </SectionCard>
+    </div>
   )
 }
