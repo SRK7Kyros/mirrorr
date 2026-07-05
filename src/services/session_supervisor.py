@@ -14,7 +14,7 @@ from src.plugins.interfaces import (
     ResolverContext,
 )
 from src.storage.enums import SessionStatus
-from src.storage.models import Autorun, Session, Profile
+from src.storage.models import Autorun, Resolver, Session
 from src.services.process_bus import ProcessBus, EngineDone, EngineCrashed
 from src.services.managed_process import ManagedProcess
 from src.services.recording import RecordingManager
@@ -68,7 +68,8 @@ class SessionSupervisor:
         if self.session.is_autorun:
             self.session_folder = settings.autoruns_dir / self.session.autorun.snake_case_name
         else:
-            base = settings.content_dir / self.session.profile.name
+            profile_name = self.session.profile.name if self.session.profile else f"session-{self.session.id}"
+            base = settings.content_dir / profile_name
             if base.exists():
                 candidate = base
                 i = 2
@@ -243,11 +244,20 @@ class SessionSupervisor:
         # 2. Resolve source via resolver
         try:
             from src.startup.ensure_resolvers import get_validated_config
+            from src.storage.database import create_db_engine
+
+            _eng, _sf = create_db_engine(self.settings)
+            try:
+                async with _sf() as _db:
+                    resolver_model = await _db.get(Resolver, self.session.resolver_id)
+            finally:
+                await _eng.dispose()
+
             config = get_validated_config(
                 resolvers_dir=self.settings.resolvers_dir,
-                origin=self.session.profile.resolver.origin,
-                expected_hash=self.session.profile.resolver.origin_hash,
-                data=self.session.profile.resolver_config,
+                origin=resolver_model.origin,
+                expected_hash=resolver_model.origin_hash,
+                data=self.session.resolver_config,
             )
             source = await self.resolver.resolve(config, self.resolver_ctx)
         except Exception as e:
