@@ -21,6 +21,8 @@ import {
     ChevronDown,
     ChevronRight,
     RefreshCw,
+    Copy,
+    Check,
 } from "lucide-react";
 import { tokenStatus } from "@/lib/api";
 
