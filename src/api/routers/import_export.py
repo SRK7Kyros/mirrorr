@@ -86,11 +86,6 @@ def _autorun_to_bundle(
             "name": engine.name,
             "origin_hash": engine.origin_hash,
         }
-    if a.retry_mode_override is not None:
-        data["retry_mode_override"] = a.retry_mode_override
-    if a.retry_config_override is not None:
-        data["retry_config_override"] = a.retry_config_override
-
     content = {
         "profile_name": profile.name,
         "start_time": data.get("start_time"),
@@ -99,10 +94,6 @@ def _autorun_to_bundle(
     }
     if a.engine_id != profile.default_engine_id:
         content["engine_override"] = engine.origin_hash
-    if a.retry_mode_override is not None:
-        content["retry_mode_override"] = a.retry_mode_override
-    if a.retry_config_override is not None:
-        content["retry_config_override"] = a.retry_config_override
     data["content_hash"] = _content_hash(content)
 
     return data
@@ -567,8 +558,6 @@ async def apply_bundle(
             start_time=datetime.fromisoformat(a["start_time"]) if a.get("start_time") else datetime.utcnow(),
             end_time=datetime.fromisoformat(a["end_time"]) if a.get("end_time") else datetime.utcnow(),
             recording=a.get("recording", True),
-            retry_mode_override=a.get("retry_mode_override"),
-            retry_config_override=a.get("retry_config_override"),
             requester_user_token=requester,
         )
         await crud.create(db, autorun_obj)
