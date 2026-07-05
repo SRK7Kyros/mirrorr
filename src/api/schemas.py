@@ -42,11 +42,13 @@ class ChangePasswordRequest(BaseModel):
 
 
 class CreateSessionRequest(BaseModel):
-    profile_id: int
+    profile_id: int | None = None
     engine_id: int
+    resolver_id: int
+    resolver_config: dict[str, Any] = Field(default_factory=dict)
+    retry_mode: str = "none"
+    retry_config: dict[str, Any] = Field(default_factory=dict)
     recording: bool = False
-    retry_mode_override: str | None = None
-    retry_config_override: dict[str, Any] | None = None
     requester_user_token: str = ""
 
 
@@ -56,13 +58,15 @@ class CreateSessionRequest(BaseModel):
 class CreateAutorunRequest(BaseModel):
     user_friendly_name: str
     snake_case_name: str
-    profile_id: int
+    profile_id: int | None = None
     engine_id: int
+    resolver_id: int
+    resolver_config: dict[str, Any] = Field(default_factory=dict)
+    retry_mode: str = "none"
+    retry_config: dict[str, Any] = Field(default_factory=dict)
     start_time: datetime
     end_time: datetime
     recording: bool = True
-    retry_mode_override: str | None = None
-    retry_config_override: dict[str, Any] | None = None
     requester_user_token: str = ""
 
 
@@ -71,11 +75,13 @@ class UpdateAutorunRequest(BaseModel):
     snake_case_name: str | None = None
     profile_id: int | None = None
     engine_id: int | None = None
+    resolver_id: int | None = None
+    resolver_config: dict[str, Any] | None = None
+    retry_mode: str | None = None
+    retry_config: dict[str, Any] | None = None
     start_time: datetime | None = None
     end_time: datetime | None = None
     recording: bool | None = None
-    retry_mode_override: str | None = None
-    retry_config_override: dict[str, Any] | None = None
     requester_user_token: str | None = None
 
 
@@ -100,3 +106,7 @@ class UpdateProfileRequest(BaseModel):
     retry_mode: str | None = None
     retry_config: dict[str, Any] | None = None
     requester_user_token: str | None = None
+
+
+class SaveProfileRequest(BaseModel):
+    name: str
