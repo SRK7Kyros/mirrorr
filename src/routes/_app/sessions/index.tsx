@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { sessionsApi, profilesApi, autorunsApi, pluginsApi } from "@/lib/api"
-import type { Session, Autorun } from "@/lib/schemas";
+import type { Session, Autorun, Profile } from "@/lib/schemas";
 import { Button } from "@/components/ui/button";
 import {
     Select,
@@ -12,16 +12,19 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Trash2, Radio, Loader2, Clock } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Trash2, Radio, Loader2, Clock, ChevronDown, ChevronRight, Bookmark } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusBadge } from "@/components/status-badge";
 import { InfoGrid } from "@/components/info-grid";
 import { KeyValueTable } from "@/components/key-value-table";
 import { SidebarLayout, SidebarEntry, DetailHeader, DetailLayout, CreatePanel, EmptyDetail } from "@/components/resource-layout";
 import { FormField } from "@/components/form-field";
+import { DynamicForm } from "@/components/dynamic-form";
 import { ResizableSidebar } from "@/components/resizable-sidebar";
 import { formatDuration, formatLocalDate, parseUtcDate } from "@/lib/utils";
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useInterval } from "@/hooks/use-interval";
 import { toast } from "sonner";
 
@@ -195,6 +198,22 @@ function SessionDetail({
     onToggleRec: () => void;
     deleting: boolean;
 }) {
+    const queryClient = useQueryClient();
+    const [saveName, setSaveName] = useState("");
+    const [saveOpen, setSaveOpen] = useState(false);
+
+    const saveAsProfileMutation = useMutation({
+        mutationFn: ({ sessionId, name }: { sessionId: number; name: string }) =>
+            sessionsApi.saveAsProfile(sessionId, name),
+        onSuccess: () => {
+            setSaveOpen(false);
+            setSaveName("");
+            queryClient.invalidateQueries({ queryKey: ["profiles"] });
+            toast.success("Profile created from session");
+        },
+        onError: (err: Error) =>
+            toast.error(`Failed to save as profile: ${err.message}`),
+    });
     if (!session) return null;
 
     // Compute offset: sum of durations of all completed attempts
@@ -225,6 +244,55 @@ function SessionDetail({
                     title={`Session #${session.id}`}
                     actions={
                         <div className="flex items-center gap-3">
+                            {/* Save as Profile */}
+                            {saveOpen ? (
+                                <div className="flex items-center gap-1.5">
+                                    <Input
+                                        value={saveName}
+                                        onChange={(e) => setSaveName(e.target.value)}
+                                        className="h-7 text-[11px] w-36"
+                                        placeholder="Profile name"
+                                        autoFocus
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter" && saveName.trim()) {
+                                                saveAsProfileMutation.mutate({ sessionId: session.id, name: saveName.trim() });
+                                            } else if (e.key === "Escape") {
+                                                setSaveOpen(false);
+                                                setSaveName("");
+                                            }
+                                        }}
+                                    />
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 text-[11px]"
+                                        disabled={!saveName.trim() || saveAsProfileMutation.isPending}
+                                        onClick={() => saveAsProfileMutation.mutate({ sessionId: session.id, name: saveName.trim() })}
+                                    >
+                                        {saveAsProfileMutation.isPending ? <Loader2 className="size-3 mr-1 animate-spin" /> : <Bookmark className="size-3 mr-1" />}
+                                        Save
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 text-[11px]"
+                                        onClick={() => { setSaveOpen(false); setSaveName(""); }}
+                                    >
+                                        Cancel
+                                    </Button>
+                                </div>
+                            ) : (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 text-[11px]"
+                                    onClick={() => setSaveOpen(true)}
+                                >
+                                    <Bookmark className="size-3 mr-1" />
+                                    Save as Profile
+                                </Button>
+                            )}
+
                             <div className="flex items-center gap-2">
                                 <Label className="text-[11px] text-muted-foreground">Recording</Label>
                                 <Switch
@@ -347,21 +415,109 @@ function SessionDetail({
 }
 
 function CreateSessionPanel({ onClose }: { onClose: () => void }) {
-    const [profileId, setProfileId] = useState("");
-    const [engineOverrideId, setEngineOverrideId] = useState("");
+    const [profileId, setProfileId] = useState("__none__");
+    const [engineId, setEngineId] = useState("");
+    const [resolverId, setResolverId] = useState("");
+    const [retryMode, setRetryMode] = useState("none");
+    const [retryConfig, setRetryConfig] = useState<Record<string, unknown>>({});
+    const [resolverConfig, setResolverConfig] = useState<Record<string, unknown>>({});
     const [recording, setRecording] = useState(false);
+    const [advancedOpen, setAdvancedOpen] = useState(false);
 
     const { data: profiles = [] } = useQuery({
         queryKey: ["profiles"],
-        queryFn: () => profilesApi.list() as Promise<any[]>,
+        queryFn: () => profilesApi.list() as Promise<Profile[]>,
     });
     const { data: engines = [] } = useQuery({
         queryKey: ["engines"],
         queryFn: () => pluginsApi.engines() as Promise<any[]>,
     });
+    const { data: resolvers = [] } = useQuery({
+        queryKey: ["resolvers"],
+        queryFn: () => pluginsApi.resolvers() as Promise<any[]>,
+    });
+
+    const selectedProfile = useMemo(
+        () => profiles.find((p) => p.id === parseInt(profileId)),
+        [profileId, profiles],
+    );
+
+    const selectedEngine = useMemo(() => {
+        if (!engineId) return null;
+        return engines.find((e) => e.id === parseInt(engineId)) ?? null;
+    }, [engineId, engines]);
+
+    const selectedResolver = useMemo(() => {
+        if (!resolverId) return null;
+        return resolvers.find((r) => r.id === parseInt(resolverId)) ?? null;
+    }, [resolverId, resolvers]);
+
+    const resolverConfigSchema = useMemo(() => {
+        if (!selectedResolver?.config_schema) return null;
+        return selectedResolver.config_schema;
+    }, [selectedResolver]);
+
+    const availableRetryModes = useMemo(() => {
+        if (!selectedEngine?.retry_modes_schema) return ["none"];
+        return Object.keys(selectedEngine.retry_modes_schema);
+    }, [selectedEngine]);
+
+    const retryModeSchema = useMemo(() => {
+        if (!selectedEngine?.retry_modes_schema) return null;
+        const modeData = selectedEngine.retry_modes_schema[retryMode];
+        if (!modeData?.schema?.properties || Object.keys(modeData.schema.properties).length === 0) return null;
+        return modeData.schema;
+    }, [selectedEngine, retryMode]);
+
+    // Fill form fields from a profile
+    const fillFromProfile = useCallback((profile: Profile) => {
+        setEngineId(String(profile.default_engine_id));
+        setResolverId(String(profile.resolver_id));
+        setRetryMode(profile.retry_mode ?? "none");
+        setRetryConfig(profile.retry_config ?? {});
+        setResolverConfig(profile.resolver_config ?? {});
+    }, []);
+
+    // When profile changes, auto-fill or clear
+    const handleProfileChange = useCallback((v: string) => {
+        setProfileId(v);
+        if (v === "__none__") {
+            // No profile: reset everything so user configures from scratch
+            setEngineId("");
+            setResolverId("");
+            setRetryMode("none");
+            setRetryConfig({});
+            setResolverConfig({});
+            return;
+        }
+        const profile = profiles.find((p) => p.id === parseInt(v));
+        if (profile) {
+            fillFromProfile(profile);
+        }
+        setAdvancedOpen(false);
+    }, [profiles, fillFromProfile]);
+
+    // When engine changes, reset retry_mode and retry_config
+    const handleEngineChange = useCallback((v: string) => {
+        setEngineId(v);
+        setRetryMode("none");
+        setRetryConfig({});
+    }, []);
+
+    // When retry mode changes, pre-fill defaults from engine schema
+    const handleRetryModeChange = useCallback((mode: string) => {
+        setRetryMode(mode);
+        if (!selectedEngine?.retry_modes_schema) { setRetryConfig({}); return; }
+        const modeData = selectedEngine.retry_modes_schema[mode];
+        if (modeData?.default_params) {
+            setRetryConfig({ ...modeData.default_params });
+        } else {
+            setRetryConfig({});
+        }
+    }, [selectedEngine]);
 
     const createMutation = useMutation({
-        mutationFn: (data: Record<string, unknown>) => sessionsApi.create(data),
+        mutationFn: (data: Record<string, unknown>) => sessionsApi.create(data as any),
         onSuccess: () => {
             onClose();
             toast.success("Session created");
@@ -370,9 +526,12 @@ function CreateSessionPanel({ onClose }: { onClose: () => void }) {
             toast.error(`Failed to create session: ${err.message}`),
     });
 
-    const selectedProfile = profiles.find(
-        (p) => p.id === parseInt(profileId),
-    );
+    const hasProfile = profileId && profileId !== "__none__";
+    const showConfigFields = !hasProfile || advancedOpen;
+
+    const canSubmit = showConfigFields
+        ? !!(engineId && resolverId)
+        : !!hasProfile;
 
     return (
         <CreatePanel
@@ -380,76 +539,175 @@ function CreateSessionPanel({ onClose }: { onClose: () => void }) {
             onClose={onClose}
             submitLabel="Start Session"
             onSubmit={() => {
-                if (!selectedProfile) return;
-                createMutation.mutate({
-                    profile_id: selectedProfile.id,
-                    engine_id: engineOverrideId
-                        ? parseInt(engineOverrideId)
-                        : selectedProfile.default_engine_id,
+                const data: Record<string, unknown> = {
                     recording,
-                });
+                };
+                if (hasProfile) data.profile_id = parseInt(profileId);
+                if (showConfigFields) {
+                    if (engineId) data.engine_id = parseInt(engineId);
+                    if (resolverId) data.resolver_id = parseInt(resolverId);
+                    data.retry_mode = retryMode;
+                    data.retry_config = retryConfig;
+                    data.resolver_config = resolverConfig;
+                } else if (selectedProfile) {
+                    // Using profile only — let the server resolve config from profile
+                    data.engine_id = selectedProfile.default_engine_id;
+                    data.resolver_id = selectedProfile.resolver_id;
+                    data.retry_mode = selectedProfile.retry_mode ?? "none";
+                    data.retry_config = selectedProfile.retry_config ?? {};
+                    data.resolver_config = selectedProfile.resolver_config ?? {};
+                }
+                createMutation.mutate(data);
             }}
             isPending={createMutation.isPending}
-            canSubmit={!!profileId}
+            canSubmit={canSubmit}
         >
-            <div className="grid grid-cols-2 grid-rows-1 gap-3">
-                <FormField label="Profile">
-                    <Select
-                        value={profileId}
-                        onValueChange={setProfileId}
-                        items={profiles.map((p) => ({
-                            value: String(p.id),
-                            label: p.name,
-                        }))}
-                    >
-                        <SelectTrigger className="h-8 text-xs w-full">
-                            <SelectValue placeholder="Select profile" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {profiles.map((p) => (
-                                <SelectItem
-                                    key={p.id}
-                                    value={String(p.id)}
-                                >
-                                    {p.name}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </FormField>
-                <FormField label="Engine Override">
-                    <Select
-                        value={engineOverrideId}
-                        onValueChange={setEngineOverrideId}
-                        items={engines.map((e) => ({
-                            value: String(e.id),
-                            label: `${e.name}${selectedProfile && e.id === selectedProfile.default_engine_id ? " (Default)" : ""}`,
-                        }))}
-                        disabled={!profileId}
-                    >
-                        <SelectTrigger className="h-8 text-xs w-full">
-                            <SelectValue placeholder="Override engine" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {engines.map((e) => (
-                                <SelectItem
-                                    key={e.id}
-                                    value={String(e.id)}
-                                >
-                                    {e.name}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </FormField>
-            </div>
+            {/* Profile selector */}
+            <FormField label="Profile">
+                <Select
+                    value={profileId}
+                    onValueChange={handleProfileChange}
+                >
+                    <SelectTrigger className="h-8 text-xs w-full">
+                        <SelectValue placeholder="None — configure manually" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="__none__">None — configure manually</SelectItem>
+                        {profiles.map((p) => (
+                            <SelectItem key={p.id} value={String(p.id)}>
+                                {p.name}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            </FormField>
+
+            {/* Advanced toggle — only when profile selected */}
+            {hasProfile && (
+                <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+                    <CollapsibleTrigger asChild>
+                        <button
+                            type="button"
+                            className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                            {advancedOpen ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+                            Advanced — override profile settings
+                        </button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="space-y-3 mt-2">
+                        <ConfigFields
+                            engineId={engineId}
+                            resolverId={resolverId}
+                            retryMode={retryMode}
+                            retryConfig={retryConfig}
+                            resolverConfig={resolverConfig}
+                            availableRetryModes={availableRetryModes}
+                            retryModeSchema={retryModeSchema}
+                            resolverConfigSchema={resolverConfigSchema}
+                            engines={engines}
+                            resolvers={resolvers}
+                            onEngineChange={handleEngineChange}
+                            onResolverChange={(v) => { setResolverId(v); setResolverConfig({}); }}
+                            onRetryModeChange={handleRetryModeChange}
+                            onRetryConfigChange={setRetryConfig}
+                            onResolverConfigChange={setResolverConfig}
+                        />
+                    </CollapsibleContent>
+                </Collapsible>
+            )}
+
+            {/* Config fields — when no profile selected */}
+            {!hasProfile && (
+                <ConfigFields
+                    engineId={engineId}
+                    resolverId={resolverId}
+                    retryMode={retryMode}
+                    retryConfig={retryConfig}
+                    resolverConfig={resolverConfig}
+                    availableRetryModes={availableRetryModes}
+                    retryModeSchema={retryModeSchema}
+                    resolverConfigSchema={resolverConfigSchema}
+                    engines={engines}
+                    resolvers={resolvers}
+                    onEngineChange={handleEngineChange}
+                    onResolverChange={(v) => { setResolverId(v); setResolverConfig({}); }}
+                    onRetryModeChange={handleRetryModeChange}
+                    onRetryConfigChange={setRetryConfig}
+                    onResolverConfigChange={setResolverConfig}
+                />
+            )}
+
+            {/* Recording toggle */}
             <div className="flex items-center justify-between">
                 <Label className="text-[11px]">Recording</Label>
-                <Switch
-                    checked={recording}
-                    onCheckedChange={setRecording}
-                />
+                <Switch checked={recording} onCheckedChange={setRecording} />
             </div>
         </CreatePanel>
+    );
+}
+
+/** Shared config fields used both in the no-profile view and the advanced section */
+function ConfigFields({
+    engineId, resolverId, retryMode, retryConfig, resolverConfig,
+    availableRetryModes, retryModeSchema, resolverConfigSchema,
+    engines, resolvers,
+    onEngineChange, onResolverChange, onRetryModeChange,
+    onRetryConfigChange, onResolverConfigChange,
+}: {
+    engineId: string;
+    resolverId: string;
+    retryMode: string;
+    retryConfig: Record<string, unknown>;
+    resolverConfig: Record<string, unknown>;
+    availableRetryModes: string[];
+    retryModeSchema: any;
+    resolverConfigSchema: any;
+    engines: any[];
+    resolvers: any[];
+    onEngineChange: (v: string) => void;
+    onResolverChange: (v: string) => void;
+    onRetryModeChange: (v: string) => void;
+    onRetryConfigChange: (v: Record<string, unknown>) => void;
+    onResolverConfigChange: (v: Record<string, unknown>) => void;
+}) {
+    return (
+        <>
+            <div className="grid grid-cols-2 gap-3 items-end">
+                <div className="grid grid-cols-2 gap-2">
+                    <FormField label="Engine">
+                        <Select value={engineId} onValueChange={onEngineChange}>
+                            <SelectTrigger className="h-8 text-xs w-full"><SelectValue placeholder="Select" /></SelectTrigger>
+                            <SelectContent>{engines.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>)}</SelectContent>
+                        </Select>
+                    </FormField>
+                    <FormField label="Retry Mode">
+                        <Select value={retryMode} onValueChange={onRetryModeChange} disabled={!engineId}>
+                            <SelectTrigger className="h-8 text-xs w-full"><SelectValue placeholder={engineId ? "Select" : "—"} /></SelectTrigger>
+                            <SelectContent>{availableRetryModes.map((m: string) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+                        </Select>
+                    </FormField>
+                </div>
+                <FormField label="Resolver">
+                    <Select value={resolverId} onValueChange={onResolverChange}>
+                        <SelectTrigger className="h-8 text-xs w-full"><SelectValue placeholder="Select" /></SelectTrigger>
+                        <SelectContent>{resolvers.map((r: any) => <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                </FormField>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+                {retryModeSchema && (
+                    <div className="rounded-lg border bg-muted/10 p-3 space-y-3">
+                        <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">Retry Config</p>
+                        <DynamicForm schema={retryModeSchema} value={retryConfig} onChange={onRetryConfigChange} />
+                    </div>
+                )}
+                {resolverConfigSchema && (
+                    <div className="rounded-lg border bg-muted/10 p-3 space-y-3">
+                        <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">Resolver Config</p>
+                        <DynamicForm schema={resolverConfigSchema} value={resolverConfig} onChange={onResolverConfigChange} />
+                    </div>
+                )}
+            </div>
+        </>
     );
 }
