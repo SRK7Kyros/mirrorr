@@ -99,6 +99,7 @@ async def load_session_from_db(
                 .where(Session.id == session_id)
                 .options(
                     selectinload(Session.engine),
+                    selectinload(Session.resolver),
                     selectinload(Session.profile).selectinload(Profile.resolver),
                     selectinload(Session.autorun),
                 )
@@ -108,18 +109,19 @@ async def load_session_from_db(
 
             if session is None:
                 raise ValueError(f"Session with id {session_id} not found")
-            if not session.profile:
-                raise ValueError("Session missing profile")
 
             engine_interface = load_engine_jit(
                 settings.engines_dir,
                 session.engine.origin,
                 session.engine.origin_hash,
             )
+
+            # Use the session's own resolver when no profile is set
+            resolver = session.profile.resolver if session.profile else session.resolver
             resolver_interface = load_resolver_jit(
                 settings.resolvers_dir,
-                session.profile.resolver.origin,
-                session.profile.resolver.origin_hash,
+                resolver.origin,
+                resolver.origin_hash,
             )
             return session, engine_interface, resolver_interface
     finally:

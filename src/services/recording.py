@@ -449,13 +449,13 @@ class RecordingManager:
         try:
             async with session_factory() as db:
                 recording = Recording(
-                    user_friendly_name=self.session.profile.name,
+                    user_friendly_name=self.session.profile.name if self.session.profile else f"Session #{self.session.id}",
                     snake_case_name=dest.name,
                     disk_path=str(dest),
                     content_url=f"{self.settings.web_url}/content/recordings/{dest.name}/{dest.name}.mp4",
-                    profile_name=self.session.profile.name,
+                    profile_name=self.session.profile.name if self.session.profile else "",
                     engine_name=self.session.engine.name,
-                    resolver_name=self.session.profile.resolver.name,
+                    resolver_name=(self.session.profile.resolver.name if self.session.profile else self.session.resolver.name),
                     started_at=started_at,
                     ended_at=ended_at,
                     duration_seconds=duration_seconds,

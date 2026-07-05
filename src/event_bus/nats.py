@@ -79,3 +79,32 @@ class NatsRegistry(EventBus):
 
 
 bus = NatsRegistry()
+
+
+# ── Dedicated control connection ───────────────────────────────────────
+# bus.nc has a ">" wildcard subscription (WS events handler) that
+# intercepts inbox replies before request() futures can resolve.
+# We use a separate, subscription-free connection for request/reply
+# control commands to supervisor processes.
+
+_control_nc: NATS | None = None
+
+
+async def get_control_nc() -> NATS:
+    """Return (and lazily create) a dedicated NATS connection for control requests."""
+    global _control_nc
+    if _control_nc is None or not _control_nc.is_connected:
+        _control_nc = NATS()
+        await _control_nc.connect(bus._settings.nats_url)
+    return _control_nc
+
+
+async def drain_control_nc() -> None:
+    """Gracefully close the dedicated control connection (called on shutdown)."""
+    global _control_nc
+    if _control_nc is not None:
+        try:
+            await _control_nc.drain()
+        except Exception:
+            pass
+        _control_nc = None

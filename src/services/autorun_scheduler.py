@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncEngine
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
-from src.event_bus.nats import bus
+from src.event_bus.nats import bus, get_control_nc
 from src.event_bus.event import MirrorrEvent
 from src.storage.models import Autorun, AutorunStatus, Session, SessionStatus, Profile
 from src.storage import crud
@@ -132,7 +132,8 @@ async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) 
 
             event = MirrorrEvent.SESSION_STOP_REQUESTED(id=session.id, command="stop")
             try:
-                msg = await bus.nc.request(
+                nc = await get_control_nc()
+                msg = await nc.request(
                     f"session.{session.id}.control",
                     event.model_dump_json().encode(),
                     timeout=5.0,

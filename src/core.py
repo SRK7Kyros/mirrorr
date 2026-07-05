@@ -197,6 +197,10 @@ class MirrorrCore:
         except Exception:
             pass
 
+        # 1a. Drain the dedicated control NATS connection
+        from src.event_bus.nats import drain_control_nc
+        await drain_control_nc()
+
         # 2. Stop NATS server process
         if self._nats_manager:
             self._nats_manager.stop()
