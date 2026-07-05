@@ -1,8 +1,11 @@
+from __future__ import annotations
+
+import json
 from datetime import datetime
 
 from sqlalchemy.exc import IntegrityError
 from loguru import logger
-from src.event_bus.nats import bus
+from src.event_bus.nats import bus, get_control_nc
 from src.event_bus.event import MirrorrEvent, BaseEvent
 from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Body
@@ -60,6 +63,9 @@ async def _safe_delete(db: AsyncSession, model: type, id: int) -> None:
         await crud.delete(db, model, id)
     except ValueError:
         raise HTTPException(status_code=404, detail=f"{model.__name__} {id} not found")
+    except IntegrityError:
+        # Let the global IntegrityError handler produce the response
+        raise
 
 
 # ── Sessions ──────────────────────────────────────────────────────────
@@ -310,11 +316,28 @@ async def get_recording(id: int, db: AsyncSession = Depends(_get_db_session), au
 
 @recordings_router.delete("/{id}")
 async def delete_recording(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+    from src.storage.models import EventSubscription, Notification, ResourceType
+
     obj = await crud.get_by_id(db, Recording, id)
     if not obj:
         raise HTTPException(status_code=404, detail="Not found")
     if not _is_owner_or_admin(auth, obj):
         raise HTTPException(status_code=403, detail="Not your recording")
+
+    # Clean up polymorphic-related records first — SQLAlchemy can't cascade
+    # these because they use a primaryjoin on resource_type+resource_id,
+    # not a real foreign key.
+    res_type = ResourceType.RECORDING
+    for model in (EventSubscription, Notification):
+        stmt = select(model).where(
+            model.resource_type == res_type,
+            model.resource_id == id,
+        )
+        rows = (await db.exec(stmt)).all()
+        for row in rows:
+            await db.delete(row)
+    await db.flush()
+
     await _safe_delete(db, Recording, id)
     await _safe_emit(MirrorrEvent.RECORDING_DELETED(id=id))
 
@@ -442,17 +465,31 @@ crud_routers.include_router(resolvers_router)
 session_control_router = APIRouter(prefix="/sessions")
 
 
+
+
 async def _send_control(session_id: int, command: str, timeout: float = 5.0) -> dict:
+    """Send a control command to a running session supervisor via NATS.
+
+    Uses a dedicated NATS connection (_control_nc) rather than bus.nc, because
+    bus.nc has a ">" wildcard subscription (WS events handler) that intercepts
+    inbox reply messages before the request() future can resolve.
+    """
+    from asyncio import TimeoutError as _TimeoutError
+
     event = MirrorrEvent.SESSION_STOP_REQUESTED(id=session_id, command=command)
     try:
-        msg = await bus.nc.request(
+        nc = await get_control_nc()
+        msg = await nc.request(
             f"session.{session_id}.control",
             event.model_dump_json().encode(),
             timeout=timeout,
         )
         reply = json.loads(msg.data.decode())
-    except Exception:
+    except _TimeoutError:
         raise HTTPException(status_code=504, detail=f"Session supervisor {session_id} is not responding")
+    except Exception as e:
+        logger.error(f"Control command '{command}' failed for session {session_id}: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=502, detail=f"Control command failed: {e}")
 
     if "error" in reply:
         raise HTTPException(status_code=400, detail=reply["error"])

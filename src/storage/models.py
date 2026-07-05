@@ -84,10 +84,16 @@ class Recording(SQLModel, table=True):
     requester_user_token: str = Field(default="")
 
     subscriptions: list["EventSubscription"] = Relationship(
-        sa_relationship_kwargs={"primaryjoin": "and_(EventSubscription.resource_type=='recording', foreign(EventSubscription.resource_id)==Recording.id)"},
+        sa_relationship_kwargs={
+            "primaryjoin": "and_(EventSubscription.resource_type=='recording', foreign(EventSubscription.resource_id)==Recording.id)",
+            "cascade": "all, delete-orphan",
+        },
     )
     notifications: list["Notification"] = Relationship(
-        sa_relationship_kwargs={"primaryjoin": "and_(Notification.resource_type=='recording', foreign(Notification.resource_id)==Recording.id)"},
+        sa_relationship_kwargs={
+            "primaryjoin": "and_(Notification.resource_type=='recording', foreign(Notification.resource_id)==Recording.id)",
+            "cascade": "all, delete-orphan",
+        },
     )
 
 
@@ -114,7 +120,7 @@ class Autorun(SQLModel, table=True):
     session: "Session" = Relationship(back_populates="autorun")
     profile: "Profile" = Relationship(back_populates="autoruns")
     engine: "Engine" = Relationship(back_populates="autoruns")
-    resolver: "Resolver" = Relationship()
+    resolver: "Resolver" = Relationship(back_populates="autoruns")
 
 
 class Session(SQLModel, table=True):
@@ -144,7 +150,7 @@ class Session(SQLModel, table=True):
     profile: "Profile" = Relationship(back_populates="sessions")
     autorun: "Autorun" = Relationship(back_populates="session")
     engine: "Engine" = Relationship()
-    resolver: "Resolver" = Relationship()
+    resolver: "Resolver" = Relationship(back_populates="sessions")
 
     @property
     def is_autorun(self) -> bool:
@@ -206,7 +212,7 @@ class Resolver(SQLModel, table=True):
 
     profiles: list[Profile] = Relationship(back_populates="resolver")
     sessions: list[Session] = Relationship(back_populates="resolver")
-    autoruns: list[Autorun] = Relationship()
+    autoruns: list[Autorun] = Relationship(back_populates="resolver")
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -75,10 +75,12 @@ async def validation_exception_handler(_request: Request, exc: ValidationError):
 
 
 @API.exception_handler(IntegrityError)
-async def sqlalchemy_exception_handler(_request: Request, _exc: IntegrityError):
+async def sqlalchemy_exception_handler(_request: Request, exc: IntegrityError):
+    # Log the real error so it's not silently swallowed
+    logger.error(f"IntegrityError: {exc.orig}")
     return JSONResponse(
         status_code=400,
-        content={"detail": "Database constraint violated (e.g., duplicate entry)."},
+        content={"detail": f"Database constraint violated: {exc.orig}"},
     )
 
 

@@ -447,9 +447,14 @@ class SessionSupervisor:
                         return
 
                     if command in ("stop", "enable_recording", "disable_recording"):
-                        await self._handle_control(command)
-                        if msg.reply:
-                            await msg.respond(json.dumps({"ok": True, "command": command}).encode())
+                        try:
+                            await self._handle_control(command)
+                            if msg.reply:
+                                await msg.respond(json.dumps({"ok": True, "command": command}).encode())
+                        except Exception as cmd_err:
+                            logger.error(f"Control command '{command}' failed: {cmd_err}")
+                            if msg.reply:
+                                await msg.respond(json.dumps({"error": f"command failed: {cmd_err}"}).encode())
                     else:
                         if msg.reply:
                             await msg.respond(json.dumps({"error": f"unknown command: {command}"}).encode())

@@ -20,6 +20,37 @@ async def reset_database(engine: AsyncEngine) -> None:
     logger.warning("DEV_RESET_DATABASE: all tables truncated")
 
 
+def _rebuild_table_sqlite(sync_conn, table_name: str, model_table, dialect) -> None:
+    """Rebuild a SQLite table in-place to fix column constraints.
+
+    This handles nullable changes, default changes, and type changes that
+    SQLite cannot apply via ALTER TABLE.
+    """
+    temp_name = f"_old_{table_name}"
+
+    # 1. Rename existing table aside
+    sync_conn.execute(text(f"ALTER TABLE {table_name} RENAME TO {temp_name}"))
+
+    # 2. Create the new table with correct schema
+    model_table.create(sync_conn, checkfirst=False)
+
+    # 3. Determine overlapping columns
+    old_cols = {c["name"] for c in inspect(sync_conn).get_columns(temp_name)}
+    new_cols = [c.name for c in model_table.columns]
+    common = [c for c in new_cols if c in old_cols]
+    cols_csv = ", ".join(common)
+
+    # 4. Copy data
+    sync_conn.execute(text(
+        f"INSERT INTO {table_name} ({cols_csv}) SELECT {cols_csv} FROM {temp_name}"
+    ))
+
+    # 5. Drop old table
+    sync_conn.execute(text(f"DROP TABLE {temp_name}"))
+
+    logger.info(f"Rebuilt table {table_name} with updated column constraints")
+
+
 async def ensure_db(engine: AsyncEngine) -> None:
     """Initializes the database, ensuring the DB file exists and syncing the schema."""
     async with engine.begin() as conn:
@@ -35,6 +66,8 @@ async def ensure_db(engine: AsyncEngine) -> None:
                 columns = [c["name"] for c in inspector_obj.get_columns(table_name)]
                 logger.debug(f"Table {table_name} columns: {columns}")
 
+            tables_to_rebuild: list[tuple[str, object]] = []
+
             for table_name, table in SQLModel.metadata.tables.items():
                 if not inspector_obj.has_table(table_name):
                     continue
@@ -42,6 +75,25 @@ async def ensure_db(engine: AsyncEngine) -> None:
                 db_columns = {c["name"]: c for c in inspector_obj.get_columns(table_name)}
                 model_columns = {column.name: column for column in table.columns}
 
+                # ── Check for nullable constraint mismatches ──────────
+                nullable_mismatches = []
+                for col_name, column in model_columns.items():
+                    if col_name not in db_columns:
+                        continue  # handled below
+                    db_nullable = db_columns[col_name].get("nullable", True)
+                    model_nullable = column.nullable
+                    if model_nullable is not None and db_nullable != model_nullable:
+                        nullable_mismatches.append(col_name)
+
+                if nullable_mismatches:
+                    logger.warning(
+                        f"Nullable constraint mismatch detected on {table_name} "
+                        f"for columns: {nullable_mismatches}. "
+                        f"Table will be rebuilt with correct constraints."
+                    )
+                    tables_to_rebuild.append((table_name, table))
+
+                # ── Add new columns ──────────────────────────────────
                 for col_name, column in model_columns.items():
                     if col_name not in db_columns:
                         logger.warning(f"New column detected: {table_name}.{col_name}. Adding it...")
@@ -57,6 +109,7 @@ async def ensure_db(engine: AsyncEngine) -> None:
                         sync_conn.execute(text(statement))
                         logger.info(f"Added column {table_name}.{col_name}")
 
+                # ── Drop removed columns ──────────────────────────────
                 for db_col_name in db_columns.keys():
                     if db_col_name not in model_columns:
                         if db_col_name == "id":
@@ -71,5 +124,11 @@ async def ensure_db(engine: AsyncEngine) -> None:
                                 f"Unable to drop column {table_name}.{db_col_name} (likely a foreign key constraint). "
                                 f"SQLite requires a structural migration for this column. Error: {e}"
                             )
+
+            # ── Rebuild tables with constraint mismatches ────────────
+            # We rebuild AFTER add/drop so the schema is as close to
+            # the model as possible before the rebuild.
+            for table_name, table in tables_to_rebuild:
+                _rebuild_table_sqlite(sync_conn, table_name, table, dialect)
 
         await conn.run_sync(sync_columns)
