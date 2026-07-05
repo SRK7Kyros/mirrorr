@@ -97,21 +97,24 @@ class Autorun(SQLModel, table=True):
     id: int = Field(default=None, primary_key=True)
     user_friendly_name: str
     snake_case_name: str
-    profile_id: int = Field(foreign_key="profiles.id")
+    profile_id: int | None = Field(foreign_key="profiles.id", default=None)
     engine_id: int = Field(foreign_key="engines.id")
+    resolver_id: int = Field(foreign_key="resolvers.id", default=1)
+    resolver_config: dict[str, Any] = Field(default_factory=dict, sa_column=Column(SAJSON))
+    retry_mode: str = Field(default="none")
+    retry_config: dict[str, Any] = Field(default_factory=dict, sa_column=Column(SAJSON))
     status: AutorunStatus = Field(
         default=AutorunStatus.SCHEDULED, sa_column=Column(SQLEnum(AutorunStatus))
     )
     start_time: datetime
     end_time: datetime
     recording: bool = Field(default=True)
-    retry_mode_override: str | None = Field(default=None)
-    retry_config_override: dict[str, Any] | None = Field(default=None, sa_column=Column(SAJSON))
     requester_user_token: str = Field(default="")
 
     session: "Session" = Relationship(back_populates="autorun")
     profile: "Profile" = Relationship(back_populates="autoruns")
     engine: "Engine" = Relationship(back_populates="autoruns")
+    resolver: "Resolver" = Relationship()
 
 
 class Session(SQLModel, table=True):
@@ -119,16 +122,18 @@ class Session(SQLModel, table=True):
     __tablename__ = "sessions"
 
     id: int = Field(default=None, primary_key=True)
-    profile_id: int = Field(foreign_key="profiles.id")
+    profile_id: int | None = Field(foreign_key="profiles.id", default=None)
     autorun_id: int | None = Field(foreign_key="autoruns.id", default=None)
     engine_id: int = Field(foreign_key="engines.id")
+    resolver_id: int = Field(foreign_key="resolvers.id", default=1)
+    resolver_config: dict[str, Any] = Field(default_factory=dict, sa_column=Column(SAJSON))
+    retry_mode: str = Field(default="none")
+    retry_config: dict[str, Any] = Field(default_factory=dict, sa_column=Column(SAJSON))
 
     status: SessionStatus = Field(
         default=SessionStatus.ACTIVE, sa_column=Column(SQLEnum(SessionStatus))
     )
     recording: bool = Field(default=False)
-    retry_mode_override: str | None = Field(default=None)
-    retry_config_override: dict[str, Any] | None = Field(default=None, sa_column=Column(SAJSON))
     retry_attempts: int = Field(default=0)
     started_at: datetime | None = Field(default=None)
     ended_at: datetime | None = Field(default=None)
@@ -139,26 +144,19 @@ class Session(SQLModel, table=True):
     profile: "Profile" = Relationship(back_populates="sessions")
     autorun: "Autorun" = Relationship(back_populates="session")
     engine: "Engine" = Relationship()
+    resolver: "Resolver" = Relationship()
 
     @property
     def is_autorun(self) -> bool:
         return self.autorun_id is not None
 
     def effective_retry_mode(self) -> str:
-        """Session override if set, otherwise fall back to profile default."""
-        if self.retry_mode_override is not None:
-            return self.retry_mode_override
-        if self.profile:
-            return self.profile.retry_mode
-        return "none"
+        """Return the session's direct retry mode."""
+        return self.retry_mode
 
     def effective_retry_config(self) -> dict[str, Any]:
-        """Session override if set, otherwise fall back to profile default."""
-        if self.retry_config_override is not None:
-            return self.retry_config_override
-        if self.profile:
-            return self.profile.retry_config
-        return {}
+        """Return the session's direct retry config."""
+        return self.retry_config
 
 
 class Profile(SQLModel, table=True):
@@ -207,6 +205,8 @@ class Resolver(SQLModel, table=True):
     config_schema: dict[str, Any] = Field(default_factory=dict, sa_column=Column(SAJSON))
 
     profiles: list[Profile] = Relationship(back_populates="resolver")
+    sessions: list[Session] = Relationship(back_populates="resolver")
+    autoruns: list[Autorun] = Relationship()
 
 
 # ═══════════════════════════════════════════════════════════════════════
