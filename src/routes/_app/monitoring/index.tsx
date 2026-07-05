@@ -89,6 +89,6 @@ function SystemCard({ label, value, icon: Icon, color, bgColor, loading }: {
         <p className="text-[11px] text-muted-foreground">{label}</p>
         {loading ? <Spinner className="size-3 text-muted-foreground" /> : <p className="text-lg font-bold tabular-nums">{value}</p>}
       </div>
-    </div>
+    </Card>
   )
 }
