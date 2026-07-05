@@ -46,11 +46,11 @@ export function TagInput({ value = [], onChange, placeholder = "Add tag...", cla
   }
 
   return (
-    <div className={cn("flex flex-wrap items-center gap-1.5 min-h-[32px] rounded-md border bg-transparent px-2 py-1 focus-within:ring-1 focus-within:ring-ring", className)}>
+    <div className={cn("flex flex-wrap items-center gap-1.5 min-h-[32px] rounded-xl border bg-transparent px-2 py-1 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20", className)}>
       {value.map((tag, i) => (
         <span key={`${tag}-${i}`} className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-mono">
           {tag}
-          <button type="button" onClick={() => removeTag(i)} className="rounded-full hover:bg-foreground/10 p-0.5">
+          <button type="button" onClick={() => removeTag(i)} className="rounded-full hover:bg-muted p-0.5 transition-colors">
             <X className="size-2.5" />
           </button>
         </span>

@@ -1,6 +1,12 @@
 /**
  * Reusable layout components for resource pages (Sessions, Autoruns, Recordings, Profiles).
  * These eliminate repeated sidebar/detail panel patterns.
+ *
+ * Compose them as:
+ *   SidebarLayout + SidebarEntry for the left panel
+ *   DetailLayout + DetailHeader for the right panel header
+ *   EmptyDetail for the empty state
+ *   CreatePanel for create forms with sticky submit button
  */
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -13,6 +19,7 @@ interface SidebarLayoutProps {
   title: string
   count: number | null
   countLabel: string
+  subtitle?: string
   onNew?: () => void
   isLoading?: boolean
   emptyText?: string
@@ -22,13 +29,16 @@ interface SidebarLayoutProps {
   className?: string
 }
 
-export function SidebarLayout({ title, count, countLabel, onNew, isLoading, emptyText = "Nothing here", headerExtra, sidebarActions, children, className }: SidebarLayoutProps) {
+export function SidebarLayout({ title, count, countLabel, subtitle, onNew, isLoading, emptyText = "Nothing here", headerExtra, sidebarActions, children, className }: SidebarLayoutProps) {
   return (
     <div className={cn("flex flex-col h-full w-full min-h-0 overflow-hidden", className)}>
       <div className="shrink-0 px-3.5 pt-4 pb-3 flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold tracking-tight">{title}</h1>
-          {count != null && <p className="text-[11px] text-muted-foreground/60 mt-0.5">{count} {countLabel}</p>}
+          {subtitle
+            ? <p className="text-[11px] text-muted-foreground/60 mt-0.5 leading-relaxed">{subtitle}</p>
+            : count != null && <p className="text-[11px] text-muted-foreground/60 mt-0.5">{count} {countLabel}</p>
+          }
         </div>
         <div className="flex items-center gap-1">
           {sidebarActions}
@@ -68,7 +78,7 @@ export function SidebarEntry({ selected, onClick, children, className }: Sidebar
   return (
     <div
       className={cn(
-        "px-2.5 py-2.5 rounded-md transition-colors cursor-pointer",
+        "group px-2.5 py-2.5 rounded-md transition-colors cursor-pointer",
         selected ? "bg-muted/60" : "hover:bg-muted/40",
         className,
       )}
@@ -137,16 +147,6 @@ export function EmptyDetail({ icon: Icon, text }: EmptyDetailProps) {
   )
 }
 
-// ── Loading spinner ────────────────────────────────────────────
-
-export function LoadingSpinner() {
-  return (
-    <div className="flex items-center justify-center py-8">
-      <Loader2 className="size-5 animate-spin text-muted-foreground" />
-    </div>
-  )
-}
-
 // ── Create panel layout ────────────────────────────────────────
 
 interface CreatePanelProps {
@@ -179,25 +179,6 @@ export function CreatePanel({ title, onClose, submitLabel, onSubmit, isPending, 
           {children}
         </div>
       </div>
-    </div>
-  )
-}
-
-// ── Info grid (2-col label/value pairs) ────────────────────────
-
-interface InfoGridProps {
-  items: { label: string; value: React.ReactNode }[]
-}
-
-export function InfoGrid({ items }: InfoGridProps) {
-  return (
-    <div className="flex flex-wrap gap-x-6 gap-y-2">
-      {items.map((item) => (
-        <div key={item.label} className="space-y-0.5 shrink-0">
-          <p className="text-[11px] text-muted-foreground">{item.label}</p>
-          <div className="text-xs">{item.value}</div>
-        </div>
-      ))}
     </div>
   )
 }

@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { User, Shield, Key, UserCheck, UserX, CheckCircle, XCircle, Loader2 } from "lucide-react"
+import { SectionCard } from "@/components/section-card"
+import { FormField } from "@/components/form-field"
+import { User, Shield, Key, UserCheck, UserX, Loader2 } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { changePasswordSchema } from "@/lib/schemas"
@@ -34,23 +36,27 @@ function ProfilePage() {
         </div>
         <ScrollArea className="flex-1 min-h-0">
           <div className="p-1.5 space-y-px">
-            <button
-              onClick={() => setTab("account")}
-              className={cn("w-full text-left px-2.5 py-2 rounded-md text-xs font-medium transition-colors",
-                tab === "account" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/40"
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn("w-full justify-start text-xs font-medium",
+                tab === "account" ? "bg-muted text-foreground" : "text-muted-foreground"
               )}
+              onClick={() => setTab("account")}
             >
               Account
-            </button>
+            </Button>
             {isAdmin && (
-              <button
-                onClick={() => setTab("admin")}
-                className={cn("w-full text-left px-2.5 py-2 rounded-md text-xs font-medium transition-colors",
-                  tab === "admin" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/40"
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn("w-full justify-start text-xs font-medium",
+                  tab === "admin" ? "bg-muted text-foreground" : "text-muted-foreground"
                 )}
+                onClick={() => setTab("admin")}
               >
                 Admin
-              </button>
+              </Button>
             )}
           </div>
         </ScrollArea>
@@ -120,36 +126,24 @@ function AccountSection() {
         )}
       </div>
 
-      <div className="border rounded-lg overflow-hidden">
-        <div className="px-4 py-2.5 border-b bg-muted/20">
-          <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-            <Key className="size-3" />
-            Change Password
-          </h3>
-        </div>
+      <SectionCard title={<h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5"><Key className="size-3" />Change Password</h3>}>
         <div className="p-4">
           <form onSubmit={form.handleSubmit((data) => passwordMutation.mutate({ old_password: data.old_password, new_password: data.new_password }))} className="space-y-3">
-            <div className="space-y-1.5">
-              <Label className="text-[11px]">Current Password</Label>
+            <FormField label="Current Password" error={form.formState.errors.old_password?.message}>
               <Input type="password" placeholder="••••••••" className="h-8 text-xs" {...form.register("old_password")} />
-              {form.formState.errors.old_password && <p className="text-[11px] text-destructive">{form.formState.errors.old_password.message}</p>}
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[11px]">New Password</Label>
+            </FormField>
+            <FormField label="New Password" error={form.formState.errors.new_password?.message}>
               <Input type="password" placeholder="••••••••" className="h-8 text-xs" {...form.register("new_password")} />
-              {form.formState.errors.new_password && <p className="text-[11px] text-destructive">{form.formState.errors.new_password.message}</p>}
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[11px]">Confirm</Label>
+            </FormField>
+            <FormField label="Confirm" error={form.formState.errors.confirm_password?.message}>
               <Input type="password" placeholder="••••••••" className="h-8 text-xs" {...form.register("confirm_password")} />
-              {form.formState.errors.confirm_password && <p className="text-[11px] text-destructive">{form.formState.errors.confirm_password.message}</p>}
-            </div>
+            </FormField>
             <Button size="sm" type="submit" disabled={passwordMutation.isPending} className="h-7 text-[11px]">
               {passwordMutation.isPending && <Loader2 className="mr-1 size-3 animate-spin" />}Update
             </Button>
           </form>
         </div>
-      </div>
+      </SectionCard>
     </div>
   )
 }
@@ -159,12 +153,12 @@ function AdminSection() {
 
   const { data: users = [], isLoading: usersLoading } = useQuery({
     queryKey: ["admin-users"],
-    queryFn: () => authApi.users() as Promise<any[]>,
+    queryFn: () => authApi.users(),
   })
 
   const { data: requests = [], isLoading: requestsLoading } = useQuery({
     queryKey: ["registration-requests"],
-    queryFn: () => authApi.registrationRequests() as Promise<any[]>,
+    queryFn: () => authApi.registrationRequests(),
   })
 
   const approveMutation = useMutation({
@@ -189,38 +183,31 @@ function AdminSection() {
     onError: (err: Error) => toast.error(`Failed to delete user: ${err.message}`),
   })
 
-  const pendingRequests = requests.filter((r: any) => r.status === "pending")
+  const pendingRequests = requests.filter((r) => r.status === "pending")
 
   return (
     <div className="space-y-4">
-      {/* Registration Requests */}
-      <div className="border rounded-lg overflow-hidden">
-        <div className="px-4 py-2.5 border-b bg-muted/20 flex items-center justify-between">
-          <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-            <Shield className="size-3" />
-            Registration Requests
-          </h3>
-          {pendingRequests.length > 0 && (
-            <Badge variant="destructive" className="text-[9px] h-4 px-1.5">{pendingRequests.length}</Badge>
-          )}
-        </div>
+      <SectionCard
+        title={<h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5"><Shield className="size-3" />Registration Requests</h3>}
+        actions={pendingRequests.length > 0 ? <Badge variant="destructive" className="text-[9px] h-4 px-1.5">{pendingRequests.length}</Badge> : undefined}
+      >
         {requestsLoading ? (
           <div className="flex items-center justify-center py-8"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
         ) : pendingRequests.length === 0 ? (
           <p className="text-[11px] text-muted-foreground/50 py-6 text-center">No pending requests</p>
         ) : (
           <div className="divide-y">
-            {pendingRequests.map((req: any) => (
+            {pendingRequests.map((req) => (
               <div key={req.id} className="flex items-center justify-between px-4 py-2.5 text-xs">
                 <div>
                   <span className="font-medium">{req.username}</span>
                   <span className="text-muted-foreground ml-2">{new Date(req.created_at).toLocaleDateString()}</span>
                 </div>
                 <div className="flex gap-1.5">
-                  <Button size="sm" variant="ghost" className="h-6 text-[10px] text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950" onClick={() => approveMutation.mutate(req.id)} disabled={approveMutation.isPending && approveMutation.variables === req.id}>
+                  <Button size="sm" variant="ghost" className="h-7 text-[11px] text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950" onClick={() => approveMutation.mutate(req.id)} disabled={approveMutation.isPending && approveMutation.variables === req.id}>
                     {approveMutation.isPending && approveMutation.variables === req.id ? <Loader2 className="size-3 mr-1 animate-spin" /> : <UserCheck className="size-3 mr-1" />}Approve
                   </Button>
-                  <Button size="sm" variant="ghost" className="h-6 text-[10px] text-destructive hover:bg-destructive/10" onClick={() => denyMutation.mutate(req.id)} disabled={denyMutation.isPending && denyMutation.variables === req.id}>
+                  <Button size="sm" variant="ghost" className="h-7 text-[11px] text-destructive hover:bg-destructive/10" onClick={() => denyMutation.mutate(req.id)} disabled={denyMutation.isPending && denyMutation.variables === req.id}>
                     {denyMutation.isPending && denyMutation.variables === req.id ? <Loader2 className="size-3 mr-1 animate-spin" /> : <UserX className="size-3 mr-1" />}Deny
                   </Button>
                 </div>
@@ -228,18 +215,14 @@ function AdminSection() {
             ))}
           </div>
         )}
-      </div>
+      </SectionCard>
 
-      {/* Users */}
-      <div className="border rounded-lg overflow-hidden">
-        <div className="px-4 py-2.5 border-b bg-muted/20">
-          <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Users</h3>
-        </div>
+      <SectionCard title="Users">
         {usersLoading ? (
           <div className="flex items-center justify-center py-8"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
         ) : (
           <div className="divide-y">
-            {users.map((u: any) => (
+            {users.map((u) => (
               <div key={u.id} className="flex items-center justify-between px-4 py-2.5 text-xs">
                 <div className="flex items-center gap-2">
                   <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center">
@@ -252,7 +235,7 @@ function AdminSection() {
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge variant={u.role === "admin" ? "default" : "secondary"} className="text-[9px] h-4 px-1.5">{u.role}</Badge>
-                  <Button size="ghost" variant="ghost" className="h-6 w-6 p-0" onClick={() => deleteUserMutation.mutate(u.username)} disabled={deleteUserMutation.isPending && deleteUserMutation.variables === u.username}>
+                  <Button size="icon-xs" variant="ghost" onClick={() => deleteUserMutation.mutate(u.username)} disabled={deleteUserMutation.isPending && deleteUserMutation.variables === u.username}>
                     {deleteUserMutation.isPending && deleteUserMutation.variables === u.username ? <Loader2 className="size-3 animate-spin" /> : <UserX className="size-3 text-muted-foreground" />}
                   </Button>
                 </div>
@@ -260,7 +243,6 @@ function AdminSection() {
             ))}
           </div>
         )}
-      </div>
-    </div>
+      </SectionCard>
   )
 }

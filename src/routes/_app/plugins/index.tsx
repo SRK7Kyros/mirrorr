@@ -1,11 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
 import { pluginsApi } from "@/lib/api"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import type { Engine, Resolver } from "@/lib/schemas"
 import { SchemaTable, CopyButton } from "@/components/schema-viewer"
+import { JsonModal } from "@/components/json-modal"
+import { SectionCard } from "@/components/section-card"
+import { Button } from "@/components/ui/button"
 import { Cpu, Zap, Code2, ChevronDown, ChevronRight, Braces } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
+import { SidebarLayout, EmptyDetail } from "@/components/resource-layout"
+import { ResizableSidebar } from "@/components/resizable-sidebar"
+
 
 export const Route = createFileRoute("/_app/plugins/")({
   component: PluginsPage,
@@ -17,100 +23,85 @@ function PluginsPage() {
 
   const { data: engines = [], isLoading: enginesLoading } = useQuery({
     queryKey: ["engines"],
-    queryFn: () => pluginsApi.engines() as Promise<any[]>,
+    queryFn: () => pluginsApi.engines(),
   })
   const { data: resolvers = [], isLoading: resolversLoading } = useQuery({
     queryKey: ["resolvers"],
-    queryFn: () => pluginsApi.resolvers() as Promise<any[]>,
+    queryFn: () => pluginsApi.resolvers(),
   })
 
   const items = tab === "engines" ? engines : resolvers
-  const selected = items.find((i: any) => i.id === selectedId)
+  const selected = items.find((i) => i.id === selectedId)
   const loading = tab === "engines" ? enginesLoading : resolversLoading
 
   const switchTab = (t: "engines" | "resolvers") => { setTab(t); setSelectedId(null) }
 
   return (
-    <div className="h-full grid grid-cols-[220px_1fr] gap-2 p-2">
-      {/* Sidebar */}
-      <div className="flex flex-col min-h-0 bg-card border rounded-xl overflow-hidden">
-        <div className="shrink-0 px-3.5 pt-4 pb-3">
-          <h1 className="text-lg font-bold tracking-tight">Plugins</h1>
-          <p className="text-[11px] text-muted-foreground/60 mt-1 leading-relaxed">Browse installed engines and resolvers</p>
-        </div>
-
-        <div className="flex shrink-0 mx-1.5 border-b">
-          <TabBtn active={tab === "engines"} onClick={() => switchTab("engines")}>
-            <Cpu className="size-3" />Engines
-            <span className="text-[10px] text-muted-foreground tabular-nums">({engines.length})</span>
-          </TabBtn>
-          <TabBtn active={tab === "resolvers"} onClick={() => switchTab("resolvers")}>
-            <Zap className="size-3" />Resolvers
-            <span className="text-[10px] text-muted-foreground tabular-nums">({resolvers.length})</span>
-          </TabBtn>
-        </div>
-
-        <ScrollArea className="flex-1 min-h-0">
-          <div className="p-1.5 space-y-px">
-            {loading ? (
-              <div className="text-[11px] text-muted-foreground text-center py-6">Loading...</div>
-            ) : items.length === 0 ? (
-              <div className="text-[11px] text-muted-foreground text-center py-6">No {tab}</div>
-            ) : (
-              items.map((item: any) => (
-                <button
-                  key={item.id}
-                  onClick={() => setSelectedId(item.id)}
-                  className={cn(
-                    "w-full text-left px-2.5 py-2.5 rounded-md transition-colors",
-                    selectedId === item.id
-                      ? "bg-muted text-foreground"
-                      : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-                  )}
-                >
-                  <div className="text-[13px] font-medium truncate">{item.name}</div>
-                  <div className="text-[10px] text-muted-foreground/50 mt-0.5 line-clamp-2 leading-relaxed">
-                    {item.description || item.origin}
-                  </div>
-                </button>
-              ))
+    <ResizableSidebar defaultWidth={220} min={150} max={400}>
+      <SidebarLayout
+        title="Plugins"
+        subtitle="Browse installed engines and resolvers"
+        isLoading={loading}
+        emptyText={`No ${tab}`}
+        headerExtra={
+          <div className="flex shrink-0 mx-1.5 border-b">
+            <TabBtn active={tab === "engines"} onClick={() => switchTab("engines")}>
+              <Cpu className="size-3" />Engines
+              <span className="text-[10px] text-muted-foreground tabular-nums">({engines.length})</span>
+            </TabBtn>
+            <TabBtn active={tab === "resolvers"} onClick={() => switchTab("resolvers")}>
+              <Zap className="size-3" />Resolvers
+              <span className="text-[10px] text-muted-foreground tabular-nums">({resolvers.length})</span>
+            </TabBtn>
+          </div>
+        }
+        className="bg-card border rounded-xl h-full"
+      >
+        {items.map((item) => (
+          <Button
+            key={item.id}
+            variant="ghost"
+            className={cn(
+              "w-full justify-start text-left h-auto px-2.5 py-2.5",
+              selectedId === item.id && "bg-muted text-foreground"
             )}
-          </div>
-        </ScrollArea>
-      </div>
-
-      {/* Detail */}
-      <div className="min-h-0 overflow-auto bg-card border rounded-xl">
-        {!selected ? (
-          <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-            <Code2 className="size-8 mb-2 opacity-15" />
-            <p className="text-xs">Select a {tab === "engines" ? "engine" : "resolver"}</p>
-          </div>
-        ) : (
-          <DetailContent item={selected} tab={tab} />
-        )}
-      </div>
-    </div>
+            onClick={() => setSelectedId(item.id)}
+          >
+            <div className="text-[13px] font-medium truncate">{item.name}</div>
+            <div className="text-[10px] text-muted-foreground/50 mt-0.5 line-clamp-2 leading-relaxed">
+              {item.description || item.origin}
+            </div>
+          </Button>
+        ))}
+      </SidebarLayout>
+      {!selected ? (
+        <EmptyDetail icon={Code2} text={`Select a ${tab === "engines" ? "engine" : "resolver"}`} />
+      ) : (
+        <DetailContent item={selected} tab={tab} />
+      )}
+    </ResizableSidebar>
   )
 }
 
 function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
-    <button
-      onClick={onClick}
+    <Button
+      variant="ghost"
+      size="sm"
       className={cn(
-        "flex-1 flex items-center justify-center gap-1 px-1 py-2 text-[12px] font-medium transition-colors border-b-2 -mb-px",
+        "flex-1 justify-center gap-1 px-1 py-2 text-[12px] font-medium border-b-2 -mb-px rounded-none",
         active ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
       )}
+      onClick={onClick}
     >
       {children}
-    </button>
+    </Button>
   )
 }
 
 // ── Detail content ───────────────────────────────────────────────────
 
-function DetailContent({ item, tab }: { item: any; tab: "engines" | "resolvers" }) {
+function DetailContent({ item, tab }: { item: Engine | Resolver; tab: "engines" | "resolvers" }) {
   const hasRetryModes = tab === "engines" && item.retry_modes_schema && Object.keys(item.retry_modes_schema).length > 0
 
   return (
@@ -169,110 +160,73 @@ function DetailContent({ item, tab }: { item: any; tab: "engines" | "resolvers" 
 // ── Config Schema block (with raw JSON button) ───────────────────────
 
 function ConfigSchemaBlock({ schema }: { schema: Record<string, any> }) {
-  const [jsonOpen, setJsonOpen] = useState(false)
-
   return (
-    <>
-      <div className="border rounded-lg overflow-hidden">
-        <div className="px-4 py-2.5 border-b bg-muted/20 flex items-center justify-between">
-          <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Configuration</h3>
-          <button
-            onClick={() => setJsonOpen(true)}
-            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Braces className="size-3" />
-            Raw JSON
-          </button>
-        </div>
-        <div className="p-3">
-          <SchemaTable schema={schema} />
-        </div>
+    <SectionCard
+      title="Configuration"
+      actions={
+        <JsonModal
+          title="Configuration"
+          data={schema}
+          trigger={(onClick) => (
+            <Button variant="ghost" size="xs" onClick={onClick}>
+              <Braces className="size-3" />
+              Raw JSON
+            </Button>
+          )}
+        />
+      }
+    >
+      <div className="p-3">
+        <SchemaTable schema={schema} />
       </div>
-
-      {jsonOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setJsonOpen(false)}>
-          <div className="bg-card border rounded-lg shadow-xl w-[90vw] max-w-3xl h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-4 py-2.5 border-b shrink-0">
-              <h3 className="text-xs font-semibold">Configuration — Raw JSON</h3>
-              <div className="flex items-center gap-2">
-                <CopyButton text={JSON.stringify(schema, null, 2)} />
-                <button onClick={() => setJsonOpen(false)} className="text-xs text-muted-foreground hover:text-foreground">Close</button>
-              </div>
-            </div>
-            <ScrollArea className="flex-1 min-h-0">
-              <pre className="p-4 text-[11px] font-mono text-muted-foreground leading-relaxed whitespace-pre">
-                {JSON.stringify(schema, null, 2)}
-              </pre>
-            </ScrollArea>
-          </div>
-        </div>
-      )}
-    </>
+    </SectionCard>
   )
 }
 
 // ── Retry Modes block (with raw JSON button in header) ───────────────
 
 function RetryModesBlock({ modes }: { modes: Record<string, any> }) {
-  const [jsonOpen, setJsonOpen] = useState(false)
-
   return (
-    <>
-      <div className="border rounded-lg overflow-hidden">
-        <div className="px-4 py-2.5 border-b bg-muted/20 flex items-center justify-between">
-          <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Retry Modes</h3>
-          <button
-            onClick={() => setJsonOpen(true)}
-            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Braces className="size-3" />
-            Raw JSON
-          </button>
-        </div>
-        <div className="divide-y">
-          {Object.entries(modes).map(([mode, modeData]) => (
-            <RetryModeRow key={mode} mode={mode} data={modeData} />
-          ))}
-        </div>
+    <SectionCard
+      title="Retry Modes"
+      actions={
+        <JsonModal
+          title="Retry Modes"
+          data={modes}
+          trigger={(onClick) => (
+            <Button variant="ghost" size="xs" onClick={onClick}>
+              <Braces className="size-3" />
+              Raw JSON
+            </Button>
+          )}
+        />
+      }
+    >
+      <div className="divide-y">
+        {Object.entries(modes).map(([mode, modeData]) => (
+          <RetryModeRow key={mode} mode={mode} data={modeData} />
+        ))}
       </div>
-
-      {jsonOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setJsonOpen(false)}>
-          <div className="bg-card border rounded-lg shadow-xl w-[90vw] max-w-3xl h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-4 py-2.5 border-b shrink-0">
-              <h3 className="text-xs font-semibold">Retry Modes — Raw JSON</h3>
-              <div className="flex items-center gap-2">
-                <CopyButton text={JSON.stringify(modes, null, 2)} />
-                <button onClick={() => setJsonOpen(false)} className="text-xs text-muted-foreground hover:text-foreground">Close</button>
-              </div>
-            </div>
-            <ScrollArea className="flex-1 min-h-0">
-              <pre className="p-4 text-[11px] font-mono text-muted-foreground leading-relaxed whitespace-pre">
-                {JSON.stringify(modes, null, 2)}
-              </pre>
-            </ScrollArea>
-          </div>
-        </div>
-      )}
-    </>
+    </SectionCard>
   )
 }
 
 // ── Retry mode row ───────────────────────────────────────────────────
 
-function RetryModeRow({ mode, data }: { mode: string; data: any }) {
+function RetryModeRow({ mode, data }: { mode: string; data: { schema?: { properties?: Record<string, unknown>; required?: string[] }; default_params?: Record<string, unknown> } }) {
   const [expanded, setExpanded] = useState(false)
   const hasSchema = data.schema?.properties && Object.keys(data.schema.properties).length > 0
   const hasDefaults = data.default_params && Object.keys(data.default_params).length > 0
 
   return (
     <div>
-      <button
-        onClick={() => (hasSchema || hasDefaults) && setExpanded(!expanded)}
+      <Button
+        variant="ghost"
         className={cn(
-          "w-full flex items-center gap-2.5 px-4 py-3 text-xs text-left transition-colors",
+          "w-full justify-start gap-2.5 px-4 py-3 h-auto text-xs",
           !expanded && (hasSchema || hasDefaults) ? "hover:bg-muted/30 cursor-pointer" : expanded ? "cursor-pointer" : "cursor-default"
         )}
+        onClick={() => (hasSchema || hasDefaults) && setExpanded(!expanded)}
       >
         <code className="font-mono font-semibold bg-muted px-2 py-0.5 rounded text-[11px]">{mode}</code>
         {hasDefaults && !expanded && (
@@ -286,7 +240,7 @@ function RetryModeRow({ mode, data }: { mode: string; data: any }) {
             {expanded ? <ChevronDown className="size-3.5 text-muted-foreground" /> : <ChevronRight className="size-3.5 text-muted-foreground" />}
           </span>
         )}
-      </button>
+      </Button>
       {expanded && (
         <div className="px-4 pb-3 space-y-2">
           {hasDefaults && (

@@ -227,3 +227,67 @@ export const notificationSchema = z.object({
 })
 
 export type Notification = z.infer<typeof notificationSchema>
+
+// ── Telemetry ─────────────────────────────────────────────────────
+
+export const telemetrySystemSchema = z.object({
+  total_cpu_percent: z.number(),
+  total_memory_bytes: z.number(),
+  total_processes: z.number(),
+  active_sessions: z.number(),
+})
+
+export type TelemetrySystem = z.infer<typeof telemetrySystemSchema>
+
+export const telemetrySampleSchema = z.object({
+  id: z.number(),
+  session_id: z.number(),
+  timestamp: z.string(),
+  cpu_percent: z.number(),
+  memory_bytes: z.number(),
+  process_count: z.number(),
+})
+
+export type TelemetrySample = z.infer<typeof telemetrySampleSchema>
+
+// ── Import/Export ─────────────────────────────────────────────────
+
+export const importBundleSchema = z.object({
+  profiles: z.array(z.record(z.unknown())).optional(),
+  autoruns: z.array(z.record(z.unknown())).optional(),
+})
+
+export type ImportBundle = z.infer<typeof importBundleSchema>
+
+export const validationReportSchema = z.object({
+  valid: z.boolean(),
+  profiles: z.array(z.object({
+    name: z.string(),
+    content_hash: z.string(),
+    valid: z.boolean(),
+    issues: z.array(z.object({
+      field: z.string().optional(),
+      problem: z.string(),
+      bundled: z.object({ name: z.string(), origin_hash: z.string() }).optional(),
+      installed: z.object({ name: z.string(), origin_hash: z.string() }).optional(),
+      alternatives: z.array(z.object({ id: z.number(), name: z.string(), origin_hash: z.string() })).optional(),
+      existing_id: z.number().optional(),
+      profile_name: z.string().optional(),
+      new_name: z.string().optional(),
+    })),
+  })),
+  autoruns: z.array(z.object({
+    name: z.string(),
+    valid: z.boolean(),
+    issues: z.array(z.object({
+      field: z.string().optional(),
+      problem: z.string(),
+      bundled: z.object({ name: z.string(), origin_hash: z.string() }).optional(),
+      installed: z.object({ name: z.string(), origin_hash: z.string() }).optional(),
+      alternatives: z.array(z.object({ id: z.number(), name: z.string(), origin_hash: z.string() })).optional(),
+      profile_name: z.string().optional(),
+    })),
+  })),
+})
+
+export type ValidationReport = z.infer<typeof validationReportSchema>

@@ -1,5 +1,3 @@
-"use client"
-
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
@@ -66,7 +64,7 @@ export const MaskedSlot = React.forwardRef<HTMLInputElement, MaskedSlotProps>(
         maxLength={digits}
         autoComplete="off"
         className={cn(
-          "h-auto min-w-0 text-center text-sm font-mono rounded-lg border border-border/50 bg-muted/30 px-2 py-1.5 outline-none transition-colors select-none placeholder:text-muted-foreground/50 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50",
+          "h-auto min-w-0 text-center text-sm font-mono rounded-xl border border-border/50 bg-muted/30 px-2 py-1.5 outline-none transition-colors select-none placeholder:text-muted-foreground/50 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50",
           isActive && "border-ring ring-2 ring-ring/20",
           className,
         )}

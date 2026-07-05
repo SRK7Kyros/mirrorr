@@ -4,6 +4,18 @@
  */
 
 import { useRequestLogStore } from "@/stores/request-log-store"
+import type {
+  Session,
+  Autorun,
+  Recording,
+  Profile,
+  Engine,
+  Resolver,
+  Notification,
+  TelemetrySystem,
+  ImportBundle,
+  ValidationReport,
+} from "@/lib/schemas"
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000"
 
@@ -247,17 +259,39 @@ async function refreshAccessToken(): Promise<string> {
   return refreshPromise
 }
 
-/** Whether the token is likely to expire within `withinSeconds`. */
-function tokenExpiringSoon(withinSeconds: number): boolean {
+// ── Token expiry helpers ──────────────────────────────────────────
+
+/** Parse a stored JWT and return its expiry timestamp, or null if unavailable. */
+export function getTokenExpiry(): number | null {
   const token = getStoredToken()
-  if (!token) return false
+  if (!token) return null
   try {
     const payload = JSON.parse(atob(token.split(".")[1]))
-    const remaining = payload.exp - Math.floor(Date.now() / 1000)
-    return remaining < withinSeconds
+    return payload.exp
   } catch {
-    return true
+    return null
   }
+}
+
+/** Seconds remaining until the token expires, or 0 if unavailable. */
+export function getTokenRemainingSeconds(): number {
+  const exp = getTokenExpiry()
+  if (!exp) return 0
+  return Math.max(0, exp - Math.floor(Date.now() / 1000))
+}
+
+/** Whether the token is likely to expire within `withinSeconds`. */
+export function tokenExpiringSoon(withinSeconds: number): boolean {
+  return getTokenRemainingSeconds() < withinSeconds
+}
+
+/** Token status for UI indicators. */
+export function tokenStatus(): "valid" | "expiring" | "expired" | "none" {
+  const remaining = getTokenRemainingSeconds()
+  if (remaining === 0 && !getStoredToken()) return "none"
+  if (remaining <= 0) return "expired"
+  if (remaining < 5 * 60) return "expiring"
+  return "valid"
 }
 
 let refreshInterval: ReturnType<typeof setInterval> | null = null
@@ -342,81 +376,87 @@ export const authApi = {
 // ── Sessions API ───────────────────────────────────────────────────
 
 export const sessionsApi = {
-  list: () => apiRequest<Array<Record<string, unknown>>>("/sessions/"),
-  get: (id: number) => apiRequest<Record<string, unknown>>(`/sessions/${id}`),
+  list: () => apiRequest<Session[]>("/sessions/"),
+  get: (id: number) => apiRequest<Session>(`/sessions/${id}`),
   create: (data: Record<string, unknown>) =>
-    apiRequest<Record<string, unknown>>("/sessions/", { method: "POST", body: data }),
+    apiRequest<Session>("/sessions/", { method: "POST", body: data }),
   delete: (id: number) =>
-    apiRequest<unknown>(`/sessions/${id}`, { method: "DELETE" }),
+    apiRequest<void>(`/sessions/${id}`, { method: "DELETE" }),
   stop: (id: number) =>
-    apiRequest<Record<string, unknown>>(`/sessions/${id}/stop`, { method: "POST" }),
+    apiRequest<Session>(`/sessions/${id}/stop`, { method: "POST" }),
   enableRecording: (id: number) =>
-    apiRequest<Record<string, unknown>>(`/sessions/${id}/recording/enable`, { method: "POST" }),
+    apiRequest<Session>(`/sessions/${id}/recording/enable", { method: "POST" }),
   disableRecording: (id: number) =>
-    apiRequest<Record<string, unknown>>(`/sessions/${id}/recording/disable`, { method: "POST" }),
+    apiRequest<Session>(`/sessions/${id}/recording/disable`, { method: "POST" }),
 }
 
 // ── Autoruns API ───────────────────────────────────────────────────
 
 export const autorunsApi = {
-  list: () => apiRequest<Array<Record<string, unknown>>>("/autoruns/"),
-  get: (id: number) => apiRequest<Record<string, unknown>>(`/autoruns/${id}`),
+  list: () => apiRequest<Autorun[]>("/autoruns/"),
+  get: (id: number) => apiRequest<Autorun>(`/autoruns/${id}`),
   create: (data: Record<string, unknown>) =>
-    apiRequest<Record<string, unknown>>("/autoruns/", { method: "POST", body: data }),
+    apiRequest<Autorun>("/autoruns/", { method: "POST", body: data }),
   update: (id: number, data: Record<string, unknown>) =>
-    apiRequest<Record<string, unknown>>(`/autoruns/${id}`, { method: "PUT", body: data }),
+    apiRequest<Autorun>(`/autoruns/${id}`, { method: "PUT", body: data }),
   delete: (id: number) =>
-    apiRequest<unknown>(`/autoruns/${id}`, { method: "DELETE" }),
+    apiRequest<void>(`/autoruns/${id}`, { method: "DELETE" }),
 }
 
 // ── Recordings API ─────────────────────────────────────────────────
 
 export const recordingsApi = {
-  list: () => apiRequest<Array<Record<string, unknown>>>("/recordings/"),
-  get: (id: number) => apiRequest<Record<string, unknown>>(`/recordings/${id}`),
+  list: () => apiRequest<Recording[]>("/recordings/"),
+  get: (id: number) => apiRequest<Recording>(`/recordings/${id}`),
   delete: (id: number) =>
-    apiRequest<unknown>(`/recordings/${id}`, { method: "DELETE" }),
+    apiRequest<void>(`/recordings/${id}`, { method: "DELETE" }),
 }
 
 // ── Profiles API ───────────────────────────────────────────────────
 
 export const profilesApi = {
-  list: () => apiRequest<Array<Record<string, unknown>>>("/profiles/"),
-  get: (id: number) => apiRequest<Record<string, unknown>>(`/profiles/${id}`),
+  list: () => apiRequest<Profile[]>("/profiles/"),
+  get: (id: number) => apiRequest<Profile>(`/profiles/${id}`),
   create: (data: Record<string, unknown>) =>
-    apiRequest<Record<string, unknown>>("/profiles/", { method: "POST", body: data }),
+    apiRequest<Profile>("/profiles/", { method: "POST", body: data }),
   update: (id: number, data: Record<string, unknown>) =>
-    apiRequest<Record<string, unknown>>(`/profiles/${id}`, { method: "PUT", body: data }),
+    apiRequest<Profile>(`/profiles/${id}`, { method: "PUT", body: data }),
   delete: (id: number) =>
-    apiRequest<unknown>(`/profiles/${id}`, { method: "DELETE" }),
+    apiRequest<void>(`/profiles/${id}`, { method: "DELETE" }),
 }
 
 // ── Plugins API ────────────────────────────────────────────────────
 
 export const pluginsApi = {
-  engines: () => apiRequest<Array<Record<string, unknown>>>("/engines/"),
-  engine: (id: number) => apiRequest<Record<string, unknown>>(`/engines/${id}`),
-  resolvers: () => apiRequest<Array<Record<string, unknown>>>("/resolvers/"),
-  resolver: (id: number) => apiRequest<Record<string, unknown>>(`/resolvers/${id}`),
+  engines: () => apiRequest<Engine[]>("/engines/"),
+  engine: (id: number) => apiRequest<Engine>(`/engines/${id}`),
+  resolvers: () => apiRequest<Resolver[]>("/resolvers/"),
+  resolver: (id: number) => apiRequest<Resolver>(`/resolvers/${id}`),
 }
 
 // ── Import/Export API ─────────────────────────────────────────────
 
 export const importExportApi = {
   validate: (bundle: Record<string, unknown>) =>
-    apiRequest<Record<string, unknown>>("/import-export/validate", { method: "POST", body: bundle }),
+    apiRequest<ValidationReport>("/import-export/validate", { method: "POST", body: bundle }),
   apply: (bundle: Record<string, unknown>, pluginMap: Record<string, { type: string; id: number }>) =>
-    apiRequest<Record<string, unknown>>("/import-export/apply", { method: "POST", body: { bundle, plugin_map: pluginMap } }),
+    apiRequest<{ profiles_created: number; autoruns_created: number; profiles_skipped: number }>("/import-export/apply", { method: "POST", body: { bundle, plugin_map: pluginMap } }),
   exportProfile: (id: number) =>
-    apiRequest<Record<string, unknown>>(`/import-export/profiles/${id}/export`),
+    apiRequest<ImportBundle>(`/import-export/profiles/${id}/export`),
   exportAutorun: (id: number) =>
-    apiRequest<Record<string, unknown>>(`/import-export/autoruns/${id}/export`),
+    apiRequest<ImportBundle>(`/import-export/autoruns/${id}/export`),
 }
 
 // ── Notifications API ──────────────────────────────────────────────
 
 export const notificationsApi = {
-  list: () => apiRequest<Array<Record<string, unknown>>>("/notifications/"),
+  list: () => apiRequest<Notification[]>("/notifications/"),
+}
+
+// ── Telemetry API ─────────────────────────────────────────────────
+
+export const telemetryApi = {
+  system: () => apiRequest<TelemetrySystem>("/telemetry/system"),
 }
 
 // ── WebSocket URLs ─────────────────────────────────────────────────

@@ -9,7 +9,7 @@ import { authApi, setStoredToken, setStoredRefreshToken } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FormField } from "@/components/form-field";
 import {
     Card,
     CardContent,
@@ -63,26 +63,19 @@ function LoginPage() {
                     className="space-y-4"
                 >
                     {error && (
-                        <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-xl">
+                        <div className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
                             {error}
                         </div>
                     )}
-                    <div className="space-y-2">
-                        <Label htmlFor="username">Username</Label>
+                    <FormField label="Username" error={form.formState.errors.username?.message}>
                         <Input
                             id="username"
                             placeholder="username"
                             autoComplete="username"
                             {...form.register("username")}
                         />
-                        {form.formState.errors.username && (
-                            <p className="text-sm text-destructive">
-                                {form.formState.errors.username.message}
-                            </p>
-                        )}
-                    </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="password">Password</Label>
+                    </FormField>
+                    <FormField label="Password" error={form.formState.errors.password?.message}>
                         <Input
                             id="password"
                             type="password"
@@ -90,12 +83,7 @@ function LoginPage() {
                             autoComplete="current-password"
                             {...form.register("password")}
                         />
-                        {form.formState.errors.password && (
-                            <p className="text-sm text-destructive">
-                                {form.formState.errors.password.message}
-                            </p>
-                        )}
-                    </div>
+                    </FormField>
                     <Button
                         type="submit"
                         className="w-full"

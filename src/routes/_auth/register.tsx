@@ -9,7 +9,7 @@ import { authApi, setStoredToken } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { FormField } from "@/components/form-field"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
 export const Route = createFileRoute("/_auth/register")({
@@ -71,7 +71,7 @@ function RegisterPage() {
       <CardContent>
         {success ? (
           <div className="space-y-4">
-            <div className="p-4 text-sm text-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+            <div className="flex items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-sm text-emerald-600 dark:text-emerald-400">
               {success}
             </div>
             <Link to="/login">
@@ -88,31 +88,25 @@ function RegisterPage() {
             className="space-y-4"
           >
             {error && (
-              <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-xl">{error}</div>
+              <div className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</div>
             )}
-            <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
+            <FormField label="Username" error={form.formState.errors.username?.message}>
               <Input
                 id="username"
                 placeholder="username"
                 autoComplete="username"
                 {...form.register("username")}
               />
-              {form.formState.errors.username && (
-                <p className="text-sm text-destructive">{form.formState.errors.username.message}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="display_name">Display Name</Label>
+            </FormField>
+            <FormField label="Display Name">
               <Input
                 id="display_name"
                 placeholder="Optional display name"
                 autoComplete="name"
                 {...form.register("display_name")}
               />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+            </FormField>
+            <FormField label="Password" error={form.formState.errors.password?.message}>
               <Input
                 id="password"
                 type="password"
@@ -120,10 +114,7 @@ function RegisterPage() {
                 autoComplete="new-password"
                 {...form.register("password")}
               />
-              {form.formState.errors.password && (
-                <p className="text-sm text-destructive">{form.formState.errors.password.message}</p>
-              )}
-            </div>
+            </FormField>
             <Button type="submit" className="w-full" disabled={registerMutation.isPending}>
               {registerMutation.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
               {isFirstUser ? "Create Admin Account" : "Request Access"}

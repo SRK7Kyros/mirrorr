@@ -3,6 +3,7 @@ import { useQueryClient, type QueryKey } from "@tanstack/react-query"
 import { getWsEventsUrl } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { useRequestLogStore } from "@/stores/request-log-store"
+import { EVENT_TO_QUERY_KEY } from "@/lib/ws-events"
 
 type WsEventType =
   | "session.created" | "session.updated" | "session.deleted"
@@ -19,24 +20,6 @@ interface WsEvent {
   command?: string
   /** Full entity payload from the backend for zero-roundtrip updates. */
   data?: Record<string, unknown>
-}
-
-const EVENT_TO_QUERY_KEY: Record<string, string[]> = {
-  "session.created": ["sessions"],
-  "session.updated": ["sessions"],
-  "session.deleted": ["sessions"],
-  "session.started": ["sessions"],
-  "session.stopped": ["sessions"],
-  "session.crashed": ["sessions"],
-  "autorun.created": ["autoruns"],
-  "autorun.updated": ["autoruns"],
-  "autorun.deleted": ["autoruns"],
-  "recording.created": ["recordings"],
-  "recording.updated": ["recordings"],
-  "recording.deleted": ["recordings"],
-  "profile.created": ["profiles"],
-  "profile.updated": ["profiles"],
-  "profile.deleted": ["profiles"],
 }
 
 // ── Cache helpers ──────────────────────────────────────────────────

@@ -1,5 +1,4 @@
 import { ReactNode } from "react"
-import { StatusBadge } from "@/components/status-badge"
 import { cn } from "@/lib/utils"
 
 interface InfoField {
@@ -9,11 +8,10 @@ interface InfoField {
 
 interface InfoGridProps {
   fields: InfoField[]
-  columns?: number
   className?: string
 }
 
-export function InfoGrid({ fields, columns: _, className }: InfoGridProps) {
+export function InfoGrid({ fields, className }: InfoGridProps) {
   return (
     <div
       className={cn("grid gap-x-4 gap-y-1 justify-items-start w-fit", className)}
@@ -31,8 +29,4 @@ export function InfoGrid({ fields, columns: _, className }: InfoGridProps) {
       ))}
     </div>
   )
-}
-
-export function StatusField({ status }: { status: string }) {
-  return <StatusBadge status={status} />
 }

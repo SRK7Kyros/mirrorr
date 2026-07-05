@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { TagInput } from "@/components/tag-input"
+import { TypeBadge } from "@/components/schema-viewer"
 import { cn } from "@/lib/utils"
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -76,24 +77,8 @@ export function DynamicForm({ schema, value, onChange, className }: DynamicFormP
   )
 }
 
-// ── Schema type badge ────────────────────────────────────────────────
-
-const typeColors: Record<string, string> = {
-  string: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
-  number: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  integer: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  boolean: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
-  object: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  array: "bg-pink-500/10 text-pink-600 dark:text-pink-400",
-}
-
-function TypeTag({ type }: { type: string }) {
-  return (
-    <span className={cn("inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-mono font-medium", typeColors[type] ?? "bg-muted text-muted-foreground")}>
-      {type}
-    </span>
-  )
-}
+// ── Type badge (re-exported from schema-viewer for consistency) ──────
+// TypeBadge is now imported from schema-viewer — this file just uses it.
 
 // ── Single field renderer ────────────────────────────────────────────
 
@@ -152,7 +137,7 @@ function SchemaField({
         <div className="space-y-0.5 min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <Label className="text-sm font-medium cursor-pointer">{label}</Label>
-            <TypeTag type="boolean" />
+            <TypeBadge type="boolean" />
             {required && <span className="text-[10px] font-medium text-destructive uppercase tracking-wider">required</span>}
           </div>
           {description && <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>}
@@ -210,7 +195,7 @@ function SchemaField({
       <div className="space-y-2 py-2 px-3 border-l-2 border-muted rounded-r-xl bg-muted/10">
         <div className="flex items-center gap-2">
           <Label className="text-sm font-medium">{label}</Label>
-          <TypeTag type="object" />
+          <TypeBadge type="object" />
         </div>
         {description && <p className="text-xs text-muted-foreground">{description}</p>}
         <DynamicForm
@@ -280,7 +265,7 @@ function FieldWrapper({
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <Label className="text-sm font-medium">{label}</Label>
-        <TypeTag type={type} />
+        <TypeBadge type={type} />
         {required && <span className="text-[10px] font-medium text-destructive uppercase tracking-wider">required</span>}
       </div>
       {children}
