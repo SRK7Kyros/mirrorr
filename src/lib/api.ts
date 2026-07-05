@@ -421,6 +421,8 @@ export const autorunsApi = {
     apiRequest<Autorun>(`/autoruns/${id}`, { method: "PUT", body: data }),
   delete: (id: number) =>
     apiRequest<void>(`/autoruns/${id}`, { method: "DELETE" }),
+  saveAsProfile: (autorunId: number, name: string) =>
+    apiRequest<Profile>(`/autoruns/${autorunId}/save-as-profile`, { method: "POST", body: { name } }),
 }
 
 // ── Recordings API ─────────────────────────────────────────────────
