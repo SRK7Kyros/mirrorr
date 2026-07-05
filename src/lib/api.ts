@@ -385,7 +385,7 @@ export const sessionsApi = {
   stop: (id: number) =>
     apiRequest<Session>(`/sessions/${id}/stop`, { method: "POST" }),
   enableRecording: (id: number) =>
-    apiRequest<Session>(`/sessions/${id}/recording/enable", { method: "POST" }),
+    apiRequest<Session>(`/sessions/${id}/recording/enable`, { method: "POST" }),
   disableRecording: (id: number) =>
     apiRequest<Session>(`/sessions/${id}/recording/disable`, { method: "POST" }),
 }
