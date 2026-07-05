@@ -214,6 +214,15 @@ function SessionDetail({
         onError: (err: Error) =>
             toast.error(`Failed to save as profile: ${err.message}`),
     });
+
+    const { data: profiles = [] } = useQuery({ queryKey: ["profiles"], queryFn: () => profilesApi.list() as Promise<any[]> });
+    const { data: engines = [] } = useQuery({ queryKey: ["engines"], queryFn: () => pluginsApi.engines() as Promise<any[]> });
+    const { data: resolvers = [] } = useQuery({ queryKey: ["resolvers"], queryFn: () => pluginsApi.resolvers() as Promise<any[]> });
+
+    // 3-state recording switch: original → pending (center) → confirmed (final)
+    const [recPending, setRecPending] = useState(false);
+    useEffect(() => { setRecPending(false) }, [session?.recording]);
+
     if (!session) return null;
 
     // Compute offset: sum of durations of all completed attempts
@@ -224,17 +233,9 @@ function SessionDetail({
     // Find the currently running attempt (if any)
     const runningAttempt = (session.attempts || []).find((a) => a.ended_at == null)
 
-    const { data: profiles = [] } = useQuery({ queryKey: ["profiles"], queryFn: () => profilesApi.list() as Promise<any[]> });
-    const { data: engines = [] } = useQuery({ queryKey: ["engines"], queryFn: () => pluginsApi.engines() as Promise<any[]> });
-    const { data: resolvers = [] } = useQuery({ queryKey: ["resolvers"], queryFn: () => pluginsApi.resolvers() as Promise<any[]> });
-
-    // 3-state recording switch: original → pending (center) → confirmed (final)
-    const [recPending, setRecPending] = useState(false);
-    useEffect(() => { setRecPending(false) }, [session.recording]);
-
     const profile = profiles.find((p) => p.id === session.profile_id);
     const engine = engines.find((e) => e.id === session.engine_id);
-    const resolver = resolvers.find((r) => r.id === profile?.resolver_id);
+    const resolver = resolvers.find((r) => r.id === session.resolver_id);
 
     return (
         <DetailLayout
@@ -322,9 +323,9 @@ function SessionDetail({
             <InfoGrid fields={[
                 { label: "Status", value: <StatusBadge status={session.status} /> },
                 { label: "Duration", value: <LiveCountup startedAt={runningAttempt?.started_at ?? null} offset={completedDuration} /> },
-                { label: "Profile", value: profile?.name ?? `#${session.profile_id}` },
+                { label: "Profile", value: profile?.name ?? (session.profile_id ? `#${session.profile_id}` : "None (manual)") },
                 { label: "Engine", value: engine?.name ?? `#${session.engine_id}` },
-                { label: "Resolver", value: resolver?.name ?? "?" },
+                { label: "Resolver", value: resolver?.name ?? `#${session.resolver_id}` },
             ]} />
             <div className="flex gap-6">
                 {session.started_at && (
