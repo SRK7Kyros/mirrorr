@@ -366,6 +366,10 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
         <Select
           value={profileId}
           onValueChange={handleProfileChange}
+          items={[
+            { value: "__none__", label: "None — configure manually" },
+            ...profiles.map((p) => ({ value: String(p.id), label: p.name })),
+          ]}
         >
           <SelectTrigger className="h-8 text-xs w-full">
             <SelectValue placeholder="None — configure manually" />
@@ -497,20 +501,20 @@ function AutorunConfigFields({
       <div className="grid grid-cols-2 gap-3 items-end">
         <div className="grid grid-cols-2 gap-2">
           <FormField label="Engine">
-            <Select value={engineId} onValueChange={onEngineChange}>
+            <Select value={engineId} onValueChange={onEngineChange} items={engines.map((e: any) => ({ value: String(e.id), label: e.name }))}>
               <SelectTrigger className="h-8 text-xs w-full"><SelectValue placeholder="Select" /></SelectTrigger>
               <SelectContent>{engines.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>)}</SelectContent>
             </Select>
           </FormField>
           <FormField label="Retry Mode">
-            <Select value={retryMode} onValueChange={onRetryModeChange} disabled={!engineId}>
+            <Select value={retryMode} onValueChange={onRetryModeChange} disabled={!engineId} items={availableRetryModes.map((m: string) => ({ value: m, label: m }))}>
               <SelectTrigger className="h-8 text-xs w-full"><SelectValue placeholder={engineId ? "Select" : "—"} /></SelectTrigger>
               <SelectContent>{availableRetryModes.map((m: string) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
             </Select>
           </FormField>
         </div>
         <FormField label="Resolver">
-          <Select value={resolverId} onValueChange={onResolverChange}>
+          <Select value={resolverId} onValueChange={onResolverChange} items={resolvers.map((r: any) => ({ value: String(r.id), label: r.name }))}>
             <SelectTrigger className="h-8 text-xs w-full"><SelectValue placeholder="Select" /></SelectTrigger>
             <SelectContent>{resolvers.map((r: any) => <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>)}</SelectContent>
           </Select>
