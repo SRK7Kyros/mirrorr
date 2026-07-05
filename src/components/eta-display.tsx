@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react"
+import { useState } from "react"
+import { useInterval } from "@/hooks/use-interval"
 import { cn } from "@/lib/utils"
 
 // ── Time formatting ──────────────────────────────────────────────────

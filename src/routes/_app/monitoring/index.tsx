@@ -6,12 +6,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
 import { telemetryApi, sessionsApi } from "@/lib/api"
+import { Card } from "@/components/ui/card"
 import type { TelemetrySystem, Session } from "@/lib/schemas"
 import { StatusBadge } from "@/components/status-badge"
 import { Spinner } from "@/components/ui/spinner"
 import { Cpu, HardDrive, Activity, Radio } from "lucide-react"
 import { formatBytes, cn } from "@/lib/utils"
-import { GridLayout, GridCell } from "@/components/grid-layout"
 
 export const Route = createFileRoute("/_app/monitoring/")({
   component: MonitoringPage,
@@ -33,12 +33,12 @@ function MonitoringPage() {
 
   return (
     <div className="h-full p-2 flex flex-col gap-2">
-      <GridLayout columns={["1fr", "1fr", "1fr", "1fr"]} rows={["auto"]} gap={8} className="shrink-0">
+      <div className="grid grid-cols-4 gap-2 shrink-0">
         <SystemCard label="Total CPU" value={system ? `${system.total_cpu_percent}%` : "—"} icon={Cpu} color="text-emerald-500" bgColor="bg-emerald-500/10" loading={systemLoading} />
         <SystemCard label="Total Memory" value={system ? formatBytes(system.total_memory_bytes) : "—"} icon={HardDrive} color="text-blue-500" bgColor="bg-blue-500/10" loading={systemLoading} />
         <SystemCard label="Processes" value={system ? `${system.total_processes}` : "—"} icon={Activity} color="text-amber-500" bgColor="bg-amber-500/10" loading={systemLoading} />
         <SystemCard label="Active Sessions" value={system ? `${system.active_sessions}` : "—"} icon={Radio} color="text-violet-500" bgColor="bg-violet-500/10" loading={systemLoading} />
-      </GridLayout>
+      </div>
 
       <div className="flex-1 min-h-0 border rounded-xl bg-card overflow-auto">
         {isLoading ? (
@@ -81,7 +81,7 @@ function SystemCard({ label, value, icon: Icon, color, bgColor, loading }: {
   loading: boolean
 }) {
   return (
-    <div className="border rounded-xl p-3 bg-card flex items-center gap-3">
+    <Card className="p-3 flex items-center gap-3">
       <div className={cn("size-8 rounded-lg flex items-center justify-center shrink-0", bgColor)}>
         <Icon className={cn("size-4", color)} />
       </div>

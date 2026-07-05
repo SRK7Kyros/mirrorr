@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
-import { sessionsApi, recordingsApi, profilesApi, autorunsApi } from "@/lib/api"
+import { sessionsApi, recordingsApi, profilesApi } from "@/lib/api"
+import { Card } from "@/components/ui/card"
 import { Radio, Film, Settings, CalendarClock, Plug } from "lucide-react"
 import { Link } from "@tanstack/react-router"
 import { cn } from "@/lib/utils"
@@ -12,18 +13,18 @@ export const Route = createFileRoute("/_app/")({
 function DashboardPage() {
   const { data: sessions = [] } = useQuery({
     queryKey: ["sessions"],
-    queryFn: () => sessionsApi.list() as Promise<any[]>,
+    queryFn: () => sessionsApi.list(),
   })
   const { data: recordings = [] } = useQuery({
     queryKey: ["recordings"],
-    queryFn: () => recordingsApi.list() as Promise<any[]>,
+    queryFn: () => recordingsApi.list(),
   })
   const { data: profiles = [] } = useQuery({
     queryKey: ["profiles"],
-    queryFn: () => profilesApi.list() as Promise<any[]>,
+    queryFn: () => profilesApi.list(),
   })
 
-  const active = sessions.filter((s: any) => s.status === "active" || s.status === "recording")
+  const active = sessions.filter((s) => s.status === "active" || s.status === "recording")
 
   const quickActions = [
     { label: "Sessions", href: "/sessions", icon: Radio, bg: "bg-blue-600", text: "text-blue-100" },
@@ -41,22 +42,22 @@ function DashboardPage() {
           { label: "Active Sessions", value: active.length, color: "bg-emerald-500" },
           { label: "Recordings", value: recordings.length, color: "bg-orange-500" },
           { label: "Profiles", value: profiles.length, color: "bg-cyan-500" },
-          { label: "Scheduled Autoruns", value: sessions.length, color: "bg-purple-500" },
+          { label: "Total Sessions", value: sessions.length, color: "bg-purple-500" },
         ].map((stat) => (
-          <div key={stat.label} className="border rounded-xl p-3 bg-card flex items-center gap-3">
+          <Card key={stat.label} className="p-3 flex items-center gap-3">
             <div className={cn("size-2 rounded-full shrink-0", stat.color)} />
             <div>
               <p className="text-[11px] text-muted-foreground">{stat.label}</p>
               <p className="text-lg font-bold tabular-nums">{stat.value}</p>
             </div>
-          </div>
-        ))}
+          </Card>
+          ))}
       </div>
 
       {/* Main area */}
       <div className="flex-1 min-h-0 grid grid-cols-[1fr_360px] gap-2">
         {/* Quick actions */}
-        <div className="border rounded-xl bg-card p-3 flex flex-col">
+        <Card className="p-3 flex flex-col">
           <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold mb-3 shrink-0">Quick Actions</p>
           <div className="flex-1 grid grid-cols-5 gap-2">
             {quickActions.map((action) => {
@@ -76,17 +77,17 @@ function DashboardPage() {
               )
             })}
           </div>
-        </div>
+        </Card>
 
         {/* Recent sessions */}
-        <div className="border rounded-xl bg-card p-3 flex flex-col min-h-0">
+        <Card className="p-3 flex flex-col min-h-0">
           <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold mb-2 shrink-0">Recent Sessions</p>
           <div className="flex-1 min-h-0 overflow-auto">
             {sessions.length === 0 ? (
               <p className="text-xs text-muted-foreground/50 py-4 text-center">No sessions yet</p>
             ) : (
               <div className="divide-y rounded-lg overflow-hidden border">
-                {sessions.slice(0, 8).map((session: any) => (
+                {sessions.slice(0, 8).map((session) => (
                   <Link
                     key={session.id}
                     to="/sessions"
@@ -105,7 +106,7 @@ function DashboardPage() {
               </div>
             )}
           </div>
-        </div>
+        </Card>
       </div>
     </div>
   )

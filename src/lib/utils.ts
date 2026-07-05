@@ -46,3 +46,31 @@ export function formatDuration(seconds: number): string {
   if (seconds >= 6) return `${m}m ${sFmt}s`
   return `${sFmt}s`
 }
+
+/** Clamp a number between min and max. */
+export function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value))
+}
+
+/** Get the color class for a session/autorun status dot. */
+export function getStatusDotColor(status: string): string {
+  switch (status) {
+    case "active": return "bg-emerald-500"
+    case "recording": return "bg-amber-500"
+    case "terminated": return "bg-orange-500"
+    case "completed": return "bg-blue-500"
+    case "failed": return "bg-red-500"
+    default: return "bg-muted-foreground/30"
+  }
+}
+
+/** Download a JavaScript object as a JSON file. */
+export function downloadJson(filename: string, data: unknown) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}

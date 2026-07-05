@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from "react"
+import { Button } from "@/components/ui/button"
 import { AlertTriangle, RotateCcw } from "lucide-react"
 
 interface Props {
@@ -37,13 +38,14 @@ export class ErrorBoundary extends Component<Props, State> {
                 {this.state.error?.message || "An unexpected error occurred"}
               </p>
             </div>
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => this.setState({ hasError: false, error: null })}
-              className="inline-flex items-center h-8 px-3 rounded-md border text-[11px] font-medium hover:bg-muted transition-colors"
             >
               <RotateCcw className="size-3 mr-1.5" />
               Try again
-            </button>
+            </Button>
           </div>
         </div>
       )

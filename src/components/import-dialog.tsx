@@ -355,14 +355,11 @@ function PluginCell({ icon: Icon, label, plugin }: {
   plugin: PluginRef | undefined
 }) {
   const [hovered, setHovered] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const [copied, copy] = useCopyToClipboard()
 
   function handleClick() {
     if (!plugin?.origin_hash) return
-    navigator.clipboard.writeText(plugin.origin_hash).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    })
+    copy(plugin.origin_hash)
   }
 
   return (
@@ -423,15 +420,8 @@ function ConfigPreview({ title, config }: { title: string; config: Record<string
 
 function ConfigValue({ value }: { value: string }) {
   const [hovered, setHovered] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const [copied, copy] = useCopyToClipboard()
   const needsTruncate = value.length > 40
-
-  function handleClick() {
-    navigator.clipboard.writeText(value).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    })
-  }
 
   if (!needsTruncate) {
     return <code className="text-[11px] font-mono text-muted-foreground text-right flex-1 min-w-0">{value}</code>
@@ -528,14 +518,4 @@ function IssueRow({ issue, pluginMap, onChange }: {
   )
 }
 
-// ── Download helper ──────────────────────────────────────────────
 
-export function downloadJson(filename: string, data: unknown) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
-}

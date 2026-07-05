@@ -26,7 +26,7 @@ export function StatusBadge({ status }: { status: string }) {
     <span
       role="status"
       aria-label={`Status: ${style.label}`}
-      className={cn("inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold", style.bg, style.text)}
+      className={cn("inline-flex items-center gap-1 px-1.5 py-0.5 rounded-xl text-[10px] font-semibold", style.bg, style.text)}
     >
       <span className={cn("size-1.5 rounded-full", dot)} aria-hidden="true" />
       {style.label}

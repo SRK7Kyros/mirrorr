@@ -1,4 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect } from "react"
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard"
+import { useInterval } from "@/hooks/use-interval";
 import { createPortal } from "react-dom";
 import { Rnd } from "react-rnd";
 import {
@@ -19,25 +21,8 @@ import {
     ChevronDown,
     ChevronRight,
     RefreshCw,
-    Copy,
-    Check,
 } from "lucide-react";
-
-// ── Token expiry helper ─────────────────────────────────────────
-
-function tokenStatus(): "valid" | "expiring" | "expired" | "none" {
-    const token = localStorage.getItem("mirrorr_jwt");
-    if (!token) return "none";
-    try {
-        const payload = JSON.parse(atob(token.split(".")[1]));
-        const remaining = payload.exp - Math.floor(Date.now() / 1000);
-        if (remaining <= 0) return "expired";
-        if (remaining < 5 * 60) return "expiring"; // <5 min
-        return "valid";
-    } catch {
-        return "expired";
-    }
-}
+import { tokenStatus } from "@/lib/api";
 
 // ── Status indicator for the navbar ─────────────────────────────
 
@@ -49,21 +34,13 @@ export function NetworkStatusDot() {
     const [showAge, setShowAge] = useState<string | null>(null);
     const auth = tokenStatus();
 
-    useEffect(() => {
-        if (!lastErrorAt) {
-            setShowAge(null);
-            return;
-        }
-        const tick = () => {
-            const secs = Math.floor((Date.now() - lastErrorAt) / 1000);
-            setShowAge(
-                secs < 60 ? `${secs}s ago` : `${Math.floor(secs / 60)}m ago`,
-            );
-        };
-        tick();
-        const id = setInterval(tick, 5000);
-        return () => clearInterval(id);
-    }, [lastErrorAt]);
+    useInterval(() => {
+        if (!lastErrorAt) return;
+        const secs = Math.floor((Date.now() - lastErrorAt) / 1000);
+        setShowAge(
+            secs < 60 ? `${secs}s ago` : `${Math.floor(secs / 60)}m ago`,
+        );
+    }, lastErrorAt ? 5000 : null)
 
     // Color priority: auth issues > backend issues > all good
     const color =
@@ -319,7 +296,7 @@ function RequestRow({
     expanded: boolean;
     onToggle: () => void;
 }) {
-    const [copiedAll, setCopiedAll] = useState(false);
+    const [copiedAll, copyAll] = useCopyToClipboard()
     const methodColor =
         entry.type === "ws-event"
             ? "text-cyan-600 dark:text-cyan-400"
@@ -384,10 +361,7 @@ function RequestRow({
                             if (entry.requestBody) obj.requestBody = tryParseJson(entry.requestBody);
                             if (entry.responseBody) obj.responseBody = tryParseJson(entry.responseBody);
                             if (entry.error) obj.error = entry.error;
-                            navigator.clipboard.writeText(JSON.stringify(obj, null, 2)).then(() => {
-                                setCopiedAll(true);
-                                setTimeout(() => setCopiedAll(false), 1500);
-                            });
+                            copyAll(JSON.stringify(obj, null, 2));
                         }}
                     >
                         {copiedAll
@@ -423,7 +397,7 @@ function DetailCard({
     value: string;
     mono?: boolean;
 }) {
-    const [copied, setCopied] = useState(false);
+    const [copied, copy] = useCopyToClipboard(1200);
     const [expanded, setExpanded] = useState(false);
 
     // Pretty-print JSON if it has more than 2 top-level keys
@@ -440,13 +414,6 @@ function DetailCard({
         } catch { /* not JSON */ }
         return value;
     })();
-
-    function handleCopy() {
-        navigator.clipboard.writeText(value).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1200);
-        });
-    }
 
     return (
         <>
@@ -465,7 +432,7 @@ function DetailCard({
                     </button>
                     <button
                         className="p-0.5 rounded hover:bg-muted transition-colors"
-                        onClick={(e) => { e.stopPropagation(); handleCopy(); }}
+                        onClick={(e) => { e.stopPropagation(); copy(value); }}
                         title="Copy to clipboard"
                     >
                         {copied
@@ -501,7 +468,7 @@ function DetailCard({
                             <div className="flex items-center gap-2">
                                 <button
                                     className="p-1 rounded hover:bg-muted transition-colors"
-                                    onClick={(e) => { e.stopPropagation(); handleCopy(); }}
+                                    onClick={(e) => { e.stopPropagation(); copy(value); }}
                                     title="Copy to clipboard"
                                 >
                                     {copied

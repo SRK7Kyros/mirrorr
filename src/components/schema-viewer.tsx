@@ -1,7 +1,7 @@
-import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { Check, Copy } from "lucide-react"
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard"
 
 // ── Type colors ──────────────────────────────────────────────────────
 const typeColor: Record<string, string> = {
@@ -150,17 +150,13 @@ export function SchemaTable({
 
 // ── Copy button ──────────────────────────────────────────────────────
 export function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false)
+  const [copied, copy] = useCopyToClipboard()
   return (
     <Button
       variant="ghost"
       size="icon-xs"
       className="opacity-50 hover:opacity-100 transition-opacity"
-      onClick={() => {
-        navigator.clipboard.writeText(text)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 1500)
-      }}
+      onClick={() => copy(text)}
     >
       {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
     </Button>
