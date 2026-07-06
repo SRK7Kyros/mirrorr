@@ -186,7 +186,7 @@ export function NetworkMonitor({
                 setPos(position);
             }}
             minWidth={320}
-            minHeight={48}
+            minHeight={minimized ? 40 : 200}
             bounds="parent"
             dragHandleClassName="drag-handle"
             enableResizing={!minimized}
