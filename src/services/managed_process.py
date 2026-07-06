@@ -266,8 +266,8 @@ class ManagedProcess:
                         "rss_bytes": mem.rss,
                         "vms_bytes": mem.vms,
                     })
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"[{self.name}] telemetry sample failed: {e}")
                 await asyncio.sleep(self._telemetry_interval)
         except asyncio.CancelledError:
             pass

@@ -50,6 +50,9 @@ async def websocket_endpoint(websocket: WebSocket):
             # Skip NATS request-reply inbox subjects
             if subject.startswith("_INBOX."):
                 return
+            # Skip internal per-session control channel (stop, enable_recording, etc.)
+            if subject.endswith(".control"):
+                return
 
             if subscribed_resources is not None:
                 if not _is_relevant_event(subject, subscribed_resources):
