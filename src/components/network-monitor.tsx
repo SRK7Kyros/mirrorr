@@ -83,7 +83,7 @@ export function NetworkStatusDot() {
 
     return (
         <span
-            className="flex items-center gap-1.5 shrink-0 h-7 px-2 rounded-md border border-border/50 bg-muted/30"
+            className="flex items-center gap-1.5 shrink-0"
             title={title}
         >
             <span className={cn("size-2 rounded-full shrink-0", color)} />
