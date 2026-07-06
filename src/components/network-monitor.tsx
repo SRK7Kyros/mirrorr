@@ -191,7 +191,10 @@ export function NetworkMonitor({
             dragHandleClassName="drag-handle"
             enableResizing={!minimized}
         >
-            <div className="h-full flex flex-col bg-card border rounded-xl shadow-2xl overflow-hidden">
+            <div className={cn(
+                "h-full flex flex-col bg-card rounded-xl shadow-2xl overflow-hidden",
+                !minimized && "border",
+            )}>
                 {/* Header — always visible, draggable */}
                 <div className="drag-handle h-10 shrink-0 flex items-center gap-2 px-3 border-b bg-muted/30 cursor-move select-none">
                     <Wifi className="size-3.5 text-muted-foreground" />
