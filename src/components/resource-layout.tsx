@@ -51,7 +51,7 @@ export function SidebarLayout({ title, count, countLabel, subtitle, onNew, isLoa
       </div>
       {headerExtra}
       <ScrollArea className="flex-1 min-h-0">
-        <div className="p-1.5 space-y-px">
+        <div className="p-1.5">
           {isLoading ? (
             <div className="text-[11px] text-muted-foreground text-center py-6">Loading...</div>
           ) : count === 0 ? (
@@ -65,26 +65,158 @@ export function SidebarLayout({ title, count, countLabel, subtitle, onNew, isLoa
   )
 }
 
+// ── Sidebar group container ──────────────────────────────────
+
+import React from "react"
+import { useMultiSelectOrNull } from "@/hooks/use-multi-select"
+
+/**
+ * Groups adjacent selected items under styled wrapper divs.
+ * Uses display:contents on the outer wrapper so the styled inner div
+ * becomes the direct grid child — identical box to what was there before.
+ *
+ * The inner div for multi-item groups replicates the parent's grid
+ * (same grid-cols-1, same gap-px) so vertical rhythm is identical.
+ * The accent bar lives on the inner div, continuous across all entries.
+ */
+export function SidebarGroupContainer({ children }: { children: React.ReactNode }) {
+  const multi = useMultiSelectOrNull()
+  const childArray = React.Children.toArray(children)
+
+  if (!multi || multi.count === 0) {
+    return <div className="grid grid-cols-1 gap-px">{childArray}</div>
+  }
+
+  // Group consecutive selected items
+  const groups: { items: React.ReactNode[]; selected: boolean }[] = []
+  for (const child of childArray) {
+    const id = (child as React.ReactElement).props?.id
+    const isSelected = id != null && multi.isSelected(id)
+    const lastGroup = groups[groups.length - 1]
+    if (isSelected && lastGroup?.selected) {
+      lastGroup.items.push(child)
+    } else {
+      groups.push({ items: [child], selected: isSelected })
+    }
+  }
+
+  const accentBar = <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-primary rounded-r-full" />
+
+  return (
+    <div className="grid grid-cols-1 gap-px">
+      {groups.map((group, gi) => {
+        if (!group.selected) {
+          return group.items.map((item, ii) => (
+            <React.Fragment key={`${gi}-${ii}`}>{item}</React.Fragment>
+          ))
+        }
+        const spanN = group.items.length
+        return (
+          <div key={gi} style={{ display: "contents" }}>
+            {spanN === 1 ? (
+              // Single selected: block container, no grid needed
+              <div className="relative bg-primary/10 rounded-lg">
+                {accentBar}
+                {group.items}
+              </div>
+            ) : (
+              // Multi selected: replicate parent grid so vertical rhythm is identical
+              <div className="relative bg-primary/10 rounded-lg grid grid-cols-1 gap-px">
+                {accentBar}
+                {group.items}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── Sidebar entry row ──────────────────────────────────────────
 
 interface SidebarEntryProps {
-  selected: boolean
-  onClick: () => void
+  /** Item ID — when provided inside a MultiSelectProvider, enables auto-selection */
+  id?: number
+  /** Manual selected state (used outside MultiSelectProvider) */
+  selected?: boolean
+  /** Manual click handler */
+  onClick?: (e: React.MouseEvent) => void
   children: React.ReactNode
   className?: string
 }
 
-export function SidebarEntry({ selected, onClick, children, className }: SidebarEntryProps) {
+export function SidebarEntry({ id, selected: manualSelected, onClick: manualOnClick, children, className }: SidebarEntryProps) {
+  const multi = useMultiSelectOrNull()
+  const inProvider = multi && id != null
+
+  const isSelected = inProvider ? multi!.isSelected(id!) : (manualSelected ?? false)
+
+  const handleClick = (e: React.MouseEvent) => {
+    if (inProvider) {
+      if (e.ctrlKey || e.metaKey || e.shiftKey) {
+        multi!.handleModifierClick(id!, e)
+      } else {
+        multi!.handlePlainClick(id!)
+      }
+    }
+    manualOnClick?.(e)
+  }
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (inProvider && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+      e.preventDefault()
+    }
+  }
+
   return (
     <div
       className={cn(
-        "group px-2.5 py-2.5 rounded-md transition-colors cursor-pointer",
-        selected ? "bg-muted/60" : "hover:bg-muted/40",
+        "relative group px-2.5 py-2.5 transition-colors cursor-pointer select-none",
+        !isSelected && "rounded-md hover:bg-muted/40",
         className,
       )}
-      onClick={onClick}
+      onClick={handleClick}
+      onMouseDown={handleMouseDown}
     >
       {children}
+    </div>
+  )
+}
+
+// ── Floating bulk action bar ──────────────────────────────────
+
+interface BulkActionBarProps {
+  /** Manual count (used outside MultiSelectProvider) */
+  count?: number
+  /** Manual clear handler (used outside MultiSelectProvider) */
+  onClear?: () => void
+  /** Action buttons — use Button component with "Bulk {action}" labels */
+  actions?: React.ReactNode
+}
+
+/**
+ * Floating rounded pill at bottom-center when items are multi-selected.
+ * Auto-detects MultiSelectProvider for count/clear, or uses props.
+ */
+export function BulkActionBar({ count: manualCount, onClear: manualClear, actions }: BulkActionBarProps) {
+  const multi = useMultiSelectOrNull()
+  const count = multi ? multi.count : (manualCount ?? 0)
+  const onClear = multi ? multi.clear : manualClear
+  if (count < 1) return null
+  return (
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-background/95 backdrop-blur border rounded-full px-4 py-2 shadow-lg animate-in slide-in-from-bottom-2 fade-in duration-150">
+      <span className="text-xs font-medium text-muted-foreground tabular-nums pl-1">
+        {count} selected
+      </span>
+      <div className="w-px h-4 bg-border" />
+      <div className="flex items-center gap-1">
+        {actions}
+      </div>
+      <div className="w-px h-4 bg-border" />
+      <Button variant="ghost" size="sm" className="h-6 text-[10px] text-muted-foreground" onClick={onClear}>
+        Clear
+      </Button>
     </div>
   )
 }

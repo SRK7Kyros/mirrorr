@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Cpu, Zap, Code2, ChevronDown, ChevronRight, Braces } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
-import { SidebarLayout, EmptyDetail } from "@/components/resource-layout"
+import { SidebarLayout, SidebarEntry, EmptyDetail, SidebarGroupContainer } from "@/components/resource-layout"
 import { ResizableSidebar } from "@/components/resizable-sidebar"
 
 
@@ -40,6 +40,8 @@ function PluginsPage() {
     <ResizableSidebar defaultWidth={220} min={150} max={400}>
       <SidebarLayout
         title="Plugins"
+        count={items.length}
+        countLabel={tab}
         subtitle="Browse installed engines and resolvers"
         isLoading={loading}
         emptyText={`No ${tab}`}
@@ -57,22 +59,20 @@ function PluginsPage() {
         }
         className="bg-card border rounded-xl h-full"
       >
+        <SidebarGroupContainer>
         {items.map((item) => (
-          <Button
+          <SidebarEntry
             key={item.id}
-            variant="ghost"
-            className={cn(
-              "w-full justify-start text-left h-auto px-2.5 py-2.5",
-              selectedId === item.id && "bg-muted text-foreground"
-            )}
+            selected={selectedId === item.id}
             onClick={() => setSelectedId(item.id)}
           >
             <div className="text-[13px] font-medium truncate">{item.name}</div>
             <div className="text-[10px] text-muted-foreground/50 mt-0.5 line-clamp-2 leading-relaxed">
               {item.description || item.origin}
             </div>
-          </Button>
+          </SidebarEntry>
         ))}
+        </SidebarGroupContainer>
       </SidebarLayout>
       {!selected ? (
         <EmptyDetail icon={Code2} text={`Select a ${tab === "engines" ? "engine" : "resolver"}`} />
@@ -85,17 +85,15 @@ function PluginsPage() {
 
 function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
-    <Button
-      variant="ghost"
-      size="sm"
+    <button
       className={cn(
-        "flex-1 justify-center gap-1 px-1 py-2 text-[12px] font-medium border-b-2 -mb-px rounded-none",
+        "flex-1 flex items-center justify-center gap-1 px-1 py-2 text-[12px] font-medium border-b-2 -mb-px transition-colors",
         active ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
       )}
       onClick={onClick}
     >
       {children}
-    </Button>
+    </button>
   )
 }
 

@@ -14,7 +14,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { DateTimePicker } from "@/components/datetime-picker"
 import { TimeInput as RelativeTimeInput } from "@/components/masked-input"
 import { EtaDisplay } from "@/components/eta-display"
-import { Trash2, CalendarClock, Loader2, ArrowRight, ChevronDown, ChevronRight, Bookmark } from "lucide-react"
+import { Trash2, CalendarClock, Loader2, ArrowRight, ChevronDown, ChevronRight, Bookmark, Download } from "lucide-react"
 import { formatLocalDate } from "@/lib/utils"
 import { useState, useMemo, useEffect, useCallback } from "react"
 import { useInterval } from "@/hooks/use-interval"
@@ -23,8 +23,9 @@ import { ImportDialog } from "@/components/import-dialog"
 import { ImportButton, ExportButton } from "@/components/import-export-buttons"
 import { FormField } from "@/components/form-field"
 import { DynamicForm } from "@/components/dynamic-form"
-import { SidebarLayout, SidebarEntry, DetailHeader, DetailLayout, CreatePanel, EmptyDetail } from "@/components/resource-layout"
+import { SidebarLayout, SidebarEntry, DetailHeader, DetailLayout, CreatePanel, EmptyDetail, BulkActionBar, SidebarGroupContainer } from "@/components/resource-layout"
 import { ResizableSidebar } from "@/components/resizable-sidebar"
+import { MultiSelectProvider, useMultiSelect } from "@/hooks/use-multi-select"
 
 
 export const Route = createFileRoute("/_app/autoruns/")({
@@ -55,37 +56,39 @@ function AutorunsPage() {
     onError: (err: Error) => toast.error(`Failed to delete autorun: ${err.message}`),
   })
 
+  const autorunIds = autoruns.map((a) => a.id)
+
   return (
     <ResizableSidebar>
-      <SidebarLayout
-        title="Autoruns"
-        count={autoruns.length}
-        countLabel="scheduled"
-        onNew={() => setShowCreate(true)}
-        isLoading={isLoading}
-        emptyText="No autoruns"
-        sidebarActions={
-          <ImportButton onBundle={(bundle) => { setImportBundle(bundle); setImportOpen(true) }} />
-        }
-        className="bg-card border rounded-xl h-full"
-      >
-        {autoruns.map((a) => (
-          <SidebarEntry
-            key={a.id}
-            selected={selectedId === a.id}
-            onClick={() => { setSelectedId(a.id); setShowCreate(false) }}
-            className="relative"
-          >
-            <div className="absolute top-2 right-2"><StatusBadge status={a.status ?? "scheduled"} /></div>
-            <div className="text-[13px] font-medium truncate pr-20">{a.user_friendly_name}</div>
-            <div className="flex items-center gap-1.5 mt-1 text-[10px] text-muted-foreground/60">
-              <span>{formatLocalDate(a.start_time, { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</span>
-              <ArrowRight className="size-3" />
-              <span>{formatLocalDate(a.end_time, { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</span>
-            </div>
-          </SidebarEntry>
-        ))}
-      </SidebarLayout>
+      <MultiSelectProvider allIds={autorunIds}>
+        <SidebarLayout
+          title="Autoruns"
+          count={autoruns.length}
+          countLabel="scheduled"
+          onNew={() => setShowCreate(true)}
+          isLoading={isLoading}
+          emptyText="No autoruns"
+          sidebarActions={
+            <ImportButton onBundle={(bundle) => { setImportBundle(bundle); setImportOpen(true) }} />
+          }
+          className="bg-card border rounded-xl h-full"
+        >
+          <SidebarGroupContainer>
+          {autoruns.map((a) => (
+            <SidebarEntry key={a.id} id={a.id} onClick={() => { setSelectedId(a.id); setShowCreate(false) }} className="relative">
+              <div className="absolute top-2 right-2"><StatusBadge status={a.status ?? "scheduled"} /></div>
+              <div className="text-[13px] font-medium truncate pr-20">{a.user_friendly_name}</div>
+              <div className="flex items-center gap-1.5 mt-1 text-[10px] text-muted-foreground/60">
+                <span>{formatLocalDate(a.start_time, { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</span>
+                <ArrowRight className="size-3" />
+                <span>{formatLocalDate(a.end_time, { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</span>
+              </div>
+            </SidebarEntry>
+          ))}
+          </SidebarGroupContainer>
+        </SidebarLayout>
+        <BulkActionBar actions={<BulkActions />} />
+      </MultiSelectProvider>
       {showCreate ? (
         <CreateAutorunPanel onClose={() => setShowCreate(false)} />
       ) : selectedId ? (
@@ -99,6 +102,44 @@ function AutorunsPage() {
       )}
       <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} onImported={() => queryClient.invalidateQueries({ queryKey: ["autoruns"] })} bundle={importBundle} />
     </ResizableSidebar>
+  )
+}
+
+function BulkActions() {
+  const multi = useMultiSelect()
+  const deleteMutation = useMutation({
+    mutationFn: async (ids: number[]) => { for (const id of ids) await autorunsApi.delete(id) },
+    onSuccess: () => { multi.clear(); toast.success("Autoruns deleted") },
+    onError: (err: Error) => toast.error(`Failed to delete autoruns: ${err.message}`),
+  })
+  const handleExport = async () => {
+    const ids = [...multi.selectedIds]
+    try {
+      for (const id of ids) {
+        const bundle = await importExportApi.exportAutorun(id)
+        const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = `autorun-${id}-export.json`
+        a.click()
+        URL.revokeObjectURL(url)
+      }
+      toast.success(`Exported ${ids.length} autorun(s)`)
+      multi.clear()
+    } catch (err: any) {
+      toast.error(`Export failed: ${err.message}`)
+    }
+  }
+  return (
+    <>
+      <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={handleExport}>
+        <Download className="size-3 mr-1" />Bulk Export
+      </Button>
+      <Button variant="ghost" size="sm" className="h-6 text-[10px] text-destructive hover:text-destructive" onClick={() => deleteMutation.mutate([...multi.selectedIds])} disabled={deleteMutation.isPending}>
+        {deleteMutation.isPending ? <Loader2 className="size-3 mr-1 animate-spin" /> : <Trash2 className="size-3 mr-1" />}Bulk Delete
+      </Button>
+    </>
   )
 }
 
@@ -135,52 +176,55 @@ function AutorunDetail({ autorun, onBack, onDelete, deleting, profileMap, engine
           title={autorun.user_friendly_name}
           actions={
             <div className="flex items-center gap-1">
-              {saveOpen ? (
-                <div className="flex items-center gap-1.5">
-                  <Input
-                    value={saveName}
-                    onChange={(e) => setSaveName(e.target.value)}
-                    className="h-7 text-[11px] w-36"
-                    placeholder="Profile name"
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && saveName.trim()) {
-                        saveAsProfileMutation.mutate({ autorunId: autorun.id, name: saveName.trim() })
-                      } else if (e.key === "Escape") {
-                        setSaveOpen(false)
-                        setSaveName("")
-                      }
-                    }}
-                  />
+              {/* Save as Profile — only when autorun has no profile */}
+              {!autorun.profile_id && (
+                saveOpen ? (
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      value={saveName}
+                      onChange={(e) => setSaveName(e.target.value)}
+                      className="h-7 text-[11px] w-36"
+                      placeholder="Profile name"
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && saveName.trim()) {
+                          saveAsProfileMutation.mutate({ autorunId: autorun.id, name: saveName.trim() })
+                        } else if (e.key === "Escape") {
+                          setSaveOpen(false)
+                          setSaveName("")
+                        }
+                      }}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-[11px]"
+                      disabled={!saveName.trim() || saveAsProfileMutation.isPending}
+                      onClick={() => saveAsProfileMutation.mutate({ autorunId: autorun.id, name: saveName.trim() })}
+                    >
+                      {saveAsProfileMutation.isPending ? <Loader2 className="size-3 mr-1 animate-spin" /> : <Bookmark className="size-3 mr-1" />}
+                      Save
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-[11px]"
+                      onClick={() => { setSaveOpen(false); setSaveName("") }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                ) : (
                   <Button
                     variant="ghost"
                     size="sm"
                     className="h-7 text-[11px]"
-                    disabled={!saveName.trim() || saveAsProfileMutation.isPending}
-                    onClick={() => saveAsProfileMutation.mutate({ autorunId: autorun.id, name: saveName.trim() })}
+                    onClick={() => setSaveOpen(true)}
                   >
-                    {saveAsProfileMutation.isPending ? <Loader2 className="size-3 mr-1 animate-spin" /> : <Bookmark className="size-3 mr-1" />}
-                    Save
+                    <Bookmark className="size-3 mr-1" />
+                    Save as Profile
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-[11px]"
-                    onClick={() => { setSaveOpen(false); setSaveName("") }}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              ) : (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-[11px]"
-                  onClick={() => setSaveOpen(true)}
-                >
-                  <Bookmark className="size-3 mr-1" />
-                  Save as Profile
-                </Button>
+                )
               )}
               <ExportButton onExport={() => importExportApi.exportAutorun(autorun.id)} filename={autorun.user_friendly_name} />
               <Button variant="ghost" size="sm" className="h-7 text-[11px] text-destructive" onClick={onDelete} disabled={deleting}>{deleting ? <Loader2 className="size-3 mr-1 animate-spin" /> : <Trash2 className="size-3 mr-1" />}Delete</Button>
@@ -195,7 +239,6 @@ function AutorunDetail({ autorun, onBack, onDelete, deleting, profileMap, engine
         { label: "Profile", value: profileMap[autorun.profile_id] ?? `#${autorun.profile_id}` },
         { label: "Engine", value: engineMap[autorun.engine_id] ?? `#${autorun.engine_id}` },
         { label: "Resolver", value: resolver?.name ?? `#${autorun.resolver_id ?? "?"}` },
-        { label: "Recording", value: autorun.recording ? "Yes" : "No" },
         { label: "Retry Mode", value: autorun.retry_mode ?? "none" },
       ]} />
       <div className="flex gap-4">
