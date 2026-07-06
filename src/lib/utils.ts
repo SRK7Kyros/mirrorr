@@ -43,7 +43,7 @@ export function formatDuration(seconds: number): string {
 
   if (d > 0) return `${d}d ${h}h ${m}m ${Math.floor(s)}s`
   if (h > 0) return `${h}h ${m}m ${Math.floor(s)}s`
-  if (seconds >= 6) return `${m}m ${sFmt}s`
+  if (m > 0) return `${m}m ${Math.floor(s)}s`
   return `${sFmt}s`
 }
 

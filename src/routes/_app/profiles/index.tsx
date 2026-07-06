@@ -8,15 +8,16 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DynamicForm } from "@/components/dynamic-form"
-import { Trash2, Settings, Cpu, Zap, Loader2 } from "lucide-react"
+import { Trash2, Settings, Cpu, Zap, Loader2, Download } from "lucide-react"
 import { useState, useMemo } from "react"
 import { toast } from "sonner"
 import { ImportDialog } from "@/components/import-dialog"
 import { ImportButton, ExportButton } from "@/components/import-export-buttons"
 import { InfoGrid } from "@/components/info-grid"
 import { FormField } from "@/components/form-field"
-import { SidebarLayout, SidebarEntry, DetailHeader, DetailLayout, CreatePanel, EmptyDetail } from "@/components/resource-layout"
+import { SidebarLayout, SidebarEntry, DetailHeader, DetailLayout, CreatePanel, EmptyDetail, BulkActionBar, SidebarGroupContainer } from "@/components/resource-layout"
 import { ResizableSidebar } from "@/components/resizable-sidebar"
+import { MultiSelectProvider, useMultiSelect } from "@/hooks/use-multi-select"
 
 
 export const Route = createFileRoute("/_app/profiles/")({
@@ -51,39 +52,40 @@ function ProfilesPage() {
     onError: (err: Error) => toast.error(`Failed to delete profile: ${err.message}`),
   })
 
+  const profileIds = profiles.map((p) => p.id)
+
   return (
     <ResizableSidebar>
-      <SidebarLayout
-        title="Profiles"
-        count={profiles.length}
-        countLabel="profiles"
-        onNew={() => setShowCreate(true)}
-        isLoading={isLoading}
-        emptyText="No profiles"
-        sidebarActions={
-          <ImportButton onBundle={(bundle) => { setImportBundle(bundle); setImportOpen(true) }} />
-        }
-        className="bg-card border rounded-xl h-full"
-      >
-        {profiles.map((p) => (
-          <SidebarEntry
-            key={p.id}
-            selected={selectedId === p.id}
-            onClick={() => { setSelectedId(p.id); setShowCreate(false) }}
-          >
-            <div className="flex items-center gap-2">
-              <div className="text-[13px] font-medium truncate">{p.name}</div>
-              <Button variant="ghost" size="icon-xs" className="ml-auto shrink-0 opacity-0 group-hover:opacity-100 hover:text-destructive" onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(p.id) }} disabled={deleteMutation.isPending && deleteMutation.variables === p.id}>
-                {deleteMutation.isPending && deleteMutation.variables === p.id ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
-              </Button>
-            </div>
-            <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground/60">
-              <span className="flex items-center gap-0.5"><Cpu className="size-3" />{engines.find((e) => e.id === p.default_engine_id)?.name ?? `Engine #${p.default_engine_id}`}</span>
-              <span className="flex items-center gap-0.5"><Zap className="size-3" />{resolvers.find((r) => r.id === p.resolver_id)?.name ?? `Resolver #${p.resolver_id}`}</span>
-            </div>
-          </SidebarEntry>
-        ))}
-      </SidebarLayout>
+      <MultiSelectProvider allIds={profileIds}>
+        <SidebarLayout
+          title="Profiles"
+          count={profiles.length}
+          countLabel="profiles"
+          onNew={() => setShowCreate(true)}
+          isLoading={isLoading}
+          emptyText="No profiles"
+          sidebarActions={
+            <ImportButton onBundle={(bundle) => { setImportBundle(bundle); setImportOpen(true) }} />
+          }
+          className="bg-card border rounded-xl h-full"
+        >
+          <SidebarGroupContainer>
+          {profiles.map((p) => (
+            <SidebarEntry key={p.id} id={p.id} onClick={() => { setSelectedId(p.id); setShowCreate(false) }}>
+              <div className="flex items-center gap-2 w-full">
+                <div className="text-[13px] font-medium truncate">{p.name}</div>
+                <InlineDeleteButton id={p.id} deleteMutation={deleteMutation} />
+              </div>
+              <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground/60">
+                <span className="flex items-center gap-0.5"><Cpu className="size-3" />{engines.find((e) => e.id === p.default_engine_id)?.name ?? `Engine #${p.default_engine_id}`}</span>
+                <span className="flex items-center gap-0.5"><Zap className="size-3" />{resolvers.find((r) => r.id === p.resolver_id)?.name ?? `Resolver #${p.resolver_id}`}</span>
+              </div>
+            </SidebarEntry>
+          ))}
+          </SidebarGroupContainer>
+        </SidebarLayout>
+        <BulkActionBar actions={<BulkActions />} />
+      </MultiSelectProvider>
       {showCreate ? (
         <CreateProfilePanel onClose={() => setShowCreate(false)} />
       ) : selectedId ? (
@@ -96,6 +98,52 @@ function ProfilesPage() {
       )}
       <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} onImported={() => queryClient.invalidateQueries({ queryKey: ["profiles"] })} bundle={importBundle} />
     </ResizableSidebar>
+  )
+}
+
+function InlineDeleteButton({ id, deleteMutation }: { id: number; deleteMutation: any }) {
+  return (
+    <Button variant="ghost" size="icon-xs" className="ml-auto shrink-0 opacity-0 group-hover:opacity-100 hover:text-destructive" onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(id) }} disabled={deleteMutation.isPending && deleteMutation.variables === id}>
+      {deleteMutation.isPending && deleteMutation.variables === id ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
+    </Button>
+  )
+}
+
+function BulkActions() {
+  const multi = useMultiSelect()
+  const deleteMutation = useMutation({
+    mutationFn: async (ids: number[]) => { for (const id of ids) await profilesApi.delete(id) },
+    onSuccess: () => { multi.clear(); toast.success("Profiles deleted") },
+    onError: (err: Error) => toast.error(`Failed to delete profiles: ${err.message}`),
+  })
+  const handleExport = async () => {
+    const ids = [...multi.selectedIds]
+    try {
+      for (const id of ids) {
+        const bundle = await importExportApi.exportProfile(id)
+        const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = `profile-${id}-export.json`
+        a.click()
+        URL.revokeObjectURL(url)
+      }
+      toast.success(`Exported ${ids.length} profile(s)`)
+      multi.clear()
+    } catch (err: any) {
+      toast.error(`Export failed: ${err.message}`)
+    }
+  }
+  return (
+    <>
+      <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={handleExport}>
+        <Download className="size-3 mr-1" />Bulk Export
+      </Button>
+      <Button variant="ghost" size="sm" className="h-6 text-[10px] text-destructive hover:text-destructive" onClick={() => deleteMutation.mutate([...multi.selectedIds])} disabled={deleteMutation.isPending}>
+        {deleteMutation.isPending ? <Loader2 className="size-3 mr-1 animate-spin" /> : <Trash2 className="size-3 mr-1" />}Bulk Delete
+      </Button>
+    </>
   )
 }
 

@@ -74,6 +74,10 @@
 @layer base {
   * {
     @apply border-border;
+    caret-color: transparent;
+  }
+  input, textarea, select, [contenteditable="true"] {
+    caret-color: currentColor;
   }
   body {
     @apply bg-background text-foreground font-sans;

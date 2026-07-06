@@ -19,13 +19,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { StatusBadge } from "@/components/status-badge";
 import { InfoGrid } from "@/components/info-grid";
 import { KeyValueTable } from "@/components/key-value-table";
-import { SidebarLayout, SidebarEntry, DetailHeader, DetailLayout, CreatePanel, EmptyDetail } from "@/components/resource-layout";
+import { SidebarLayout, SidebarEntry, DetailHeader, DetailLayout, CreatePanel, EmptyDetail, BulkActionBar, SidebarGroupContainer } from "@/components/resource-layout";
 import { FormField } from "@/components/form-field";
 import { DynamicForm } from "@/components/dynamic-form";
 import { ResizableSidebar } from "@/components/resizable-sidebar";
 import { formatDuration, formatLocalDate, parseUtcDate } from "@/lib/utils";
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useInterval } from "@/hooks/use-interval";
+import { MultiSelectProvider, useMultiSelect } from "@/hooks/use-multi-select";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/sessions/")({
@@ -55,24 +56,19 @@ function SessionsPage() {
 
     const deleteMutation = useMutation({
         mutationFn: (id: number) => sessionsApi.delete(id),
-        onSuccess: () => {
-            toast.success("Session deletion requested");
-        },
-        onError: (err: Error) => {
-            toast.error(`Failed to delete session: ${err.message}`);
-            setDeletingId(null);
-        },
+        onSuccess: () => { toast.success("Session deletion requested") },
+        onError: (err: Error) => { toast.error(`Failed to delete session: ${err.message}`); setDeletingId(null) },
     });
     const toggleRecMutation = useMutation({
         mutationFn: (session) =>
             session.recording
                 ? sessionsApi.disableRecording(session.id)
                 : sessionsApi.enableRecording(session.id),
-        onError: (err: Error) =>
-            toast.error(`Failed to toggle recording: ${err.message}`),
+        onError: (err: Error) => toast.error(`Failed to toggle recording: ${err.message}`),
     });
 
-    // Clear deletingId once the session is gone from the list (WS confirmation received)
+    const sessionIds = sessions.map((s) => s.id);
+
     useEffect(() => {
         if (deletingId !== null && !sessions.some((s) => s.id === deletingId)) {
             setDeletingId(null);
@@ -81,25 +77,29 @@ function SessionsPage() {
 
     return (
         <ResizableSidebar>
-            <SidebarLayout
-                title="Sessions"
-                count={sessions.length}
-                countLabel="total"
-                onNew={() => setShowCreate(true)}
-                isLoading={isLoading}
-                emptyText="No sessions"
-                className="bg-card border rounded-xl h-full"
-            >
-            {sessions.map((s) => (
-                <SessionEntry
-                    key={s.id}
-                    session={s}
-                    autorun={s.autorun_id ? autorunMap[s.autorun_id] : null}
-                    selected={selectedId === s.id}
-                    onSelect={() => { setSelectedId(s.id); setShowCreate(false) }}
-                />
-            ))}
-            </SidebarLayout>
+            <MultiSelectProvider allIds={sessionIds}>
+                <SidebarLayout
+                    title="Sessions"
+                    count={sessions.length}
+                    countLabel="total"
+                    onNew={() => setShowCreate(true)}
+                    isLoading={isLoading}
+                    emptyText="No sessions"
+                    className="bg-card border rounded-xl h-full"
+                >
+                <SidebarGroupContainer>
+                {sessions.map((s) => (
+                    <SessionEntry
+                        key={s.id}
+                        session={s}
+                        autorun={s.autorun_id ? autorunMap[s.autorun_id] : undefined}
+                        onClick={() => { setSelectedId(s.id); setShowCreate(false) }}
+                    />
+                ))}
+                </SidebarGroupContainer>
+                </SidebarLayout>
+                <BulkActionBar actions={<BulkDelete />} />
+            </MultiSelectProvider>
             {showCreate ? (
                 <CreateSessionPanel onClose={() => setShowCreate(false)} />
             ) : selectedId ? (
@@ -123,13 +123,11 @@ function SessionsPage() {
 function SessionEntry({
     session,
     autorun,
-    selected,
-    onSelect,
+    onClick,
 }: {
     session: Session;
-    autorun: Autorun | undefined;
-    selected: boolean;
-    onSelect: () => void;
+    autorun?: Autorun;
+    onClick: () => void;
 }) {
     const completedDuration = (session.attempts || [])
         .filter((a) => a.duration_seconds != null)
@@ -139,7 +137,7 @@ function SessionEntry({
     const displayName = autorun?.user_friendly_name ?? `Session #${session.id}`;
 
     return (
-        <SidebarEntry selected={selected} onClick={onSelect} className="relative">
+        <SidebarEntry id={session.id} onClick={onClick} className="relative">
             <div className="absolute top-2 right-2">
                 <StatusBadge status={session.status} />
             </div>
@@ -183,6 +181,20 @@ function LiveCountup({ startedAt, offset = 0 }: { startedAt: string | null; offs
     }, startedAtRef.current ? 100 : null)
 
     return <span className="tabular-nums">{formatDuration(elapsed)}</span>
+}
+
+function BulkDelete() {
+    const multi = useMultiSelect()
+    const deleteMutation = useMutation({
+        mutationFn: async (ids: number[]) => { for (const id of ids) await sessionsApi.delete(id) },
+        onSuccess: () => { multi.clear(); toast.success("Sessions deleted") },
+        onError: (err: Error) => toast.error(`Failed to delete sessions: ${err.message}`),
+    })
+    return (
+        <Button variant="ghost" size="sm" className="h-6 text-[10px] text-destructive hover:text-destructive" onClick={() => deleteMutation.mutate([...multi.selectedIds])} disabled={deleteMutation.isPending}>
+            {deleteMutation.isPending ? <Loader2 className="size-3 mr-1 animate-spin" /> : <Trash2 className="size-3 mr-1" />}Bulk Delete
+        </Button>
+    )
 }
 
 function SessionDetail({
@@ -245,8 +257,9 @@ function SessionDetail({
                     title={`Session #${session.id}`}
                     actions={
                         <div className="flex items-center gap-3">
-                            {/* Save as Profile */}
-                            {saveOpen ? (
+                            {/* Save as Profile — only when session has no profile */}
+                            {!session.profile_id && (
+                            saveOpen ? (
                                 <div className="flex items-center gap-1.5">
                                     <Input
                                         value={saveName}
@@ -292,7 +305,7 @@ function SessionDetail({
                                     <Bookmark className="size-3 mr-1" />
                                     Save as Profile
                                 </Button>
-                            )}
+                            ))}
 
                             <div className="flex items-center gap-2">
                                 <Label className="text-[11px] text-muted-foreground">Recording</Label>
