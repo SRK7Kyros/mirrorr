@@ -169,7 +169,7 @@ export function NetworkMonitor({
     useEffect(() => {
         setSize(
             minimized
-                ? { width: 420, height: 48 }
+                ? { width: 420, height: 40 }
                 : { width: 420, height: 500 },
         );
     }, [minimized]);
