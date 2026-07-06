@@ -52,13 +52,23 @@ export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
 }
 
+export function getUserInitial(user: { display_name?: string; username?: string } | null | undefined): string {
+  return (user?.display_name ?? user?.username ?? "?")[0].toUpperCase()
+}
+
 /** Get the color class for a session/autorun status dot. */
 export function getStatusDotColor(status: string): string {
   switch (status) {
-    case "active": return "bg-emerald-500"
+    case "active":
+    case "running": return "bg-emerald-500"
     case "recording": return "bg-amber-500"
-    case "terminated": return "bg-orange-500"
+    case "scheduled": return "bg-sky-500"
+    case "terminated":
+    case "terminating": return "bg-orange-500"
+    case "remuxing":
+    case "finalizing":
     case "completed": return "bg-blue-500"
+    case "deleting": return "bg-violet-500"
     case "failed": return "bg-red-500"
     default: return "bg-muted-foreground/30"
   }

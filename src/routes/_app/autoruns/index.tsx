@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { autorunsApi, profilesApi, pluginsApi, importExportApi } from "@/lib/api"
-import type { Autorun, Profile } from "@/lib/schemas"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { autorunsApi, importExportApi } from "@/lib/api"
+import type { Autorun } from "@/lib/schemas"
 import { Button } from "@/components/ui/button"
 import { StatusBadge } from "@/components/status-badge"
 import { InfoGrid } from "@/components/info-grid"
@@ -14,18 +14,23 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { DateTimePicker } from "@/components/datetime-picker"
 import { TimeInput as RelativeTimeInput } from "@/components/masked-input"
 import { EtaDisplay } from "@/components/eta-display"
-import { Trash2, CalendarClock, Loader2, ArrowRight, ChevronDown, ChevronRight, Bookmark, Download } from "lucide-react"
+import { Trash2, CalendarClock, Loader2, ArrowRight, ChevronDown, ChevronRight, Download } from "lucide-react"
 import { formatLocalDate } from "@/lib/utils"
-import { useState, useMemo, useEffect, useCallback } from "react"
+import { useState, useMemo } from "react"
 import { useInterval } from "@/hooks/use-interval"
 import { toast } from "sonner"
 import { ImportDialog } from "@/components/import-dialog"
 import { ImportButton, ExportButton } from "@/components/import-export-buttons"
 import { FormField } from "@/components/form-field"
-import { DynamicForm } from "@/components/dynamic-form"
 import { SidebarLayout, SidebarEntry, DetailHeader, DetailLayout, CreatePanel, EmptyDetail, BulkActionBar, SidebarGroupContainer } from "@/components/resource-layout"
 import { ResizableSidebar } from "@/components/resizable-sidebar"
-import { MultiSelectProvider, useMultiSelect } from "@/hooks/use-multi-select"
+import { MultiSelectProvider } from "@/hooks/use-multi-select"
+import { usePluginConfig } from "@/hooks/use-plugin-config"
+import { useBulkDelete } from "@/hooks/use-bulk-delete"
+import { useSaveAsProfile } from "@/hooks/use-save-as-profile"
+import { PluginConfigFields } from "@/components/config-fields"
+import { useAutoruns, useProfiles, useEngines, useResolvers } from "@/hooks/use-queries"
+import { SaveAsProfileButton } from "@/components/save-as-profile-button"
 
 
 export const Route = createFileRoute("/_app/autoruns/")({
@@ -39,13 +44,10 @@ function AutorunsPage() {
   const [importOpen, setImportOpen] = useState(false)
   const [importBundle, setImportBundle] = useState<Record<string, unknown> | null>(null)
 
-  const { data: autoruns = [], isLoading } = useQuery({
-    queryKey: ["autoruns"],
-    queryFn: () => autorunsApi.list(),
-  })
+  const { data: autoruns = [], isLoading } = useAutoruns()
 
-  const { data: profiles = [] } = useQuery({ queryKey: ["profiles"], queryFn: () => profilesApi.list() as Promise<any[]> })
-  const { data: engines = [] } = useQuery({ queryKey: ["engines"], queryFn: () => pluginsApi.engines() as Promise<any[]> })
+  const { data: profiles = [] } = useProfiles()
+  const { data: engines = [] } = useEngines()
 
   const profileMap = useMemo(() => Object.fromEntries(profiles.map((p) => [p.id, p.name])), [profiles])
   const engineMap = useMemo(() => Object.fromEntries(engines.map((e) => [e.id, e.name])), [engines])
@@ -106,65 +108,35 @@ function AutorunsPage() {
 }
 
 function BulkActions() {
-  const multi = useMultiSelect()
-  const deleteMutation = useMutation({
-    mutationFn: async (ids: number[]) => { for (const id of ids) await autorunsApi.delete(id) },
-    onSuccess: () => { multi.clear(); toast.success("Autoruns deleted") },
-    onError: (err: Error) => toast.error(`Failed to delete autoruns: ${err.message}`),
-  })
-  const handleExport = async () => {
-    const ids = [...multi.selectedIds]
-    try {
-      for (const id of ids) {
-        const bundle = await importExportApi.exportAutorun(id)
-        const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement("a")
-        a.href = url
-        a.download = `autorun-${id}-export.json`
-        a.click()
-        URL.revokeObjectURL(url)
-      }
-      toast.success(`Exported ${ids.length} autorun(s)`)
-      multi.clear()
-    } catch (err: any) {
-      toast.error(`Export failed: ${err.message}`)
-    }
-  }
+  const { mutate: deleteMutate, isPending: deletePending } = useBulkDelete(
+    (id: number) => autorunsApi.delete(id),
+    "Autoruns",
+  )
+  const { handleExport } = useBulkExport(
+    (id: number) => importExportApi.exportAutorun(id),
+    "autorun",
+    "autorun",
+  )
   return (
     <>
       <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={handleExport}>
         <Download className="size-3 mr-1" />Bulk Export
       </Button>
-      <Button variant="ghost" size="sm" className="h-6 text-[10px] text-destructive hover:text-destructive" onClick={() => deleteMutation.mutate([...multi.selectedIds])} disabled={deleteMutation.isPending}>
-        {deleteMutation.isPending ? <Loader2 className="size-3 mr-1 animate-spin" /> : <Trash2 className="size-3 mr-1" />}Bulk Delete
+      <Button variant="ghost" size="sm" className="h-6 text-[10px] text-destructive hover:text-destructive" onClick={deleteMutate} disabled={deletePending}>
+        {deletePending ? <Loader2 className="size-3 mr-1 animate-spin" /> : <Trash2 className="size-3 mr-1" />}Bulk Delete
       </Button>
     </>
   )
 }
 
 function AutorunDetail({ autorun, onBack, onDelete, deleting, profileMap, engineMap }: { autorun: Autorun | undefined; onBack: () => void; onDelete: () => void; deleting: boolean; profileMap: Record<number, string>; engineMap: Record<number, string> }) {
-  const queryClient = useQueryClient()
-  const { data: resolvers = [] } = useQuery({ queryKey: ["resolvers"], queryFn: () => pluginsApi.resolvers() as Promise<any[]> })
-  const { data: profiles = [] } = useQuery({ queryKey: ["profiles"], queryFn: () => profilesApi.list() as Promise<any[]> })
+  const { data: resolvers = [] } = useResolvers()
 
-  const [saveName, setSaveName] = useState("")
-  const [saveOpen, setSaveOpen] = useState(false)
+  const saveAsProfile = useSaveAsProfile(
+    (autorunId: number, name: string) => autorunsApi.saveAsProfile(autorunId, name),
+    "autorun",
+  )
 
-  const saveAsProfileMutation = useMutation({
-    mutationFn: ({ autorunId, name }: { autorunId: number; name: string }) =>
-      autorunsApi.saveAsProfile(autorunId, name),
-    onSuccess: () => {
-      setSaveOpen(false)
-      setSaveName("")
-      queryClient.invalidateQueries({ queryKey: ["profiles"] })
-      toast.success("Profile created from autorun")
-    },
-    onError: (err: Error) =>
-      toast.error(`Failed to save as profile: ${err.message}`),
-  })
-
-  const profile = profiles.find((p) => p.id === autorun?.profile_id)
   const resolver = resolvers.find((r) => r.id === autorun?.resolver_id)
 
   if (!autorun) return null
@@ -176,55 +148,16 @@ function AutorunDetail({ autorun, onBack, onDelete, deleting, profileMap, engine
           title={autorun.user_friendly_name}
           actions={
             <div className="flex items-center gap-1">
-              {/* Save as Profile — only when autorun has no profile */}
               {!autorun.profile_id && (
-                saveOpen ? (
-                  <div className="flex items-center gap-1.5">
-                    <Input
-                      value={saveName}
-                      onChange={(e) => setSaveName(e.target.value)}
-                      className="h-7 text-[11px] w-36"
-                      placeholder="Profile name"
-                      autoFocus
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && saveName.trim()) {
-                          saveAsProfileMutation.mutate({ autorunId: autorun.id, name: saveName.trim() })
-                        } else if (e.key === "Escape") {
-                          setSaveOpen(false)
-                          setSaveName("")
-                        }
-                      }}
-                    />
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-[11px]"
-                      disabled={!saveName.trim() || saveAsProfileMutation.isPending}
-                      onClick={() => saveAsProfileMutation.mutate({ autorunId: autorun.id, name: saveName.trim() })}
-                    >
-                      {saveAsProfileMutation.isPending ? <Loader2 className="size-3 mr-1 animate-spin" /> : <Bookmark className="size-3 mr-1" />}
-                      Save
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-[11px]"
-                      onClick={() => { setSaveOpen(false); setSaveName("") }}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                ) : (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-[11px]"
-                    onClick={() => setSaveOpen(true)}
-                  >
-                    <Bookmark className="size-3 mr-1" />
-                    Save as Profile
-                  </Button>
-                )
+                <SaveAsProfileButton
+                  open={saveAsProfile.open}
+                  onOpen={() => saveAsProfile.setOpen(true)}
+                  name={saveAsProfile.name}
+                  onNameChange={saveAsProfile.setName}
+                  onSave={() => saveAsProfile.save(autorun.id)}
+                  onCancel={() => { saveAsProfile.setOpen(false); saveAsProfile.setName("") }}
+                  isPending={saveAsProfile.isPending}
+                />
               )}
               <ExportButton onExport={() => importExportApi.exportAutorun(autorun.id)} filename={autorun.user_friendly_name} />
               <Button variant="ghost" size="sm" className="h-7 text-[11px] text-destructive" onClick={onDelete} disabled={deleting}>{deleting ? <Loader2 className="size-3 mr-1 animate-spin" /> : <Trash2 className="size-3 mr-1" />}Delete</Button>
@@ -251,15 +184,9 @@ function AutorunDetail({ autorun, onBack, onDelete, deleting, profileMap, engine
 
 function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient()
+  const config = usePluginConfig()
   const [name, setName] = useState("")
-  const [profileId, setProfileId] = useState("__none__")
-  const [engineId, setEngineId] = useState("")
-  const [resolverId, setResolverId] = useState("")
-  const [retryMode, setRetryMode] = useState("none")
-  const [retryConfig, setRetryConfig] = useState<Record<string, unknown>>({})
-  const [resolverConfig, setResolverConfig] = useState<Record<string, unknown>>({})
   const [recording, setRecording] = useState(true)
-  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [timeMode, setTimeMode] = useState<"pick" | "relative">("pick")
   const [startTime, setStartTime] = useState("")
   const [endTime, setEndTime] = useState("")
@@ -268,84 +195,6 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
   const [now, setNow] = useState(() => Date.now())
 
   useInterval(() => setNow(Date.now()), 1000)
-
-  const { data: profiles = [] } = useQuery({ queryKey: ["profiles"], queryFn: () => profilesApi.list() as Promise<Profile[]> })
-  const { data: engines = [] } = useQuery({ queryKey: ["engines"], queryFn: () => pluginsApi.engines() as Promise<any[]> })
-  const { data: resolvers = [] } = useQuery({ queryKey: ["resolvers"], queryFn: () => pluginsApi.resolvers() as Promise<any[]> })
-
-  const selectedProfile = useMemo(
-    () => profiles.find((p) => p.id === parseInt(profileId)),
-    [profileId, profiles],
-  )
-
-  const selectedEngine = useMemo(() => {
-    if (!engineId) return null
-    return engines.find((e) => e.id === parseInt(engineId)) ?? null
-  }, [engineId, engines])
-
-  const selectedResolver = useMemo(() => {
-    if (!resolverId) return null
-    return resolvers.find((r) => r.id === parseInt(resolverId)) ?? null
-  }, [resolverId, resolvers])
-
-  const resolverConfigSchema = useMemo(() => {
-    if (!selectedResolver?.config_schema) return null
-    return selectedResolver.config_schema
-  }, [selectedResolver])
-
-  const availableRetryModes = useMemo(() => {
-    if (!selectedEngine?.retry_modes_schema) return ["none"]
-    return Object.keys(selectedEngine.retry_modes_schema)
-  }, [selectedEngine])
-
-  const retryModeSchema = useMemo(() => {
-    if (!selectedEngine?.retry_modes_schema) return null
-    const modeData = selectedEngine.retry_modes_schema[retryMode]
-    if (!modeData?.schema?.properties || Object.keys(modeData.schema.properties).length === 0) return null
-    return modeData.schema
-  }, [selectedEngine, retryMode])
-
-  const fillFromProfile = useCallback((profile: Profile) => {
-    setEngineId(String(profile.default_engine_id))
-    setResolverId(String(profile.resolver_id))
-    setRetryMode(profile.retry_mode ?? "none")
-    setRetryConfig(profile.retry_config ?? {})
-    setResolverConfig(profile.resolver_config ?? {})
-  }, [])
-
-  const handleProfileChange = useCallback((v: string) => {
-    setProfileId(v)
-    if (v === "__none__") {
-      setEngineId("")
-      setResolverId("")
-      setRetryMode("none")
-      setRetryConfig({})
-      setResolverConfig({})
-      return
-    }
-    const profile = profiles.find((p) => p.id === parseInt(v))
-    if (profile) {
-      fillFromProfile(profile)
-    }
-    setAdvancedOpen(false)
-  }, [profiles, fillFromProfile])
-
-  const handleEngineChange = useCallback((v: string) => {
-    setEngineId(v)
-    setRetryMode("none")
-    setRetryConfig({})
-  }, [])
-
-  const handleRetryModeChange = useCallback((mode: string) => {
-    setRetryMode(mode)
-    if (!selectedEngine?.retry_modes_schema) { setRetryConfig({}); return }
-    const modeData = selectedEngine.retry_modes_schema[mode]
-    if (modeData?.default_params) {
-      setRetryConfig({ ...modeData.default_params })
-    } else {
-      setRetryConfig({})
-    }
-  }, [selectedEngine])
 
   const createMutation = useMutation({
     mutationFn: (data: Record<string, unknown>) => autorunsApi.create(data as any),
@@ -360,12 +209,9 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
   const getStartTime = () => timeMode === "relative" ? new Date(now + relativeStartOffset).toISOString() : startTime
   const getEndTime = () => timeMode === "relative" ? new Date(now + relativeEndOffset).toISOString() : endTime
 
-  const hasProfile = profileId && profileId !== "__none__"
-  const showConfigFields = !hasProfile || advancedOpen
-
-  const canSubmit = showConfigFields
-    ? !!(name && engineId && resolverId && getStartTime() && getEndTime())
-    : !!(name && hasProfile && getStartTime() && getEndTime())
+  const canSubmit = config.showConfigFields
+    ? !!(name && config.engineId && config.resolverId && getStartTime() && getEndTime())
+    : !!(name && config.hasProfile && getStartTime() && getEndTime())
 
   return (
     <CreatePanel
@@ -380,19 +226,19 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
           start_time: getStartTime(),
           end_time: getEndTime(),
         }
-        if (hasProfile) data.profile_id = parseInt(profileId)
-        if (showConfigFields) {
-          if (engineId) data.engine_id = parseInt(engineId)
-          if (resolverId) data.resolver_id = parseInt(resolverId)
-          data.retry_mode = retryMode
-          data.retry_config = retryConfig
-          data.resolver_config = resolverConfig
-        } else if (selectedProfile) {
-          data.engine_id = selectedProfile.default_engine_id
-          data.resolver_id = selectedProfile.resolver_id
-          data.retry_mode = selectedProfile.retry_mode ?? "none"
-          data.retry_config = selectedProfile.retry_config ?? {}
-          data.resolver_config = selectedProfile.resolver_config ?? {}
+        if (config.hasProfile) data.profile_id = parseInt(config.profileId)
+        if (config.showConfigFields) {
+          if (config.engineId) data.engine_id = parseInt(config.engineId)
+          if (config.resolverId) data.resolver_id = parseInt(config.resolverId)
+          data.retry_mode = config.retryMode
+          data.retry_config = config.retryConfig
+          data.resolver_config = config.resolverConfig
+        } else if (config.selectedProfile) {
+          data.engine_id = config.selectedProfile.default_engine_id
+          data.resolver_id = config.selectedProfile.resolver_id
+          data.retry_mode = config.selectedProfile.retry_mode ?? "none"
+          data.retry_config = config.selectedProfile.retry_config ?? {}
+          data.resolver_config = config.selectedProfile.resolver_config ?? {}
         }
         createMutation.mutate(data)
       }}
@@ -407,11 +253,11 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
       {/* Profile selector */}
       <FormField label="Profile">
         <Select
-          value={profileId}
-          onValueChange={handleProfileChange}
+          value={config.profileId}
+          onValueChange={config.handleProfileChange}
           items={[
             { value: "__none__", label: "None — configure manually" },
-            ...profiles.map((p) => ({ value: String(p.id), label: p.name })),
+            ...config.profiles.map((p) => ({ value: String(p.id), label: p.name })),
           ]}
         >
           <SelectTrigger className="h-8 text-xs w-full">
@@ -419,7 +265,7 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__none__">None — configure manually</SelectItem>
-            {profiles.map((p) => (
+            {config.profiles.map((p) => (
               <SelectItem key={p.id} value={String(p.id)}>
                 {p.name}
               </SelectItem>
@@ -429,57 +275,39 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
       </FormField>
 
       {/* Advanced toggle — only when profile selected */}
-      {hasProfile && (
-        <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+      {config.hasProfile && (
+        <Collapsible open={config.advancedOpen} onOpenChange={config.setAdvancedOpen}>
           <CollapsibleTrigger asChild>
             <button
               type="button"
               className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
             >
-              {advancedOpen ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+              {config.advancedOpen ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
               Advanced — override profile settings
             </button>
           </CollapsibleTrigger>
           <CollapsibleContent className="space-y-3 mt-2">
-            <AutorunConfigFields
-              engineId={engineId}
-              resolverId={resolverId}
-              retryMode={retryMode}
-              retryConfig={retryConfig}
-              resolverConfig={resolverConfig}
-              availableRetryModes={availableRetryModes}
-              retryModeSchema={retryModeSchema}
-              resolverConfigSchema={resolverConfigSchema}
-              engines={engines}
-              resolvers={resolvers}
-              onEngineChange={handleEngineChange}
-              onResolverChange={(v) => { setResolverId(v); setResolverConfig({}) }}
-              onRetryModeChange={handleRetryModeChange}
-              onRetryConfigChange={setRetryConfig}
-              onResolverConfigChange={setResolverConfig}
+            <PluginConfigFields
+              engineId={config.engineId} resolverId={config.resolverId}
+              retryMode={config.retryMode} retryConfig={config.retryConfig} resolverConfig={config.resolverConfig}
+              availableRetryModes={config.availableRetryModes} retryModeSchema={config.retryModeSchema} resolverConfigSchema={config.resolverConfigSchema}
+              engines={config.engines} resolvers={config.resolvers}
+              onEngineChange={config.handleEngineChange} onResolverChange={config.handleResolverChange}
+              onRetryModeChange={config.handleRetryModeChange} onRetryConfigChange={config.setRetryConfig} onResolverConfigChange={config.setResolverConfig}
             />
           </CollapsibleContent>
         </Collapsible>
       )}
 
       {/* Config fields — when no profile selected */}
-      {!hasProfile && (
-        <AutorunConfigFields
-          engineId={engineId}
-          resolverId={resolverId}
-          retryMode={retryMode}
-          retryConfig={retryConfig}
-          resolverConfig={resolverConfig}
-          availableRetryModes={availableRetryModes}
-          retryModeSchema={retryModeSchema}
-          resolverConfigSchema={resolverConfigSchema}
-          engines={engines}
-          resolvers={resolvers}
-          onEngineChange={handleEngineChange}
-          onResolverChange={(v) => { setResolverId(v); setResolverConfig({}) }}
-          onRetryModeChange={handleRetryModeChange}
-          onRetryConfigChange={setRetryConfig}
-          onResolverConfigChange={setResolverConfig}
+      {!config.hasProfile && (
+        <PluginConfigFields
+          engineId={config.engineId} resolverId={config.resolverId}
+          retryMode={config.retryMode} retryConfig={config.retryConfig} resolverConfig={config.resolverConfig}
+          availableRetryModes={config.availableRetryModes} retryModeSchema={config.retryModeSchema} resolverConfigSchema={config.resolverConfigSchema}
+          engines={config.engines} resolvers={config.resolvers}
+          onEngineChange={config.handleEngineChange} onResolverChange={config.handleResolverChange}
+          onRetryModeChange={config.handleRetryModeChange} onRetryConfigChange={config.setRetryConfig} onResolverConfigChange={config.setResolverConfig}
         />
       )}
 
@@ -512,71 +340,5 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
         </Tabs>
       </div>
     </CreatePanel>
-  )
-}
-
-/** Config fields for autorun creation — engine, resolver, retry mode, and dynamic forms */
-function AutorunConfigFields({
-  engineId, resolverId, retryMode, retryConfig, resolverConfig,
-  availableRetryModes, retryModeSchema, resolverConfigSchema,
-  engines, resolvers,
-  onEngineChange, onResolverChange, onRetryModeChange,
-  onRetryConfigChange, onResolverConfigChange,
-}: {
-  engineId: string
-  resolverId: string
-  retryMode: string
-  retryConfig: Record<string, unknown>
-  resolverConfig: Record<string, unknown>
-  availableRetryModes: string[]
-  retryModeSchema: any
-  resolverConfigSchema: any
-  engines: any[]
-  resolvers: any[]
-  onEngineChange: (v: string) => void
-  onResolverChange: (v: string) => void
-  onRetryModeChange: (v: string) => void
-  onRetryConfigChange: (v: Record<string, unknown>) => void
-  onResolverConfigChange: (v: Record<string, unknown>) => void
-}) {
-  return (
-    <>
-      <div className="grid grid-cols-2 gap-3 items-end">
-        <div className="grid grid-cols-2 gap-2">
-          <FormField label="Engine">
-            <Select value={engineId} onValueChange={onEngineChange} items={engines.map((e: any) => ({ value: String(e.id), label: e.name }))}>
-              <SelectTrigger className="h-8 text-xs w-full"><SelectValue placeholder="Select" /></SelectTrigger>
-              <SelectContent>{engines.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>)}</SelectContent>
-            </Select>
-          </FormField>
-          <FormField label="Retry Mode">
-            <Select value={retryMode} onValueChange={onRetryModeChange} disabled={!engineId} items={availableRetryModes.map((m: string) => ({ value: m, label: m }))}>
-              <SelectTrigger className="h-8 text-xs w-full"><SelectValue placeholder={engineId ? "Select" : "—"} /></SelectTrigger>
-              <SelectContent>{availableRetryModes.map((m: string) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
-            </Select>
-          </FormField>
-        </div>
-        <FormField label="Resolver">
-          <Select value={resolverId} onValueChange={onResolverChange} items={resolvers.map((r: any) => ({ value: String(r.id), label: r.name }))}>
-            <SelectTrigger className="h-8 text-xs w-full"><SelectValue placeholder="Select" /></SelectTrigger>
-            <SelectContent>{resolvers.map((r: any) => <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>)}</SelectContent>
-          </Select>
-        </FormField>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        {retryModeSchema && (
-          <div className="rounded-lg border bg-muted/10 p-3 space-y-3">
-            <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">Retry Config</p>
-            <DynamicForm schema={retryModeSchema} value={retryConfig} onChange={onRetryConfigChange} />
-          </div>
-        )}
-        {resolverConfigSchema && (
-          <div className="rounded-lg border bg-muted/10 p-3 space-y-3">
-            <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">Resolver Config</p>
-            <DynamicForm schema={resolverConfigSchema} value={resolverConfig} onChange={onResolverConfigChange} />
-          </div>
-        )}
-      </div>
-    </>
   )
 }

@@ -423,6 +423,10 @@ function ConfigValue({ value }: { value: string }) {
   const [copied, copy] = useCopyToClipboard()
   const needsTruncate = value.length > 40
 
+  function handleClick() {
+    copy(value)
+  }
+
   if (!needsTruncate) {
     return <code className="text-[11px] font-mono text-muted-foreground text-right flex-1 min-w-0">{value}</code>
   }

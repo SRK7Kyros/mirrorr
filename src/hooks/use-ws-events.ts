@@ -1,16 +1,12 @@
-import { useEffect, useRef, useCallback } from "react"
 import { useQueryClient, type QueryKey } from "@tanstack/react-query"
 import { getWsEventsUrl } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth-store"
 import { useRequestLogStore } from "@/stores/request-log-store"
 import { EVENT_TO_QUERY_KEY } from "@/lib/ws-events"
+import { useWsConnection } from "@/hooks/use-ws-connection"
+import { useCallback } from "react"
 
-type WsEventType =
-  | "session.created" | "session.updated" | "session.deleted"
-  | "session.started" | "session.stopped" | "session.crashed"
-  | "autorun.created" | "autorun.updated" | "autorun.deleted"
-  | "recording.created" | "recording.updated" | "recording.deleted"
-  | "profile.created" | "profile.updated" | "profile.deleted"
+import type { WsEventType } from "@/lib/ws-events"
 
 interface WsEvent {
   event: WsEventType
@@ -85,76 +81,30 @@ function patchQueryCache(
  */
 export function useWsEvents() {
   const queryClient = useQueryClient()
-  const wsRef = useRef<WebSocket | null>(null)
-  const reconnectTimeout = useRef<ReturnType<typeof setTimeout>>()
   const token = useAuthStore((s) => s.token)
 
-  const connect = useCallback(() => {
-    // Clean up existing connection
-    if (wsRef.current) {
-      wsRef.current.close()
-      wsRef.current = null
-    }
-
+  const onMessage = useCallback((ev: MessageEvent) => {
     try {
-      const url = getWsEventsUrl()
-      const ws = new WebSocket(url)
-      wsRef.current = ws
-
-      ws.onmessage = (ev) => {
-        try {
-          const data = JSON.parse(ev.data) as WsEvent
-          patchQueryCache(queryClient, data)
-          // Log WS event to network monitor
-          useRequestLogStore.getState().addEntry({
-            type: "ws-event",
-            timestamp: Date.now(),
-            method: "WS",
-            url: "/ws/events",
-            path: data.event ?? "unknown",
-            status: 200,
-            statusText: "OK",
-            duration: null,
-            ok: true,
-            error: null,
-            requestBody: null,
-            responseBody: JSON.stringify(data),
-          })
-        } catch {
-          // ignore non-JSON messages
-        }
-      }
-
-      ws.onclose = () => {
-        // Only reconnect if this WS is still the active one.
-        // If wsRef.current was nulled by cleanup, this close was intentional.
-        if (wsRef.current === ws && useAuthStore.getState().isAuthenticated) {
-          reconnectTimeout.current = setTimeout(connect, 3000)
-        }
-      }
-
-      ws.onerror = () => {
-        ws.close()
-      }
+      const data = JSON.parse(ev.data) as WsEvent
+      patchQueryCache(queryClient, data)
+      useRequestLogStore.getState().addEntry({
+        type: "ws-event",
+        timestamp: Date.now(),
+        method: "WS",
+        url: "/ws/events",
+        path: data.event ?? "unknown",
+        status: 200,
+        statusText: "OK",
+        duration: null,
+        ok: true,
+        error: null,
+        requestBody: null,
+        responseBody: JSON.stringify(data),
+      })
     } catch {
-      // WS connection failed — retry
-      if (useAuthStore.getState().isAuthenticated) {
-        reconnectTimeout.current = setTimeout(connect, 3000)
-      }
+      // ignore non-JSON messages
     }
   }, [queryClient])
 
-  useEffect(() => {
-    if (token) {
-      connect()
-    }
-
-    return () => {
-      clearTimeout(reconnectTimeout.current)
-      if (wsRef.current) {
-        wsRef.current.close()
-        wsRef.current = null
-      }
-    }
-  }, [token, connect])
+  useWsConnection({ url: getWsEventsUrl(), onMessage, token })
 }

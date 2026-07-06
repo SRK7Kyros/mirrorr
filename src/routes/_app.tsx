@@ -13,6 +13,7 @@ import { useRequestLogStore } from "@/stores/request-log-store"
 import { useTheme } from "next-themes"
 import { useWsEvents } from "@/hooks/use-ws-events"
 import { useWsNotifications } from "@/hooks/use-ws-notifications"
+import { ThemeToggle } from "@/components/theme-toggle"
 import {
   LayoutDashboard,
   Radio,
@@ -22,8 +23,6 @@ import {
   Plug,
   User,
   LogOut,
-  Sun,
-  Moon,
   Bell,
   Menu,
   X,
@@ -33,6 +32,7 @@ import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { startTokenRefresh, stopTokenRefresh } from "@/lib/api"
 import { NetworkStatusDot, NetworkMonitor, NetworkStatusTracker } from "@/components/network-monitor"
+import { Logo } from "@/components/logo"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
@@ -50,7 +50,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { cn } from "@/lib/utils"
+import { cn, getUserInitial } from "@/lib/utils"
 
 export const Route = createFileRoute("/_app")({
   beforeLoad: () => {
@@ -76,6 +76,23 @@ const navItems: NavItem[] = [
   { label: "Profiles", to: "/profiles", icon: Settings },
   { label: "Plugins", to: "/plugins", icon: Plug },
 ]
+
+function NavItemComponent({ item, isActive, className }: { item: NavItem; isActive: boolean; className?: string }) {
+  const Icon = item.icon
+  return (
+    <Link
+      to={item.to}
+      className={cn(
+        "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[13px] font-medium transition-colors",
+        isActive ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+        className,
+      )}
+    >
+      <Icon className="size-3.5 shrink-0" />
+      {item.label}
+    </Link>
+  )
+}
 
 function AppLayout() {
   const location = useLocation()
@@ -128,12 +145,9 @@ function AppLayout() {
       {/* ── Top Navbar ────────────────────────────────────────── */}
       <header className="h-12 flex items-center border-b bg-background/80 backdrop-blur-xl">
         {/* Logo */}
-        <Link to="/" className="flex items-center gap-2.5 px-4 shrink-0">
-          <div className="w-6 h-6 rounded-md bg-foreground flex items-center justify-center">
-            <span className="text-background font-bold text-[10px]">M</span>
-          </div>
-          <span className="text-sm font-semibold tracking-tight hidden sm:inline">Mirrorr</span>
-        </Link>
+        <div className="px-4 shrink-0 hidden sm:block">
+          <Logo />
+        </div>
 
         <Separator orientation="vertical" className="h-5 shrink-0 hidden sm:block" />
 
@@ -144,21 +158,8 @@ function AppLayout() {
               item.to === "/"
                 ? location.pathname === "/"
                 : location.pathname.startsWith(item.to)
-            const Icon = item.icon
             return (
-              <Link
-                key={item.to}
-                to={item.to}
-                className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[13px] font-medium transition-colors",
-                  isActive
-                    ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
-                )}
-              >
-                <Icon className="size-3.5 shrink-0" />
-                {item.label}
-              </Link>
+              <NavItemComponent key={item.to} item={item} isActive={isActive} />
             )
           })}
         </nav>
@@ -244,22 +245,14 @@ function AppLayout() {
           </Popover>
 
           {/* Theme toggle */}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          >
-            <Sun className="size-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-            <Moon className="absolute size-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-            <span className="sr-only">Toggle theme</span>
-          </Button>
+          <ThemeToggle />
 
           {/* User menu */}
           <DropdownMenu>
             <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" className="ml-1" />}>
                 <Avatar className="size-7">
                   <AvatarFallback className="text-xs bg-muted">
-                    {(user?.display_name ?? user?.username ?? "?")[0].toUpperCase()}
+                    {getUserInitial(user)}
                   </AvatarFallback>
                 </Avatar>
             </DropdownMenuTrigger>
@@ -310,21 +303,8 @@ function AppLayout() {
                   item.to === "/"
                     ? location.pathname === "/"
                     : location.pathname.startsWith(item.to)
-                const Icon = item.icon
                 return (
-                  <Link
-                    key={item.to}
-                    to={item.to}
-                    className={cn(
-                      "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors",
-                      isActive
-                        ? "bg-muted text-foreground"
-                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
-                    )}
-                  >
-                    <Icon className="size-4 shrink-0" />
-                    {item.label}
-                  </Link>
+                  <NavItemComponent key={item.to} item={item} isActive={isActive} className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm" />
                 )
               })}
             </div>

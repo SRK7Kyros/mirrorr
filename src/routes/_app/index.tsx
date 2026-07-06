@@ -1,28 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { useQuery } from "@tanstack/react-query"
-import { sessionsApi, recordingsApi, profilesApi } from "@/lib/api"
+import { useSessions, useRecordings, useProfiles } from "@/hooks/use-queries"
 import { Card } from "@/components/ui/card"
 import { Radio, Film, Settings, CalendarClock, Plug } from "lucide-react"
 import { Link } from "@tanstack/react-router"
-import { cn } from "@/lib/utils"
+import { cn, getStatusDotColor } from "@/lib/utils"
 
 export const Route = createFileRoute("/_app/")({
   component: DashboardPage,
 })
 
 function DashboardPage() {
-  const { data: sessions = [] } = useQuery({
-    queryKey: ["sessions"],
-    queryFn: () => sessionsApi.list(),
-  })
-  const { data: recordings = [] } = useQuery({
-    queryKey: ["recordings"],
-    queryFn: () => recordingsApi.list(),
-  })
-  const { data: profiles = [] } = useQuery({
-    queryKey: ["profiles"],
-    queryFn: () => profilesApi.list(),
-  })
+  const { data: sessions = [] } = useSessions()
+  const { data: recordings = [] } = useRecordings()
+  const { data: profiles = [] } = useProfiles()
 
   const active = sessions.filter((s) => s.status === "active" || s.status === "recording")
 
@@ -93,12 +83,7 @@ function DashboardPage() {
                     to="/sessions"
                     className="flex items-center gap-2 px-3 py-2 hover:bg-muted/30 transition-colors text-xs"
                   >
-                    <div className={cn("size-1.5 rounded-full shrink-0",
-                      session.status === "active" ? "bg-emerald-500" :
-                      session.status === "recording" ? "bg-amber-500" :
-                      session.status === "completed" ? "bg-blue-500" :
-                      session.status === "failed" ? "bg-red-500" : "bg-muted-foreground/30"
-                    )} />
+                    <div className={cn("size-1.5 rounded-full shrink-0", getStatusDotColor(session.status))} />
                     <span className="font-medium">#{session.id}</span>
                     <span className="text-muted-foreground ml-auto">{session.status}</span>
                   </Link>

@@ -10,6 +10,7 @@ import { useAuthStore } from "@/stores/auth-store"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { FormField } from "@/components/form-field"
+import { ErrorBanner, SuccessBanner } from "@/components/error-banner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
 export const Route = createFileRoute("/_auth/register")({
@@ -71,9 +72,7 @@ function RegisterPage() {
       <CardContent>
         {success ? (
           <div className="space-y-4">
-            <div className="flex items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-sm text-emerald-600 dark:text-emerald-400">
-              {success}
-            </div>
+            <SuccessBanner message={success} />
             <Link to="/login">
               <Button variant="outline" className="w-full">Back to Login</Button>
             </Link>
@@ -87,9 +86,7 @@ function RegisterPage() {
             })}
             className="space-y-4"
           >
-            {error && (
-              <div className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</div>
-            )}
+            {error && <ErrorBanner message={error} />}
             <FormField label="Username" error={form.formState.errors.username?.message}>
               <Input
                 id="username"

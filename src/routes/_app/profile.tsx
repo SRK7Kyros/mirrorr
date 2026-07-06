@@ -14,7 +14,7 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { changePasswordSchema } from "@/lib/schemas"
 import { toast } from "sonner"
-import { cn } from "@/lib/utils"
+import { cn, getUserInitial } from "@/lib/utils"
 import { useState } from "react"
 
 export const Route = createFileRoute("/_app/profile")({
@@ -98,7 +98,7 @@ function AccountSection() {
       <div className="pb-4 border-b">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-foreground flex items-center justify-center shrink-0">
-            <span className="text-background font-bold text-sm">{(displayUser?.display_name ?? displayUser?.username ?? "?")[0].toUpperCase()}</span>
+            <span className="text-background font-bold text-sm">{getUserInitial(displayUser)}</span>
           </div>
           <div>
             <h2 className="text-sm font-bold">{displayUser?.display_name || displayUser?.username}</h2>
@@ -226,7 +226,7 @@ function AdminSection() {
               <div key={u.id} className="flex items-center justify-between px-4 py-2.5 text-xs">
                 <div className="flex items-center gap-2">
                   <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center">
-                    <span className="text-[10px] font-medium">{(u.display_name ?? u.username ?? "?")[0].toUpperCase()}</span>
+                    <span className="text-[10px] font-medium">{getUserInitial(u)}</span>
                   </div>
                   <div>
                     <span className="font-medium">{u.username}</span>

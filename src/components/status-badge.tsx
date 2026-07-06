@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils"
+import { cn, getStatusDotColor } from "@/lib/utils"
 
 const statusStyle: Record<string, { bg: string; text: string; label: string }> = {
   scheduled:   { bg: "bg-sky-500/15",    text: "text-sky-600 dark:text-sky-400",       label: "Scheduled" },
@@ -13,15 +13,9 @@ const statusStyle: Record<string, { bg: string; text: string; label: string }> =
   failed:      { bg: "bg-red-500/15",     text: "text-red-600 dark:text-red-400",       label: "Failed" },
 }
 
-const dotColor: Record<string, string> = {
-  scheduled: "bg-sky-500", active: "bg-emerald-500", running: "bg-emerald-500",
-  recording: "bg-amber-500", terminating: "bg-orange-500", remuxing: "bg-blue-500",
-  finalizing: "bg-indigo-500", deleting: "bg-violet-500", completed: "bg-blue-500", failed: "bg-red-500",
-}
-
 export function StatusBadge({ status }: { status: string }) {
   const style = statusStyle[status] ?? { bg: "bg-muted", text: "text-muted-foreground", label: status }
-  const dot = dotColor[status] ?? "bg-muted-foreground/30"
+  const dot = getStatusDotColor(status)
   return (
     <span
       role="status"

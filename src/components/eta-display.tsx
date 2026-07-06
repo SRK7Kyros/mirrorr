@@ -4,8 +4,7 @@ import { cn } from "@/lib/utils"
 
 // ── Time formatting ──────────────────────────────────────────────────
 
-const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-const MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+import { WEEKDAYS, MONTHS } from "@/lib/date-utils"
 const ORDINAL = (n: number) => {
   const s = ["th", "st", "nd", "rd"]
   const v = n % 100
@@ -13,7 +12,7 @@ const ORDINAL = (n: number) => {
 }
 
 function formatAbsolute(d: Date) {
-  return `${WEEKDAYS[d.getDay()]}, ${MONTHS_LONG[d.getMonth()]} ${ORDINAL(d.getDate())}, ${d.getFullYear()} at ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`
+  return `${WEEKDAYS[d.getDay()]}, ${MONTHS[d.getMonth()]} ${ORDINAL(d.getDate())}, ${d.getFullYear()} at ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`
 }
 
 function formatRelative(ms: number) {
@@ -68,9 +67,19 @@ export function EtaDisplay({ value, mode, className }: EtaDisplayProps) {
     }
 
     tick()
-    const id = setInterval(tick, 1000)
-    return () => clearInterval(id)
   }, [value, mode])
+
+  useInterval(() => {
+    if (!value) return
+    const target = new Date(value)
+    const now = new Date()
+    const diff = target.getTime() - now.getTime()
+    if (mode === "absolute") {
+      setText(formatAbsolute(target))
+    } else {
+      setText(formatRelative(diff))
+    }
+  }, value ? 1000 : null)
 
   if (!text) return null
 

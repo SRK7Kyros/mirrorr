@@ -16,6 +16,28 @@ import type {
   ImportBundle,
   ValidationReport,
 } from "@/lib/schemas"
+import {
+  getStoredToken,
+  setStoredToken,
+  clearStoredToken,
+  getStoredRefreshToken,
+  setStoredRefreshToken,
+  clearStoredRefreshToken,
+  getStoredApiKey,
+  setStoredApiKey,
+} from "@/lib/storage"
+
+// Re-export storage helpers for backward compatibility
+export {
+  getStoredToken,
+  setStoredToken,
+  clearStoredToken,
+  getStoredRefreshToken,
+  setStoredRefreshToken,
+  clearStoredRefreshToken,
+  getStoredApiKey,
+  setStoredApiKey,
+}
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000"
 
@@ -26,44 +48,6 @@ let _onAuthFailed: (() => void) | null = null
 /** Called by auth-store to register a logout callback for refresh failures. */
 export function onAuthFailed(cb: () => void) {
   _onAuthFailed = cb
-}
-
-// ── Token storage ──────────────────────────────────────────────────
-
-const TOKEN_KEY = "mirrorr_jwt"
-const REFRESH_KEY = "mirrorr_refresh_jwt"
-const API_KEY_KEY = "mirrorr_api_key"
-
-export function getStoredToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY)
-}
-
-export function setStoredToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token)
-}
-
-export function clearStoredToken(): void {
-  localStorage.removeItem(TOKEN_KEY)
-}
-
-export function getStoredRefreshToken(): string | null {
-  return localStorage.getItem(REFRESH_KEY)
-}
-
-export function setStoredRefreshToken(token: string): void {
-  localStorage.setItem(REFRESH_KEY, token)
-}
-
-export function clearStoredRefreshToken(): void {
-  localStorage.removeItem(REFRESH_KEY)
-}
-
-export function getStoredApiKey(): string | null {
-  return localStorage.getItem(API_KEY_KEY)
-}
-
-export function setStoredApiKey(key: string): void {
-  localStorage.setItem(API_KEY_KEY, key)
 }
 
 // ── Core request function ──────────────────────────────────────────
@@ -483,18 +467,13 @@ export const telemetryApi = {
 
 // ── WebSocket URLs ─────────────────────────────────────────────────
 
-export function getWsEventsUrl(): string {
+function buildWsUrl(path: string): string {
   const base = API_BASE.replace(/^http/, "ws")
   const token = getStoredToken()
   const params = new URLSearchParams()
   if (token) params.set("token", token)
-  return `${base}/ws/events?${params.toString()}`
+  return `${base}${path}?${params.toString()}`
 }
 
-export function getWsNotificationsUrl(): string {
-  const base = API_BASE.replace(/^http/, "ws")
-  const token = getStoredToken()
-  const params = new URLSearchParams()
-  if (token) params.set("token", token)
-  return `${base}/ws/notifications?${params.toString()}`
-}
+export const getWsEventsUrl = () => buildWsUrl("/ws/events")
+export const getWsNotificationsUrl = () => buildWsUrl("/ws/notifications")
