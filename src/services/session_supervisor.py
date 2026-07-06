@@ -153,6 +153,8 @@ class SessionSupervisor:
                 )
 
                 if outcome == "stopped":
+                    # Session was user-stopped — finalize recording (if any) but keep the session in DB
+                    await self._finalize_stopped()
                     return
 
                 # Check retry for both crashes and done signals
@@ -331,14 +333,12 @@ class SessionSupervisor:
             if stop_also_pending:
                 logger.info(f"stop requested (ignoring crash: {result.reason})")
                 await self._cleanup(reason="stop")
-                await self._finalize_session()
                 return "stopped", None
             logger.opt(colors=True).error(f"<red>Session failed</red>: {result.reason}")
             return "crashed", result
         else:
             logger.info(f"stop requested")
             await self._cleanup(reason="stop")
-            await self._finalize_session()
             return "stopped", None
 
     # ── recording / remux ────────────────────────────────────────────
@@ -384,6 +384,34 @@ class SessionSupervisor:
                 self.settings, self.session_id, self.session_folder,
                 nc=self._nc, autorun_id=self.session.autorun_id,
             )
+
+    async def _finalize_stopped(self) -> None:
+        """Handle post-stop finalization: remux recording if active, then mark COMPLETED.
+
+        Unlike _finalize_session(), this does NOT delete the session — a stopped
+        session should remain visible in the sidebar.
+        """
+        if not self._recording:
+            await update_session(self.settings, self.session_id, status=SessionStatus.COMPLETED, nc=self._nc)
+            return
+
+        await update_session(self.settings, self.session_id, status=SessionStatus.REMUXING, nc=self._nc)
+        try:
+            recording_id = await self._recording.remux()
+            logger.success(f"recording created")
+            await update_session(self.settings, self.session_id, status=SessionStatus.FINALIZING, nc=self._nc)
+            await update_session(self.settings, self.session_id, status=SessionStatus.COMPLETED, nc=self._nc)
+            if recording_id and self._nc:
+                try:
+                    await self._nc.publish(
+                        MirrorrEvent.RECORDING_CREATED.subject,
+                        MirrorrEvent.RECORDING_CREATED(id=recording_id).model_dump_json().encode(),
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to emit RECORDING_CREATED: {e}")
+        except Exception as e:
+            logger.error(f"remux failed: {e}")
+            await update_session(self.settings, self.session_id, status=SessionStatus.FAILED, nc=self._nc)
 
     # ── control channel ──────────────────────────────────────────────
 
@@ -488,7 +516,8 @@ class SessionSupervisor:
                     subject = f"session.{self.session_id}.telemetry.{pname}"
                     try:
                         await self._nc.publish(subject, json.dumps(data).encode())
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"Error forwarding telemetry for {pname}: {e}")
                         return
 
             self._telemetry_tasks.append(asyncio.create_task(_forward_telemetry(telemetry_q, proc_name)))
@@ -526,10 +555,10 @@ class SessionSupervisor:
             try:
                 await asyncio.wait(
                     [asyncio.create_task(p._process.wait()) for p in running_procs if p._process is not None],
-                    timeout=10.0,
+                    timeout=5.0,
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Error waiting for processes to exit: {e}")
 
         for proc in self.processes:
             if proc.running:
@@ -581,13 +610,13 @@ class SessionSupervisor:
         if self._control_sub:
             try:
                 await self._control_sub.unsubscribe()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Error unsubscribing from control channel: {e}")
             self._control_sub = None
         try:
             await self._nc.drain()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Error draining NATS connection: {e}")
         self._nc = None
 
 
