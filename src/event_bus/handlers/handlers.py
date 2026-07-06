@@ -7,7 +7,7 @@ from loguru import logger
 from src.event_bus.nats import bus
 from src.event_bus.event import MirrorrEvent
 from src.services import session_supervisor
-from src.storage.models import ResourceType
+from src.storage.enums import ResourceType
 
 # ── Process registry: session_id → (Process, ShutdownEvent) ──────────
 _sessions: dict[int, tuple[multiprocessing.Process, ShutdownEvent]] = {}
@@ -70,7 +70,8 @@ async def handle_autorun_created(data: MirrorrEvent.AUTORUN_CREATED):
 async def handle_autorun_deleted(data: MirrorrEvent.AUTORUN_DELETED):
     """When an autorun is deleted, stop its session if one is running."""
     from src.di import container
-    from src.storage.models import Session, SessionStatus
+    from src.storage.models import Session
+    from src.storage.enums import SessionStatus
     from sqlmodel import select
 
     session_factory = container.session_factory

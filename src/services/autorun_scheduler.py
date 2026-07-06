@@ -9,7 +9,8 @@ from sqlmodel import select
 
 from src.event_bus.nats import bus, get_control_nc
 from src.event_bus.event import MirrorrEvent
-from src.storage.models import Autorun, AutorunStatus, Session, SessionStatus, Profile
+from src.storage.models import Autorun, Session, Profile
+from src.storage.enums import AutorunStatus, SessionStatus
 from src.storage import crud
 from src.startup.config import MirrorrSettings
 from src.services.session_lifecycle import update_autorun
@@ -18,7 +19,7 @@ from src.services.session_lifecycle import update_autorun
 async def autorun_scheduler_loop(
     settings: MirrorrSettings,
     session_factory: async_sessionmaker,
-    stop_event,
+    stop_event: asyncio.Event,
 ) -> None:
     """Background loop that starts/stops sessions based on Autorun schedules.
 
@@ -92,7 +93,7 @@ async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) 
             # receive per-resource WS events (telemetry, recording state, etc.)
             if autorun.requester_user_token:
                 from src.api.auth import subscribe_requester
-                from src.storage.models import ResourceType
+                from src.storage.enums import ResourceType
                 await subscribe_requester(db, autorun.requester_user_token, ResourceType.SESSION, session.id)
 
         await db.commit()

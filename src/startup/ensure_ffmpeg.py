@@ -7,15 +7,14 @@ import shutil
 import os
 
 
-def ensure_ffmpeg(settings) -> None:
+def ensure_ffmpeg(settings: "MirrorrSettings") -> None:
     """Locate or set up ffmpeg and write its path to os.environ['FFMPEG_EXECUTABLE']."""
     if settings.use_system_ffmpeg:
         if shutil.which("ffmpeg"):
             os.environ["FFMPEG_EXECUTABLE"] = "ffmpeg"
             logger.info("Using system ffmpeg")
         else:
-            logger.critical("use_system_ffmpeg is True but ffmpeg is not found in system path")
-            sys.exit(1)
+            raise RuntimeError("use_system_ffmpeg is True but ffmpeg is not found in system path")
     else:
         ffmpeg_dir = settings.ffmpeg_bin_dir
         exe_name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
@@ -46,4 +45,7 @@ def ensure_ffmpeg(settings) -> None:
                     "local-ffmpeg package not installed and no bundled ffmpeg found. "
                     "Install it with: pip install local-ffmpeg, or set use_system_ffmpeg=True."
                 )
-                sys.exit(1)
+                raise RuntimeError(
+                    "local-ffmpeg package not installed and no bundled ffmpeg found. "
+                    "Install it with: pip install local-ffmpeg, or set use_system_ffmpeg=True."
+                )

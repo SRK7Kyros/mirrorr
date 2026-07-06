@@ -14,7 +14,7 @@ class NatsRegistry(EventBus):
     def __init__(self) -> None:
         self.nc = NATS()
         self._handlers: dict[str, list[tuple[Callable[..., Awaitable[None]], Type[BaseEvent]]]] = {}
-        self._settings: Any = None  # Set by MirrorrCore at boot
+        self._settings: "MirrorrSettings | None" = None  # Set by MirrorrCore at boot
 
     async def connect(self, servers: list[str] | None = None) -> None:
         if servers is None:
@@ -71,8 +71,8 @@ class NatsRegistry(EventBus):
         """Gracefully drain in-flight NATS messages before closing."""
         try:
             await self.nc.drain()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"NATS drain error (non-fatal): {e}")
 
     def get_handlers(self, event: Type[BaseEvent]) -> list[tuple[Callable[..., Awaitable[None]], Type[BaseEvent]]]:
         return self._handlers.get(event.subject, [])

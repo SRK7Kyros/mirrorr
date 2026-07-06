@@ -8,7 +8,7 @@ import os
 import re
 import shutil
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -441,8 +441,8 @@ class RecordingManager:
 
         mp4_in_dest = dest / mp4_name
         stat = mp4_in_dest.stat()
-        started_at = self.session.started_at or datetime.utcnow()
-        ended_at = datetime.utcnow()
+        started_at = self.session.started_at or datetime.now(timezone.utc).replace(tzinfo=None)
+        ended_at = datetime.now(timezone.utc).replace(tzinfo=None)
         duration_seconds = await self._probe_duration(mp4_in_dest)
 
         db_engine, session_factory = create_db_engine(self.settings)

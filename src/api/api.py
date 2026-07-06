@@ -1,3 +1,4 @@
+import html
 from src.event_bus.nats import bus
 from loguru import logger
 from fastapi import FastAPI, Request
@@ -89,7 +90,7 @@ async def catch_all_exception_handler(_request: Request, exc: Exception):
     logger.exception(f"Unhandled exception: {exc}")
     return JSONResponse(
         status_code=500,
-        content={"detail": str(exc)},
+        content={"detail": "Internal server error"},
     )
 
 
@@ -100,8 +101,10 @@ def _directory_listing(path: str, full_path) -> str:
     for entry in entries:
         name = entry.name + "/" if entry.is_dir() else entry.name
         href = path.rstrip("/") + "/" + name
+        safe_name = html.escape(name)
+        safe_href = html.escape(href, quote=True)
         size = f"{entry.stat().st_size:,} B" if entry.is_file() else "-"
-        rows += f'<tr><td><a href="{href}">{name}</a></td><td>{size}</td></tr>\n'
+        rows += f'<tr><td><a href="{safe_href}">{safe_name}</a></td><td>{size}</td></tr>\n'
 
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Index of {path}</title>

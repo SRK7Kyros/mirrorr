@@ -1,9 +1,9 @@
 from collections.abc import Sequence
-from typing import TypeVar, Any
+from typing import TypeVar
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from src.storage.models import Profile, Session
+from src.storage.models import Profile
 
 T = TypeVar("T", bound=SQLModel)
 # --- The "Engine Room" (Internal helpers) ---

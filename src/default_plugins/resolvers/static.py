@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Type
 
-from src.storage.models import ResolverInterface, ResolverContext, Source
+from src.plugins.interfaces import ResolverInterface, ResolverContext, Source
 from pydantic import BaseModel
 
 

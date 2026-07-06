@@ -45,13 +45,7 @@ async def websocket_endpoint(websocket: WebSocket):
             subject = msg.subject
 
             # Skip high-frequency telemetry — not useful for WS clients
-            if ".telemetry." in subject:
-                return
-            # Skip NATS request-reply inbox subjects
-            if subject.startswith("_INBOX."):
-                return
-            # Skip internal per-session control channel (stop, enable_recording, etc.)
-            if subject.endswith(".control"):
+            if _should_skip_subject(subject):
                 return
 
             if subscribed_resources is not None:
@@ -159,11 +153,7 @@ async def notifications_endpoint(websocket: WebSocket):
         nonlocal sent_count
         try:
             subject = msg.subject
-            # Skip high-frequency telemetry
-            if ".telemetry." in subject:
-                return
-            # Skip NATS request-reply inbox subjects
-            if subject.startswith("_INBOX."):
+            if _should_skip_subject(subject):
                 return
             if not _is_relevant_event(subject, subscribed_resources):
                 return
@@ -205,6 +195,17 @@ async def notifications_endpoint(websocket: WebSocket):
 # ── Internal helpers ─────────────────────────────────────────────────
 
 
+def _should_skip_subject(subject: str) -> bool:
+    """Return True for NATS subjects that should never be forwarded to WS clients."""
+    if ".telemetry." in subject:
+        return True
+    if subject.startswith("_INBOX."):
+        return True
+    if subject.endswith(".control"):
+        return True
+    return False
+
+
 async def _get_subscribed_resources(
     username: str,
 ) -> set[tuple[str, int]]:
@@ -226,26 +227,23 @@ async def _get_subscribed_resources(
         return set(result.all())
 
 
+_BROADCAST_PREFIXES = (
+    "session.created", "session.updated", "session.deleted",
+    "session.started", "session.stopped", "session.crashed",
+    "autorun.created", "autorun.updated", "autorun.deleted",
+    "recording.created", "recording.updated", "recording.deleted",
+    "profile.created", "profile.updated", "profile.deleted",
+)
+
+
 def _is_relevant_event(subject: str, subscribed_resources: set[tuple[str, int]]) -> bool:
     """Check if a NATS subject should be forwarded to the client.
 
     Strategy:
-    - Broadcast CRUD events (e.g. ``session.created``, ``autorun.updated``)
-      are always relevant because the frontend uses them to invalidate
-      query caches and react to changes.
-    - Per-resource events (e.g. ``session.5.telemetry``) are only relevant
-      when the user is subscribed to that specific resource.
-    - Session control subjects (``session.{id}.control``) are forwarded so
-      the UI can observe stop/restart commands.
+    - Broadcast CRUD events are always relevant.
+    - Per-resource events are only relevant when the user is subscribed.
+    - Session control subjects are forwarded so the UI can observe commands.
     """
-    # Broadcast CRUD events — always relevant
-    _BROADCAST_PREFIXES = (
-        "session.created", "session.updated", "session.deleted",
-        "session.started", "session.stopped", "session.crashed",
-        "autorun.created", "autorun.updated", "autorun.deleted",
-        "recording.created", "recording.updated", "recording.deleted",
-        "profile.created", "profile.updated", "profile.deleted",
-    )
     if subject in _BROADCAST_PREFIXES:
         return True
 

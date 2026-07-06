@@ -36,35 +36,28 @@ class AuthState:
     is_admin: bool = False
 
 
-async def get_auth(
-    request: Request,
-    x_api_key: str | None = Depends(_api_key_header),
-    bearer: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
-    db: AsyncSession = Depends(_get_db_session),
+async def _resolve_auth(
+    db: AsyncSession,
+    api_key: str,
+    token: str,
 ) -> AuthState:
-    """FastAPI dependency: validate API key + JWT, resolve client + user.
+    """Shared auth resolution logic for both HTTP and WebSocket contexts."""
+    from src.api.auth import resolve_client, resolve_user
+    from src.api.jwt import decode_access_token
 
-    Returns AuthState with whatever was resolved. Endpoints that require
-    specific auth should use require_auth or require_admin instead.
-    """
     client = None
     user = None
     is_admin = False
 
-    # Validate API key (swallow errors for bootstrap)
-    if x_api_key:
-        from src.api.auth import resolve_client
+    if api_key:
         try:
-            client = await resolve_client(db, x_api_key)
+            client = await resolve_client(db, api_key)
         except HTTPException:
             pass
 
-    # Validate JWT
-    if bearer:
-        from src.api.jwt import decode_access_token
-        payload = decode_access_token(bearer.credentials)
+    if token:
+        payload = decode_access_token(token)
         if payload and "username" in payload:
-            from src.api.auth import resolve_user
             try:
                 user = await resolve_user(db, payload["username"])
                 is_admin = user.role == "admin"
@@ -72,6 +65,18 @@ async def get_auth(
                 pass
 
     return AuthState(client=client, user=user, is_admin=is_admin)
+
+
+async def get_auth(
+    request: Request,
+    x_api_key: str | None = Depends(_api_key_header),
+    bearer: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+    db: AsyncSession = Depends(_get_db_session),
+) -> AuthState:
+    """FastAPI dependency: validate API key + JWT, resolve client + user."""
+    api_key = x_api_key or ""
+    token = bearer.credentials if bearer else ""
+    return await _resolve_auth(db, api_key, token)
 
 
 async def require_auth(
@@ -99,36 +104,13 @@ async def ws_auth(
     websocket: WebSocket,
 ) -> tuple[AuthState | None, str | None]:
     """Resolve auth from WebSocket connection (query params or headers)."""
-    from src.api.jwt import decode_access_token
-    from src.api.auth import resolve_client, resolve_user
-
-    api_key = websocket.query_params.get("api_key", "")
-    if not api_key:
-        api_key = websocket.headers.get("x-api-key", "")
-
-    token = websocket.query_params.get("token", "")
+    api_key = websocket.query_params.get("api_key", "") or websocket.headers.get("x-api-key", "")
+    token = websocket.query_params.get("token", "") or websocket.headers.get("authorization", "").removeprefix("Bearer ")
 
     async with get_session_factory()() as db:
-        client = None
-        user = None
-        is_admin = False
+        auth = await _resolve_auth(db, api_key, token)
 
-        if api_key:
-            try:
-                client = await resolve_client(db, api_key)
-            except HTTPException:
-                pass
+    if not auth.client and not auth.user:
+        return None, None
 
-        if token:
-            payload = decode_access_token(token)
-            if payload and "username" in payload:
-                try:
-                    user = await resolve_user(db, payload["username"])
-                    is_admin = user.role == "admin"
-                except HTTPException:
-                    pass
-
-        if not client and not user:
-            return None, None
-
-        return AuthState(client=client, user=user, is_admin=is_admin), None
+    return auth, None
