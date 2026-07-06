@@ -85,15 +85,14 @@ async def subscribe_requester(
     if sub_result.first():
         return
 
-    from datetime import datetime
+    from datetime import datetime, timezone
     sub = EventSubscription(
         user_id=user.id,
         resource_type=resource_type,
         resource_id=resource_id,
-        created_at=datetime.now(),
+        created_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
     db.add(sub)
-    await db.commit()
 
 
 # ── Notification helpers ────────────────────────────────────────────
@@ -140,6 +139,4 @@ async def notify_subscribers(
         db.add(notif)
         count += 1
 
-    if count:
-        await db.commit()
     return count

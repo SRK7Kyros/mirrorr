@@ -33,21 +33,28 @@ def _get_secret_key(settings: MirrorrSettings | None = None) -> str:
     return _cached_secret
 
 
-def create_access_token(data: dict[str, Any], expires_delta: int = ACCESS_TOKEN_EXPIRE_SECONDS, settings: MirrorrSettings | None = None) -> str:
+def _create_token(
+    data: dict[str, Any],
+    token_type: str,
+    expires_delta: int,
+    settings: MirrorrSettings | None = None,
+    extra: dict[str, Any] | None = None,
+) -> str:
     to_encode = data.copy()
     to_encode["exp"] = int(time.time()) + expires_delta
-    to_encode["type"] = "access"
+    to_encode["type"] = token_type
+    if extra:
+        to_encode.update(extra)
     secret_key = _get_secret_key(settings)
     return jwt.encode(to_encode, secret_key, algorithm=ALGORITHM)
+
+
+def create_access_token(data: dict[str, Any], expires_delta: int = ACCESS_TOKEN_EXPIRE_SECONDS, settings: MirrorrSettings | None = None) -> str:
+    return _create_token(data, "access", expires_delta, settings)
 
 
 def create_refresh_token(data: dict[str, Any], expires_delta: int = REFRESH_TOKEN_EXPIRE_SECONDS, settings: MirrorrSettings | None = None) -> str:
-    to_encode = data.copy()
-    to_encode["exp"] = int(time.time()) + expires_delta
-    to_encode["type"] = "refresh"
-    to_encode["jti"] = secrets.token_hex(16)
-    secret_key = _get_secret_key(settings)
-    return jwt.encode(to_encode, secret_key, algorithm=ALGORITHM)
+    return _create_token(data, "refresh", expires_delta, settings, extra={"jti": secrets.token_hex(16)})
 
 
 def decode_access_token(token: str, settings: MirrorrSettings | None = None) -> dict[str, Any] | None:

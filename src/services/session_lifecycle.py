@@ -39,7 +39,7 @@ import contextlib
 import shutil
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
@@ -148,13 +148,13 @@ async def update_session(
                     # Set started_at when transitioning to an active state
                     if new_status in (SessionStatus.ACTIVE, SessionStatus.RECORDING):
                         if not session.started_at:
-                            session.started_at = datetime.utcnow()
+                            session.started_at = datetime.now(timezone.utc).replace(tzinfo=None)
                             diff["started_at"] = (None, session.started_at)
 
                     # Set ended_at when reaching a terminal state
                     if new_status in (SessionStatus.COMPLETED, SessionStatus.FAILED):
                         if not session.ended_at:
-                            session.ended_at = datetime.utcnow()
+                            session.ended_at = datetime.now(timezone.utc).replace(tzinfo=None)
                             diff["ended_at"] = (None, session.ended_at)
 
                 # ── Commit ───────────────────────────────────────────────

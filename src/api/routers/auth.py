@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 import secrets
-from typing import Any
-
 from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import col as sa_col, select
@@ -14,10 +12,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from src.api.dependencies import _get_db_session, get_auth, require_auth, require_admin, AuthState
 from src.api.auth import hash_api_key, hash_password, verify_password
 from src.api.jwt import create_access_token, create_refresh_token, decode_refresh_token
+from src.api.schemas import RegisterRequest, LoginRequest, RefreshRequest, ChangePasswordRequest
 from src.storage.models import (
     Client, User, ClientUser, EventSubscription, Notification,
-    ResourceType,
 )
+from src.storage.enums import ResourceType
 from src.storage import crud
 
 auth_router = APIRouter(prefix="/auth")
@@ -37,13 +36,13 @@ async def auth_status(db: AsyncSession = Depends(_get_db_session)):
 
 @auth_router.post("/register")
 async def register(
-    item: dict[str, Any] = Body(...),
+    item: RegisterRequest,
     db: AsyncSession = Depends(_get_db_session),
     auth: AuthState = Depends(get_auth),
 ):
     """Register a new user. First user auto-becomes admin."""
-    username = item.get("username", "").strip()
-    password = item.get("password", "")
+    username = item.username.strip()
+    password = item.password
 
     if not username or not password:
         raise HTTPException(status_code=400, detail="Username and password required")
@@ -61,8 +60,8 @@ async def register(
     user = User(
         username=username,
         password_hash=hash_password(password),
-        role="admin" if is_first_user else item.get("role", "user"),
-        display_name=item.get("display_name", username),
+        role="admin" if is_first_user else "user",
+        display_name=item.display_name or username,
     )
 
     try:
@@ -90,12 +89,12 @@ async def register(
 
 @auth_router.post("/login")
 async def login(
-    item: dict[str, Any] = Body(...),
+    item: LoginRequest,
     db: AsyncSession = Depends(_get_db_session),
 ):
     """Login with username + password. Requires API key header."""
-    username = item.get("username", "")
-    password = item.get("password", "")
+    username = item.username
+    password = item.password
 
     stmt = select(User).where(User.username == username)
     result = await db.exec(stmt)
@@ -117,7 +116,8 @@ async def login(
 @auth_router.get("/me")
 async def get_me(auth: AuthState = Depends(require_auth)):
     """Get current user info."""
-    assert auth.user is not None
+    if auth.user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     return {
         "user": {
             "id": auth.user.id,
@@ -134,11 +134,11 @@ async def get_me(auth: AuthState = Depends(require_auth)):
 
 @auth_router.post("/refresh")
 async def refresh(
-    item: dict[str, Any] = Body(...),
+    item: RefreshRequest,
     db: AsyncSession = Depends(_get_db_session),
 ):
     """Refresh an access token using a refresh token."""
-    rt_str = item.get("refresh_token", "")
+    rt_str = item.refresh_token
     if not rt_str:
         raise HTTPException(status_code=400, detail="Refresh token required")
 
@@ -165,13 +165,13 @@ async def refresh(
 
 @auth_router.post("/change-password")
 async def change_password(
-    item: dict[str, Any] = Body(...),
+    item: ChangePasswordRequest,
     db: AsyncSession = Depends(_get_db_session),
     auth: AuthState = Depends(require_auth),
 ):
     """Change current user's password."""
-    old_password = item.get("old_password", "")
-    new_password = item.get("new_password", "")
+    old_password = item.old_password
+    new_password = item.new_password
 
     if not auth.user:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -212,11 +212,15 @@ async def delete_user(
 
     # Clean up related records
     from sqlmodel import delete as sql_delete
-    await db.exec(sql_delete(ClientUser).where(sa_col(ClientUser.user_id) == user.id))
-    await db.exec(sql_delete(EventSubscription).where(sa_col(EventSubscription.user_id) == user.id))
-    await db.exec(sql_delete(Notification).where(sa_col(Notification.user_id) == user.id))
-    await db.commit()
-    await crud.delete(db, User, user.id)
+    try:
+        await db.exec(sql_delete(ClientUser).where(sa_col(ClientUser.user_id) == user.id))
+        await db.exec(sql_delete(EventSubscription).where(sa_col(EventSubscription.user_id) == user.id))
+        await db.exec(sql_delete(Notification).where(sa_col(Notification.user_id) == user.id))
+        await db.commit()
+        await crud.delete(db, User, user.id)
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to delete user and related records")
     return {"status": "deleted", "username": username}
 
 
@@ -269,9 +273,13 @@ async def delete_client(
     auth: AuthState = Depends(require_admin),
 ):
     from sqlmodel import delete as sql_delete
-    await db.exec(sql_delete(ClientUser).where(sa_col(ClientUser.client_id) == id))
-    await db.commit()
-    await crud.delete(db, Client, id)
+    try:
+        await db.exec(sql_delete(ClientUser).where(sa_col(ClientUser.client_id) == id))
+        await db.commit()
+        await crud.delete(db, Client, id)
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to delete client and related records")
 
 
 # ── Notifications ────────────────────────────────────────────────────
@@ -283,7 +291,8 @@ async def get_my_notifications(
     db: AsyncSession = Depends(_get_db_session),
 ):
     """Get notifications for the current user only."""
-    assert auth.user is not None
+    if auth.user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     stmt = (
         select(Notification)
         .where(sa_col(Notification.user_id) == auth.user.id)
@@ -299,7 +308,8 @@ async def get_notification(
     auth: AuthState = Depends(require_auth),
     db: AsyncSession = Depends(_get_db_session),
 ):
-    assert auth.user is not None
+    if auth.user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     item = await crud.get_by_id(db, Notification, id)
     if not item or item.user_id != auth.user.id:
         raise HTTPException(status_code=404, detail="Notification not found")
@@ -312,7 +322,8 @@ async def mark_notification_read(
     auth: AuthState = Depends(require_auth),
     db: AsyncSession = Depends(_get_db_session),
 ):
-    assert auth.user is not None
+    if auth.user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     item = await crud.get_by_id(db, Notification, id)
     if not item or item.user_id != auth.user.id:
         raise HTTPException(status_code=404, detail="Notification not found")
@@ -327,7 +338,8 @@ async def mark_all_read(
     auth: AuthState = Depends(require_auth),
     db: AsyncSession = Depends(_get_db_session),
 ):
-    assert auth.user is not None
+    if auth.user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     from sqlmodel import update as sql_update
     await db.exec(
         sql_update(Notification)
@@ -345,7 +357,8 @@ async def delete_notification(
     auth: AuthState = Depends(require_auth),
     db: AsyncSession = Depends(_get_db_session),
 ):
-    assert auth.user is not None
+    if auth.user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     item = await crud.get_by_id(db, Notification, id)
     if not item or item.user_id != auth.user.id:
         raise HTTPException(status_code=404, detail="Notification not found")

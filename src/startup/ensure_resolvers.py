@@ -6,7 +6,8 @@ from typing import Any
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from src.storage.models import Resolver, ResolverInterface, Source, ResolverContext
+from src.storage.models import Resolver
+from src.plugins.interfaces import ResolverInterface, Source, ResolverContext
 from src.startup.ensure_plugins import load_plugin_jit, sync_plugins_db
 
 

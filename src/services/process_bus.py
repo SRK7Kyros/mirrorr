@@ -14,7 +14,7 @@ class ProcessBus:
     Topics are dot-separated strings like ``proc.yt-dlp.stdout``,
     ``proc.ffmpeg.exit``, ``engine.done``, ``engine.crashed``.
 
-    Subscribers get an ``asyncio.Queue`` they can ``await`` on.
+    Subscribers get an ``asyncio.Queue`` they can ``await queue.get()`` on.
     """
 
     def __init__(self) -> None:

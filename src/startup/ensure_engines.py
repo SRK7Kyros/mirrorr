@@ -5,7 +5,9 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from src.storage.models import Engine, EngineInterface, Capabilities, build_retry_modes_schema
+from src.storage.models import Engine
+from src.plugins.interfaces import EngineInterface, Capabilities
+from src.plugins.retry import build_retry_modes_schema
 from src.startup.ensure_plugins import load_plugin_jit, sync_plugins_db
 
 

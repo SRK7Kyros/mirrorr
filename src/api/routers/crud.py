@@ -21,7 +21,8 @@ from src.api.schemas import (
     UpdateProfileRequest,
     SaveProfileRequest,
 )
-from src.storage.models import Session, Autorun, Recording, Profile, Engine, Resolver, SessionStatus, ResourceType
+from src.storage.models import Session, Autorun, Recording, Profile, Engine, Resolver
+from src.storage.enums import SessionStatus, ResourceType
 from src.storage import crud
 
 event_map: dict[type, tuple[type, type, type]] = {
@@ -41,7 +42,8 @@ crud_routers = APIRouter()
 def _is_owner_or_admin(auth: AuthState, obj) -> bool:
     if auth.is_admin:
         return True
-    assert auth.user is not None
+    if not auth.user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     return getattr(obj, "requester_user_token", None) == auth.user.username
 
 
@@ -53,7 +55,7 @@ async def _safe_emit(event: BaseEvent) -> None:
     """
     try:
         await bus.emit(event)
-    except Exception as e:
+    except Exception as e:  # noqa: broad-except — NATS failure must not crash HTTP requests
         logger.warning(f"Failed to emit {event.subject} (id={getattr(event, 'id', '?')}): {e}")
 
 
@@ -75,7 +77,8 @@ sessions_router = APIRouter(prefix="/sessions")
 
 @sessions_router.get("/")
 async def get_all_sessions(db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    assert auth.user is not None
+    if not auth.user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     if auth.is_admin:
         return await crud.get_all(db, Session)
     stmt = select(Session).where(Session.requester_user_token == auth.user.username)
@@ -145,7 +148,8 @@ autoruns_router = APIRouter(prefix="/autoruns")
 
 @autoruns_router.get("/")
 async def get_all_autoruns(db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    assert auth.user is not None
+    if not auth.user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     if auth.is_admin:
         return await crud.get_all(db, Autorun)
     stmt = select(Autorun).where(Autorun.requester_user_token == auth.user.username)
@@ -211,7 +215,8 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
         payload_data["end_time"] = payload_data["end_time"].replace(tzinfo=None) if payload_data["end_time"].tzinfo else payload_data["end_time"]
     payload = Autorun.model_validate({**existing.model_dump(), **payload_data})
     if not payload.requester_user_token:
-        assert auth.user is not None
+        if not auth.user:
+            raise HTTPException(status_code=401, detail="Not authenticated")
         payload.requester_user_token = auth.user.username
     try:
         obj = await crud.update(db, Autorun, id, payload)
@@ -234,6 +239,34 @@ async def delete_autorun(id: int, db: AsyncSession = Depends(_get_db_session), a
     await _safe_delete(db, Autorun, id)
     await _safe_emit(MirrorrEvent.AUTORUN_DELETED(id=id))
 
+async def _create_profile_from_entity(
+    db: AsyncSession,
+    auth: AuthState,
+    name: str,
+    engine_id: int,
+    resolver_id: int,
+    resolver_config: dict,
+    retry_mode: str,
+    retry_config: dict,
+) -> Profile:
+    """Create a Profile from an existing entity's fields (session or autorun)."""
+    profile = Profile(
+        name=name,
+        default_engine_id=engine_id,
+        resolver_id=resolver_id,
+        resolver_config=resolver_config,
+        retry_mode=retry_mode,
+        retry_config=retry_config,
+        requester_user_token=auth.user.username if auth.user else "",
+    )
+    db.add(profile)
+    await db.commit()
+    await db.refresh(profile)
+    await subscribe_requester(db, profile.requester_user_token, ResourceType.PROFILE, profile.id)
+    await _safe_emit(MirrorrEvent.PROFILE_CREATED(id=profile.id))
+    return profile
+
+
 # ── Save Autorun as Profile ────────────────────────────────────────────
 
 
@@ -244,25 +277,16 @@ async def save_autorun_as_profile(autorun_id: int, req: SaveProfileRequest, db: 
         raise HTTPException(status_code=404, detail="Autorun not found")
     if not _is_owner_or_admin(auth, autorun):
         raise HTTPException(status_code=403, detail="Not your autorun")
-    profile = Profile(
-        name=req.name,
-        default_engine_id=autorun.engine_id,
-        resolver_id=autorun.resolver_id,
-        resolver_config=autorun.resolver_config,
-        retry_mode=autorun.retry_mode,
-        retry_config=autorun.retry_config,
-        requester_user_token=auth.user.username if auth.user else "",
+    return await _create_profile_from_entity(
+        db, auth, req.name,
+        autorun.engine_id, autorun.resolver_id, autorun.resolver_config,
+        autorun.retry_mode, autorun.retry_config,
     )
-    db.add(profile)
-    await db.commit()
-    await db.refresh(profile)
-    await subscribe_requester(db, profile.requester_user_token, ResourceType.PROFILE, profile.id)
-    await _safe_emit(MirrorrEvent.PROFILE_CREATED(id=profile.id))
-    return profile
+
 
 crud_routers.include_router(autoruns_router)
 
-# ── Save as Profile ────────────────────────────────────────────────────
+# ── Save Session as Profile ────────────────────────────────────────────
 
 
 @crud_routers.post("/sessions/{session_id}/save-as-profile")
@@ -272,21 +296,11 @@ async def save_session_as_profile(session_id: int, req: SaveProfileRequest, db: 
         raise HTTPException(status_code=404, detail="Session not found")
     if not _is_owner_or_admin(auth, session):
         raise HTTPException(status_code=403, detail="Not your session")
-    profile = Profile(
-        name=req.name,
-        default_engine_id=session.engine_id,
-        resolver_id=session.resolver_id,
-        resolver_config=session.resolver_config,
-        retry_mode=session.retry_mode,
-        retry_config=session.retry_config,
-        requester_user_token=auth.user.username if auth.user else "",
+    return await _create_profile_from_entity(
+        db, auth, req.name,
+        session.engine_id, session.resolver_id, session.resolver_config,
+        session.retry_mode, session.retry_config,
     )
-    db.add(profile)
-    await db.commit()
-    await db.refresh(profile)
-    await subscribe_requester(db, profile.requester_user_token, ResourceType.PROFILE, profile.id)
-    await _safe_emit(MirrorrEvent.PROFILE_CREATED(id=profile.id))
-    return profile
 
 
 # ── Recordings ─────────────────────────────────────────────────────────
@@ -296,7 +310,8 @@ recordings_router = APIRouter(prefix="/recordings")
 
 @recordings_router.get("/")
 async def get_all_recordings(db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    assert auth.user is not None
+    if not auth.user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     if auth.is_admin:
         return await crud.get_all(db, Recording)
     stmt = select(Recording).where(Recording.requester_user_token == auth.user.username)
@@ -316,7 +331,8 @@ async def get_recording(id: int, db: AsyncSession = Depends(_get_db_session), au
 
 @recordings_router.delete("/{id}")
 async def delete_recording(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    from src.storage.models import EventSubscription, Notification, ResourceType
+    from src.storage.models import EventSubscription, Notification
+    from src.storage.enums import ResourceType
 
     obj = await crud.get_by_id(db, Recording, id)
     if not obj:
@@ -351,7 +367,8 @@ profiles_router = APIRouter(prefix="/profiles")
 
 @profiles_router.get("/")
 async def get_all_profiles(db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    assert auth.user is not None
+    if not auth.user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     if auth.is_admin:
         return await crud.get_all(db, Profile)
     stmt = select(Profile).where(Profile.requester_user_token == auth.user.username)
@@ -373,7 +390,8 @@ async def get_profile(id: int, db: AsyncSession = Depends(_get_db_session), auth
 async def create_profile(item: CreateProfileRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     payload = Profile.model_validate(item.model_dump())
     if not payload.requester_user_token:
-        assert auth.user is not None
+        if not auth.user:
+            raise HTTPException(status_code=401, detail="Not authenticated")
         payload.requester_user_token = auth.user.username
     try:
         obj = await crud.create(db, payload)
@@ -394,7 +412,8 @@ async def update_profile(id: int, item: UpdateProfileRequest, db: AsyncSession =
     payload_data = item.model_dump(exclude_unset=True)
     payload = Profile.model_validate({**existing.model_dump(), **payload_data})
     if not payload.requester_user_token:
-        assert auth.user is not None
+        if not auth.user:
+            raise HTTPException(status_code=401, detail="Not authenticated")
         payload.requester_user_token = auth.user.username
     try:
         obj = await crud.update(db, Profile, id, payload)

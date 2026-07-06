@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -134,20 +134,6 @@ def _plugin_ref(plugin: Engine | Resolver) -> dict[str, Any]:
     return {"id": plugin.id, "name": plugin.name, "origin_hash": plugin.origin_hash}
 
 
-def _resolve_name_conflicts(
-    db: AsyncSession,
-    name: str,
-    model: type[Profile] | type[Autorun],
-    name_field: str = "name",
-) -> str:
-    """Return a unique name by appending _2, _3, etc. if needed.
-
-    This is a synchronous helper — the caller must await after using it.
-    For simplicity we just try _2, _3, … up to 100.
-    """
-    # We can't await here, so the caller should handle this with a loop.
-    # Instead, return a callable approach.
-    return name  # placeholder — actual logic is in the caller
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -174,7 +160,7 @@ async def export_profile(
     entry = _profile_to_bundle(profile, engine, resolver)
     return {
         "version": BUNDLE_VERSION,
-        "exported_at": datetime.utcnow().isoformat(),
+        "exported_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
         "profiles": [entry],
         "autoruns": [],
     }
@@ -211,7 +197,7 @@ async def export_autorun(
     profiles = [profile_entry]
     return {
         "version": BUNDLE_VERSION,
-        "exported_at": datetime.utcnow().isoformat(),
+        "exported_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
         "profiles": profiles,
         "autoruns": [autorun_entry],
     }
@@ -450,7 +436,8 @@ async def apply_bundle(
     raw_profiles = bundle.get("profiles", [])
     raw_autoruns = bundle.get("autoruns", [])
 
-    assert auth.user is not None
+    if auth.user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     requester = auth.user.username
 
     # Cache for resolved plugins
@@ -555,8 +542,8 @@ async def apply_bundle(
             snake_case_name=snake,
             profile_id=linked_profile.id,
             engine_id=engine_id,
-            start_time=datetime.fromisoformat(a["start_time"]) if a.get("start_time") else datetime.utcnow(),
-            end_time=datetime.fromisoformat(a["end_time"]) if a.get("end_time") else datetime.utcnow(),
+            start_time=datetime.fromisoformat(a["start_time"]) if a.get("start_time") else datetime.now(timezone.utc).replace(tzinfo=None),
+            end_time=datetime.fromisoformat(a["end_time"]) if a.get("end_time") else datetime.now(timezone.utc).replace(tzinfo=None),
             recording=a.get("recording", True),
             requester_user_token=requester,
         )

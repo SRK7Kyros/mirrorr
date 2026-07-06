@@ -13,28 +13,88 @@ class BaseEvent(BaseModel):
 T = TypeVar("T", bound=BaseEvent)
 
 
-# ruff: noqa: E701
-class SessionCreated(BaseEvent): subject: ClassVar[str] = "session.created"; id: int
-class SessionUpdated(BaseEvent): subject: ClassVar[str] = "session.updated"; id: int
-class SessionDeleted(BaseEvent): subject: ClassVar[str] = "session.deleted"; id: int
-class SessionStarted(BaseEvent): subject: ClassVar[str] = "session.started"; id: int
-class SessionStopped(BaseEvent): subject: ClassVar[str] = "session.stopped"; id: int
-class SessionCrashed(BaseEvent): subject: ClassVar[str] = "session.crashed"; id: int
+class SessionCreated(BaseEvent):
+    subject: ClassVar[str] = "session.created"
+    id: int
+
+
+class SessionUpdated(BaseEvent):
+    subject: ClassVar[str] = "session.updated"
+    id: int
+
+
+class SessionDeleted(BaseEvent):
+    subject: ClassVar[str] = "session.deleted"
+    id: int
+
+
+class SessionStarted(BaseEvent):
+    subject: ClassVar[str] = "session.started"
+    id: int
+
+
+class SessionStopped(BaseEvent):
+    subject: ClassVar[str] = "session.stopped"
+    id: int
+
+
+class SessionCrashed(BaseEvent):
+    subject: ClassVar[str] = "session.crashed"
+    id: int
+
 
 # Control channel — sent from API to supervisor processes
-class SessionStopRequested(BaseEvent): subject: ClassVar[str] = "session.{id}.control"; id: int; command: str
 
-class AutorunCreated(BaseEvent): subject: ClassVar[str] = "autorun.created"; id: int
-class AutorunUpdated(BaseEvent): subject: ClassVar[str] = "autorun.updated"; id: int
-class AutorunDeleted(BaseEvent): subject: ClassVar[str] = "autorun.deleted"; id: int
 
-class RecordingCreated(BaseEvent): subject: ClassVar[str] = "recording.created"; id: int
-class RecordingUpdated(BaseEvent): subject: ClassVar[str] = "recording.updated"; id: int
-class RecordingDeleted(BaseEvent): subject: ClassVar[str] = "recording.deleted"; id: int
+class SessionStopRequested(BaseEvent):
+    subject: ClassVar[str] = "session.{id}.control"
+    id: int
+    command: str
 
-class ProfileCreated(BaseEvent): subject: ClassVar[str] = "profile.created"; id: int
-class ProfileUpdated(BaseEvent): subject: ClassVar[str] = "profile.updated"; id: int
-class ProfileDeleted(BaseEvent): subject: ClassVar[str] = "profile.deleted"; id: int
+
+class AutorunCreated(BaseEvent):
+    subject: ClassVar[str] = "autorun.created"
+    id: int
+
+
+class AutorunUpdated(BaseEvent):
+    subject: ClassVar[str] = "autorun.updated"
+    id: int
+
+
+class AutorunDeleted(BaseEvent):
+    subject: ClassVar[str] = "autorun.deleted"
+    id: int
+
+
+class RecordingCreated(BaseEvent):
+    subject: ClassVar[str] = "recording.created"
+    id: int
+
+
+class RecordingUpdated(BaseEvent):
+    subject: ClassVar[str] = "recording.updated"
+    id: int
+
+
+class RecordingDeleted(BaseEvent):
+    subject: ClassVar[str] = "recording.deleted"
+    id: int
+
+
+class ProfileCreated(BaseEvent):
+    subject: ClassVar[str] = "profile.created"
+    id: int
+
+
+class ProfileUpdated(BaseEvent):
+    subject: ClassVar[str] = "profile.updated"
+    id: int
+
+
+class ProfileDeleted(BaseEvent):
+    subject: ClassVar[str] = "profile.deleted"
+    id: int
 
 class MirrorrEvent:
     """Global catalog of all Mirrorr event types."""

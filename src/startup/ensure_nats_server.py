@@ -33,7 +33,7 @@ class NatsServerManager:
     of how the parent dies (crash, hard kill, Ctrl+C, etc.).
     """
 
-    def __init__(self, settings) -> None:
+    def __init__(self, settings: "MirrorrSettings") -> None:
         self._settings = settings
         self._process: psutil.Popen | None = None
         self._log_thread: threading.Thread | None = None
@@ -101,8 +101,7 @@ class NatsServerManager:
                 logger.info("Using system nats-server")
                 self.nats_path = "nats-server"
                 return
-            logger.critical("use_system_nats is True but nats-server not found in PATH")
-            sys.exit(1)
+            raise RuntimeError("use_system_nats is True but nats-server not found in PATH")
 
         if not os.path.exists(self.nats_path):
             self._install()
@@ -236,8 +235,7 @@ class NatsServerManager:
                 return
             logger.info(f"NATS server didn't start up, retrying ({i + 1}/{max_retries})")
 
-        logger.critical("NATS server failed to start in time.")
-        sys.exit(1)
+        raise RuntimeError("NATS server failed to start in time.")
 
     def _consume_and_log(self) -> None:
         if not self._process or not self._process.stdout:

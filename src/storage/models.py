@@ -6,44 +6,18 @@ from pydantic import BaseModel
 from sqlalchemy import JSON as SAJSON
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel, TypeDecorator, Enum as SQLEnum
 
-# ── Backward-compatible re-exports ───────────────────────────────────
-# Plugin types, enums, and retry utilities now live in dedicated modules.
-# These re-exports keep every existing `from src.storage.models import X`
-# working without changes while the codebase migrates.
-
-from src.plugins.interfaces import (          # noqa: F401  — re-export
-    Capabilities,
-    EngineContext,
-    EngineInterface,
-    ResolverContext,
-    ResolverInterface,
-    Source,
-)
-from src.plugins.retry import (              # noqa: F401  — re-export
-    NoRetry,
-    RetryAlways,
-    RetryCount,
-    RetryOnExitCode,
-    build_retry_modes_schema,
-    get_retry_delay,
-    get_retry_max_attempts,
-    get_retryable_exit_codes,
-)
-from src.storage.enums import (              # noqa: F401  — re-export
-    AutorunStatus,
-    ResourceType,
-    SessionStatus,
-)
+from src.plugins.interfaces import Capabilities
+from src.storage.enums import AutorunStatus, SessionStatus
 
 
 class PydanticJSON(TypeDecorator):
     impl = JSON
 
-    def __init__(self, pydantic_model):
+    def __init__(self, pydantic_model: type) -> None:
         super().__init__()
         self.pydantic_model = pydantic_model
 
-    def process_bind_param(self, value, dialect):
+    def process_bind_param(self, value: Any, dialect: Any) -> Any:
         if value is None:
             return None
         if isinstance(value, BaseModel):
@@ -54,7 +28,7 @@ class PydanticJSON(TypeDecorator):
             return json.loads(value)
         return value
 
-    def process_result_value(self, value, dialect):
+    def process_result_value(self, value: Any, dialect: Any) -> Any:
         if value is None:
             return None
         if isinstance(value, (dict, list)):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from loguru import logger
@@ -112,7 +112,7 @@ class SessionSupervisor:
             while True:
                 attempt += 1
                 self.session.retry_attempts = attempt
-                attempt_started_at = datetime.utcnow()
+                attempt_started_at = datetime.now(timezone.utc).replace(tzinfo=None)
                 logger.opt(colors=True).info(
                     f"starting attempt <yellow>{attempt}</yellow>"
                     f" (retry_mode={retry_config['mode']})"
@@ -139,7 +139,7 @@ class SessionSupervisor:
                 outcome, signal = await self._run_attempt()
 
                 # Finalize the attempt record in-place
-                attempt_ended_at = datetime.utcnow()
+                attempt_ended_at = datetime.now(timezone.utc).replace(tzinfo=None)
                 attempt_duration = (attempt_ended_at - attempt_started_at).total_seconds()
                 attempt_record["ended_at"] = attempt_ended_at.isoformat()
                 attempt_record["duration_seconds"] = round(attempt_duration, 2)
@@ -246,19 +246,13 @@ class SessionSupervisor:
         # 2. Resolve source via resolver
         try:
             from src.startup.ensure_resolvers import get_validated_config
-            from src.storage.database import create_db_engine
 
-            _eng, _sf = create_db_engine(self.settings)
-            try:
-                async with _sf() as _db:
-                    resolver_model = await _db.get(Resolver, self.session.resolver_id)
-            finally:
-                await _eng.dispose()
+            _res = self.session.resolver
 
             config = get_validated_config(
                 resolvers_dir=self.settings.resolvers_dir,
-                origin=resolver_model.origin,
-                expected_hash=resolver_model.origin_hash,
+                origin=_res.origin,
+                expected_hash=_res.origin_hash,
                 data=self.session.resolver_config,
             )
             source = await self.resolver.resolve(config, self.resolver_ctx)
@@ -343,32 +337,29 @@ class SessionSupervisor:
 
     # ── recording / remux ────────────────────────────────────────────
 
-    async def _finalize_session(self) -> None:
-        """Cleanup processes, then remux and create Recording if applicable.
-
-        Note: _cleanup() is called by the caller (run()), not here.
-        NATS is disconnected at the very end of run().
-        """
-
-        if not self._recording:
-            await update_session(self.settings, self.session_id, status=SessionStatus.COMPLETED, nc=self._nc)
-            await delete_session(
-                self.settings, self.session_id, self.session_folder,
-                nc=self._nc, autorun_id=self.session.autorun_id,
-            )
-            return
-
-        await update_session(self.settings, self.session_id, status=SessionStatus.REMUXING, nc=self._nc)
+    async def _do_remux_and_finalize(self, *, delete_after: bool = True) -> None:
+        """Shared remux + finalize logic for both normal completion and stop-then-finalize."""
+        await update_session(
+            self.settings, self.session_id,
+            status=SessionStatus.REMUXING, nc=self._nc,
+        )
         try:
             recording_id = await self._recording.remux()
             logger.success(f"recording created")
-            await update_session(self.settings, self.session_id, status=SessionStatus.FINALIZING, nc=self._nc)
-            await update_session(self.settings, self.session_id, status=SessionStatus.COMPLETED, nc=self._nc)
-            await delete_session(
+            await update_session(
                 self.settings, self.session_id,
-                nc=self._nc, autorun_id=self.session.autorun_id,
+                status=SessionStatus.FINALIZING, nc=self._nc,
             )
-            # Emit RECORDING_CREATED via our own NATS connection
+            await update_session(
+                self.settings, self.session_id,
+                status=SessionStatus.COMPLETED, nc=self._nc,
+            )
+            if delete_after:
+                await delete_session(
+                    self.settings, self.session_id,
+                    nc=self._nc, autorun_id=self.session.autorun_id,
+                )
+            # Publish recording created event
             if recording_id and self._nc:
                 try:
                     await self._nc.publish(
@@ -378,12 +369,31 @@ class SessionSupervisor:
                 except Exception as e:
                     logger.error(f"Failed to emit RECORDING_CREATED: {e}")
         except Exception as e:
-            logger.error(f"remux failed: {e}")
-            await update_session(self.settings, self.session_id, status=SessionStatus.FAILED, nc=self._nc)
+            logger.error(f"Remux failed for session {self.session_id}: {e}")
+            await update_session(
+                self.settings, self.session_id,
+                status=SessionStatus.FAILED, nc=self._nc,
+            )
+            if delete_after:
+                await delete_session(
+                    self.settings, self.session_id, self.session_folder,
+                    nc=self._nc, autorun_id=self.session.autorun_id,
+                )
+
+    async def _finalize_session(self) -> None:
+        """Cleanup processes, then remux and create Recording if applicable.
+
+        Note: _cleanup() is called by the caller (run()), not here.
+        NATS is disconnected at the very end of run().
+        """
+        if not self._recording:
+            await update_session(self.settings, self.session_id, status=SessionStatus.COMPLETED, nc=self._nc)
             await delete_session(
                 self.settings, self.session_id, self.session_folder,
                 nc=self._nc, autorun_id=self.session.autorun_id,
             )
+            return
+        await self._do_remux_and_finalize(delete_after=True)
 
     async def _finalize_stopped(self) -> None:
         """Handle post-stop finalization: remux recording if active, then mark COMPLETED.
@@ -394,24 +404,7 @@ class SessionSupervisor:
         if not self._recording:
             await update_session(self.settings, self.session_id, status=SessionStatus.COMPLETED, nc=self._nc)
             return
-
-        await update_session(self.settings, self.session_id, status=SessionStatus.REMUXING, nc=self._nc)
-        try:
-            recording_id = await self._recording.remux()
-            logger.success(f"recording created")
-            await update_session(self.settings, self.session_id, status=SessionStatus.FINALIZING, nc=self._nc)
-            await update_session(self.settings, self.session_id, status=SessionStatus.COMPLETED, nc=self._nc)
-            if recording_id and self._nc:
-                try:
-                    await self._nc.publish(
-                        MirrorrEvent.RECORDING_CREATED.subject,
-                        MirrorrEvent.RECORDING_CREATED(id=recording_id).model_dump_json().encode(),
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to emit RECORDING_CREATED: {e}")
-        except Exception as e:
-            logger.error(f"remux failed: {e}")
-            await update_session(self.settings, self.session_id, status=SessionStatus.FAILED, nc=self._nc)
+        await self._do_remux_and_finalize(delete_after=False)
 
     # ── control channel ──────────────────────────────────────────────
 

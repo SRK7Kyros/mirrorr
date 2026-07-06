@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from loguru import logger
 from sqlalchemy import event
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker as _async_sessionmaker, create_async_engine as _create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker as _async_sessionmaker, create_async_engine as _create_async_engine
 from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 
 from src.startup.config import MirrorrSettings
@@ -37,7 +37,7 @@ async def get_session() -> AsyncGenerator[SQLModelAsyncSession, None]:
         yield session
 
 
-def create_db_engine(settings: MirrorrSettings):
+def create_db_engine(settings: MirrorrSettings) -> tuple[AsyncEngine, _async_sessionmaker]:
     """Create an async SQLAlchemy engine from MirrorrSettings.
 
     Returns:
