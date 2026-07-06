@@ -1,21 +1,21 @@
-import { useQueryClient, type QueryKey } from "@tanstack/react-query"
-import { getWsEventsUrl } from "@/lib/api"
-import { useAuthStore } from "@/stores/auth-store"
-import { useRequestLogStore } from "@/stores/request-log-store"
-import { EVENT_TO_QUERY_KEY } from "@/lib/ws-events"
-import { useWsConnection } from "@/hooks/use-ws-connection"
-import { useCallback } from "react"
+import { useQueryClient, type QueryKey } from "@tanstack/react-query";
+import { getWsEventsUrl } from "@/lib/api";
+import { useAuthStore } from "@/stores/auth-store";
+import { useRequestLogStore } from "@/stores/request-log-store";
+import { EVENT_TO_QUERY_KEY } from "@/lib/ws-events";
+import { useWsConnection } from "@/hooks/use-ws-connection";
+import { useCallback } from "react";
 
-import type { WsEventType } from "@/lib/ws-events"
+import type { WsEventType } from "@/lib/ws-events";
 
 interface WsEvent {
-  event: WsEventType
-  id?: number
-  event_id?: string
-  timestamp?: string
-  command?: string
-  /** Full entity payload from the backend for zero-roundtrip updates. */
-  data?: Record<string, unknown>
+    event: WsEventType;
+    id?: number;
+    event_id?: string;
+    timestamp?: string;
+    command?: string;
+    /** Full entity payload from the backend for zero-roundtrip updates. */
+    data?: Record<string, unknown>;
 }
 
 // ── Cache helpers ──────────────────────────────────────────────────
@@ -29,48 +29,46 @@ interface WsEvent {
  * - Missing data → invalidate as fallback (enrichment failure)
  */
 function patchQueryCache(
-  queryClient: ReturnType<typeof useQueryClient>,
-  event: WsEvent,
+    queryClient: ReturnType<typeof useQueryClient>,
+    event: WsEvent,
 ) {
-  const queryKey: QueryKey = EVENT_TO_QUERY_KEY[event.event]
-  if (!queryKey) return
+    const queryKey: QueryKey = EVENT_TO_QUERY_KEY[event.event];
+    if (!queryKey) return;
 
-  const isDelete = event.event.endsWith(".deleted")
+    const isDelete = event.event.endsWith(".deleted");
 
-  // Deletes — remove the entity from cache by ID.
-  // The NATS event is emitted after DB commit, so it's authoritative.
-  if (isDelete && event.id !== undefined) {
-    queryClient.setQueryData<unknown[]>(queryKey, (old) => {
-      if (!old) return old
-      return old.filter((item: any) => item?.id !== event.id)
-    })
-    return
-  }
+    // Deletes — remove the entity from cache by ID.
+    // The NATS event is emitted after DB commit, so it's authoritative.
+    if (isDelete && event.id !== undefined) {
+        queryClient.setQueryData<unknown[]>(queryKey, (old) => {
+            if (!old) return old;
+            return old.filter((item: any) => item?.id !== event.id);
+        });
+        return;
+    }
 
-  // Creates / updates carry the full entity payload — patch the list cache
-  // directly with zero HTTP round-trip.
-  if (event.data) {
-    queryClient.setQueryData<unknown[]>(queryKey, (old) => {
-      if (!old) return old // cache not mounted yet — fall back to refetch
-      const arr = [...old]
-      const idx = arr.findIndex(
-        (item: any) => item?.id === event.id,
-      )
-      if (idx >= 0) {
-        // Replace existing item with fresh data
-        arr[idx] = event.data
-      } else {
-        // Append new entity
-        arr.unshift(event.data)
-      }
-      return arr
-    })
-    return
-  }
+    // Creates / updates carry the full entity payload — patch the list cache
+    // directly with zero HTTP round-trip.
+    if (event.data) {
+        queryClient.setQueryData<unknown[]>(queryKey, (old) => {
+            if (!old) return old; // cache not mounted yet — fall back to refetch
+            const arr = [...old];
+            const idx = arr.findIndex((item: any) => item?.id === event.id);
+            if (idx >= 0) {
+                // Replace existing item with fresh data
+                arr[idx] = event.data;
+            } else {
+                // Append new entity
+                arr.unshift(event.data);
+            }
+            return arr;
+        });
+        return;
+    }
 
-  // Fallback: no data payload available (enrichment failed on the backend).
-  // Invalidate so React Query re-fetches.
-  queryClient.invalidateQueries({ queryKey })
+    // Fallback: no data payload available (enrichment failed on the backend).
+    // Invalidate so React Query re-fetches.
+    queryClient.invalidateQueries({ queryKey });
 }
 
 /**
@@ -80,31 +78,34 @@ function patchQueryCache(
  * Falls back to invalidating the query when entity data is unavailable.
  */
 export function useWsEvents() {
-  const queryClient = useQueryClient()
-  const token = useAuthStore((s) => s.token)
+    const queryClient = useQueryClient();
+    const token = useAuthStore((s) => s.token);
 
-  const onMessage = useCallback((ev: MessageEvent) => {
-    try {
-      const data = JSON.parse(ev.data) as WsEvent
-      patchQueryCache(queryClient, data)
-      useRequestLogStore.getState().addEntry({
-        type: "ws-event",
-        timestamp: Date.now(),
-        method: "WS",
-        url: "/ws/events",
-        path: data.event ?? "unknown",
-        status: 200,
-        statusText: "OK",
-        duration: null,
-        ok: true,
-        error: null,
-        requestBody: null,
-        responseBody: JSON.stringify(data),
-      })
-    } catch {
-      // ignore non-JSON messages
-    }
-  }, [queryClient])
+    const onMessage = useCallback(
+        (ev: MessageEvent) => {
+            try {
+                const data = JSON.parse(ev.data) as WsEvent;
+                patchQueryCache(queryClient, data);
+                useRequestLogStore.getState().addEntry({
+                    type: "ws-event",
+                    timestamp: Date.now(),
+                    method: "WS",
+                    url: "/ws/events",
+                    path: data.event ?? "unknown",
+                    status: 200,
+                    statusText: "OK",
+                    duration: null,
+                    ok: true,
+                    error: null,
+                    requestBody: null,
+                    responseBody: JSON.stringify(data),
+                });
+            } catch {
+                // ignore non-JSON messages
+            }
+        },
+        [queryClient],
+    );
 
-  useWsConnection({ url: getWsEventsUrl(), onMessage, token })
+    useWsConnection({ url: getWsEventsUrl(), onMessage, token });
 }
