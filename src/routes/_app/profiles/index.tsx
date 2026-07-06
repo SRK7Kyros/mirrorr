@@ -118,8 +118,8 @@ function BulkActions() {
 }
 
 function ProfileDetail({ profile, onBack, onDelete, deleting }: { profile: Profile | undefined; onBack: () => void; onDelete: () => void; deleting: boolean }) {
-  const { data: engines = [] } = useQuery({ queryKey: ["engines"], queryFn: () => pluginsApi.engines() as Promise<any[]> })
-  const { data: resolvers = [] } = useQuery({ queryKey: ["resolvers"], queryFn: () => pluginsApi.resolvers() as Promise<any[]> })
+  const { data: engines = [] } = useEngines()
+  const { data: resolvers = [] } = useResolvers()
 
   if (!profile) return null
   const engine = engines.find((e) => e.id === profile.default_engine_id)
