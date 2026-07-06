@@ -64,7 +64,10 @@ function LoginPage() {
                     className="space-y-4"
                 >
                     {error && <ErrorBanner message={error} />}
-                    <FormField label="Username" error={form.formState.errors.username?.message}>
+                    <FormField
+                        label="Username"
+                        error={form.formState.errors.username?.message}
+                    >
                         <Input
                             id="username"
                             placeholder="username"
@@ -72,7 +75,10 @@ function LoginPage() {
                             {...form.register("username")}
                         />
                     </FormField>
-                    <FormField label="Password" error={form.formState.errors.password?.message}>
+                    <FormField
+                        label="Password"
+                        error={form.formState.errors.password?.message}
+                    >
                         <Input
                             id="password"
                             type="password"

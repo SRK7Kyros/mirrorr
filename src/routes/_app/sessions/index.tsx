@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
-import { sessionsApi, autorunsApi } from "@/lib/api"
+import { sessionsApi, autorunsApi } from "@/lib/api";
 import type { Session, Autorun } from "@/lib/schemas";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,13 +12,40 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Trash2, Radio, Loader2, Clock, ChevronDown, ChevronRight } from "lucide-react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+    Trash2,
+    Radio,
+    Loader2,
+    Clock,
+    ChevronDown,
+    ChevronRight,
+} from "lucide-react";
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from "@/components/ui/table";
 import { StatusBadge } from "@/components/status-badge";
 import { InfoGrid } from "@/components/info-grid";
 import { KeyValueTable } from "@/components/key-value-table";
-import { SidebarLayout, SidebarEntry, DetailHeader, DetailLayout, CreatePanel, EmptyDetail, BulkActionBar, SidebarGroupContainer } from "@/components/resource-layout";
+import {
+    SidebarLayout,
+    SidebarEntry,
+    DetailHeader,
+    DetailLayout,
+    CreatePanel,
+    EmptyDetail,
+    BulkActionBar,
+    SidebarGroupContainer,
+} from "@/components/resource-layout";
 import { FormField } from "@/components/form-field";
 import { ResizableSidebar } from "@/components/resizable-sidebar";
 import { formatDuration, formatLocalDate, parseUtcDate } from "@/lib/utils";
@@ -28,7 +55,13 @@ import { MultiSelectProvider, useMultiSelect } from "@/hooks/use-multi-select";
 import { useBulkDelete } from "@/hooks/use-bulk-delete";
 import { usePluginConfig } from "@/hooks/use-plugin-config";
 import { PluginConfigFields } from "@/components/config-fields";
-import { useSessions, useAutoruns, useProfiles, useEngines, useResolvers } from "@/hooks/use-queries";
+import {
+    useSessions,
+    useAutoruns,
+    useProfiles,
+    useEngines,
+    useResolvers,
+} from "@/hooks/use-queries";
 import { useSaveAsProfile } from "@/hooks/use-save-as-profile";
 import { SaveAsProfileButton } from "@/components/save-as-profile-button";
 import { toast } from "sonner";
@@ -50,19 +83,25 @@ function SessionsPage() {
         [autoruns],
     );
 
-    const [deletingId, setDeletingId] = useState<number | null>(null)
+    const [deletingId, setDeletingId] = useState<number | null>(null);
 
     const deleteMutation = useMutation({
         mutationFn: (id: number) => sessionsApi.delete(id),
-        onSuccess: () => { toast.success("Session deletion requested") },
-        onError: (err: Error) => { toast.error(`Failed to delete session: ${err.message}`); setDeletingId(null) },
+        onSuccess: () => {
+            toast.success("Session deletion requested");
+        },
+        onError: (err: Error) => {
+            toast.error(`Failed to delete session: ${err.message}`);
+            setDeletingId(null);
+        },
     });
     const toggleRecMutation = useMutation({
         mutationFn: (session) =>
             session.recording
                 ? sessionsApi.disableRecording(session.id)
                 : sessionsApi.enableRecording(session.id),
-        onError: (err: Error) => toast.error(`Failed to toggle recording: ${err.message}`),
+        onError: (err: Error) =>
+            toast.error(`Failed to toggle recording: ${err.message}`),
     });
 
     const sessionIds = sessions.map((s) => s.id);
@@ -85,16 +124,23 @@ function SessionsPage() {
                     emptyText="No sessions"
                     className="bg-card border rounded-xl h-full"
                 >
-                <SidebarGroupContainer>
-                {sessions.map((s) => (
-                    <SessionEntry
-                        key={s.id}
-                        session={s}
-                        autorun={s.autorun_id ? autorunMap[s.autorun_id] : undefined}
-                        onClick={() => { setSelectedId(s.id); setShowCreate(false) }}
-                    />
-                ))}
-                </SidebarGroupContainer>
+                    <SidebarGroupContainer>
+                        {sessions.map((s) => (
+                            <SessionEntry
+                                key={s.id}
+                                session={s}
+                                autorun={
+                                    s.autorun_id
+                                        ? autorunMap[s.autorun_id]
+                                        : undefined
+                                }
+                                onClick={() => {
+                                    setSelectedId(s.id);
+                                    setShowCreate(false);
+                                }}
+                            />
+                        ))}
+                    </SidebarGroupContainer>
                 </SidebarLayout>
                 <BulkActionBar actions={<BulkDelete />} />
             </MultiSelectProvider>
@@ -104,15 +150,23 @@ function SessionsPage() {
                 <SessionDetail
                     session={sessions.find((s) => s.id === selectedId)}
                     onBack={() => setSelectedId(null)}
-                    onDelete={() => { setDeletingId(selectedId); deleteMutation.mutate(selectedId) }}
+                    onDelete={() => {
+                        setDeletingId(selectedId);
+                        deleteMutation.mutate(selectedId);
+                    }}
                     onToggleRec={() => {
-                        const session = sessions.find((s) => s.id === selectedId);
+                        const session = sessions.find(
+                            (s) => s.id === selectedId,
+                        );
                         if (session) toggleRecMutation.mutate(session);
                     }}
                     deleting={deletingId === selectedId}
                 />
             ) : (
-                <EmptyDetail icon={Radio} text="Select a session or create one" />
+                <EmptyDetail
+                    icon={Radio}
+                    text="Select a session or create one"
+                />
             )}
         </ResizableSidebar>
     );
@@ -121,9 +175,11 @@ function SessionsPage() {
 function getSessionTiming(session: Session) {
     const completedDuration = (session.attempts || [])
         .filter((a) => a.duration_seconds != null)
-        .reduce((sum: number, a) => sum + a.duration_seconds, 0)
-    const runningAttempt = (session.attempts || []).find((a) => a.ended_at == null)
-    return { completedDuration, runningAttempt }
+        .reduce((sum: number, a) => sum + a.duration_seconds, 0);
+    const runningAttempt = (session.attempts || []).find(
+        (a) => a.ended_at == null,
+    );
+    return { completedDuration, runningAttempt };
 }
 
 function SessionEntry({
@@ -135,7 +191,7 @@ function SessionEntry({
     autorun?: Autorun;
     onClick: () => void;
 }) {
-    const { completedDuration, runningAttempt } = getSessionTiming(session)
+    const { completedDuration, runningAttempt } = getSessionTiming(session);
 
     const displayName = autorun?.user_friendly_name ?? `Session #${session.id}`;
 
@@ -150,7 +206,10 @@ function SessionEntry({
                 </span>
                 <span className="text-[10px] text-muted-foreground/60 shrink-0 flex items-center gap-1">
                     <Clock className="size-3" />
-                    <LiveCountup startedAt={runningAttempt?.started_at ?? null} offset={completedDuration} />
+                    <LiveCountup
+                        startedAt={runningAttempt?.started_at ?? null}
+                        offset={completedDuration}
+                    />
                 </span>
             </div>
             <div className="mt-1 h-[14px]" />
@@ -164,35 +223,64 @@ function SessionEntry({
  * - `offset`: seconds already elapsed (e.g. sum of completed attempts)
  * Ticks every 100ms. When `startedAt` is null, just shows `offset` statically.
  */
-function LiveCountup({ startedAt, offset = 0 }: { startedAt: string | null; offset?: number }) {
-    const startedAtRef = useRef(startedAt)
-    startedAtRef.current = startedAt
+function LiveCountup({
+    startedAt,
+    offset = 0,
+}: {
+    startedAt: string | null;
+    offset?: number;
+}) {
+    const startedAtRef = useRef(startedAt);
+    startedAtRef.current = startedAt;
 
-    const offsetRef = useRef(offset)
-    offsetRef.current = offset
+    const offsetRef = useRef(offset);
+    offsetRef.current = offset;
 
     const [elapsed, setElapsed] = useState(() => {
-        if (!startedAt) return offset
-        return offset + (Date.now() - (parseUtcDate(startedAt)?.getTime() ?? Date.now())) / 1000
-    })
+        if (!startedAt) return offset;
+        return (
+            offset +
+            (Date.now() - (parseUtcDate(startedAt)?.getTime() ?? Date.now())) /
+                1000
+        );
+    });
 
-    useInterval(() => {
-        const sa = startedAtRef.current
-        if (sa) {
-            setElapsed(offsetRef.current + (Date.now() - (parseUtcDate(sa)?.getTime() ?? Date.now())) / 1000)
-        }
-    }, startedAtRef.current ? 100 : null)
+    useInterval(
+        () => {
+            const sa = startedAtRef.current;
+            if (sa) {
+                setElapsed(
+                    offsetRef.current +
+                        (Date.now() -
+                            (parseUtcDate(sa)?.getTime() ?? Date.now())) /
+                            1000,
+                );
+            }
+        },
+        startedAtRef.current ? 100 : null,
+    );
 
-    return <span className="tabular-nums">{formatDuration(elapsed)}</span>
+    return <span className="tabular-nums">{formatDuration(elapsed)}</span>;
 }
 
 function BulkDelete() {
-    const { mutate, isPending } = useBulkDelete(sessionsApi.delete, "Sessions")
+    const { mutate, isPending } = useBulkDelete(sessionsApi.delete, "Sessions");
     return (
-        <Button variant="ghost" size="sm" className="h-6 text-[10px] text-destructive hover:text-destructive" onClick={mutate} disabled={isPending}>
-            {isPending ? <Loader2 className="size-3 mr-1 animate-spin" /> : <Trash2 className="size-3 mr-1" />}Bulk Delete
+        <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 text-[10px] text-destructive hover:text-destructive"
+            onClick={mutate}
+            disabled={isPending}
+        >
+            {isPending ? (
+                <Loader2 className="size-3 mr-1 animate-spin" />
+            ) : (
+                <Trash2 className="size-3 mr-1" />
+            )}
+            Bulk Delete
         </Button>
-    )
+    );
 }
 
 function SessionDetail({
@@ -209,7 +297,8 @@ function SessionDetail({
     deleting: boolean;
 }) {
     const saveAsProfile = useSaveAsProfile(
-        (sessionId: number, name: string) => sessionsApi.saveAsProfile(sessionId, name),
+        (sessionId: number, name: string) =>
+            sessionsApi.saveAsProfile(sessionId, name),
         "session",
     );
 
@@ -219,11 +308,13 @@ function SessionDetail({
 
     // 3-state recording switch: original → pending (center) → confirmed (final)
     const [recPending, setRecPending] = useState(false);
-    useEffect(() => { setRecPending(false) }, [session?.recording]);
+    useEffect(() => {
+        setRecPending(false);
+    }, [session?.recording]);
 
     if (!session) return null;
 
-    const { completedDuration, runningAttempt } = getSessionTiming(session)
+    const { completedDuration, runningAttempt } = getSessionTiming(session);
 
     const profile = profiles.find((p) => p.id === session.profile_id);
     const engine = engines.find((e) => e.id === session.engine_id);
@@ -244,14 +335,21 @@ function SessionDetail({
                                     onOpen={() => saveAsProfile.setOpen(true)}
                                     name={saveAsProfile.name}
                                     onNameChange={saveAsProfile.setName}
-                                    onSave={() => saveAsProfile.save(session.id)}
-                                    onCancel={() => { saveAsProfile.setOpen(false); saveAsProfile.setName("") }}
+                                    onSave={() =>
+                                        saveAsProfile.save(session.id)
+                                    }
+                                    onCancel={() => {
+                                        saveAsProfile.setOpen(false);
+                                        saveAsProfile.setName("");
+                                    }}
                                     isPending={saveAsProfile.isPending}
                                 />
                             )}
 
                             <div className="flex items-center gap-2">
-                                <Label className="text-[11px] text-muted-foreground">Recording</Label>
+                                <Label className="text-[11px] text-muted-foreground">
+                                    Recording
+                                </Label>
                                 <Switch
                                     checked={!!session.recording}
                                     pending={recPending}
@@ -268,7 +366,11 @@ function SessionDetail({
                                 onClick={onDelete}
                                 disabled={deleting}
                             >
-                                {deleting ? <Loader2 className="size-3 mr-1 animate-spin" /> : <Trash2 className="size-3 mr-1" />}
+                                {deleting ? (
+                                    <Loader2 className="size-3 mr-1 animate-spin" />
+                                ) : (
+                                    <Trash2 className="size-3 mr-1" />
+                                )}
                                 Delete
                             </Button>
                         </div>
@@ -276,30 +378,66 @@ function SessionDetail({
                 />
             }
         >
-            <InfoGrid fields={[
-                { label: "Status", value: <StatusBadge status={session.status} /> },
-                { label: "Duration", value: <LiveCountup startedAt={runningAttempt?.started_at ?? null} offset={completedDuration} /> },
-                { label: "Profile", value: profile?.name ?? (session.profile_id ? `#${session.profile_id}` : "None (manual)") },
-                { label: "Engine", value: engine?.name ?? `#${session.engine_id}` },
-                { label: "Resolver", value: resolver?.name ?? `#${session.resolver_id}` },
-            ]} />
+            <InfoGrid
+                fields={[
+                    {
+                        label: "Status",
+                        value: <StatusBadge status={session.status} />,
+                    },
+                    {
+                        label: "Duration",
+                        value: (
+                            <LiveCountup
+                                startedAt={runningAttempt?.started_at ?? null}
+                                offset={completedDuration}
+                            />
+                        ),
+                    },
+                    {
+                        label: "Profile",
+                        value:
+                            profile?.name ??
+                            (session.profile_id
+                                ? `#${session.profile_id}`
+                                : "None (manual)"),
+                    },
+                    {
+                        label: "Engine",
+                        value: engine?.name ?? `#${session.engine_id}`,
+                    },
+                    {
+                        label: "Resolver",
+                        value: resolver?.name ?? `#${session.resolver_id}`,
+                    },
+                ]}
+            />
             <div className="flex gap-6">
                 {session.started_at && (
                     <div className="space-y-1 shrink-0">
-                        <Label className="text-[11px] text-muted-foreground">Started</Label>
-                        <p className="text-xs">{formatLocalDate(session.started_at)}</p>
+                        <Label className="text-[11px] text-muted-foreground">
+                            Started
+                        </Label>
+                        <p className="text-xs">
+                            {formatLocalDate(session.started_at)}
+                        </p>
                     </div>
                 )}
                 {session.ended_at && (
                     <div className="space-y-1 shrink-0">
-                        <Label className="text-[11px] text-muted-foreground">Ended</Label>
-                        <p className="text-xs">{formatLocalDate(session.ended_at)}</p>
+                        <Label className="text-[11px] text-muted-foreground">
+                            Ended
+                        </Label>
+                        <p className="text-xs">
+                            {formatLocalDate(session.ended_at)}
+                        </p>
                     </div>
                 )}
             </div>
             {session.error && (
                 <div className="space-y-1">
-                    <Label className="text-[11px] text-destructive">Error</Label>
+                    <Label className="text-[11px] text-destructive">
+                        Error
+                    </Label>
                     <p className="text-xs text-destructive">{session.error}</p>
                 </div>
             )}
@@ -307,10 +445,19 @@ function SessionDetail({
                 <KeyValueTable
                     title="Public URLs"
                     leftAlignValues
-                    entries={session.session_urls.map((entry: Record<string, string>) => [
-                        entry.label,
-                        <a href={entry.url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-mono text-foreground/80 hover:text-foreground hover:underline">{entry.url}</a>,
-                    ])}
+                    entries={session.session_urls.map(
+                        (entry: Record<string, string>) => [
+                            entry.label,
+                            <a
+                                href={entry.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[11px] font-mono text-foreground/80 hover:text-foreground hover:underline"
+                            >
+                                {entry.url}
+                            </a>,
+                        ],
+                    )}
                 />
             )}
             {session.attempts?.length > 0 && (
@@ -322,40 +469,76 @@ function SessionDetail({
                         <Table>
                             <TableHeader>
                                 <TableRow className="h-7">
-                                    <TableHead className="text-[10px] font-medium h-7 px-2">#</TableHead>
-                                    <TableHead className="text-[10px] font-medium h-7 px-2">Started</TableHead>
-                                    <TableHead className="text-[10px] font-medium h-7 px-2">Ended</TableHead>
-                                    <TableHead className="text-[10px] font-medium h-7 px-2">Duration</TableHead>
-                                    <TableHead className="text-[10px] font-medium h-7 px-2">Exit Code</TableHead>
-                                    <TableHead className="text-[10px] font-medium h-7 px-2">Reason</TableHead>
+                                    <TableHead className="text-[10px] font-medium h-7 px-2">
+                                        #
+                                    </TableHead>
+                                    <TableHead className="text-[10px] font-medium h-7 px-2">
+                                        Started
+                                    </TableHead>
+                                    <TableHead className="text-[10px] font-medium h-7 px-2">
+                                        Ended
+                                    </TableHead>
+                                    <TableHead className="text-[10px] font-medium h-7 px-2">
+                                        Duration
+                                    </TableHead>
+                                    <TableHead className="text-[10px] font-medium h-7 px-2">
+                                        Exit Code
+                                    </TableHead>
+                                    <TableHead className="text-[10px] font-medium h-7 px-2">
+                                        Reason
+                                    </TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {[...session.attempts].reverse().map((a) => (
                                     <TableRow key={a.index} className="h-7">
-                                        <TableCell className="text-[11px] font-mono px-2 py-1">{a.index}</TableCell>
-                                        <TableCell className="text-[11px] font-mono px-2 py-1 text-muted-foreground">
-                                            {a.started_at ? formatLocalDate(a.started_at) : "—"}
+                                        <TableCell className="text-[11px] font-mono px-2 py-1">
+                                            {a.index}
                                         </TableCell>
                                         <TableCell className="text-[11px] font-mono px-2 py-1 text-muted-foreground">
-                                            {a.ended_at
-                                                ? formatLocalDate(a.ended_at)
-                                                : <span className="inline-flex items-center gap-1">
+                                            {a.started_at
+                                                ? formatLocalDate(a.started_at)
+                                                : "—"}
+                                        </TableCell>
+                                        <TableCell className="text-[11px] font-mono px-2 py-1 text-muted-foreground">
+                                            {a.ended_at ? (
+                                                formatLocalDate(a.ended_at)
+                                            ) : (
+                                                <span className="inline-flex items-center gap-1">
                                                     <Loader2 className="size-3 animate-spin" />
                                                     running…
-                                                  </span>}
+                                                </span>
+                                            )}
                                         </TableCell>
                                         <TableCell className="text-[11px] font-mono px-2 py-1 text-muted-foreground tabular-nums">
-                                            {a.duration_seconds != null
-                                                ? formatDuration(a.duration_seconds)
-                                                : a.ended_at == null
-                                                    ? <LiveCountup startedAt={a.started_at} />
-                                                    : "—"}
+                                            {a.duration_seconds != null ? (
+                                                formatDuration(
+                                                    a.duration_seconds,
+                                                )
+                                            ) : a.ended_at == null ? (
+                                                <LiveCountup
+                                                    startedAt={a.started_at}
+                                                />
+                                            ) : (
+                                                "—"
+                                            )}
                                         </TableCell>
                                         <TableCell className="text-[11px] font-mono px-2 py-1">
-                                            {a.returncode != null
-                                                ? <span className={a.returncode === 0 ? "text-emerald-500" : "text-red-500"}>{a.returncode}</span>
-                                                : <span className="text-muted-foreground/40">—</span>}
+                                            {a.returncode != null ? (
+                                                <span
+                                                    className={
+                                                        a.returncode === 0
+                                                            ? "text-emerald-500"
+                                                            : "text-red-500"
+                                                    }
+                                                >
+                                                    {a.returncode}
+                                                </span>
+                                            ) : (
+                                                <span className="text-muted-foreground/40">
+                                                    —
+                                                </span>
+                                            )}
                                         </TableCell>
                                         <TableCell className="text-[11px] font-mono px-2 py-1 text-muted-foreground max-w-[200px] truncate">
                                             {a.reason ?? "—"}
@@ -372,11 +555,12 @@ function SessionDetail({
 }
 
 function CreateSessionPanel({ onClose }: { onClose: () => void }) {
-    const config = usePluginConfig()
+    const config = usePluginConfig();
     const [recording, setRecording] = useState(false);
 
     const createMutation = useMutation({
-        mutationFn: (data: Record<string, unknown>) => sessionsApi.create(data as any),
+        mutationFn: (data: Record<string, unknown>) =>
+            sessionsApi.create(data as any),
         onSuccess: () => {
             onClose();
             toast.success("Session created");
@@ -396,19 +580,25 @@ function CreateSessionPanel({ onClose }: { onClose: () => void }) {
             submitLabel="Start Session"
             onSubmit={() => {
                 const data: Record<string, unknown> = { recording };
-                if (config.hasProfile) data.profile_id = parseInt(config.profileId);
+                if (config.hasProfile)
+                    data.profile_id = parseInt(config.profileId);
                 if (config.showConfigFields) {
-                    if (config.engineId) data.engine_id = parseInt(config.engineId);
-                    if (config.resolverId) data.resolver_id = parseInt(config.resolverId);
+                    if (config.engineId)
+                        data.engine_id = parseInt(config.engineId);
+                    if (config.resolverId)
+                        data.resolver_id = parseInt(config.resolverId);
                     data.retry_mode = config.retryMode;
                     data.retry_config = config.retryConfig;
                     data.resolver_config = config.resolverConfig;
                 } else if (config.selectedProfile) {
                     data.engine_id = config.selectedProfile.default_engine_id;
                     data.resolver_id = config.selectedProfile.resolver_id;
-                    data.retry_mode = config.selectedProfile.retry_mode ?? "none";
-                    data.retry_config = config.selectedProfile.retry_config ?? {};
-                    data.resolver_config = config.selectedProfile.resolver_config ?? {};
+                    data.retry_mode =
+                        config.selectedProfile.retry_mode ?? "none";
+                    data.retry_config =
+                        config.selectedProfile.retry_config ?? {};
+                    data.resolver_config =
+                        config.selectedProfile.resolver_config ?? {};
                 }
                 createMutation.mutate(data);
             }}
@@ -420,38 +610,67 @@ function CreateSessionPanel({ onClose }: { onClose: () => void }) {
                     value={config.profileId}
                     onValueChange={config.handleProfileChange}
                     items={[
-                        { value: "__none__", label: "None — configure manually" },
-                        ...config.profiles.map((p) => ({ value: String(p.id), label: p.name })),
+                        {
+                            value: "__none__",
+                            label: "None — configure manually",
+                        },
+                        ...config.profiles.map((p) => ({
+                            value: String(p.id),
+                            label: p.name,
+                        })),
                     ]}
                 >
                     <SelectTrigger className="h-8 text-xs w-full">
                         <SelectValue placeholder="None — configure manually" />
                     </SelectTrigger>
                     <SelectContent>
-                        <SelectItem value="__none__">None — configure manually</SelectItem>
+                        <SelectItem value="__none__">
+                            None — configure manually
+                        </SelectItem>
                         {config.profiles.map((p) => (
-                            <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
+                            <SelectItem key={p.id} value={String(p.id)}>
+                                {p.name}
+                            </SelectItem>
                         ))}
                     </SelectContent>
                 </Select>
             </FormField>
 
             {config.hasProfile && (
-                <Collapsible open={config.advancedOpen} onOpenChange={config.setAdvancedOpen}>
+                <Collapsible
+                    open={config.advancedOpen}
+                    onOpenChange={config.setAdvancedOpen}
+                >
                     <CollapsibleTrigger asChild>
-                        <button type="button" className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
-                            {config.advancedOpen ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+                        <button
+                            type="button"
+                            className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                            {config.advancedOpen ? (
+                                <ChevronDown className="size-3" />
+                            ) : (
+                                <ChevronRight className="size-3" />
+                            )}
                             Advanced — override profile settings
                         </button>
                     </CollapsibleTrigger>
                     <CollapsibleContent className="space-y-3 mt-2">
                         <PluginConfigFields
-                            engineId={config.engineId} resolverId={config.resolverId}
-                            retryMode={config.retryMode} retryConfig={config.retryConfig} resolverConfig={config.resolverConfig}
-                            availableRetryModes={config.availableRetryModes} retryModeSchema={config.retryModeSchema} resolverConfigSchema={config.resolverConfigSchema}
-                            engines={config.engines} resolvers={config.resolvers}
-                            onEngineChange={config.handleEngineChange} onResolverChange={config.handleResolverChange}
-                            onRetryModeChange={config.handleRetryModeChange} onRetryConfigChange={config.setRetryConfig} onResolverConfigChange={config.setResolverConfig}
+                            engineId={config.engineId}
+                            resolverId={config.resolverId}
+                            retryMode={config.retryMode}
+                            retryConfig={config.retryConfig}
+                            resolverConfig={config.resolverConfig}
+                            availableRetryModes={config.availableRetryModes}
+                            retryModeSchema={config.retryModeSchema}
+                            resolverConfigSchema={config.resolverConfigSchema}
+                            engines={config.engines}
+                            resolvers={config.resolvers}
+                            onEngineChange={config.handleEngineChange}
+                            onResolverChange={config.handleResolverChange}
+                            onRetryModeChange={config.handleRetryModeChange}
+                            onRetryConfigChange={config.setRetryConfig}
+                            onResolverConfigChange={config.setResolverConfig}
                         />
                     </CollapsibleContent>
                 </Collapsible>
@@ -459,12 +678,21 @@ function CreateSessionPanel({ onClose }: { onClose: () => void }) {
 
             {!config.hasProfile && (
                 <PluginConfigFields
-                    engineId={config.engineId} resolverId={config.resolverId}
-                    retryMode={config.retryMode} retryConfig={config.retryConfig} resolverConfig={config.resolverConfig}
-                    availableRetryModes={config.availableRetryModes} retryModeSchema={config.retryModeSchema} resolverConfigSchema={config.resolverConfigSchema}
-                    engines={config.engines} resolvers={config.resolvers}
-                    onEngineChange={config.handleEngineChange} onResolverChange={config.handleResolverChange}
-                    onRetryModeChange={config.handleRetryModeChange} onRetryConfigChange={config.setRetryConfig} onResolverConfigChange={config.setResolverConfig}
+                    engineId={config.engineId}
+                    resolverId={config.resolverId}
+                    retryMode={config.retryMode}
+                    retryConfig={config.retryConfig}
+                    resolverConfig={config.resolverConfig}
+                    availableRetryModes={config.availableRetryModes}
+                    retryModeSchema={config.retryModeSchema}
+                    resolverConfigSchema={config.resolverConfigSchema}
+                    engines={config.engines}
+                    resolvers={config.resolvers}
+                    onEngineChange={config.handleEngineChange}
+                    onResolverChange={config.handleResolverChange}
+                    onRetryModeChange={config.handleRetryModeChange}
+                    onRetryConfigChange={config.setRetryConfig}
+                    onResolverConfigChange={config.setResolverConfig}
                 />
             )}
 
