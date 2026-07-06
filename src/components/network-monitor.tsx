@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard"
 import { useInterval } from "@/hooks/use-interval";
 import { createPortal } from "react-dom";
@@ -109,31 +109,24 @@ export function NetworkStatusTracker() {
   }, [entries]);
 
   // Periodic health ping — the single source of truth for backend status
-  useEffect(() => {
-    if (!token) return;
+  const check = useCallback(async () => {
     const base = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
-    let mounted = true;
-
-    const check = async () => {
-      try {
-        const res = await fetch(`${base}/auth/status`, { method: "GET" });
-        if (!mounted) return;
-        if (res.ok) {
-          useRequestLogStore.getState().setBackendStatus("connected");
-        } else {
-          useRequestLogStore.getState().setBackendStatus("disconnected");
-        }
-      } catch {
-        if (mounted) {
-          useRequestLogStore.getState().setBackendStatus("disconnected");
-        }
+    try {
+      const res = await fetch(`${base}/auth/status`, { method: "GET" });
+      if (res.ok) {
+        useRequestLogStore.getState().setBackendStatus("connected");
+      } else {
+        useRequestLogStore.getState().setBackendStatus("disconnected");
       }
-    };
+    } catch {
+      useRequestLogStore.getState().setBackendStatus("disconnected");
+    }
+  }, []);
 
-    // Initial check immediately
-    check();
-    return () => { mounted = false; };
-  }, [token]);
+  // Initial check on mount / token change
+  useEffect(() => {
+    if (token) check();
+  }, [token, check]);
 
   useInterval(check, token ? 15_000 : null);
 
