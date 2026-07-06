@@ -5,13 +5,14 @@
  */
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
-import { telemetryApi, sessionsApi } from "@/lib/api"
+import { telemetryApi } from "@/lib/api"
+import { useSessions } from "@/hooks/use-queries"
 import { Card } from "@/components/ui/card"
 import type { TelemetrySystem, Session } from "@/lib/schemas"
 import { StatusBadge } from "@/components/status-badge"
 import { Spinner } from "@/components/ui/spinner"
 import { Cpu, HardDrive, Activity, Radio } from "lucide-react"
-import { formatBytes, cn } from "@/lib/utils"
+import { formatBytes, cn, getStatusDotColor } from "@/lib/utils"
 
 export const Route = createFileRoute("/_app/monitoring/")({
   component: MonitoringPage,
@@ -24,10 +25,7 @@ function MonitoringPage() {
     refetchInterval: 5000,
   })
 
-  const { data: sessions = [], isLoading: sessionsLoading } = useQuery({
-    queryKey: ["sessions"],
-    queryFn: () => sessionsApi.list(),
-  })
+  const { data: sessions = [], isLoading: sessionsLoading } = useSessions()
 
   const isLoading = systemLoading || sessionsLoading
 
@@ -49,15 +47,7 @@ function MonitoringPage() {
           <div className="divide-y">
             {(sessions as Session[]).map((s) => (
               <Link key={s.id} to="/monitoring/$sessionId" params={{ sessionId: String(s.id) }} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition-colors">
-                <div className={cn("size-2 rounded-full shrink-0",
-                  s.status === "active" ? "bg-emerald-500" :
-                  s.status === "recording" ? "bg-amber-500" :
-                  s.status === "terminating" ? "bg-orange-500" :
-                  s.status === "remuxing" ? "bg-blue-500" :
-                  s.status === "deleting" ? "bg-violet-500" :
-                  s.status === "completed" ? "bg-blue-500" :
-                  s.status === "failed" ? "bg-red-500" : "bg-muted-foreground/30"
-                )} />
+                <div className={cn("size-2 rounded-full shrink-0", getStatusDotColor(s.status))} />
                 <span className="text-sm font-medium">Session #{s.id}</span>
                 <StatusBadge status={s.status} />
                 {s.session_urls && s.session_urls.length > 0 && (

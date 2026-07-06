@@ -10,6 +10,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/form-field";
+import { ErrorBanner } from "@/components/error-banner";
 import {
     Card,
     CardContent,
@@ -62,11 +63,7 @@ function LoginPage() {
                     })}
                     className="space-y-4"
                 >
-                    {error && (
-                        <div className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                            {error}
-                        </div>
-                    )}
+                    {error && <ErrorBanner message={error} />}
                     <FormField label="Username" error={form.formState.errors.username?.message}>
                         <Input
                             id="username"

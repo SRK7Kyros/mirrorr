@@ -6,7 +6,7 @@ import { MaskedSlot } from "@/components/masked-input"
 import { CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"]
+import { MONTHS } from "@/lib/date-utils"
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
 
 function getDaysInMonth(year: number, month: number) { return new Date(year, month + 1, 0).getDate() }

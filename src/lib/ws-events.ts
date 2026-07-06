@@ -12,57 +12,34 @@ import { z } from "zod"
 
 // ── Event schemas ──────────────────────────────────────────────────
 
-const sessionEventSchema = z.object({
-  event: z.enum([
-    "session.created",
-    "session.updated",
-    "session.deleted",
-    "session.started",
-    "session.stopped",
-    "session.crashed",
-  ]),
-  id: z.number().optional(),
-  event_id: z.string().optional(),
-  timestamp: z.string().optional(),
-  command: z.string().optional(),
-  data: z.record(z.any()).optional(),
-})
+/** Factory to avoid repeating the same schema shape for each entity type. */
+function createEventSchema(eventNames: readonly string[]) {
+  return z.object({
+    event: z.enum(eventNames as [string, ...string[]]),
+    id: z.number().optional(),
+    event_id: z.string().optional(),
+    timestamp: z.string().optional(),
+    command: z.string().optional(),
+    data: z.record(z.any()).optional(),
+  })
+}
 
-const autorunEventSchema = z.object({
-  event: z.enum([
-    "autorun.created",
-    "autorun.updated",
-    "autorun.deleted",
-  ]),
-  id: z.number().optional(),
-  event_id: z.string().optional(),
-  timestamp: z.string().optional(),
-  data: z.record(z.any()).optional(),
-})
+const sessionEventSchema = createEventSchema([
+  "session.created", "session.updated", "session.deleted",
+  "session.started", "session.stopped", "session.crashed",
+])
 
-const recordingEventSchema = z.object({
-  event: z.enum([
-    "recording.created",
-    "recording.updated",
-    "recording.deleted",
-  ]),
-  id: z.number().optional(),
-  event_id: z.string().optional(),
-  timestamp: z.string().optional(),
-  data: z.record(z.any()).optional(),
-})
+const autorunEventSchema = createEventSchema([
+  "autorun.created", "autorun.updated", "autorun.deleted",
+])
 
-const profileEventSchema = z.object({
-  event: z.enum([
-    "profile.created",
-    "profile.updated",
-    "profile.deleted",
-  ]),
-  id: z.number().optional(),
-  event_id: z.string().optional(),
-  timestamp: z.string().optional(),
-  data: z.record(z.any()).optional(),
-})
+const recordingEventSchema = createEventSchema([
+  "recording.created", "recording.updated", "recording.deleted",
+])
+
+const profileEventSchema = createEventSchema([
+  "profile.created", "profile.updated", "profile.deleted",
+])
 
 const telemetryEventSchema = z.object({
   event: z.string(), // e.g. "session.5.telemetry"

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { useQuery, useMutation } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 import { recordingsApi } from "@/lib/api"
 import type { Recording } from "@/lib/schemas"
 import { Button } from "@/components/ui/button"
@@ -7,7 +7,9 @@ import { Trash2, Film, Clock, HardDrive, Loader2 } from "lucide-react"
 import { InfoGrid } from "@/components/info-grid"
 import { SidebarLayout, SidebarEntry, DetailHeader, DetailLayout, EmptyDetail, BulkActionBar, SidebarGroupContainer } from "@/components/resource-layout"
 import { ResizableSidebar } from "@/components/resizable-sidebar"
-import { MultiSelectProvider, useMultiSelect } from "@/hooks/use-multi-select"
+import { MultiSelectProvider } from "@/hooks/use-multi-select"
+import { useBulkDelete } from "@/hooks/use-bulk-delete"
+import { useRecordings } from "@/hooks/use-queries"
 
 import { formatDuration, formatBytes, formatLocalDate } from "@/lib/utils"
 import { useState } from "react"
@@ -20,10 +22,7 @@ export const Route = createFileRoute("/_app/recordings/")({
 function RecordingsPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null)
 
-  const { data: recordings = [], isLoading } = useQuery({
-    queryKey: ["recordings"],
-    queryFn: () => recordingsApi.list(),
-  })
+  const { data: recordings = [], isLoading } = useRecordings()
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => recordingsApi.delete(id),
@@ -59,7 +58,7 @@ function RecordingsPage() {
           ))}
           </SidebarGroupContainer>
         </SidebarLayout>
-        <BulkActionBar actions={<BulkDelete recordingIds={recordingIds} />} />
+        <BulkActionBar actions={<BulkDelete />} />
       </MultiSelectProvider>
       {selectedId ? (
         <RecordingDetail
@@ -90,21 +89,16 @@ function InlineDeleteButton({ id, deleteMutation, selectedId, setSelectedId }: {
 }
 
 /** Bulk delete button for the floating action bar */
-function BulkDelete({ recordingIds }: { recordingIds: number[] }) {
-  const multi = useMultiSelect()
-  const deleteMutation = useMutation({
-    mutationFn: async (ids: number[]) => { for (const id of ids) await recordingsApi.delete(id) },
-    onSuccess: () => { multi.clear(); toast.success("Recordings deleted") },
-    onError: (err: Error) => toast.error(`Failed to delete recordings: ${err.message}`),
-  })
+function BulkDelete() {
+  const { mutate, isPending } = useBulkDelete(recordingsApi.delete, "Recordings")
   return (
     <Button
       variant="ghost" size="sm"
       className="h-6 text-[10px] text-destructive hover:text-destructive"
-      onClick={() => deleteMutation.mutate([...multi.selectedIds])}
-      disabled={deleteMutation.isPending}
+      onClick={mutate}
+      disabled={isPending}
     >
-      {deleteMutation.isPending ? <Loader2 className="size-3 mr-1 animate-spin" /> : <Trash2 className="size-3 mr-1" />}
+      {isPending ? <Loader2 className="size-3 mr-1 animate-spin" /> : <Trash2 className="size-3 mr-1" />}
       Bulk Delete
     </Button>
   )

@@ -26,6 +26,16 @@ import {
 } from "lucide-react";
 import { tokenStatus } from "@/lib/api";
 
+// ── Backend status color helper ────────────────────────────────
+
+function getBackendStatusColor(status: string): string {
+    switch (status) {
+        case "connected": return "bg-emerald-500"
+        case "disconnected": return "bg-red-500"
+        default: return "bg-amber-500 animate-pulse"
+    }
+}
+
 // ── Status indicator for the navbar ─────────────────────────────
 
 export function NetworkStatusDot() {
@@ -50,11 +60,7 @@ export function NetworkStatusDot() {
             ? "bg-red-500"
             : auth === "expiring"
               ? "bg-amber-500 animate-pulse"
-              : backendStatus === "connected"
-                ? "bg-emerald-500"
-                : backendStatus === "disconnected"
-                  ? "bg-red-500"
-                  : "bg-amber-500 animate-pulse";
+              : getBackendStatusColor(backendStatus);
 
     const label = (() => {
         if (!isAuthenticated) return "Auth off";
@@ -126,9 +132,10 @@ export function NetworkStatusTracker() {
 
     // Initial check immediately
     check();
-    const interval = setInterval(check, 15_000);
-    return () => { mounted = false; clearInterval(interval); };
+    return () => { mounted = false; };
   }, [token]);
+
+  useInterval(check, token ? 15_000 : null);
 
   return null;
 }
@@ -201,11 +208,7 @@ export function NetworkMonitor({
                     <div
                         className={cn(
                             "size-1.5 rounded-full ml-0.5",
-                            backendStatus === "connected"
-                                ? "bg-emerald-500"
-                                : backendStatus === "disconnected"
-                                  ? "bg-red-500"
-                                  : "bg-amber-500 animate-pulse",
+                            getBackendStatusColor(backendStatus),
                         )}
                     />
                     <div className="flex-1" />

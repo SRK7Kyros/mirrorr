@@ -14,18 +14,11 @@ import {
   AreaChart,
 } from "recharts"
 import type { TelemetrySample } from "@/lib/schemas"
+import { formatBytes } from "@/lib/utils"
 
 interface TelemetryChartsProps {
   samples: TelemetrySample[]
   className?: string
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B"
-  const k = 1024
-  const sizes = ["B", "KB", "MB", "GB"]
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
 }
 
 function formatTime(isoStr: string): string {
