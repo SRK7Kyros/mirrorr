@@ -463,6 +463,10 @@ export const notificationsApi = {
 
 export const telemetryApi = {
   system: () => apiRequest<TelemetrySystem>("/telemetry/system"),
+  sessionSamples: (sessionId: number) =>
+    apiRequest<import("@/lib/schemas").TelemetrySample[]>(
+      `/telemetry/sessions/${sessionId}/samples`,
+    ),
 }
 
 // ── WebSocket URLs ─────────────────────────────────────────────────
