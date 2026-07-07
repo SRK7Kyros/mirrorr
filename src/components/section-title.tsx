@@ -11,21 +11,31 @@
  *     Title
  *   </h3>
  */
-import { ReactNode } from "react"
-import { cn } from "@/lib/utils"
+import { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
 interface SectionTitleProps {
-  children: ReactNode
-  icon?: React.ComponentType<{ className?: string }>
-  className?: string
-  as?: "h2" | "h3" | "h4"
+    children: ReactNode;
+    icon?: React.ComponentType<{ className?: string }>;
+    className?: string;
+    as?: "h2" | "h3" | "h4";
 }
 
-export function SectionTitle({ children, icon: Icon, className, as: Tag = "h3" }: SectionTitleProps) {
-  return (
-    <Tag className={cn("text-xs font-semibold text-muted-subtle uppercase tracking-wider flex items-center gap-1.5", className)}>
-      {Icon && <Icon className="size-3" />}
-      {children}
-    </Tag>
-  )
+export function SectionTitle({
+    children,
+    icon: Icon,
+    className,
+    as: Tag = "h3",
+}: SectionTitleProps) {
+    return (
+        <Tag
+            className={cn(
+                "text-xs font-semibold text-muted-subtle uppercase tracking-wider flex items-center gap-1.5",
+                className,
+            )}
+        >
+            {Icon && <Icon className="size-3" />}
+            {children}
+        </Tag>
+    );
 }
