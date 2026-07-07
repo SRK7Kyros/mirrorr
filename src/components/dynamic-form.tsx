@@ -138,7 +138,7 @@ function SchemaField({
           <div className="flex items-center gap-2">
             <Label className="text-sm font-medium cursor-pointer">{label}</Label>
             <TypeBadge type="boolean" />
-            {required && <span className="text-[10px] font-medium text-destructive uppercase tracking-wider">required</span>}
+            {required && <span className="text-2xs font-medium text-destructive uppercase tracking-wider">required</span>}
           </div>
           {description && <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>}
         </div>
@@ -181,7 +181,7 @@ function SchemaField({
           placeholder={description || `Enter ${label.toLowerCase()}...`}
         />
         {prop.minimum !== undefined && prop.maximum !== undefined && (
-          <p className="text-[11px] text-muted-foreground/60 mt-0.5">
+          <p className="text-xs text-muted-subtle mt-0.5">
             Range: {prop.minimum} – {prop.maximum}
           </p>
         )}
@@ -266,7 +266,7 @@ function FieldWrapper({
       <div className="flex items-center gap-2">
         <Label className="text-sm font-medium">{label}</Label>
         <TypeBadge type={type} />
-        {required && <span className="text-[10px] font-medium text-destructive uppercase tracking-wider">required</span>}
+        {required && <span className="text-2xs font-medium text-destructive uppercase tracking-wider">required</span>}
       </div>
       {children}
       {description && <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>}

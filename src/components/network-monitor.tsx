@@ -12,6 +12,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { AREAS, NETWORK_ROW } from "@/lib/layouts";
+import { EmptyState } from "@/components/empty-state";
 import {
     Wifi,
     Minimize2,
@@ -87,7 +89,7 @@ export function NetworkStatusDot() {
             title={title}
         >
             <span className={cn("size-2 rounded-full shrink-0", color)} />
-            <span className="text-[10px] text-muted-foreground font-medium w-[8.5ch] text-left">
+            <span className="text-2xs text-muted-foreground font-medium w-[8.5ch] text-left">
                 {label}
             </span>
         </span>
@@ -195,7 +197,7 @@ export function NetworkMonitor({
                 {/* Header — always visible, draggable */}
                 <div className="drag-handle h-10 shrink-0 flex items-center gap-2 px-3 border-b bg-muted/30 cursor-move select-none">
                     <Wifi className="size-3.5 text-muted-foreground" />
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         Network
                     </span>
                     <div
@@ -205,7 +207,7 @@ export function NetworkMonitor({
                         )}
                     />
                     <div className="flex-1" />
-                    <span className="text-[10px] text-muted-foreground font-mono mr-1">
+                    <span className="text-2xs text-muted-foreground font-mono mr-1">
                         {entries.length} reqs
                     </span>
                     <Button
@@ -245,20 +247,17 @@ export function NetworkMonitor({
                 {!minimized && (
                     <ScrollArea className="flex-1 min-h-0">
                         {entries.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
-                                <RefreshCw className="size-4 mb-1 opacity-30" />
-                                <p className="text-[11px]">No requests yet</p>
-                            </div>
+                            <EmptyState text="No requests yet" height="sm" icon={RefreshCw} />
                         ) : (
                             <div>
                                 {/* Header row */}
-                                <div className="grid px-3" style={{ gridTemplateColumns: "70px 56px 32px 1fr 48px 40px" }}>
-                                    <span className="text-[9px] text-muted-foreground/60 font-mono uppercase py-1">Time</span>
-                                    <span className="text-[9px] text-muted-foreground/60 font-mono uppercase py-1">Method</span>
-                                    <span className="text-[9px] text-muted-foreground/60 font-mono uppercase py-1">St</span>
-                                    <span className="text-[9px] text-muted-foreground/60 font-mono uppercase py-1">Path</span>
-                                    <span className="text-[9px] text-muted-foreground/60 font-mono uppercase py-1 text-right">Dur</span>
-                                    <span className="py-1" />
+                                <div className="grid px-3" style={NETWORK_ROW.style}>
+                                    <span className="text-3xs text-muted-subtle font-mono uppercase py-1" style={{ gridArea: AREAS.time }}>Time</span>
+                                    <span className="text-3xs text-muted-subtle font-mono uppercase py-1" style={{ gridArea: AREAS.method }}>Method</span>
+                                    <span className="text-3xs text-muted-subtle font-mono uppercase py-1" style={{ gridArea: AREAS.status }}>St</span>
+                                    <span className="text-3xs text-muted-subtle font-mono uppercase py-1" style={{ gridArea: AREAS.path }}>Path</span>
+                                    <span className="text-3xs text-muted-subtle font-mono uppercase py-1 text-right" style={{ gridArea: AREAS.dur }}>Dur</span>
+                                    <span className="py-1" style={{ gridArea: AREAS.actions_net }} />
                                 </div>
                                 {entries.map((entry) => (
                                     <RequestRow
@@ -329,21 +328,21 @@ function RequestRow({
             {/* Main row — its own grid */}
             <div
                 className="grid px-3 cursor-pointer hover:bg-muted/30 transition-colors"
-                style={{ gridTemplateColumns: "70px 56px 32px 1fr 48px 40px" }}
+                style={NETWORK_ROW.style}
                 onClick={onToggle}
             >
-                <span className="text-[10px] text-muted-foreground/60 font-mono py-1.5 flex items-center">{time}</span>
-                <span className={cn("text-[10px] font-bold font-mono uppercase py-1.5 flex items-center", methodColor)}>{entry.method}</span>
-                <span className={cn("text-[10px] font-mono py-1.5 flex items-center", statusColor)}>{entry.status ?? "—"}</span>
-                <span className="text-[11px] truncate text-muted-foreground py-1.5 flex items-center">{entry.path}</span>
-                <span className="text-[10px] text-muted-foreground/60 font-mono text-right py-1.5 flex items-center justify-end">
+                <span className="text-2xs text-muted-subtle font-mono py-1.5 flex items-center" style={{ gridArea: AREAS.time }}>{time}</span>
+                <span className={cn("text-2xs font-bold font-mono uppercase py-1.5 flex items-center", methodColor)} style={{ gridArea: AREAS.method }}>{entry.method}</span>
+                <span className={cn("text-2xs font-mono py-1.5 flex items-center", statusColor)} style={{ gridArea: AREAS.status }}>{entry.status ?? "—"}</span>
+                <span className="text-xs truncate text-muted-foreground py-1.5 flex items-center" style={{ gridArea: AREAS.path }}>{entry.path}</span>
+                <span className="text-2xs text-muted-subtle font-mono text-right py-1.5 flex items-center justify-end" style={{ gridArea: AREAS.dur }}>
                     {entry.duration !== null
                         ? entry.duration < 1000
                             ? `${entry.duration}ms`
                             : `${(entry.duration / 1000).toFixed(1)}s`
                         : "—"}
                 </span>
-                <span className="py-1.5 flex items-center justify-center gap-0.5">
+                <span className="py-1.5 flex items-center justify-center gap-0.5" style={{ gridArea: AREAS.actions_net }}>
                     <span
                         className="p-0.5 rounded hover:bg-muted/50 transition-colors"
                         title="Copy all as JSON"
@@ -364,11 +363,11 @@ function RequestRow({
                     >
                         {copiedAll
                             ? <Check className="size-3 text-emerald-500" />
-                            : <Copy className="size-3 text-muted-foreground/40" />}
+                            : <Copy className="size-3 text-muted-ghost" />}
                     </span>
                     {expanded
-                        ? <ChevronDown className="size-3 text-muted-foreground/40" />
-                        : <ChevronRight className="size-3 text-muted-foreground/40" />}
+                        ? <ChevronDown className="size-3 text-muted-ghost" />
+                        : <ChevronRight className="size-3 text-muted-ghost" />}
                 </span>
             </div>
             {/* Expanded details — card layout */}
@@ -418,7 +417,7 @@ function DetailCard({
             <div className="rounded-md border border-border/60 bg-muted/30 overflow-hidden">
                 {/* Card header */}
                 <div className="flex items-center gap-1 px-2 py-1 border-b border-border/40 bg-muted/20">
-                    <span className="text-[9px] text-muted-foreground/70 uppercase tracking-wider flex-1">
+                    <span className="text-3xs text-muted-subtle uppercase tracking-wider flex-1">
                         {label}
                     </span>
                     <button
@@ -426,7 +425,7 @@ function DetailCard({
                         onClick={(e) => { e.stopPropagation(); setExpanded(true); }}
                         title="Expand"
                     >
-                        <Maximize2 className="size-3 text-muted-foreground/50" />
+                        <Maximize2 className="size-3 text-muted-faint" />
                     </button>
                     <button
                         className="p-0.5 rounded hover:bg-muted transition-colors"
@@ -435,13 +434,13 @@ function DetailCard({
                     >
                         {copied
                             ? <Check className="size-3 text-emerald-500" />
-                            : <Copy className="size-3 text-muted-foreground/50" />}
+                            : <Copy className="size-3 text-muted-faint" />}
                     </button>
                 </div>
                 {/* Card content */}
                 <div
                     className={cn(
-                        "text-[10px] px-2 py-1.5 max-h-32 overflow-x-auto overflow-y-auto break-words scrollbar-thin",
+                        "text-2xs px-2 py-1.5 max-h-32 overflow-x-auto overflow-y-auto break-words scrollbar-thin",
                         mono
                             ? "font-mono text-muted-foreground"
                             : "text-foreground",
@@ -483,7 +482,7 @@ function DetailCard({
                         </div>
                         <ScrollArea className="flex-1 min-h-0">
                             <pre className={cn(
-                                "p-4 text-[11px] leading-relaxed whitespace-pre",
+                                "p-4 text-xs leading-relaxed whitespace-pre",
                                 mono
                                     ? "font-mono text-muted-foreground"
                                     : "text-foreground",

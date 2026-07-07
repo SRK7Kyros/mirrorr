@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/select";
 import { FormField } from "@/components/form-field";
 import { DynamicForm } from "@/components/dynamic-form";
+import { AREAS, CONFIG_SELECTORS, CONFIG_PANELS } from "@/lib/layouts";
+import { ConfigPanel } from "@/components/config-panel";
 
 export interface PluginConfigFieldsProps {
     engineId: string;
@@ -49,8 +51,8 @@ export function PluginConfigFields({
 }: PluginConfigFieldsProps) {
     return (
         <>
-            <div className="grid grid-cols-2 gap-3 items-end">
-                <div className="grid grid-cols-2 gap-2">
+            <div className="grid gap-3 items-end" style={CONFIG_SELECTORS.style}>
+                <div className="grid gap-2" style={{ gridArea: AREAS.selects }}>
                     <FormField label="Engine">
                         <Select
                             value={engineId}
@@ -97,6 +99,7 @@ export function PluginConfigFields({
                         </Select>
                     </FormField>
                 </div>
+                <div style={{ gridArea: AREAS.resolver }}>
                 <FormField label="Resolver">
                     <Select
                         value={resolverId}
@@ -118,31 +121,26 @@ export function PluginConfigFields({
                         </SelectContent>
                     </Select>
                 </FormField>
+                </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-3" style={CONFIG_PANELS.style}>
                 {retryModeSchema && (
-                    <div className="rounded-lg border bg-muted/10 p-3 space-y-3">
-                        <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
-                            Retry Config
-                        </p>
+                    <ConfigPanel title="Retry Config" style={{ gridArea: AREAS["retry-config"] }}>
                         <DynamicForm
                             schema={retryModeSchema}
                             value={retryConfig}
                             onChange={onRetryConfigChange}
                         />
-                    </div>
+                    </ConfigPanel>
                 )}
                 {resolverConfigSchema && (
-                    <div className="rounded-lg border bg-muted/10 p-3 space-y-3">
-                        <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
-                            Resolver Config
-                        </p>
+                    <ConfigPanel title="Resolver Config" style={{ gridArea: AREAS["resolver-config"] }}>
                         <DynamicForm
                             schema={resolverConfigSchema}
                             value={resolverConfig}
                             onChange={onResolverConfigChange}
                         />
-                    </div>
+                    </ConfigPanel>
                 )}
             </div>
         </>

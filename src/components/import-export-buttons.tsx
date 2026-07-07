@@ -43,7 +43,7 @@ export function ImportButton({ onBundle }: ImportButtonProps) {
       <Button
         size="sm"
         variant="ghost"
-        className="h-7 text-[11px]"
+        className="h-7 text-xs"
         onClick={() => ref.current?.click()}
       >
         <Upload className="size-3 mr-1" />Import
@@ -81,7 +81,7 @@ export function ExportButton({ onExport, filename }: ExportButtonProps) {
     <Button
       variant="ghost"
       size="sm"
-      className="h-7 text-[11px]"
+      className="h-7 text-xs"
       onClick={handleClick}
       disabled={exporting}
     >

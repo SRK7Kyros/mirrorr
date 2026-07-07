@@ -266,7 +266,7 @@ export function DateTimePicker({
                                             !cell.outside &&
                                             "hover:bg-muted hover:text-foreground",
                                         cell.outside &&
-                                            "text-muted-foreground/30",
+                                            "text-muted-trace",
                                     )}
                                     onClick={() => {
                                         if (!cell.outside) selectDay(cell.day);

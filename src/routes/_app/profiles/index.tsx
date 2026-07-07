@@ -108,7 +108,7 @@ function ProfilesPage() {
                                         }}
                                     />
                                 </div>
-                                <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground/60">
+                                <div className="flex items-center gap-2 mt-1 text-2xs text-muted-foreground/60">
                                     <span className="flex items-center gap-0.5">
                                         <Cpu className="size-3" />
                                         {engines.find(
@@ -171,7 +171,7 @@ function BulkActions() {
             <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 text-[10px]"
+                className="h-6 text-2xs"
                 onClick={handleExport}
             >
                 <Download className="size-3 mr-1" />
@@ -180,7 +180,7 @@ function BulkActions() {
             <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 text-[10px] text-destructive hover:text-destructive"
+                className="h-6 text-2xs text-destructive hover:text-destructive"
                 onClick={deleteMutate}
                 disabled={deletePending}
             >
@@ -229,7 +229,7 @@ function ProfileDetail({
                             <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-7 text-[11px] text-destructive"
+                                className="h-7 text-xs text-destructive"
                                 onClick={onDelete}
                                 disabled={deleting}
                             >

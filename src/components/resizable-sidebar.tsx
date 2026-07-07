@@ -15,6 +15,7 @@
 import { useState, type ReactNode } from "react"
 import { DragHandle } from "@/components/drag-handle"
 import { cn } from "@/lib/utils"
+import { AREAS, SIDEBAR_DETAIL } from "@/lib/layouts"
 
 interface ResizableSidebarProps {
   defaultWidth?: number
@@ -33,12 +34,12 @@ export function ResizableSidebar({ defaultWidth = 300, min = 200, max = 600, chi
 
   return (
     <>
-      <div className="h-full grid gap-2 p-2" style={{ gridTemplateColumns: `${width}px 1fr` }}>
-        <div className="relative group">
+      <div className="h-full grid gap-2 p-2" style={SIDEBAR_DETAIL.style(width)}>
+        <div className="relative group" style={{ gridArea: AREAS.sidebar }}>
           <DragHandle direction="vertical" value={width} min={min} max={max} onChange={setWidth} />
           {sidebar}
         </div>
-        <div className={cn("min-h-0 overflow-auto bg-card border rounded-xl", detailClassName)}>
+        <div className={cn("min-h-0 overflow-auto bg-card border rounded-xl", detailClassName)} style={{ gridArea: AREAS.detail }}>
           {detail}
         </div>
       </div>

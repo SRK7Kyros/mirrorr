@@ -15,6 +15,7 @@ import {
 } from "recharts";
 import type { TelemetrySample } from "@/lib/schemas";
 import { formatBytes } from "@/lib/utils";
+import { SectionTitle } from "@/components/section-title";
 
 interface TelemetryChartsProps {
     samples: TelemetrySample[];
@@ -77,10 +78,8 @@ function MetricChart({
     return (
         <div className="space-y-1">
             <div className="flex items-center justify-between">
-                <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                    {label}
-                </h4>
-                <span className="text-[11px] font-mono text-muted-foreground">
+                <SectionTitle>{label}</SectionTitle>
+                <span className="text-xs font-mono text-muted-foreground">
                     {samples.length > 0
                         ? valueFormatter(
                               samples[samples.length - 1][dataKey] as number,

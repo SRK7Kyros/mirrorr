@@ -15,6 +15,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { changePasswordSchema } from "@/lib/schemas";
 import { toast } from "sonner";
 import { cn, getUserInitial } from "@/lib/utils";
+import { AREAS, PROFILE_LAYOUT } from "@/lib/layouts";
+import { MetadataBar, MetadataItem, MetadataSeparator } from "@/components/metadata-bar";
+import { SectionTitle } from "@/components/section-title";
 import { useState } from "react";
 
 export const Route = createFileRoute("/_app/profile")({
@@ -27,14 +30,14 @@ function ProfilePage() {
     const [tab, setTab] = useState<"account" | "admin">("account");
 
     return (
-        <div className="h-full grid grid-cols-[260px_1fr] gap-2 p-2">
+        <div className="h-full grid gap-2 p-2" style={PROFILE_LAYOUT.style}>
             {/* Sidebar */}
-            <div className="flex flex-col min-h-0 bg-card border rounded-xl overflow-hidden">
+            <div className="flex flex-col min-h-0 bg-card border rounded-xl overflow-hidden" style={{ gridArea: AREAS.sidebar }}>
                 <div className="shrink-0 px-3.5 pt-4 pb-3">
                     <h1 className="text-lg font-bold tracking-tight">
                         Profile
                     </h1>
-                    <p className="text-[11px] text-muted-foreground/60 mt-0.5">
+                    <p className="text-xs text-muted-foreground/60 mt-0.5">
                         Account settings
                     </p>
                 </div>
@@ -73,7 +76,7 @@ function ProfilePage() {
             </div>
 
             {/* Detail */}
-            <div className="min-h-0 overflow-auto bg-card border rounded-xl">
+            <div className="min-h-0 overflow-auto bg-card border rounded-xl" style={{ gridArea: AREAS.content }}>
                 <div className="p-5 space-y-4 max-w-2xl">
                     {tab === "account" ? <AccountSection /> : <AdminSection />}
                 </div>
@@ -124,25 +127,22 @@ function AccountSection() {
                         <h2 className="text-sm font-bold">
                             {displayUser?.display_name || displayUser?.username}
                         </h2>
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="text-xs text-muted-foreground">
                             @{displayUser?.username}
                         </p>
                     </div>
                 </div>
             </div>
 
-            <div className="rounded-lg border bg-muted/20 px-3 py-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted-foreground">
-                <span className="inline-flex items-center gap-1.5">
-                    <span className="text-muted-foreground/60 text-[10px] uppercase tracking-wider">
-                        Role
-                    </span>
+            <MetadataBar>
+                <MetadataItem label="Role">
                     <Badge
                         variant={
                             displayUser?.role === "admin"
                                 ? "default"
                                 : "secondary"
                         }
-                        className="text-[10px] h-4 px-1.5"
+                        className="text-2xs h-4 px-1.5"
                     >
                         {displayUser?.role === "admin" ? (
                             <Shield className="size-2.5 mr-0.5" />
@@ -151,28 +151,22 @@ function AccountSection() {
                         )}
                         {displayUser?.role}
                     </Badge>
-                </span>
+                </MetadataItem>
                 {meData?.client && (
                     <>
-                        <span className="text-border">·</span>
-                        <span className="inline-flex items-center gap-1.5">
-                            <span className="text-muted-foreground/60 text-[10px] uppercase tracking-wider">
-                                Client
-                            </span>
+                        <MetadataSeparator />
+                        <MetadataItem label="Client">
                             <code className="text-foreground">
                                 {meData.client.name}
                             </code>
-                        </span>
+                        </MetadataItem>
                     </>
                 )}
-            </div>
+            </MetadataBar>
 
             <SectionCard
                 title={
-                    <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                        <Key className="size-3" />
-                        Change Password
-                    </h3>
+                    <SectionTitle icon={Key}>Change Password</SectionTitle>
                 }
             >
                 <div className="p-4">
@@ -224,7 +218,7 @@ function AccountSection() {
                             size="sm"
                             type="submit"
                             disabled={passwordMutation.isPending}
-                            className="h-7 text-[11px]"
+                            className="h-7 text-xs"
                         >
                             {passwordMutation.isPending && (
                                 <Loader2 className="mr-1 size-3 animate-spin" />
@@ -291,7 +285,7 @@ function AdminSection() {
         <div className="space-y-4">
             <SectionCard
                 title={
-                    <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                    <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                         <Shield className="size-3" />
                         Registration Requests
                     </h3>
@@ -312,7 +306,7 @@ function AdminSection() {
                         <Loader2 className="size-5 animate-spin text-muted-foreground" />
                     </div>
                 ) : pendingRequests.length === 0 ? (
-                    <p className="text-[11px] text-muted-foreground/50 py-6 text-center">
+                    <p className="text-xs text-muted-foreground/50 py-6 text-center">
                         No pending requests
                     </p>
                 ) : (
@@ -336,7 +330,7 @@ function AdminSection() {
                                     <Button
                                         size="sm"
                                         variant="ghost"
-                                        className="h-7 text-[11px] text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950"
+                                        className="h-7 text-xs text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950"
                                         onClick={() =>
                                             approveMutation.mutate(req.id)
                                         }
@@ -356,7 +350,7 @@ function AdminSection() {
                                     <Button
                                         size="sm"
                                         variant="ghost"
-                                        className="h-7 text-[11px] text-destructive hover:bg-destructive/10"
+                                        className="h-7 text-xs text-destructive hover:bg-destructive/10"
                                         onClick={() =>
                                             denyMutation.mutate(req.id)
                                         }
@@ -394,7 +388,7 @@ function AdminSection() {
                             >
                                 <div className="flex items-center gap-2">
                                     <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center">
-                                        <span className="text-[10px] font-medium">
+                                        <span className="text-2xs font-medium">
                                             {getUserInitial(u)}
                                         </span>
                                     </div>

@@ -204,7 +204,7 @@ function SessionEntry({
                 <span className="text-[13px] font-medium truncate">
                     {displayName}
                 </span>
-                <span className="text-[10px] text-muted-foreground/60 shrink-0 flex items-center gap-1">
+                <span className="text-2xs text-muted-foreground/60 shrink-0 flex items-center gap-1">
                     <Clock className="size-3" />
                     <LiveCountup
                         startedAt={runningAttempt?.started_at ?? null}
@@ -269,7 +269,7 @@ function BulkDelete() {
         <Button
             variant="ghost"
             size="sm"
-            className="h-6 text-[10px] text-destructive hover:text-destructive"
+            className="h-6 text-2xs text-destructive hover:text-destructive"
             onClick={mutate}
             disabled={isPending}
         >
@@ -347,7 +347,7 @@ function SessionDetail({
                             )}
 
                             <div className="flex items-center gap-2">
-                                <Label className="text-[11px] text-muted-foreground">
+                                <Label className="text-xs text-muted-foreground">
                                     Recording
                                 </Label>
                                 <Switch
@@ -362,7 +362,7 @@ function SessionDetail({
                             <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-7 text-[11px] text-destructive"
+                                className="h-7 text-xs text-destructive"
                                 onClick={onDelete}
                                 disabled={deleting}
                             >
@@ -414,7 +414,7 @@ function SessionDetail({
             <div className="flex gap-6">
                 {session.started_at && (
                     <div className="space-y-1 shrink-0">
-                        <Label className="text-[11px] text-muted-foreground">
+                        <Label className="text-xs text-muted-foreground">
                             Started
                         </Label>
                         <p className="text-xs">
@@ -424,7 +424,7 @@ function SessionDetail({
                 )}
                 {session.ended_at && (
                     <div className="space-y-1 shrink-0">
-                        <Label className="text-[11px] text-muted-foreground">
+                        <Label className="text-xs text-muted-foreground">
                             Ended
                         </Label>
                         <p className="text-xs">
@@ -435,7 +435,7 @@ function SessionDetail({
             </div>
             {session.error && (
                 <div className="space-y-1">
-                    <Label className="text-[11px] text-destructive">
+                    <Label className="text-xs text-destructive">
                         Error
                     </Label>
                     <p className="text-xs text-destructive">{session.error}</p>
@@ -452,7 +452,7 @@ function SessionDetail({
                                 href={entry.url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-[11px] font-mono text-foreground/80 hover:text-foreground hover:underline"
+                                className="text-xs font-mono text-foreground/80 hover:text-foreground hover:underline"
                             >
                                 {entry.url}
                             </a>,
@@ -462,29 +462,29 @@ function SessionDetail({
             )}
             {session.attempts?.length > 0 && (
                 <div className="space-y-1.5">
-                    <Label className="text-[11px] text-muted-foreground">
+                    <Label className="text-xs text-muted-foreground">
                         Attempts ({session.attempts.length})
                     </Label>
                     <div className="border rounded-lg overflow-hidden">
                         <Table>
                             <TableHeader>
                                 <TableRow className="h-7">
-                                    <TableHead className="text-[10px] font-medium h-7 px-2">
+                                    <TableHead className="text-2xs font-medium h-7 px-2">
                                         #
                                     </TableHead>
-                                    <TableHead className="text-[10px] font-medium h-7 px-2">
+                                    <TableHead className="text-2xs font-medium h-7 px-2">
                                         Started
                                     </TableHead>
-                                    <TableHead className="text-[10px] font-medium h-7 px-2">
+                                    <TableHead className="text-2xs font-medium h-7 px-2">
                                         Ended
                                     </TableHead>
-                                    <TableHead className="text-[10px] font-medium h-7 px-2">
+                                    <TableHead className="text-2xs font-medium h-7 px-2">
                                         Duration
                                     </TableHead>
-                                    <TableHead className="text-[10px] font-medium h-7 px-2">
+                                    <TableHead className="text-2xs font-medium h-7 px-2">
                                         Exit Code
                                     </TableHead>
-                                    <TableHead className="text-[10px] font-medium h-7 px-2">
+                                    <TableHead className="text-2xs font-medium h-7 px-2">
                                         Reason
                                     </TableHead>
                                 </TableRow>
@@ -492,15 +492,15 @@ function SessionDetail({
                             <TableBody>
                                 {[...session.attempts].reverse().map((a) => (
                                     <TableRow key={a.index} className="h-7">
-                                        <TableCell className="text-[11px] font-mono px-2 py-1">
+                                        <TableCell className="text-xs font-mono px-2 py-1">
                                             {a.index}
                                         </TableCell>
-                                        <TableCell className="text-[11px] font-mono px-2 py-1 text-muted-foreground">
+                                        <TableCell className="text-xs font-mono px-2 py-1 text-muted-foreground">
                                             {a.started_at
                                                 ? formatLocalDate(a.started_at)
                                                 : "—"}
                                         </TableCell>
-                                        <TableCell className="text-[11px] font-mono px-2 py-1 text-muted-foreground">
+                                        <TableCell className="text-xs font-mono px-2 py-1 text-muted-foreground">
                                             {a.ended_at ? (
                                                 formatLocalDate(a.ended_at)
                                             ) : (
@@ -510,7 +510,7 @@ function SessionDetail({
                                                 </span>
                                             )}
                                         </TableCell>
-                                        <TableCell className="text-[11px] font-mono px-2 py-1 text-muted-foreground tabular-nums">
+                                        <TableCell className="text-xs font-mono px-2 py-1 text-muted-foreground tabular-nums">
                                             {a.duration_seconds != null ? (
                                                 formatDuration(
                                                     a.duration_seconds,
@@ -523,7 +523,7 @@ function SessionDetail({
                                                 "—"
                                             )}
                                         </TableCell>
-                                        <TableCell className="text-[11px] font-mono px-2 py-1">
+                                        <TableCell className="text-xs font-mono px-2 py-1">
                                             {a.returncode != null ? (
                                                 <span
                                                     className={
@@ -540,7 +540,7 @@ function SessionDetail({
                                                 </span>
                                             )}
                                         </TableCell>
-                                        <TableCell className="text-[11px] font-mono px-2 py-1 text-muted-foreground max-w-[200px] truncate">
+                                        <TableCell className="text-xs font-mono px-2 py-1 text-muted-foreground max-w-[200px] truncate">
                                             {a.reason ?? "—"}
                                         </TableCell>
                                     </TableRow>
@@ -644,7 +644,7 @@ function CreateSessionPanel({ onClose }: { onClose: () => void }) {
                     <CollapsibleTrigger asChild>
                         <button
                             type="button"
-                            className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
                         >
                             {config.advancedOpen ? (
                                 <ChevronDown className="size-3" />
@@ -697,7 +697,7 @@ function CreateSessionPanel({ onClose }: { onClose: () => void }) {
             )}
 
             <div className="flex items-center justify-between">
-                <Label className="text-[11px]">Recording</Label>
+                <Label className="text-xs">Recording</Label>
                 <Switch checked={recording} onCheckedChange={setRecording} />
             </div>
         </CreatePanel>
