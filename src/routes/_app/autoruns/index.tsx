@@ -300,6 +300,16 @@ function AutorunDetail({
                                 size="sm"
                                 className="h-7 text-xs text-destructive"
                                 onClick={onDelete}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Delete" || e.key === "Backspace") {
+                                        e.preventDefault();
+                                        onDelete();
+                                    }
+                                }}
+                                onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    onDelete();
+                                }}
                                 disabled={deleting}
                             >
                                 {deleting ? (
