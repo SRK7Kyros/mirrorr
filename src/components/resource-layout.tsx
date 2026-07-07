@@ -13,6 +13,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Plus, ArrowLeft, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/empty-state";
+import { DETAIL_PANEL, AREAS } from "@/lib/layouts";
 
 // ── Sidebar layout ─────────────────────────────────────────────
 
@@ -271,7 +272,7 @@ export function BulkActionBar({
             <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 text-2xs text-muted-foreground"
+                className="h-6 text-[10px] text-muted-foreground"
                 onClick={onClear}
             >
                 Clear
@@ -319,9 +320,11 @@ interface DetailLayoutProps {
 
 export function DetailLayout({ header, children }: DetailLayoutProps) {
     return (
-        <div className="flex flex-col h-full">
-            {header}
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+        <div className="h-full" style={DETAIL_PANEL.style}>
+            <div style={{ gridArea: AREAS.header }}>
+                {header}
+            </div>
+            <div className="overflow-y-auto px-5 py-4 space-y-3" style={{ gridArea: AREAS.content }}>
                 {children}
             </div>
         </div>
@@ -361,8 +364,8 @@ export function CreatePanel({
     children,
 }: CreatePanelProps) {
     return (
-        <div className="flex flex-col h-full">
-            <div className="shrink-0 px-5 pt-5 pb-3 border-b">
+        <div className="h-full" style={DETAIL_PANEL.style}>
+            <div className="px-5 pt-5 pb-3 border-b" style={{ gridArea: AREAS.header }}>
                 <div className="flex items-center justify-between">
                     <h2 className="text-sm font-bold">{title}</h2>
                     <Button
@@ -375,7 +378,7 @@ export function CreatePanel({
                     </Button>
                 </div>
             </div>
-            <div className="relative flex-1 min-h-0">
+            <div className="relative min-h-0" style={{ gridArea: AREAS.content }}>
                 <div className="absolute inset-x-0 bottom-0 z-10 px-5 py-3 flex justify-center">
                     <Button
                         size="sm"

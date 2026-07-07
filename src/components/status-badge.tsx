@@ -54,7 +54,7 @@ const statusStyle: Record<string, { bg: string; text: string; label: string }> =
         },
     };
 
-export function StatusBadge({ status }: { status: string }) {
+export function StatusBadge({ status, className }: { status: string; className?: string }) {
     const style = statusStyle[status] ?? {
         bg: "bg-muted",
         text: "text-muted-foreground",
@@ -66,9 +66,10 @@ export function StatusBadge({ status }: { status: string }) {
             role="status"
             aria-label={`Status: ${style.label}`}
             className={cn(
-                "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-xl text-2xs font-semibold",
+                "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold",
                 style.bg,
                 style.text,
+                className,
             )}
         >
             <span

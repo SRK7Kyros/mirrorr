@@ -6,6 +6,7 @@ import { useState } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { CopyButton } from "@/components/schema-viewer"
+import { DETAIL_PANEL, AREAS } from "@/lib/layouts"
 
 interface JsonModalProps {
   title: string
@@ -22,14 +23,14 @@ export function JsonModal({ title, data, trigger }: JsonModalProps) {
     <>
       {trigger(() => setOpen(true))}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-3xl h-[80vh] flex flex-col">
-          <DialogHeader>
+        <DialogContent className="max-w-3xl h-[80vh]" style={DETAIL_PANEL.style}>
+          <DialogHeader style={{ gridArea: AREAS.header }}>
             <DialogTitle>{title} — Raw JSON</DialogTitle>
           </DialogHeader>
-          <div className="flex items-center justify-end shrink-0">
+          <div className="flex items-center justify-end shrink-0" style={{ gridArea: AREAS.header }}>
             <CopyButton text={json} />
           </div>
-          <ScrollArea className="flex-1 min-h-0">
+          <ScrollArea className="min-h-0" style={{ gridArea: AREAS.content }}>
             <pre className="p-4 text-xs font-mono text-muted-foreground leading-relaxed whitespace-pre">
               {json}
             </pre>

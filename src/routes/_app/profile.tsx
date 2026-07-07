@@ -142,7 +142,7 @@ function AccountSection() {
                                 ? "default"
                                 : "secondary"
                         }
-                        className="text-2xs h-4 px-1.5"
+                        className="text-[10px] h-4 px-1.5"
                     >
                         {displayUser?.role === "admin" ? (
                             <Shield className="size-2.5 mr-0.5" />
@@ -388,7 +388,7 @@ function AdminSection() {
                             >
                                 <div className="flex items-center gap-2">
                                     <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center">
-                                        <span className="text-2xs font-medium">
+                                        <span className="text-[10px] font-medium">
                                             {getUserInitial(u)}
                                         </span>
                                     </div>

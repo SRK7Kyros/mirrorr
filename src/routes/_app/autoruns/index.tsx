@@ -133,17 +133,16 @@ function AutorunsPage() {
                                     setSelectedId(a.id);
                                     setShowCreate(false);
                                 }}
-                                className="relative"
+                                className="grid grid-cols-[1fr_auto] items-start gap-x-2 gap-y-0"
                             >
-                                <div className="absolute top-2 right-2">
-                                    <StatusBadge
-                                        status={a.status ?? "scheduled"}
-                                    />
-                                </div>
-                                <div className="text-[13px] font-medium truncate pr-20">
+                                <div className="text-[13px] font-medium truncate mt-px">
                                     {a.user_friendly_name}
                                 </div>
-                                <div className="flex items-center gap-1.5 mt-1 text-2xs text-muted-foreground/60">
+                                <StatusBadge
+                                    status={a.status ?? "scheduled"}
+                                    className="mt-px"
+                                />
+                                <div className="flex items-center gap-1.5 mt-1 text-[10px] text-muted-foreground/60 col-span-2">
                                     <span>
                                         {formatLocalDate(a.start_time, {
                                             month: "short",
@@ -216,7 +215,7 @@ function BulkActions() {
             <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 text-2xs"
+                className="h-6 text-[10px]"
                 onClick={handleExport}
             >
                 <Download className="size-3 mr-1" />
@@ -225,7 +224,7 @@ function BulkActions() {
             <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 text-2xs text-destructive hover:text-destructive"
+                className="h-6 text-[10px] text-destructive hover:text-destructive"
                 onClick={deleteMutate}
                 disabled={deletePending}
             >
@@ -600,7 +599,7 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
                                     <EtaDisplay
                                         value={startTime}
                                         mode="relative"
-                                        className="text-2xs text-muted-foreground/70 italic"
+                                        className="text-[10px] text-muted-foreground/70 italic"
                                     />
                                 )}
                             </FormField>
@@ -613,7 +612,7 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
                                     <EtaDisplay
                                         value={endTime}
                                         mode="relative"
-                                        className="text-2xs text-muted-foreground/70 italic"
+                                        className="text-[10px] text-muted-foreground/70 italic"
                                     />
                                 )}
                             </FormField>
@@ -633,7 +632,7 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
                                             now + relativeStartOffset,
                                         ).toISOString()}
                                         mode="relative"
-                                        className="text-2xs text-muted-foreground/70 italic"
+                                        className="text-[10px] text-muted-foreground/70 italic"
                                     />
                                 )}
                             </FormField>
@@ -649,7 +648,7 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
                                             now + relativeEndOffset,
                                         ).toISOString()}
                                         mode="relative"
-                                        className="text-2xs text-muted-foreground/70 italic"
+                                        className="text-[10px] text-muted-foreground/70 italic"
                                     />
                                 )}
                             </FormField>

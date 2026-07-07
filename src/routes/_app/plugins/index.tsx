@@ -72,7 +72,7 @@ function PluginsPage() {
                         >
                             <Cpu className="size-3" />
                             Engines
-                            <span className="text-2xs text-muted-foreground tabular-nums">
+                            <span className="text-[10px] text-muted-foreground tabular-nums">
                                 ({engines.length})
                             </span>
                         </TabBtn>
@@ -82,7 +82,7 @@ function PluginsPage() {
                         >
                             <Zap className="size-3" />
                             Resolvers
-                            <span className="text-2xs text-muted-foreground tabular-nums">
+                            <span className="text-[10px] text-muted-foreground tabular-nums">
                                 ({resolvers.length})
                             </span>
                         </TabBtn>
@@ -100,7 +100,7 @@ function PluginsPage() {
                             <div className="text-[13px] font-medium truncate">
                                 {item.name}
                             </div>
-                            <div className="text-2xs text-muted-foreground/50 mt-0.5 line-clamp-2 leading-relaxed">
+                            <div className="text-[10px] text-muted-foreground/50 mt-0.5 line-clamp-2 leading-relaxed">
                                 {item.description || item.origin}
                             </div>
                         </SidebarEntry>

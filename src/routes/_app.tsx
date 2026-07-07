@@ -233,7 +233,7 @@ function AppLayout() {
                         >
                             <Bell className="size-4" />
                             {notifications.length > 0 && (
-                                <span className="absolute -top-0.5 -right-0.5 size-4 rounded-full bg-destructive text-2xs font-medium text-destructive-foreground flex items-center justify-center">
+                                <span className="absolute -top-0.5 -right-0.5 size-4 rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground flex items-center justify-center">
                                     {notifications.length > 9
                                         ? "9+"
                                         : notifications.length}
@@ -289,7 +289,7 @@ function AppLayout() {
                                                         {notif.body}
                                                     </p>
                                                 )}
-                                                <p className="text-2xs text-muted-foreground/70">
+                                                <p className="text-[10px] text-muted-foreground/70">
                                                     {notif.resource_type} ·{" "}
                                                     {formatLocalDate(
                                                         notif.created_at,
