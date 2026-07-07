@@ -196,7 +196,11 @@ function SessionEntry({
     const displayName = autorun?.user_friendly_name ?? `Session #${session.id}`;
 
     return (
-        <SidebarEntry id={session.id} onClick={onClick} className="grid grid-cols-[1fr_auto] items-start gap-x-2 gap-y-0">
+        <SidebarEntry
+            id={session.id}
+            onClick={onClick}
+            className="grid grid-cols-[1fr_auto] items-start gap-x-2 gap-y-0"
+        >
             <span className="text-[13px] font-medium truncate mt-px">
                 {displayName}
             </span>
@@ -424,9 +428,7 @@ function SessionDetail({
             </div>
             {session.error && (
                 <div className="space-y-1">
-                    <Label className="text-xs text-destructive">
-                        Error
-                    </Label>
+                    <Label className="text-xs text-destructive">Error</Label>
                     <p className="text-xs text-destructive">{session.error}</p>
                 </div>
             )}
