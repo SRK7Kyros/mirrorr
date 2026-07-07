@@ -581,10 +581,7 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
                         <TabsTrigger value="pick" className="text-xs h-6">
                             Pick Date & Time
                         </TabsTrigger>
-                        <TabsTrigger
-                            value="relative"
-                            className="text-xs h-6"
-                        >
+                        <TabsTrigger value="relative" className="text-xs h-6">
                             Relative Duration
                         </TabsTrigger>
                     </TabsList>

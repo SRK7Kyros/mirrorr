@@ -54,7 +54,13 @@ const statusStyle: Record<string, { bg: string; text: string; label: string }> =
         },
     };
 
-export function StatusBadge({ status, className }: { status: string; className?: string }) {
+export function StatusBadge({
+    status,
+    className,
+}: {
+    status: string;
+    className?: string;
+}) {
     const style = statusStyle[status] ?? {
         bg: "bg-muted",
         text: "text-muted-foreground",
