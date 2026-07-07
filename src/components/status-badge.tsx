@@ -66,7 +66,7 @@ export function StatusBadge({ status }: { status: string }) {
             role="status"
             aria-label={`Status: ${style.label}`}
             className={cn(
-                "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-xl text-[10px] font-semibold",
+                "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-xl text-2xs font-semibold",
                 style.bg,
                 style.text,
             )}

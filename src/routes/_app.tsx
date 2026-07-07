@@ -55,6 +55,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn, getUserInitial } from "@/lib/utils";
+import { AREAS, APP_SHELL } from "@/lib/layouts";
 
 export const Route = createFileRoute("/_app")({
     beforeLoad: () => {
@@ -158,9 +159,9 @@ function AppLayout() {
     const filteredNav = navItems;
 
     return (
-        <div className="h-screen grid grid-rows-[auto_1fr] bg-background overflow-hidden">
+        <div className="h-screen grid bg-background overflow-hidden" style={APP_SHELL.style}>
             {/* ── Top Navbar ────────────────────────────────────────── */}
-            <header className="h-12 flex items-center border-b bg-background/80 backdrop-blur-xl">
+            <header className="h-12 flex items-center border-b bg-background/80 backdrop-blur-xl" style={{ gridArea: AREAS.navbar }}>
                 {/* Logo */}
                 <div className="px-4 shrink-0 hidden sm:block">
                     <Logo />
@@ -232,7 +233,7 @@ function AppLayout() {
                         >
                             <Bell className="size-4" />
                             {notifications.length > 0 && (
-                                <span className="absolute -top-0.5 -right-0.5 size-4 rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground flex items-center justify-center">
+                                <span className="absolute -top-0.5 -right-0.5 size-4 rounded-full bg-destructive text-2xs font-medium text-destructive-foreground flex items-center justify-center">
                                     {notifications.length > 9
                                         ? "9+"
                                         : notifications.length}
@@ -288,7 +289,7 @@ function AppLayout() {
                                                         {notif.body}
                                                     </p>
                                                 )}
-                                                <p className="text-[10px] text-muted-foreground/70">
+                                                <p className="text-2xs text-muted-foreground/70">
                                                     {notif.resource_type} ·{" "}
                                                     {formatLocalDate(
                                                         notif.created_at,
@@ -395,7 +396,7 @@ function AppLayout() {
             )}
 
             {/* ── Page content ─────────────────────────────────────── */}
-            <main className="min-h-0 overflow-auto">
+            <main className="min-h-0 overflow-auto" style={{ gridArea: AREAS.content }}>
                 <Outlet />
             </main>
 

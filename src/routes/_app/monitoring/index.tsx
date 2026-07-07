@@ -13,6 +13,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { Spinner } from "@/components/ui/spinner";
 import { Cpu, HardDrive, Activity, Radio } from "lucide-react";
 import { formatBytes, cn, getStatusDotColor } from "@/lib/utils";
+import { EmptyState } from "@/components/empty-state";
 
 export const Route = createFileRoute("/_app/monitoring/")({
     component: MonitoringPage,
@@ -74,9 +75,7 @@ function MonitoringPage() {
                         <Spinner className="size-5 text-muted-foreground" />
                     </div>
                 ) : sessions.length === 0 ? (
-                    <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
-                        No sessions
-                    </div>
+                    <EmptyState text="No sessions" />
                 ) : (
                     <div className="divide-y">
                         {(sessions as Session[]).map((s) => (
@@ -98,7 +97,7 @@ function MonitoringPage() {
                                 <StatusBadge status={s.status} />
                                 {s.session_urls &&
                                     s.session_urls.length > 0 && (
-                                        <span className="text-[10px] text-muted-foreground truncate ml-auto">
+                                        <span className="text-2xs text-muted-foreground truncate ml-auto">
                                             {s.session_urls[0].label}
                                         </span>
                                     )}
@@ -137,7 +136,7 @@ function SystemCard({
                 <Icon className={cn("size-4", color)} />
             </div>
             <div className="min-w-0">
-                <p className="text-[11px] text-muted-foreground">{label}</p>
+                <p className="text-xs text-muted-foreground">{label}</p>
                 {loading ? (
                     <Spinner className="size-3 text-muted-foreground" />
                 ) : (

@@ -143,7 +143,7 @@ function AutorunsPage() {
                                 <div className="text-[13px] font-medium truncate pr-20">
                                     {a.user_friendly_name}
                                 </div>
-                                <div className="flex items-center gap-1.5 mt-1 text-[10px] text-muted-foreground/60">
+                                <div className="flex items-center gap-1.5 mt-1 text-2xs text-muted-foreground/60">
                                     <span>
                                         {formatLocalDate(a.start_time, {
                                             month: "short",
@@ -216,7 +216,7 @@ function BulkActions() {
             <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 text-[10px]"
+                className="h-6 text-2xs"
                 onClick={handleExport}
             >
                 <Download className="size-3 mr-1" />
@@ -225,7 +225,7 @@ function BulkActions() {
             <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 text-[10px] text-destructive hover:text-destructive"
+                className="h-6 text-2xs text-destructive hover:text-destructive"
                 onClick={deleteMutate}
                 disabled={deletePending}
             >
@@ -299,7 +299,7 @@ function AutorunDetail({
                             <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-7 text-[11px] text-destructive"
+                                className="h-7 text-xs text-destructive"
                                 onClick={onDelete}
                                 disabled={deleting}
                             >
@@ -352,7 +352,7 @@ function AutorunDetail({
             <div className="flex gap-4">
                 {autorun.start_time && (
                     <div className="space-y-1 shrink-0">
-                        <Label className="text-[11px] text-muted-foreground">
+                        <Label className="text-xs text-muted-foreground">
                             Start Time
                         </Label>
                         <p className="text-xs">
@@ -362,7 +362,7 @@ function AutorunDetail({
                 )}
                 {autorun.end_time && (
                     <div className="space-y-1 shrink-0">
-                        <Label className="text-[11px] text-muted-foreground">
+                        <Label className="text-xs text-muted-foreground">
                             End Time
                         </Label>
                         <p className="text-xs">
@@ -512,7 +512,7 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
                     <CollapsibleTrigger asChild>
                         <button
                             type="button"
-                            className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
                         >
                             {config.advancedOpen ? (
                                 <ChevronDown className="size-3" />
@@ -567,24 +567,24 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
 
             {/* Recording toggle */}
             <div className="flex items-center justify-between">
-                <Label className="text-[11px]">Recording</Label>
+                <Label className="text-xs">Recording</Label>
                 <Switch checked={recording} onCheckedChange={setRecording} />
             </div>
 
             {/* Schedule */}
             <div className="flex flex-col gap-3">
-                <Label className="text-[11px] font-medium">Schedule</Label>
+                <Label className="text-xs font-medium">Schedule</Label>
                 <Tabs
                     value={timeMode}
                     onValueChange={(v) => setTimeMode(v as "pick" | "relative")}
                 >
                     <TabsList className="h-7">
-                        <TabsTrigger value="pick" className="text-[11px] h-6">
+                        <TabsTrigger value="pick" className="text-xs h-6">
                             Pick Date & Time
                         </TabsTrigger>
                         <TabsTrigger
                             value="relative"
-                            className="text-[11px] h-6"
+                            className="text-xs h-6"
                         >
                             Relative Duration
                         </TabsTrigger>
@@ -600,7 +600,7 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
                                     <EtaDisplay
                                         value={startTime}
                                         mode="relative"
-                                        className="text-[10px] text-muted-foreground/70 italic"
+                                        className="text-2xs text-muted-foreground/70 italic"
                                     />
                                 )}
                             </FormField>
@@ -613,7 +613,7 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
                                     <EtaDisplay
                                         value={endTime}
                                         mode="relative"
-                                        className="text-[10px] text-muted-foreground/70 italic"
+                                        className="text-2xs text-muted-foreground/70 italic"
                                     />
                                 )}
                             </FormField>
@@ -633,7 +633,7 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
                                             now + relativeStartOffset,
                                         ).toISOString()}
                                         mode="relative"
-                                        className="text-[10px] text-muted-foreground/70 italic"
+                                        className="text-2xs text-muted-foreground/70 italic"
                                     />
                                 )}
                             </FormField>
@@ -649,7 +649,7 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
                                             now + relativeEndOffset,
                                         ).toISOString()}
                                         mode="relative"
-                                        className="text-[10px] text-muted-foreground/70 italic"
+                                        className="text-2xs text-muted-foreground/70 italic"
                                     />
                                 )}
                             </FormField>

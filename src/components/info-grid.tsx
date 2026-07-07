@@ -23,7 +23,7 @@ export function InfoGrid({ fields, className }: InfoGridProps) {
           className="grid gap-y-px"
           style={{ gridRow: "span 2", gridTemplateRows: "subgrid" }}
         >
-          <span className="text-[11px] text-muted-foreground">{f.label}</span>
+          <span className="text-xs text-muted-foreground">{f.label}</span>
           <span className="text-xs">{f.value}</span>
         </div>
       ))}

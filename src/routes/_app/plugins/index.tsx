@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils"
 import { useState } from "react"
 import { SidebarLayout, SidebarEntry, EmptyDetail, SidebarGroupContainer } from "@/components/resource-layout"
 import { ResizableSidebar } from "@/components/resizable-sidebar"
+import { MetadataBar, MetadataItem, MetadataSeparator } from "@/components/metadata-bar"
 
 
 export const Route = createFileRoute("/_app/plugins/")({
@@ -49,11 +50,11 @@ function PluginsPage() {
           <div className="flex shrink-0 mx-1.5 border-b">
             <TabBtn active={tab === "engines"} onClick={() => switchTab("engines")}>
               <Cpu className="size-3" />Engines
-              <span className="text-[10px] text-muted-foreground tabular-nums">({engines.length})</span>
+              <span className="text-2xs text-muted-foreground tabular-nums">({engines.length})</span>
             </TabBtn>
             <TabBtn active={tab === "resolvers"} onClick={() => switchTab("resolvers")}>
               <Zap className="size-3" />Resolvers
-              <span className="text-[10px] text-muted-foreground tabular-nums">({resolvers.length})</span>
+              <span className="text-2xs text-muted-foreground tabular-nums">({resolvers.length})</span>
             </TabBtn>
           </div>
         }
@@ -67,7 +68,7 @@ function PluginsPage() {
             onClick={() => setSelectedId(item.id)}
           >
             <div className="text-[13px] font-medium truncate">{item.name}</div>
-            <div className="text-[10px] text-muted-foreground/50 mt-0.5 line-clamp-2 leading-relaxed">
+            <div className="text-2xs text-muted-foreground/50 mt-0.5 line-clamp-2 leading-relaxed">
               {item.description || item.origin}
             </div>
           </SidebarEntry>
@@ -113,34 +114,31 @@ function DetailContent({ item, tab }: { item: Engine | Resolver; tab: "engines" 
       </div>
 
       {/* Metadata card */}
-      <div className="rounded-lg border bg-muted/20 px-3 py-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5">
-          <span className="text-muted-foreground/60 text-[10px] uppercase tracking-wider">ID</span>
+      <MetadataBar>
+        <MetadataItem label="ID">
           <code className="text-foreground tabular-nums">{item.id}</code>
-        </span>
-        <span className="text-border">·</span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="text-muted-foreground/60 text-[10px] uppercase tracking-wider">Origin</span>
+        </MetadataItem>
+        <MetadataSeparator />
+        <MetadataItem label="Origin">
           <code className="text-foreground">{item.origin}</code>
-        </span>
-        <span className="text-border">·</span>
-        <span className="inline-flex items-center gap-1.5 min-w-0">
-          <span className="text-muted-foreground/60 text-[10px] uppercase tracking-wider shrink-0">Hash</span>
-          <code className="text-foreground/70 truncate">{item.origin_hash}</code>
+        </MetadataItem>
+        <MetadataSeparator />
+        <MetadataItem label="Hash" className="min-w-0">
+          <code className="text-foreground/70 truncate shrink-0">{item.origin_hash}</code>
           <CopyButton text={item.origin_hash ?? ""} />
-        </span>
+        </MetadataItem>
         {tab === "engines" && item.capabilities && (
           <>
-            <span className="text-border">·</span>
+            <MetadataSeparator />
             {Object.entries(item.capabilities).map(([cap, val]) => (
               <span key={cap} className="inline-flex items-center gap-1.5">
-                <div className={cn("size-1.5 rounded-full", val ? "bg-emerald-500" : "bg-muted-foreground/30")} />
+                <div className={cn("size-1.5 rounded-full", val ? "bg-emerald-500" : "bg-muted-trace")} />
                 <span>{cap.replace(/^can_/, "")}</span>
               </span>
             ))}
           </>
         )}
-      </div>
+      </MetadataBar>
 
       {/* Retry Modes */}
       {hasRetryModes && (
@@ -226,12 +224,12 @@ function RetryModeRow({ mode, data }: { mode: string; data: { schema?: { propert
         )}
         onClick={() => (hasSchema || hasDefaults) && setExpanded(!expanded)}
       >
-        <code className="font-mono font-semibold bg-muted px-2 py-0.5 rounded text-[11px]">{mode}</code>
+        <code className="font-mono font-semibold bg-muted px-2 py-0.5 rounded text-xs">{mode}</code>
         {hasDefaults && !expanded && (
-          <span className="text-[11px] text-muted-foreground font-mono truncate">{JSON.stringify(data.default_params)}</span>
+          <span className="text-xs text-muted-foreground font-mono truncate">{JSON.stringify(data.default_params)}</span>
         )}
         {!hasSchema && !hasDefaults && (
-          <span className="text-[11px] text-muted-foreground/40 italic ml-auto">none</span>
+          <span className="text-xs text-muted-foreground/40 italic ml-auto">none</span>
         )}
         {(hasSchema || hasDefaults) && (
           <span className="ml-auto shrink-0">
@@ -242,7 +240,7 @@ function RetryModeRow({ mode, data }: { mode: string; data: { schema?: { propert
       {expanded && (
         <div className="px-4 pb-3 space-y-2">
           {hasDefaults && (
-            <pre className="text-[11px] font-mono text-muted-foreground bg-muted/30 rounded-md px-3 py-2">
+            <pre className="text-xs font-mono text-muted-foreground bg-muted/30 rounded-md px-3 py-2">
               {JSON.stringify(data.default_params, null, 2)}
             </pre>
           )}

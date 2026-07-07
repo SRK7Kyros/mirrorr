@@ -30,7 +30,7 @@ export function SaveAsProfileButton({
             <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 text-[11px]"
+                className="h-7 text-xs"
                 onClick={onOpen}
             >
                 <Bookmark className="size-3 mr-1" />
@@ -44,7 +44,7 @@ export function SaveAsProfileButton({
             <Input
                 value={name}
                 onChange={(e) => onNameChange(e.target.value)}
-                className="h-7 text-[11px] w-36"
+                className="h-7 text-xs w-36"
                 placeholder="Profile name"
                 autoFocus
                 onKeyDown={(e) => {
@@ -55,7 +55,7 @@ export function SaveAsProfileButton({
             <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 text-[11px]"
+                className="h-7 text-xs"
                 disabled={!name.trim() || isPending}
                 onClick={onSave}
             >
@@ -69,7 +69,7 @@ export function SaveAsProfileButton({
             <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 text-[11px]"
+                className="h-7 text-xs"
                 onClick={onCancel}
             >
                 Cancel

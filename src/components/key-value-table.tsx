@@ -41,7 +41,7 @@ export function KeyValueTable({ title, entries, emptyText, json, renderValue, le
       }
     >
       {isEmpty ? (
-        <p className="text-xs text-muted-foreground/40 py-4 text-center">{emptyText ?? "No properties"}</p>
+        <p className="text-xs text-muted-ghost py-4 text-center">{emptyText ?? "No properties"}</p>
       ) : (
         <table className="w-full text-sm">
           <tbody className="divide-y">
@@ -55,7 +55,7 @@ export function KeyValueTable({ title, entries, emptyText, json, renderValue, le
                     ? renderValue(key, value)
                     : isValidElement(value)
                       ? value
-                      : <code className="text-[11px] font-mono text-muted-foreground">{typeof value === "string" ? value : String(value)}</code>
+                      : <code className="text-xs font-mono text-muted-foreground">{typeof value === "string" ? value : String(value)}</code>
                   }
                 </td>
               </tr>

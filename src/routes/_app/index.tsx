@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Radio, Film, Settings, CalendarClock, Plug } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { cn, getStatusDotColor } from "@/lib/utils";
+import { AREAS, DASHBOARD_MAIN } from "@/lib/layouts";
 
 export const Route = createFileRoute("/_app/")({
     component: DashboardPage,
@@ -93,7 +94,7 @@ function DashboardPage() {
                             )}
                         />
                         <div>
-                            <p className="text-[11px] text-muted-foreground">
+                            <p className="text-xs text-muted-foreground">
                                 {stat.label}
                             </p>
                             <p className="text-lg font-bold tabular-nums">
@@ -105,10 +106,10 @@ function DashboardPage() {
             </div>
 
             {/* Main area */}
-            <div className="flex-1 min-h-0 grid grid-cols-[1fr_360px] gap-2">
+            <div className="flex-1 min-h-0 grid gap-2" style={DASHBOARD_MAIN.style}>
                 {/* Quick actions */}
-                <Card className="p-3 flex flex-col">
-                    <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold mb-3 shrink-0">
+                <Card className="p-3 flex flex-col" style={{ gridArea: AREAS.actions }}>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-3 shrink-0">
                         Quick Actions
                     </p>
                     <div className="flex-1 grid grid-cols-5 gap-2">
@@ -139,8 +140,8 @@ function DashboardPage() {
                 </Card>
 
                 {/* Recent sessions */}
-                <Card className="p-3 flex flex-col min-h-0">
-                    <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold mb-2 shrink-0">
+                <Card className="p-3 flex flex-col min-h-0" style={{ gridArea: AREAS.sessions }}>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-2 shrink-0">
                         Recent Sessions
                     </p>
                     <div className="flex-1 min-h-0 overflow-auto">

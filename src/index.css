@@ -8,6 +8,17 @@
 @theme {
   --font-sans: "JetBrains Mono Variable", "JetBrains Mono", "Inter Variable", "Inter", system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
+
+  /* Type scale — small UI tokens */
+  --font-size-3xs: 0.5625rem;   /* 9px */
+  --font-size-2xs: 0.625rem;    /* 10px */
+  --font-size-xs: 0.6875rem;    /* 11px */
+
+  /* Semantic muted-foreground opacities */
+  --color-muted-subtle: oklch(0.556 0.005 285.823 / 0.6);
+  --color-muted-faint: oklch(0.556 0.005 285.823 / 0.5);
+  --color-muted-ghost: oklch(0.556 0.005 285.823 / 0.4);
+  --color-muted-trace: oklch(0.556 0.005 285.823 / 0.3);
   --color-background: oklch(1 0 0);
   --color-foreground: oklch(0.145 0.004 285.823);
   --color-card: oklch(1 0 0);
@@ -42,6 +53,12 @@
 }
 
 .dark {
+  /* Semantic muted-foreground opacities */
+  --color-muted-subtle: oklch(0.708 0.004 285.823 / 0.6);
+  --color-muted-faint: oklch(0.708 0.004 285.823 / 0.5);
+  --color-muted-ghost: oklch(0.708 0.004 285.823 / 0.4);
+  --color-muted-trace: oklch(0.708 0.004 285.823 / 0.3);
+
   --color-background: oklch(0.145 0.004 285.823);
   --color-foreground: oklch(0.985 0 0);
   --color-card: oklch(0.145 0.004 285.823);

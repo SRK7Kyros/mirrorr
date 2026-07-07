@@ -13,6 +13,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft } from "lucide-react"
 import { formatDuration } from "@/lib/utils"
+import { AREAS, MONITORING_SESSION } from "@/lib/layouts"
 
 export const Route = createFileRoute("/_app/monitoring/$sessionId")({
   component: SessionTelemetryPage,
@@ -48,7 +49,7 @@ function SessionTelemetryPage() {
       <div className="flex flex-col items-center justify-center h-full gap-3">
         <p className="text-sm text-muted-foreground">Session not found</p>
         <Link to="/monitoring">
-          <Button variant="outline" size="sm" className="h-7 text-[11px]">
+          <Button variant="outline" size="sm" className="h-7 text-xs">
             <ArrowLeft className="size-3 mr-1" />Back
           </Button>
         </Link>
@@ -59,19 +60,19 @@ function SessionTelemetryPage() {
   const sessionData = session as Record<string, unknown>
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="shrink-0 px-5 pt-5 pb-3 border-b">
+    <div className="h-full grid" style={MONITORING_SESSION.style}>
+      <div className="shrink-0 px-5 pt-5 pb-3 border-b" style={{ gridArea: AREAS.header }}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link to="/monitoring">
-              <Button variant="ghost" size="sm" className="h-6 text-[11px]">
+              <Button variant="ghost" size="sm" className="h-6 text-xs">
                 <ArrowLeft className="size-3 mr-0.5" />Back
               </Button>
             </Link>
             <h2 className="text-sm font-bold">Session #{sessionData.id as number}</h2>
             <StatusBadge status={sessionData.status as string} />
           </div>
-          <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
             {sessionData.duration_seconds != null && (sessionData.duration_seconds as number) > 0 && (
               <span>Duration: {formatDuration(sessionData.duration_seconds as number)}</span>
             )}
@@ -80,7 +81,7 @@ function SessionTelemetryPage() {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
+      <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4" style={{ gridArea: AREAS.charts }}>
         {isLoading ? (
           <div className="flex items-center justify-center h-full">
             <Spinner className="size-5 text-muted-foreground" />
