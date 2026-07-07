@@ -97,7 +97,7 @@ function MonitoringPage() {
                                 <StatusBadge status={s.status} />
                                 {s.session_urls &&
                                     s.session_urls.length > 0 && (
-                                        <span className="text-2xs text-muted-foreground truncate ml-auto">
+                                        <span className="text-[10px] text-muted-foreground truncate ml-auto">
                                             {s.session_urls[0].label}
                                         </span>
                                     )}

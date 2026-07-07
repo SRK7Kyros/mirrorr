@@ -16,7 +16,7 @@ export function SyncIndicator({ syncing, className }: SyncIndicatorProps) {
       )}
     >
       <RefreshCw className={cn("size-3 text-blue-500", syncing && "animate-spin")} />
-      <span className="text-2xs text-blue-500 font-medium">Syncing</span>
+      <span className="text-[10px] text-blue-500 font-medium">Syncing</span>
     </div>
   )
 }

@@ -313,7 +313,7 @@ export function TimeInput({
                                 else slotRefs.current[si + 1]?.focus();
                             }}
                         />
-                        <span className="flex items-center justify-center text-2xs text-muted-foreground text-center leading-none py-1">
+                        <span className="flex items-center justify-center text-[10px] text-muted-foreground text-center leading-none py-1">
                             {part.label}
                         </span>
                     </div>

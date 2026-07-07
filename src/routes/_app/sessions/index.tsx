@@ -196,23 +196,12 @@ function SessionEntry({
     const displayName = autorun?.user_friendly_name ?? `Session #${session.id}`;
 
     return (
-        <SidebarEntry id={session.id} onClick={onClick} className="relative">
-            <div className="absolute top-2 right-2">
-                <StatusBadge status={session.status} />
-            </div>
-            <div className="flex items-center gap-2 pr-20">
-                <span className="text-[13px] font-medium truncate">
-                    {displayName}
-                </span>
-                <span className="text-2xs text-muted-foreground/60 shrink-0 flex items-center gap-1">
-                    <Clock className="size-3" />
-                    <LiveCountup
-                        startedAt={runningAttempt?.started_at ?? null}
-                        offset={completedDuration}
-                    />
-                </span>
-            </div>
-            <div className="mt-1 h-[14px]" />
+        <SidebarEntry id={session.id} onClick={onClick} className="grid grid-cols-[1fr_auto] items-start gap-x-2 gap-y-0">
+            <span className="text-[13px] font-medium truncate mt-px">
+                {displayName}
+            </span>
+            <StatusBadge status={session.status} className="mt-px" />
+            <div className="mt-1 h-[14px] col-span-2" />
         </SidebarEntry>
     );
 }
@@ -269,7 +258,7 @@ function BulkDelete() {
         <Button
             variant="ghost"
             size="sm"
-            className="h-6 text-2xs text-destructive hover:text-destructive"
+            className="h-6 text-[10px] text-destructive hover:text-destructive"
             onClick={mutate}
             disabled={isPending}
         >
@@ -469,22 +458,22 @@ function SessionDetail({
                         <Table>
                             <TableHeader>
                                 <TableRow className="h-7">
-                                    <TableHead className="text-2xs font-medium h-7 px-2">
+                                    <TableHead className="text-[10px] font-medium h-7 px-2">
                                         #
                                     </TableHead>
-                                    <TableHead className="text-2xs font-medium h-7 px-2">
+                                    <TableHead className="text-[10px] font-medium h-7 px-2">
                                         Started
                                     </TableHead>
-                                    <TableHead className="text-2xs font-medium h-7 px-2">
+                                    <TableHead className="text-[10px] font-medium h-7 px-2">
                                         Ended
                                     </TableHead>
-                                    <TableHead className="text-2xs font-medium h-7 px-2">
+                                    <TableHead className="text-[10px] font-medium h-7 px-2">
                                         Duration
                                     </TableHead>
-                                    <TableHead className="text-2xs font-medium h-7 px-2">
+                                    <TableHead className="text-[10px] font-medium h-7 px-2">
                                         Exit Code
                                     </TableHead>
-                                    <TableHead className="text-2xs font-medium h-7 px-2">
+                                    <TableHead className="text-[10px] font-medium h-7 px-2">
                                         Reason
                                     </TableHead>
                                 </TableRow>

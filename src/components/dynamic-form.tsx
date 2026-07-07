@@ -189,7 +189,7 @@ function SchemaField({
                         </Label>
                         <TypeBadge type="boolean" />
                         {required && (
-                            <span className="text-2xs font-medium text-destructive uppercase tracking-wider">
+                            <span className="text-[10px] font-medium text-destructive uppercase tracking-wider">
                                 required
                             </span>
                         )}
@@ -380,7 +380,7 @@ function FieldWrapper({
                 <Label className="text-sm font-medium">{label}</Label>
                 <TypeBadge type={type} />
                 {required && (
-                    <span className="text-2xs font-medium text-destructive uppercase tracking-wider">
+                    <span className="text-[10px] font-medium text-destructive uppercase tracking-wider">
                         required
                     </span>
                 )}

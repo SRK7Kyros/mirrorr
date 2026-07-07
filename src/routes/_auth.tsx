@@ -2,6 +2,7 @@ import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { useAuthStore } from "@/stores/auth-store";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Logo } from "@/components/logo";
+import { AUTH_LAYOUT, AREAS } from "@/lib/layouts";
 
 export const Route = createFileRoute("/_auth")({
     beforeLoad: () => {
@@ -15,12 +16,12 @@ export const Route = createFileRoute("/_auth")({
 
 function AuthLayout() {
     return (
-        <div className="min-h-screen flex flex-col bg-background">
-            <header className="flex items-center justify-between px-6 py-4">
+        <div className="min-h-screen bg-background" style={AUTH_LAYOUT.style}>
+            <header className="flex items-center justify-between px-6 py-4" style={{ gridArea: AREAS.header }}>
                 <Logo className="text-lg" />
                 <ThemeToggle />
             </header>
-            <main className="flex-1 flex items-center justify-center px-4">
+            <main className="flex items-center justify-center px-4" style={{ gridArea: AREAS.content }}>
                 <Outlet />
             </main>
         </div>

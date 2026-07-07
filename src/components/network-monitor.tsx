@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { AREAS, NETWORK_ROW } from "@/lib/layouts";
+import { AREAS, NETWORK_ROW, NETWORK_MONITOR_SHELL } from "@/lib/layouts";
 import { EmptyState } from "@/components/empty-state";
 import {
     Wifi,
@@ -89,7 +89,7 @@ export function NetworkStatusDot() {
             title={title}
         >
             <span className={cn("size-2 rounded-full shrink-0", color)} />
-            <span className="text-2xs text-muted-foreground font-medium w-[8.5ch] text-left">
+            <span className="text-[10px] text-muted-foreground font-medium w-[8.5ch] text-left">
                 {label}
             </span>
         </span>
@@ -193,9 +193,9 @@ export function NetworkMonitor({
             dragHandleClassName="drag-handle"
             enableResizing={!minimized}
         >
-            <div className="h-full flex flex-col bg-card border rounded-xl shadow-2xl overflow-hidden">
+            <div className="h-full bg-card border rounded-xl shadow-2xl overflow-hidden" style={NETWORK_MONITOR_SHELL.style}>
                 {/* Header — always visible, draggable */}
-                <div className="drag-handle h-10 shrink-0 flex items-center gap-2 px-3 border-b bg-muted/30 cursor-move select-none">
+                <div className="drag-handle h-10 shrink-0 flex items-center gap-2 px-3 border-b bg-muted/30 cursor-move select-none" style={{ gridArea: AREAS.header }}>
                     <Wifi className="size-3.5 text-muted-foreground" />
                     <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         Network
@@ -207,7 +207,7 @@ export function NetworkMonitor({
                         )}
                     />
                     <div className="flex-1" />
-                    <span className="text-2xs text-muted-foreground font-mono mr-1">
+                    <span className="text-[10px] text-muted-foreground font-mono mr-1">
                         {entries.length} reqs
                     </span>
                     <Button
@@ -245,18 +245,18 @@ export function NetworkMonitor({
 
                 {/* Body */}
                 {!minimized && (
-                    <ScrollArea className="flex-1 min-h-0">
+                    <ScrollArea className="min-h-0" style={{ gridArea: AREAS.content }}>
                         {entries.length === 0 ? (
                             <EmptyState text="No requests yet" height="sm" icon={RefreshCw} />
                         ) : (
                             <div>
                                 {/* Header row */}
                                 <div className="grid px-3" style={NETWORK_ROW.style}>
-                                    <span className="text-3xs text-muted-subtle font-mono uppercase py-1" style={{ gridArea: AREAS.time }}>Time</span>
-                                    <span className="text-3xs text-muted-subtle font-mono uppercase py-1" style={{ gridArea: AREAS.method }}>Method</span>
-                                    <span className="text-3xs text-muted-subtle font-mono uppercase py-1" style={{ gridArea: AREAS.status }}>St</span>
-                                    <span className="text-3xs text-muted-subtle font-mono uppercase py-1" style={{ gridArea: AREAS.path }}>Path</span>
-                                    <span className="text-3xs text-muted-subtle font-mono uppercase py-1 text-right" style={{ gridArea: AREAS.dur }}>Dur</span>
+                                    <span className="text-[9px] text-muted-subtle font-mono uppercase py-1" style={{ gridArea: AREAS.time }}>Time</span>
+                                    <span className="text-[9px] text-muted-subtle font-mono uppercase py-1" style={{ gridArea: AREAS.method }}>Method</span>
+                                    <span className="text-[9px] text-muted-subtle font-mono uppercase py-1" style={{ gridArea: AREAS.status }}>St</span>
+                                    <span className="text-[9px] text-muted-subtle font-mono uppercase py-1" style={{ gridArea: AREAS.path }}>Path</span>
+                                    <span className="text-[9px] text-muted-subtle font-mono uppercase py-1 text-right" style={{ gridArea: AREAS.dur }}>Dur</span>
                                     <span className="py-1" style={{ gridArea: AREAS.actions_net }} />
                                 </div>
                                 {entries.map((entry) => (
@@ -331,11 +331,11 @@ function RequestRow({
                 style={NETWORK_ROW.style}
                 onClick={onToggle}
             >
-                <span className="text-2xs text-muted-subtle font-mono py-1.5 flex items-center" style={{ gridArea: AREAS.time }}>{time}</span>
-                <span className={cn("text-2xs font-bold font-mono uppercase py-1.5 flex items-center", methodColor)} style={{ gridArea: AREAS.method }}>{entry.method}</span>
-                <span className={cn("text-2xs font-mono py-1.5 flex items-center", statusColor)} style={{ gridArea: AREAS.status }}>{entry.status ?? "—"}</span>
+                <span className="text-[10px] text-muted-subtle font-mono py-1.5 flex items-center" style={{ gridArea: AREAS.time }}>{time}</span>
+                <span className={cn("text-[10px] font-bold font-mono uppercase py-1.5 flex items-center", methodColor)} style={{ gridArea: AREAS.method }}>{entry.method}</span>
+                <span className={cn("text-[10px] font-mono py-1.5 flex items-center", statusColor)} style={{ gridArea: AREAS.status }}>{entry.status ?? "—"}</span>
                 <span className="text-xs truncate text-muted-foreground py-1.5 flex items-center" style={{ gridArea: AREAS.path }}>{entry.path}</span>
-                <span className="text-2xs text-muted-subtle font-mono text-right py-1.5 flex items-center justify-end" style={{ gridArea: AREAS.dur }}>
+                <span className="text-[10px] text-muted-subtle font-mono text-right py-1.5 flex items-center justify-end" style={{ gridArea: AREAS.dur }}>
                     {entry.duration !== null
                         ? entry.duration < 1000
                             ? `${entry.duration}ms`
@@ -417,7 +417,7 @@ function DetailCard({
             <div className="rounded-md border border-border/60 bg-muted/30 overflow-hidden">
                 {/* Card header */}
                 <div className="flex items-center gap-1 px-2 py-1 border-b border-border/40 bg-muted/20">
-                    <span className="text-3xs text-muted-subtle uppercase tracking-wider flex-1">
+                    <span className="text-[9px] text-muted-subtle uppercase tracking-wider flex-1">
                         {label}
                     </span>
                     <button
@@ -440,7 +440,7 @@ function DetailCard({
                 {/* Card content */}
                 <div
                     className={cn(
-                        "text-2xs px-2 py-1.5 max-h-32 overflow-x-auto overflow-y-auto break-words scrollbar-thin",
+                        "text-[10px] px-2 py-1.5 max-h-32 overflow-x-auto overflow-y-auto break-words scrollbar-thin",
                         mono
                             ? "font-mono text-muted-foreground"
                             : "text-foreground",

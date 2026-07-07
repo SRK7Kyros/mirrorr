@@ -31,7 +31,7 @@ function gridStyle(
 
 /** Full-screen app: top navbar + page content */
 export const APP_SHELL = {
-    style: gridStyle('"navbar" / "content"', "auto 1fr", "auto 1fr"),
+    style: gridStyle('"navbar" "content"', "1fr", "auto 1fr"),
     /** Navbar is implicitly the first child */
     /** Content is implicitly the second child */
 } as const;
@@ -42,22 +42,37 @@ export const APP_SHELL = {
 export const SIDEBAR_DETAIL = {
     areas: '"sidebar detail"',
     style: (sidebarWidth: number) =>
-        gridStyle('"sidebar detail"', `${sidebarWidth}px 1fr`),
+        gridStyle('"sidebar detail"', `${sidebarWidth}px 1fr`, "1fr"),
 } as const;
 
 /** Profile page: fixed sidebar + scrollable content */
 export const PROFILE_LAYOUT = {
-    style: gridStyle('"sidebar content"', "260px 1fr"),
+    style: gridStyle('"sidebar content"', "260px 1fr", "1fr"),
 } as const;
 
 /** Dashboard main area: actions + sessions sidebar */
 export const DASHBOARD_MAIN = {
-    style: gridStyle('"actions sessions"', "1fr 360px"),
+    style: gridStyle('"actions sessions"', "1fr 360px", "1fr"),
 } as const;
 
 /** Monitoring session detail: header + charts */
 export const MONITORING_SESSION = {
-    style: gridStyle('"header" / "charts"', "auto 1fr", "auto 1fr"),
+    style: gridStyle('"header" "charts"', "1fr", "auto 1fr"),
+} as const;
+
+/** Auth layout: header bar + centered content area */
+export const AUTH_LAYOUT = {
+    style: gridStyle('"header" "content"', "1fr", "auto 1fr"),
+} as const;
+
+/** Detail/Create panel: header + scrollable body */
+export const DETAIL_PANEL = {
+    style: gridStyle('"header" "content"', "1fr", "auto 1fr"),
+} as const;
+
+/** Network monitor floating window: header + scrollable body */
+export const NETWORK_MONITOR_SHELL = {
+    style: gridStyle('"header" "content"', "1fr", "auto 1fr"),
 } as const;
 
 // ── Config fields ─────────────────────────────────────────────────────
