@@ -32,6 +32,13 @@ async def websocket_endpoint(websocket: WebSocket):
     if not auth or not auth.user:
         await websocket.close(code=4001, reason="Authentication required")
         return
+
+    # Check NATS connection health before subscribing
+    if not bus.nc or not bus.nc.is_connected:
+        logger.warning(f"[ws/events] NATS not connected — rejecting connection for user={auth.user.username}")
+        await websocket.close(code=1013, reason="Server temporarily unavailable")
+        return
+
     username = auth.user.username if auth and auth.user else None
     logger.info(f"[ws/events] connected — user={username}")
 
@@ -110,6 +117,15 @@ async def notifications_endpoint(websocket: WebSocket):
         logger.warning("[ws/notifications] unauthenticated connection — closing")
         try:
             await websocket.close(code=4001, reason="Authentication required")
+        except Exception:
+            pass
+        return
+
+    # Check NATS connection health before subscribing
+    if not bus.nc or not bus.nc.is_connected:
+        logger.warning(f"[ws/notifications] NATS not connected — rejecting connection for user={auth.user.username}")
+        try:
+            await websocket.close(code=1013, reason="Server temporarily unavailable")
         except Exception:
             pass
         return

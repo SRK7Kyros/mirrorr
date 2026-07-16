@@ -137,13 +137,27 @@ class MirrorrCore:
         # 6. NATS server
         from src.startup.ensure_nats_server import NatsServerManager
         self._nats_manager = NatsServerManager(self.settings)
-        self._nats_manager.start()
+        await self._nats_manager.start()
 
-        # 7. NATS client bus
-        # Store settings on the bus singleton before connecting so handlers
-        # can access them when spawning child processes
-        # (multiprocessing pickles them).
-        bus._settings = self.settings
+        # 7. CORS — wire configured origins into the API
+        from src.api.api import API as _api_app, setup_cors
+        if self.settings.cors_allowed_origins:
+            setup_cors(_api_app, self.settings.cors_allowed_origins)
+            logger.info(f"CORS configured with origins: {self.settings.cors_allowed_origins}")
+        else:
+            logger.warning(
+                "CORS_ALLOWED_ORIGINS is empty — using default localhost origins. "
+                "Set CORS_ALLOWED_ORIGINS in your .env for production use."
+            )
+
+        # 7a. Wire settings into auth router
+        from src.api.routers import auth as _auth_module
+        _auth_module._rate_limit_login = self.settings.rate_limit_login
+        _auth_module._rate_limit_register = self.settings.rate_limit_register
+        _auth_module._cookie_secure = self.settings.cookie_secure
+        _auth_module._cookie_domain = self.settings.cookie_domain
+
+        # 8. NATS client bus
         await bus.connect([self.settings.nats_url])
         await bus.start_subscriptions()
 

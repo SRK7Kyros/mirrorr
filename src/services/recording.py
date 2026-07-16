@@ -130,9 +130,12 @@ class RecordingManager:
         mp4_path = self.session_folder / mp4_name
         concat_list = self.session_folder / "concat.txt"
 
-        with open(concat_list, "w") as f:
-            for seg in ordered:
-                f.write(f"file '{seg.resolve()}'\n")
+        def _write_concat():
+            with open(concat_list, "w") as f:
+                for seg in ordered:
+                    f.write(f"file '{seg.resolve()}'\n")
+
+        await asyncio.to_thread(_write_concat)
 
         ffmpeg_bin = os.environ.get("FFMPEG_EXECUTABLE") or shutil.which("ffmpeg")
         if not ffmpeg_bin:
@@ -229,9 +232,11 @@ class RecordingManager:
                 await asyncio.to_thread(shutil.rmtree, dest_stash)
             dest_segments = dest / "segments"
             if dest_segments.exists():
-                for seg in dest_segments.iterdir():
-                    seg.unlink()
-                dest_segments.rmdir()
+                def _cleanup_segments():
+                    for seg in dest_segments.iterdir():
+                        seg.unlink()
+                    dest_segments.rmdir()
+                await asyncio.to_thread(_cleanup_segments)
         except Exception as e:
             logger.warning(f"Failed to clean up segments for session {self.session_id}: {e}")
 
@@ -465,7 +470,7 @@ class RecordingManager:
                     disk_path=str(dest),
                     content_url=f"{self.settings.web_url}/content/recordings/{dest.name}/{dest.name}.mp4",
                     profile_name=self.session.profile.name if self.session.profile else "",
-                    engine_name=self.session.engine.name,
+                    engine_name=self.session.engine.name if self.session.engine else "",
                     resolver_name=(self.session.profile.resolver.name if self.session.profile else self.session.resolver.name),
                     started_at=started_at,
                     ended_at=ended_at,

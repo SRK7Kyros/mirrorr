@@ -22,8 +22,20 @@ from src.storage import crud
 T = TypeVar("T", bound=SQLModel)
 
 
-def _hash_file(path: Path) -> str:
+def _hash_file_sync(path: Path) -> str:
+    """Synchronous file hash — used outside async contexts."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _hash_file(path: Path) -> str:
+    """Hash a file. For sync contexts (e.g., inside asyncio.to_thread)."""
+    return _hash_file_sync(path)
+
+
+async def _hash_file_async(path: Path) -> str:
+    """Async file hash — wraps sync I/O in a thread to avoid blocking."""
+    import asyncio
+    return await asyncio.to_thread(_hash_file_sync, path)
 
 
 def load_plugin_jit(
@@ -114,7 +126,7 @@ async def sync_plugins_db(
                             f"from <b><yellow>{file_path.name}</yellow></b>"
                         )
 
-                        module_hash = _hash_file(file_path)
+                        module_hash = await _hash_file_async(file_path)
                         existing = db_items.get(instance.name)
                         fields = extract_db_fields(instance, module_hash)
 

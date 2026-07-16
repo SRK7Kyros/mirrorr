@@ -103,8 +103,8 @@ class SessionSupervisor:
     async def run(self) -> None:
         """Run the session to completion, with retry logic if configured."""
         retry_config = {
-            "mode": self.session.effective_retry_mode(),
-            "params": self.session.effective_retry_config(),
+            "mode": self.session.retry_mode,
+            "params": self.session.retry_config,
         }
         attempt = 0
 
@@ -222,7 +222,7 @@ class SessionSupervisor:
 
     async def _run_attempt(self) -> tuple[str, EngineCrashed | EngineDone | None]:
         """Single resolve→start→wait cycle. Returns (outcome, signal)."""
-        make_session_dirs(self.session_folder, self.logs_folder, self.segments_folder, self.settings)
+        await make_session_dirs(self.session_folder, self.logs_folder, self.segments_folder, self.settings)
 
         self.engine_ctx = EngineContext(
             bus=self.bus,

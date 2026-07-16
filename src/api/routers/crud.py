@@ -8,7 +8,7 @@ from loguru import logger
 from src.event_bus.nats import bus, get_control_nc
 from src.event_bus.event import MirrorrEvent, BaseEvent
 from typing import Any
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from src.api.dependencies import _get_db_session, require_auth, AuthState
@@ -20,6 +20,12 @@ from src.api.schemas import (
     CreateProfileRequest,
     UpdateProfileRequest,
     SaveProfileRequest,
+    SessionResponse,
+    AutorunResponse,
+    RecordingResponse,
+    ProfileResponse,
+    EngineResponse,
+    ResolverResponse,
 )
 from src.storage.models import Session, Autorun, Recording, Profile, Engine, Resolver
 from src.storage.enums import SessionStatus, ResourceType
@@ -39,7 +45,8 @@ protected_fields: dict[type, list[str]] = {
 crud_routers = APIRouter()
 
 
-def _is_owner_or_admin(auth: AuthState, obj) -> bool:
+def _require_owner_or_admin(auth: AuthState, obj) -> bool:
+    """Check ownership or admin status. Raises 401/403 if not authorized."""
     if auth.is_admin:
         return True
     if not auth.user:
@@ -76,27 +83,46 @@ sessions_router = APIRouter(prefix="/sessions")
 
 
 @sessions_router.get("/")
-async def get_all_sessions(db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    if not auth.user:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+async def get_all_sessions(
+    db: AsyncSession = Depends(_get_db_session),
+    auth: AuthState = Depends(require_auth),
+    cursor: int | None = Query(None, description="ID of last item from previous page"),
+    limit: int = Query(50, ge=1, le=200, description="Items per page"),
+):
     if auth.is_admin:
-        return await crud.get_all(db, Session)
-    stmt = select(Session).where(Session.requester_user_token == auth.user.username)
-    result = await db.exec(stmt)
-    return list(result.all())
+        result = await crud.get_all_paginated(db, Session, cursor=cursor, limit=limit)
+    else:
+        stmt = select(Session).where(Session.requester_user_token == auth.user.username)
+        if cursor is not None:
+            stmt = stmt.where(Session.id < cursor)
+        stmt = stmt.order_by(Session.id.desc()).limit(limit + 1)
+        items = list((await db.exec(stmt)).all())
+        has_more = len(items) > limit
+        if has_more:
+            items = items[:limit]
+        result = crud.PaginatedResult(
+            items=items,
+            next_cursor=items[-1].id if has_more and items else None,
+            has_more=has_more,
+        )
+    return {
+        "items": result.items,
+        "next_cursor": result.next_cursor,
+        "has_more": result.has_more,
+    }
 
 
-@sessions_router.get("/{id}")
+@sessions_router.get("/{id}", response_model=SessionResponse)
 async def get_session(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     item = await crud.get_by_id(db, Session, id)
     if not item:
         raise HTTPException(status_code=404, detail="Session not found")
-    if not _is_owner_or_admin(auth, item):
+    if not _require_owner_or_admin(auth, item):
         raise HTTPException(status_code=403, detail="Not your session")
     return item
 
 
-@sessions_router.post("/")
+@sessions_router.post("/", response_model=SessionResponse)
 async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     # Validate FK references exist
     engine = await crud.get_by_id(db, Engine, item.engine_id)
@@ -128,12 +154,12 @@ async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(
     return obj
 
 
-@sessions_router.delete("/{id}")
+@sessions_router.delete("/{id}", status_code=204)
 async def delete_session(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     obj = await crud.get_by_id(db, Session, id)
     if not obj:
         raise HTTPException(status_code=404, detail="Not found")
-    if not _is_owner_or_admin(auth, obj):
+    if not _require_owner_or_admin(auth, obj):
         raise HTTPException(status_code=403, detail="Not your session")
     if obj.status == SessionStatus.REMUXING:
         raise HTTPException(status_code=409, detail="Session is remuxing. Wait for it to complete or fail before deleting.")
@@ -144,7 +170,7 @@ async def delete_session(id: int, db: AsyncSession = Depends(_get_db_session), a
             if e.status_code == 504:
                 await _safe_delete(db, Session, id)
                 await _safe_emit(MirrorrEvent.SESSION_DELETED(id=id))
-                return {"status": "orphan_cleaned", "session_id": id}
+                return None
             raise
     await _safe_delete(db, Session, id)
     await _safe_emit(MirrorrEvent.SESSION_DELETED(id=id))
@@ -158,36 +184,46 @@ autoruns_router = APIRouter(prefix="/autoruns")
 
 
 @autoruns_router.get("/")
-async def get_all_autoruns(db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    if not auth.user:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+async def get_all_autoruns(
+    db: AsyncSession = Depends(_get_db_session),
+    auth: AuthState = Depends(require_auth),
+    cursor: int | None = Query(None, description="ID of last item from previous page"),
+    limit: int = Query(50, ge=1, le=200, description="Items per page"),
+):
     if auth.is_admin:
-        return await crud.get_all(db, Autorun)
-    stmt = select(Autorun).where(Autorun.requester_user_token == auth.user.username)
-    result = await db.exec(stmt)
-    return list(result.all())
+        result = await crud.get_all_paginated(db, Autorun, cursor=cursor, limit=limit)
+    else:
+        stmt = select(Autorun).where(Autorun.requester_user_token == auth.user.username)
+        if cursor is not None:
+            stmt = stmt.where(Autorun.id < cursor)
+        stmt = stmt.order_by(Autorun.id.desc()).limit(limit + 1)
+        items = list((await db.exec(stmt)).all())
+        has_more = len(items) > limit
+        if has_more:
+            items = items[:limit]
+        result = crud.PaginatedResult(
+            items=items,
+            next_cursor=items[-1].id if has_more and items else None,
+            has_more=has_more,
+        )
+    return {
+        "items": result.items,
+        "next_cursor": result.next_cursor,
+        "has_more": result.has_more,
+    }
 
 
-@autoruns_router.get("/{id}")
+@autoruns_router.get("/{id}", response_model=AutorunResponse)
 async def get_autorun(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     item = await crud.get_by_id(db, Autorun, id)
     if not item:
         raise HTTPException(status_code=404, detail="Autorun not found")
-    if not _is_owner_or_admin(auth, item):
+    if not _require_owner_or_admin(auth, item):
         raise HTTPException(status_code=403, detail="Not your autorun")
     return item
 
 
-def _parse_datetimes(item: dict[str, Any], fields: list[str]) -> dict[str, Any]:
-    """Parse ISO datetime strings into naive UTC datetime objects for SQLAlchemy."""
-    for f in fields:
-        if f in item and isinstance(item[f], str):
-            # Convert to aware UTC, then strip tzinfo for SQLite compatibility
-            item[f] = datetime.fromisoformat(item[f].replace("Z", "+00:00")).replace(tzinfo=None)
-    return item
-
-
-@autoruns_router.post("/")
+@autoruns_router.post("/", response_model=AutorunResponse)
 async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     # Validate FK references exist
     engine = await crud.get_by_id(db, Engine, item.engine_id)
@@ -223,12 +259,12 @@ async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(
     return obj
 
 
-@autoruns_router.put("/{id}")
+@autoruns_router.put("/{id}", response_model=AutorunResponse)
 async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     existing = await crud.get_by_id(db, Autorun, id)
     if not existing:
         raise HTTPException(status_code=404, detail="Autorun not found")
-    if not _is_owner_or_admin(auth, existing):
+    if not _require_owner_or_admin(auth, existing):
         raise HTTPException(status_code=403, detail="Not your autorun")
     payload_data = item.model_dump(exclude_unset=True)
     if "start_time" in payload_data and payload_data["start_time"] is not None:
@@ -251,12 +287,12 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
     return obj
 
 
-@autoruns_router.delete("/{id}")
+@autoruns_router.delete("/{id}", status_code=204)
 async def delete_autorun(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     obj = await crud.get_by_id(db, Autorun, id)
     if not obj:
         raise HTTPException(status_code=404, detail="Not found")
-    if not _is_owner_or_admin(auth, obj):
+    if not _require_owner_or_admin(auth, obj):
         raise HTTPException(status_code=403, detail="Not your autorun")
     await _safe_delete(db, Autorun, id)
     await _safe_emit(MirrorrEvent.AUTORUN_DELETED(id=id))
@@ -297,7 +333,7 @@ async def save_autorun_as_profile(autorun_id: int, req: SaveProfileRequest, db: 
     autorun = await crud.get_by_id(db, Autorun, autorun_id)
     if not autorun:
         raise HTTPException(status_code=404, detail="Autorun not found")
-    if not _is_owner_or_admin(auth, autorun):
+    if not _require_owner_or_admin(auth, autorun):
         raise HTTPException(status_code=403, detail="Not your autorun")
     return await _create_profile_from_entity(
         db, auth, req.name,
@@ -316,7 +352,7 @@ async def save_session_as_profile(session_id: int, req: SaveProfileRequest, db: 
     session = await crud.get_by_id(db, Session, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    if not _is_owner_or_admin(auth, session):
+    if not _require_owner_or_admin(auth, session):
         raise HTTPException(status_code=403, detail="Not your session")
     return await _create_profile_from_entity(
         db, auth, req.name,
@@ -331,27 +367,46 @@ recordings_router = APIRouter(prefix="/recordings")
 
 
 @recordings_router.get("/")
-async def get_all_recordings(db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    if not auth.user:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+async def get_all_recordings(
+    db: AsyncSession = Depends(_get_db_session),
+    auth: AuthState = Depends(require_auth),
+    cursor: int | None = Query(None, description="ID of last item from previous page"),
+    limit: int = Query(50, ge=1, le=200, description="Items per page"),
+):
     if auth.is_admin:
-        return await crud.get_all(db, Recording)
-    stmt = select(Recording).where(Recording.requester_user_token == auth.user.username)
-    result = await db.exec(stmt)
-    return list(result.all())
+        result = await crud.get_all_paginated(db, Recording, cursor=cursor, limit=limit)
+    else:
+        stmt = select(Recording).where(Recording.requester_user_token == auth.user.username)
+        if cursor is not None:
+            stmt = stmt.where(Recording.id < cursor)
+        stmt = stmt.order_by(Recording.id.desc()).limit(limit + 1)
+        items = list((await db.exec(stmt)).all())
+        has_more = len(items) > limit
+        if has_more:
+            items = items[:limit]
+        result = crud.PaginatedResult(
+            items=items,
+            next_cursor=items[-1].id if has_more and items else None,
+            has_more=has_more,
+        )
+    return {
+        "items": result.items,
+        "next_cursor": result.next_cursor,
+        "has_more": result.has_more,
+    }
 
 
-@recordings_router.get("/{id}")
+@recordings_router.get("/{id}", response_model=RecordingResponse)
 async def get_recording(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     item = await crud.get_by_id(db, Recording, id)
     if not item:
         raise HTTPException(status_code=404, detail="Recording not found")
-    if not _is_owner_or_admin(auth, item):
+    if not _require_owner_or_admin(auth, item):
         raise HTTPException(status_code=403, detail="Not your recording")
     return item
 
 
-@recordings_router.delete("/{id}")
+@recordings_router.delete("/{id}", status_code=204)
 async def delete_recording(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     from src.storage.models import EventSubscription, Notification
     from src.storage.enums import ResourceType
@@ -360,7 +415,7 @@ async def delete_recording(id: int, db: AsyncSession = Depends(_get_db_session),
     obj = await crud.get_by_id(db, Recording, id)
     if not obj:
         raise HTTPException(status_code=404, detail="Not found")
-    if not _is_owner_or_admin(auth, obj):
+    if not _require_owner_or_admin(auth, obj):
         raise HTTPException(status_code=403, detail="Not your recording")
 
     # Clean up polymorphic-related records with bulk delete
@@ -386,27 +441,46 @@ profiles_router = APIRouter(prefix="/profiles")
 
 
 @profiles_router.get("/")
-async def get_all_profiles(db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    if not auth.user:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+async def get_all_profiles(
+    db: AsyncSession = Depends(_get_db_session),
+    auth: AuthState = Depends(require_auth),
+    cursor: int | None = Query(None, description="ID of last item from previous page"),
+    limit: int = Query(50, ge=1, le=200, description="Items per page"),
+):
     if auth.is_admin:
-        return await crud.get_all(db, Profile)
-    stmt = select(Profile).where(Profile.requester_user_token == auth.user.username)
-    result = await db.exec(stmt)
-    return list(result.all())
+        result = await crud.get_all_paginated(db, Profile, cursor=cursor, limit=limit)
+    else:
+        stmt = select(Profile).where(Profile.requester_user_token == auth.user.username)
+        if cursor is not None:
+            stmt = stmt.where(Profile.id < cursor)
+        stmt = stmt.order_by(Profile.id.desc()).limit(limit + 1)
+        items = list((await db.exec(stmt)).all())
+        has_more = len(items) > limit
+        if has_more:
+            items = items[:limit]
+        result = crud.PaginatedResult(
+            items=items,
+            next_cursor=items[-1].id if has_more and items else None,
+            has_more=has_more,
+        )
+    return {
+        "items": result.items,
+        "next_cursor": result.next_cursor,
+        "has_more": result.has_more,
+    }
 
 
-@profiles_router.get("/{id}")
+@profiles_router.get("/{id}", response_model=ProfileResponse)
 async def get_profile(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     item = await crud.get_by_id(db, Profile, id)
     if not item:
         raise HTTPException(status_code=404, detail="Profile not found")
-    if not _is_owner_or_admin(auth, item):
+    if not _require_owner_or_admin(auth, item):
         raise HTTPException(status_code=403, detail="Not your profile")
     return item
 
 
-@profiles_router.post("/")
+@profiles_router.post("/", response_model=ProfileResponse)
 async def create_profile(item: CreateProfileRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     payload = Profile.model_validate(item.model_dump())
     if not auth.user:
@@ -421,12 +495,12 @@ async def create_profile(item: CreateProfileRequest, db: AsyncSession = Depends(
     return obj
 
 
-@profiles_router.put("/{id}")
+@profiles_router.put("/{id}", response_model=ProfileResponse)
 async def update_profile(id: int, item: UpdateProfileRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     existing = await crud.get_by_id(db, Profile, id)
     if not existing:
         raise HTTPException(status_code=404, detail="Profile not found")
-    if not _is_owner_or_admin(auth, existing):
+    if not _require_owner_or_admin(auth, existing):
         raise HTTPException(status_code=403, detail="Not your profile")
     payload_data = item.model_dump(exclude_unset=True)
     payload = Profile.model_validate({**existing.model_dump(), **payload_data})
@@ -444,12 +518,12 @@ async def update_profile(id: int, item: UpdateProfileRequest, db: AsyncSession =
     return obj
 
 
-@profiles_router.delete("/{id}")
+@profiles_router.delete("/{id}", status_code=204)
 async def delete_profile(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     obj = await crud.get_by_id(db, Profile, id)
     if not obj:
         raise HTTPException(status_code=404, detail="Not found")
-    if not _is_owner_or_admin(auth, obj):
+    if not _require_owner_or_admin(auth, obj):
         raise HTTPException(status_code=403, detail="Not your profile")
     await _safe_delete(db, Profile, id)
     await _safe_emit(MirrorrEvent.PROFILE_DELETED(id=id))
@@ -463,12 +537,22 @@ engines_router = APIRouter(prefix="/engines")
 
 
 @engines_router.get("/")
-async def get_all_engines(db: AsyncSession = Depends(_get_db_session)):
-    return await crud.get_all(db, Engine)
+async def get_all_engines(
+    db: AsyncSession = Depends(_get_db_session),
+    _auth: AuthState = Depends(require_auth),
+    cursor: int | None = Query(None, description="ID of last item from previous page"),
+    limit: int = Query(50, ge=1, le=200, description="Items per page"),
+):
+    result = await crud.get_all_paginated(db, Engine, cursor=cursor, limit=limit)
+    return {
+        "items": result.items,
+        "next_cursor": result.next_cursor,
+        "has_more": result.has_more,
+    }
 
 
-@engines_router.get("/{id}")
-async def get_engine(id: int, db: AsyncSession = Depends(_get_db_session)):
+@engines_router.get("/{id}", response_model=EngineResponse)
+async def get_engine(id: int, db: AsyncSession = Depends(_get_db_session), _auth: AuthState = Depends(require_auth)):
     item = await crud.get_by_id(db, Engine, id)
     if not item:
         raise HTTPException(status_code=404, detail="Engine not found")
@@ -483,12 +567,22 @@ resolvers_router = APIRouter(prefix="/resolvers")
 
 
 @resolvers_router.get("/")
-async def get_all_resolvers(db: AsyncSession = Depends(_get_db_session)):
-    return await crud.get_all(db, Resolver)
+async def get_all_resolvers(
+    db: AsyncSession = Depends(_get_db_session),
+    _auth: AuthState = Depends(require_auth),
+    cursor: int | None = Query(None, description="ID of last item from previous page"),
+    limit: int = Query(50, ge=1, le=200, description="Items per page"),
+):
+    result = await crud.get_all_paginated(db, Resolver, cursor=cursor, limit=limit)
+    return {
+        "items": result.items,
+        "next_cursor": result.next_cursor,
+        "has_more": result.has_more,
+    }
 
 
-@resolvers_router.get("/{id}")
-async def get_resolver(id: int, db: AsyncSession = Depends(_get_db_session)):
+@resolvers_router.get("/{id}", response_model=ResolverResponse)
+async def get_resolver(id: int, db: AsyncSession = Depends(_get_db_session), _auth: AuthState = Depends(require_auth)):
     item = await crud.get_by_id(db, Resolver, id)
     if not item:
         raise HTTPException(status_code=404, detail="Resolver not found")
@@ -537,7 +631,7 @@ async def _require_session_owner(session_id: int, auth: AuthState, db: AsyncSess
     obj = await crud.get_by_id(db, Session, session_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Session not found")
-    if not _is_owner_or_admin(auth, obj):
+    if not _require_owner_or_admin(auth, obj):
         raise HTTPException(status_code=403, detail="Not your session")
     return obj
 

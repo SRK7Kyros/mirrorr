@@ -21,7 +21,7 @@ from src.startup.config import MirrorrSettings
 # ── Directory setup ───────────────────────────────────────────────────
 
 
-def make_session_dirs(
+async def make_session_dirs(
     session_folder: Path,
     logs_folder: Path,
     segments_folder: Path,
@@ -31,24 +31,27 @@ def make_session_dirs(
     session_folder.mkdir(parents=True, exist_ok=True)
     logs_folder.mkdir(parents=True, exist_ok=True)
     segments_folder.mkdir(parents=True, exist_ok=True)
-    copy_static_assets(session_folder, settings)
-    build_session_urls(session_folder, segments_folder, settings)
+    await copy_static_assets(session_folder, settings)
 
 
-def copy_static_assets(session_folder: Path, settings: MirrorrSettings) -> None:
+async def copy_static_assets(session_folder: Path, settings: MirrorrSettings) -> None:
     """Copy player/vlc/outplayer HTML into the session folder.
 
-    Uses shutil.copy2 for synchronous copy since this runs in a
-    subprocess context where async is not available.
+    Uses asyncio.to_thread for file I/O to avoid blocking the event loop.
     """
-    from src.startup.config import _PACKAGE_ROOT
-    static_dir = _PACKAGE_ROOT / "static_files"
-    if not static_dir.exists():
-        return
-    for f in static_dir.glob("*.html"):
-        dest = session_folder / f.name
-        if not dest.exists():
-            shutil.copy2(f, dest)
+    import asyncio
+
+    def _copy_files():
+        from src.startup.config import _PACKAGE_ROOT
+        static_dir = _PACKAGE_ROOT / "static_files"
+        if not static_dir.exists():
+            return
+        for f in static_dir.glob("*.html"):
+            dest = session_folder / f.name
+            if not dest.exists():
+                shutil.copy2(f, dest)
+
+    await asyncio.to_thread(_copy_files)
 
 
 def build_session_urls(

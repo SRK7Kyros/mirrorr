@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+import threading
 import time
 from typing import Any
 
@@ -20,6 +21,7 @@ REFRESH_TOKEN_COOKIE = "mirrorr_refresh_token"
 # Module-level cached secret — generated once per process lifetime.
 # Avoids the bug where each call to _get_secret_key() generated a new random key.
 _cached_secret: str | None = None
+_secret_lock = threading.Lock()
 
 
 def _get_secret_key(settings: MirrorrSettings | None = None) -> str:
@@ -37,38 +39,43 @@ def _get_secret_key(settings: MirrorrSettings | None = None) -> str:
     if _cached_secret is not None:
         return _cached_secret
 
-    if settings and settings.jwt_secret_key:
-        _cached_secret = settings.jwt_secret_key
-    else:
-        import os
-        _cached_secret = os.environ.get("MIRRORR_JWT_SECRET")
+    with _secret_lock:
+        # Double-check after acquiring lock
+        if _cached_secret is not None:
+            return _cached_secret
 
-        if not _cached_secret:
-            # Try to load a persisted secret to survive restarts
-            if settings:
-                secret_file = settings.base_dir / ".jwt_secret"
-                try:
-                    if secret_file.exists():
-                        _cached_secret = secret_file.read_text().strip()
-                except OSError:
-                    pass
+        if settings and settings.jwt_secret_key:
+            _cached_secret = settings.jwt_secret_key
+        else:
+            import os
+            _cached_secret = os.environ.get("MIRRORR_JWT_SECRET")
 
             if not _cached_secret:
-                from loguru import logger
-                _cached_secret = secrets.token_hex(32)
-                logger.warning(
-                    "JWT secret auto-generated — all existing tokens will be "
-                    "invalidated on restart. Set JWT_SECRET_KEY in your .env or "
-                    "environment for production use."
-                )
-
-                # Persist the generated secret so restarts don't invalidate tokens
+                # Try to load a persisted secret to survive restarts
                 if settings:
                     secret_file = settings.base_dir / ".jwt_secret"
                     try:
-                        secret_file.write_text(_cached_secret)
-                    except OSError as e:
-                        logger.warning(f"Could not persist JWT secret to {secret_file}: {e}")
+                        if secret_file.exists():
+                            _cached_secret = secret_file.read_text().strip()
+                    except OSError:
+                        pass
+
+                if not _cached_secret:
+                    from loguru import logger
+                    _cached_secret = secrets.token_hex(32)
+                    logger.warning(
+                        "JWT secret auto-generated — all existing tokens will be "
+                        "invalidated on restart. Set JWT_SECRET_KEY in your .env or "
+                        "environment for production use."
+                    )
+
+                    # Persist the generated secret so restarts don't invalidate tokens
+                    if settings:
+                        secret_file = settings.base_dir / ".jwt_secret"
+                        try:
+                            secret_file.write_text(_cached_secret)
+                        except OSError as e:
+                            logger.warning(f"Could not persist JWT secret to {secret_file}: {e}")
 
     return _cached_secret
 

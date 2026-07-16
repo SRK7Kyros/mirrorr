@@ -81,7 +81,11 @@ async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) 
                 profile_id=autorun.profile_id,
                 autorun_id=autorun.id,
                 engine_id=autorun.engine_id,
-                requester_user_token=f"autorun:{autorun.id}",
+                resolver_id=autorun.resolver_id,
+                resolver_config=autorun.resolver_config,
+                retry_mode=autorun.retry_mode,
+                retry_config=autorun.retry_config,
+                requester_user_token=autorun.requester_user_token or f"autorun:{autorun.id}",
                 recording=autorun.recording,
             )
             session = await crud.create(db, session)

@@ -173,7 +173,7 @@ async def update_session(
                                 autorun_id = autorun.id
     except Exception as e:
         logger.error(f"Failed to update session {session_id}: {e}")
-        diff = {}  # Clear diff so we don't emit events for failed changes
+        raise  # Re-raise so callers can handle the failure
 
     # ── Emit NATS events based on diff ────────────────────────────────
     if diff:
@@ -190,20 +190,28 @@ async def delete_session(
     nc: NATS | None = None,
     autorun_id: int | None = None,
 ) -> None:
-    """Delete session DB row + folder, emit SESSION_DELETED + AUTORUN_UPDATED."""
+    """Delete session DB row + folder, emit SESSION_DELETED + AUTORUN_UPDATED.
+
+    If the DB delete fails, the folder and events are NOT emitted — preventing
+    data loss where the folder is deleted but the DB row remains.
+    """
     from src.storage import crud
 
+    # 1. Delete from DB first — if this fails, we don't touch the folder
     try:
         async with _get_session_factory(settings) as session_factory:
             async with session_factory() as db:
                 await crud.delete(db, Session, session_id)
     except Exception as e:
-        logger.error(f"Failed to delete session {session_id}: {e}")
+        logger.error(f"Failed to delete session {session_id} from DB — folder preserved: {e}")
+        return  # Abort: don't delete folder or emit events
 
+    # 2. DB delete succeeded — now remove the folder
     if session_folder and session_folder.exists():
         import asyncio as _asyncio
         await _asyncio.to_thread(shutil.rmtree, session_folder, True)
 
+    # 3. Emit events
     _nc = _resolve_nc(nc)
     if _nc is None:
         return
