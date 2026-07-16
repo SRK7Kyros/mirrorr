@@ -266,6 +266,7 @@ async def update_autorun(
                     await crud.update(db, Autorun, autorun_id, autorun)
     except Exception as e:
         logger.error(f"Failed to update autorun {autorun_id}: {e}")
+        raise  # Re-raise so callers can handle the failure
 
     if diff:
         _nc = _resolve_nc(nc)
