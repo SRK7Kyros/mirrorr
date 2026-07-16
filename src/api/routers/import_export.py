@@ -424,11 +424,15 @@ async def apply_bundle(
 ):
     """Apply a validated import bundle.
 
-    Expects ``{ bundle, plugin_map }`` where plugin_map maps origin_hash →
-    { type: "engine"|"resolver", id: <installed_plugin_id> }.
+    Expects ``{ bundle, plugin_map, removed_profiles, removed_autoruns }`` where:
+    - plugin_map maps origin_hash → { type: "engine"|"resolver", id: <installed_plugin_id> }
+    - removed_profiles is a list of profile names the user chose to exclude
+    - removed_autoruns is a list of autorun names the user chose to exclude
     """
     bundle = payload.get("bundle")
     plugin_map: dict[str, dict[str, Any]] = payload.get("plugin_map", {})
+    removed_profiles: list[str] = payload.get("removed_profiles", [])
+    removed_autoruns: list[str] = payload.get("removed_autoruns", [])
 
     if not bundle or not isinstance(bundle, dict):
         raise HTTPException(400, "Missing or invalid bundle")
@@ -439,6 +443,10 @@ async def apply_bundle(
 
     raw_profiles = bundle.get("profiles", [])
     raw_autoruns = bundle.get("autoruns", [])
+
+    # Filter out items the user chose to remove
+    raw_profiles = [p for p in raw_profiles if p.get("name", "untitled") not in removed_profiles]
+    raw_autoruns = [a for a in raw_autoruns if a.get("user_friendly_name", "untitled") not in removed_autoruns]
 
     if auth.user is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
