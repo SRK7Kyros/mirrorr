@@ -5,7 +5,6 @@ from multiprocessing.synchronize import Event as ShutdownEvent
 
 from loguru import logger
 
-import asyncio
 from src.event_bus.nats import bus
 from src.event_bus.event import MirrorrEvent
 from src.services import session_supervisor
@@ -16,11 +15,12 @@ _sessions: dict[int, tuple[multiprocessing.Process, ShutdownEvent]] = {}
 
 
 def _spawn_supervisor(session_id: int) -> multiprocessing.Process:
+    from src.di import container
     shutdown_event = multiprocessing.Event()
     process = multiprocessing.Process(
         name=f"mirrorr-session-{session_id}",
         target=session_supervisor.main,
-        args=(session_id, bus._settings, shutdown_event),
+        args=(session_id, container.settings, shutdown_event),
         daemon=True,
     )
     process.start()

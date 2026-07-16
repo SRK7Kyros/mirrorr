@@ -45,8 +45,18 @@ class ProcessBus:
         return len(self._subscribers.get(topic, []))
 
     def clear(self) -> None:
-        """Remove all subscribers. Call between retry attempts so stale
-        queues from a previous attempt don't bleed into the next one."""
+        """Remove all subscribers and cancel pending get() calls.
+
+        Call between retry attempts so stale queues from a previous
+        attempt don't bleed into the next one.
+        """
+        for topic, queues in self._subscribers.items():
+            for q in queues:
+                # Put a sentinel None to unblock any pending get() calls
+                try:
+                    q.put_nowait(None)
+                except asyncio.QueueFull:
+                    pass
         self._subscribers.clear()
 
 

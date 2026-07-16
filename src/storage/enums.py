@@ -29,6 +29,12 @@ class AutorunStatus(str, PyEnum):
     FAILED = "failed"
 
 
+class UserRole(str, PyEnum):
+    """Valid user roles."""
+    ADMIN = "admin"
+    USER = "user"
+
+
 class ResourceType(str, PyEnum):
     SESSION = "session"
     PROFILE = "profile"

@@ -59,7 +59,7 @@ class NatsServerManager:
             f"{version}/nats-server-{version}-{system}-{arch}.{ext}"
         )
 
-    def _install(self) -> None:
+    async def _install(self) -> None:
         url = self._get_download_url()
         tmp_download_folder = f"{self.bin_dir}_tmp"
         filename = url.split("/")[-1]
@@ -67,8 +67,9 @@ class NatsServerManager:
 
         logger.info(f"Downloading NATS server to {full_path}")
         try:
-            response = httpx.get(url, follow_redirects=True)
-            response.raise_for_status()
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                response = await client.get(url)
+                response.raise_for_status()
             bytesio = io.BytesIO(response.content)
             os.makedirs(tmp_download_folder, exist_ok=True)
             with open(full_path, "wb") as f:
@@ -99,7 +100,7 @@ class NatsServerManager:
             shutil.rmtree(tmp_download_folder, ignore_errors=True)
             raise e
 
-    def ensure(self) -> None:
+    async def ensure(self) -> None:
         if self._settings.use_system_nats:
             if shutil.which("nats-server"):
                 logger.info("Using system nats-server")
@@ -108,7 +109,7 @@ class NatsServerManager:
             raise RuntimeError("use_system_nats is True but nats-server not found in PATH")
 
         if not os.path.exists(self.nats_path):
-            self._install()
+            await self._install()
         else:
             logger.info("Using bundled nats-server")
 
@@ -130,11 +131,11 @@ class NatsServerManager:
         return js_conf_path
 
 
-    def start(self) -> None:
+    async def start(self) -> None:
         if self._process is not None and self._process.is_running():
             return
 
-        self.ensure()
+        await self.ensure()
 
         js_conf = self._write_js_conf()
 

@@ -106,7 +106,12 @@ async def notify_subscribers(
     title: str,
     body: str = "",
 ) -> int:
-    """Create a Notification for every user subscribed to this resource."""
+    """Create a Notification for every user subscribed to this resource.
+
+    Uses a single batch query to check for existing notifications,
+    avoiding N+1 query pattern.
+    """
+    from sqlmodel import col as sa_col
     from src.storage.models import EventSubscription, Notification
 
     stmt = select(EventSubscription).where(
@@ -116,16 +121,24 @@ async def notify_subscribers(
     result = await db.exec(stmt)
     subs = list(result.all())
 
+    if not subs:
+        return 0
+
+    user_ids = [sub.user_id for sub in subs]
+
+    # Batch check for existing notifications (single query instead of N)
+    dup_stmt = select(Notification.user_id).where(
+        sa_col(Notification.user_id).in_(user_ids),
+        Notification.resource_type == resource_type,
+        Notification.resource_id == resource_id,
+        Notification.event_type == event_type,
+    )
+    dup_result = await db.exec(dup_stmt)
+    existing_user_ids = set(dup_result.all())
+
     count = 0
     for sub in subs:
-        dup_stmt = select(Notification).where(
-            Notification.user_id == sub.user_id,
-            Notification.resource_type == resource_type,
-            Notification.resource_id == resource_id,
-            Notification.event_type == event_type,
-        )
-        dup_result = await db.exec(dup_stmt)
-        if dup_result.first():
+        if sub.user_id in existing_user_ids:
             continue
 
         notif = Notification(

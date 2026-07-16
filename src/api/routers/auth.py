@@ -76,6 +76,12 @@ def _clear_auth_cookies(response: Response, *, cookie_domain: str = "") -> None:
 
 _rate_limits: dict[str, list[float]] = {}
 
+# Module-level settings reference — set during boot in core.py
+_rate_limit_login: int = 10
+_rate_limit_register: int = 5
+_cookie_secure: bool = True
+_cookie_domain: str = ""
+
 def _check_rate_limit(key: str, max_attempts: int, window: float = 60.0) -> bool:
     """Check if a rate limit has been exceeded. Returns True if allowed."""
     import time
@@ -112,7 +118,7 @@ async def register(
     """Register a new user. First user auto-becomes admin. Sets httpOnly cookies."""
     # Rate limit check
     client_ip = request.client.host if request.client else "unknown"
-    if not _check_rate_limit(f"register:{client_ip}", max_attempts=5):
+    if not _check_rate_limit(f"register:{client_ip}", max_attempts=_rate_limit_register):
         raise HTTPException(status_code=429, detail="Too many registration attempts. Try again later.")
 
     username = item.username.strip()
@@ -131,10 +137,11 @@ async def register(
     if not is_first_user and not auth.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required to create users")
 
+    from src.storage.enums import UserRole
     user = User(
         username=username,
         password_hash=hash_password(password),
-        role="admin" if is_first_user else "user",
+        role=UserRole.ADMIN if is_first_user else UserRole.USER,
         display_name=item.display_name or username,
     )
 
@@ -169,7 +176,8 @@ async def register(
     # Set httpOnly cookies
     _set_auth_cookies(
         response, access_token, refresh_token,
-        cookie_secure=True,
+        cookie_secure=_cookie_secure,
+        cookie_domain=_cookie_domain,
     )
 
     return {
@@ -187,7 +195,7 @@ async def login(
     """Login with username + password. Sets httpOnly cookies for token pair."""
     # Rate limit check
     client_ip = request.client.host if request.client else "unknown"
-    if not _check_rate_limit(f"login:{client_ip}", max_attempts=10):
+    if not _check_rate_limit(f"login:{client_ip}", max_attempts=_rate_limit_login):
         raise HTTPException(status_code=429, detail="Too many login attempts. Try again later.")
 
     username = item.username
@@ -218,7 +226,8 @@ async def login(
     # Set httpOnly cookies
     _set_auth_cookies(
         response, access_token, refresh_token,
-        cookie_secure=True,
+        cookie_secure=_cookie_secure,
+        cookie_domain=_cookie_domain,
     )
 
     return {
@@ -348,7 +357,8 @@ async def refresh(
     # Set new httpOnly cookies
     _set_auth_cookies(
         response, new_access, new_refresh,
-        cookie_secure=True,
+        cookie_secure=_cookie_secure,
+        cookie_domain=_cookie_domain,
     )
 
     return {

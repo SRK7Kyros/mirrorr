@@ -63,7 +63,7 @@ class ManagedProcess:
 
         # Telemetry
         self._telemetry_task: asyncio.Task | None = None
-        self._telemetry_interval: float = 0.1  # 10 Hz
+        self._telemetry_interval: float = 1.0  # 1 Hz (reduced from 10 Hz to lower NATS message load)
 
         # Internal tasks — tracked so close() can wait for them
         self._tasks: list[asyncio.Task] = []

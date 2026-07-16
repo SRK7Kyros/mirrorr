@@ -7,7 +7,7 @@ from sqlalchemy import JSON as SAJSON
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel, TypeDecorator, Enum as SQLEnum
 
 from src.plugins.interfaces import Capabilities
-from src.storage.enums import AutorunStatus, SessionStatus
+from src.storage.enums import AutorunStatus, SessionStatus, UserRole
 
 
 class PydanticJSON(TypeDecorator):
@@ -133,14 +133,6 @@ class Session(SQLModel, table=True):
     def is_autorun(self) -> bool:
         return self.autorun_id is not None
 
-    def effective_retry_mode(self) -> str:
-        """Return the session's direct retry mode."""
-        return self.retry_mode
-
-    def effective_retry_config(self) -> dict[str, Any]:
-        """Return the session's direct retry config."""
-        return self.retry_config
-
 
 class Profile(SQLModel, table=True):
     __tablename__ = "profiles"
@@ -251,7 +243,7 @@ class User(SQLModel, table=True):
     id: int = Field(default=None, primary_key=True)
     username: str = Field(unique=True, index=True)
     password_hash: str = Field(default="")
-    role: str = Field(default="user")  # "admin" or "user"
+    role: UserRole = Field(default=UserRole.USER, sa_column=Column(SQLEnum(UserRole)))
     display_name: str = Field(default="")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -273,7 +265,7 @@ class EventSubscription(SQLModel, table=True):
 
     id: int = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="users.id", index=True)
-    resource_type: str = Field(index=True)  # ResourceType enum value
+    resource_type: str = Field(index=True)  # ResourceType enum value: session, autorun, recording, profile
     resource_id: int = Field(index=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

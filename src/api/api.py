@@ -1,5 +1,4 @@
 import html
-import time
 from src.event_bus.nats import bus
 from loguru import logger
 from fastapi import FastAPI, Request
@@ -18,42 +17,7 @@ from src.api.routers.import_export import import_export_router
 from src.api.ws import ws_router
 
 
-class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Simple in-memory rate limiter for sensitive endpoints.
 
-    Tracks requests per IP and enforces limits on login/register
-    to prevent brute-force attacks.
-    """
-
-    def __init__(self, app, login_limit: int = 20, register_limit: int = 10, window: float = 60.0):
-        super().__init__(app)
-        self.login_limit = login_limit
-        self.register_limit = register_limit
-        self.window = window
-        self._requests: dict[str, list[float]] = {}
-
-    async def dispatch(self, request: Request, call_next):
-        path = request.url.path
-        if path not in ("/auth/login", "/auth/register"):
-            return await call_next(request)
-
-        client_ip = request.client.host if request.client else "unknown"
-        limit = self.login_limit if path == "/auth/login" else self.register_limit
-        key = f"{path}:{client_ip}"
-
-        now = time.time()
-        cutoff = now - self.window
-        self._requests.setdefault(key, [])
-        self._requests[key] = [t for t in self._requests[key] if t > cutoff]
-
-        if len(self._requests[key]) >= limit:
-            return JSONResponse(
-                status_code=429,
-                content={"detail": "Too many requests. Please try again later."},
-            )
-
-        self._requests[key].append(now)
-        return await call_next(request)
 
 
 @asynccontextmanager
@@ -100,12 +64,9 @@ def setup_cors(app: FastAPI, allowed_origins: list[str] | None = None) -> None:
     )
 
 
-# CORS is configured at boot time in core.py via setup_cors(app, origins)
-# This is a development-only default; production must set CORS_ALLOWED_ORIGINS
+# Development-only CORS defaults. Production CORS is configured
+# in core._boot() via setup_cors(API, settings.cors_allowed_origins).
 setup_cors(API)
-
-# Rate limiting middleware for auth endpoints
-API.add_middleware(RateLimitMiddleware, login_limit=20, register_limit=10, window=60.0)
 
 API.include_router(crud_routers)
 API.include_router(session_control_router)

@@ -60,7 +60,8 @@ async def _resolve_auth(
         if payload and "username" in payload:
             try:
                 user = await resolve_user(db, payload["username"])
-                is_admin = user.role == "admin"
+                from src.storage.enums import UserRole
+                is_admin = user.role == UserRole.ADMIN
             except HTTPException:
                 pass
 

@@ -25,7 +25,7 @@ class LoginRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     username: str = Field(max_length=64)
-    password: str = Field(min_length=4, max_length=128)
+    password: str = Field(min_length=8, max_length=128)
     display_name: str = Field(default="", max_length=128)
 
 
@@ -35,7 +35,7 @@ class RefreshRequest(BaseModel):
 
 class ChangePasswordRequest(BaseModel):
     old_password: str = Field(max_length=128)
-    new_password: str = Field(min_length=4, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 # ── Sessions ───────────────────────────────────────────────────────────
@@ -109,3 +109,112 @@ class SaveProfileRequest(BaseModel):
 
 class CreateClientRequest(BaseModel):
     name: str = Field(max_length=128)
+
+
+# ── Response Models ────────────────────────────────────────────────────
+
+
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    role: str
+    display_name: str
+
+
+class ClientResponse(BaseModel):
+    id: int
+    name: str
+
+
+class AuthResponse(BaseModel):
+    user: UserResponse
+    client: ClientResponse | None = None
+
+
+class SessionResponse(BaseModel):
+    id: int
+    profile_id: int | None = None
+    autorun_id: int | None = None
+    engine_id: int
+    resolver_id: int
+    resolver_config: dict[str, Any] = Field(default_factory=dict)
+    retry_mode: str = "none"
+    retry_config: dict[str, Any] = Field(default_factory=dict)
+    status: str
+    recording: bool = False
+    retry_attempts: int = 0
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    requester_user_token: str = ""
+    session_urls: list[dict[str, str]] = Field(default_factory=list)
+    attempts: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AutorunResponse(BaseModel):
+    id: int
+    user_friendly_name: str
+    snake_case_name: str
+    profile_id: int | None = None
+    engine_id: int
+    resolver_id: int
+    resolver_config: dict[str, Any] = Field(default_factory=dict)
+    retry_mode: str = "none"
+    retry_config: dict[str, Any] = Field(default_factory=dict)
+    status: str
+    start_time: datetime
+    end_time: datetime
+    recording: bool = True
+    requester_user_token: str = ""
+
+
+class RecordingResponse(BaseModel):
+    id: int
+    user_friendly_name: str
+    snake_case_name: str
+    disk_path: str
+    content_url: str
+    profile_name: str
+    engine_name: str
+    resolver_name: str
+    started_at: datetime
+    ended_at: datetime
+    duration_seconds: float
+    size_bytes: int
+    created_at: datetime
+    requester_user_token: str = ""
+
+
+class ProfileResponse(BaseModel):
+    id: int
+    name: str
+    default_engine_id: int
+    resolver_id: int
+    resolver_config: dict[str, Any] = Field(default_factory=dict)
+    retry_mode: str = "none"
+    retry_config: dict[str, Any] = Field(default_factory=dict)
+    requester_user_token: str = ""
+
+
+class EngineResponse(BaseModel):
+    id: int
+    name: str
+    description: str = ""
+    origin: str
+    origin_hash: str
+    capabilities: dict[str, Any] = Field(default_factory=dict)
+    retry_modes_schema: dict[str, Any] = Field(default_factory=dict)
+
+
+class ResolverResponse(BaseModel):
+    id: int
+    name: str
+    description: str
+    origin: str
+    origin_hash: str
+    config_schema: dict[str, Any] = Field(default_factory=dict)
+
+
+class PaginatedResponse(BaseModel):
+    items: list[Any]
+    next_cursor: int | None = None
+    has_more: bool = False

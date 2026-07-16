@@ -14,7 +14,6 @@ class NatsRegistry(EventBus):
     def __init__(self) -> None:
         self.nc = NATS()
         self._handlers: dict[str, list[tuple[Callable[..., Awaitable[None]], Type[BaseEvent]]]] = {}
-        self._settings: "MirrorrSettings | None" = None  # Set by MirrorrCore at boot
 
     async def connect(self, servers: list[str] | None = None) -> None:
         if servers is None:
@@ -103,8 +102,9 @@ async def get_control_nc() -> NATS:
     global _control_nc
     async with _control_nc_lock:
         if _control_nc is None or not _control_nc.is_connected:
+            from src.di import container
             _control_nc = NATS()
-            await _control_nc.connect(bus._settings.nats_url)
+            await _control_nc.connect(container.settings.nats_url)
         return _control_nc
 
 

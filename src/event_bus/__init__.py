@@ -1,6 +1,7 @@
-# from src.event_bus.event import MirrorrEvent
-# from src.event_bus.nats import bus
-# from src.event_bus.handlers import *
+"""Event bus package — NATS-based messaging layer."""
 
-# __all__ = ["bus", "MirrorrEvent"]
+from src.event_bus.event import MirrorrEvent
+from src.event_bus.nats import bus
+
+__all__ = ["bus", "MirrorrEvent"]
 
