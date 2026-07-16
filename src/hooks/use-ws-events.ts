@@ -3,7 +3,7 @@ import { useCallback, useRef } from "react";
 import { useWsConnection } from "@/hooks/use-ws-connection";
 import { getWsEventsUrl } from "@/lib/api";
 import type { WsEventType } from "@/lib/ws-events";
-import { EVENT_TO_QUERY_KEY } from "@/lib/ws-events";
+import { EVENT_TO_QUERY_KEY, wsEventSchema } from "@/lib/ws-events";
 import { useAuthStore } from "@/stores/auth-store";
 import { useRequestLogStore } from "@/stores/request-log-store";
 
@@ -137,22 +137,28 @@ export function useWsEvents() {
 	const onMessage = useCallback(
 		(ev: MessageEvent) => {
 			try {
-				const data = JSON.parse(ev.data) as WsEvent;
-				batcherRef.current!.add(data);
-				useRequestLogStore.getState().addEntry({
-					type: "ws-event",
-					timestamp: Date.now(),
-					method: "WS",
-					url: "/ws/events",
-					path: data.event ?? "unknown",
-					status: 200,
-					statusText: "OK",
-					duration: null,
-					ok: true,
-					error: null,
-					requestBody: null,
-					responseBody: JSON.stringify(data),
-				});
+				const parsed = JSON.parse(ev.data);
+				const result = wsEventSchema.safeParse(parsed);
+				if (result.success) {
+					batcherRef.current!.add(result.data);
+					useRequestLogStore.getState().addEntry({
+						type: "ws-event",
+						timestamp: Date.now(),
+						method: "WS",
+						url: "/ws/events",
+						path: result.data.event ?? "unknown",
+						status: 200,
+						statusText: "OK",
+						duration: null,
+						ok: true,
+						error: null,
+						requestBody: null,
+						responseBody: JSON.stringify(result.data),
+					});
+				} else {
+					// Invalid event — log and ignore
+					console.debug("Invalid WS event ignored:", result.error.issues);
+				}
 			} catch {
 				// ignore non-JSON messages
 			}

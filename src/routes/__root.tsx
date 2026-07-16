@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRootRouteWithContext, Outlet } from "@tanstack/react-router";
 import { ThemeProvider } from "next-themes";
+import { ErrorBoundary } from "@/components/error-boundary";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -35,7 +36,9 @@ function RootComponent() {
 		>
 			<QueryClientProvider client={queryClient}>
 				<TooltipProvider>
-					<Outlet />
+					<ErrorBoundary>
+						<Outlet />
+					</ErrorBoundary>
 					<Toaster richColors position="bottom-right" />
 				</TooltipProvider>
 			</QueryClientProvider>
