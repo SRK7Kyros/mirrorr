@@ -1,0 +1,18 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.5.4/schema.json",
+	"files": {
+		"includes": ["src/**", "!src/routeTree.gen.ts"]
+	},
+	"overrides": [
+		{
+			"includes": ["src/components/inline-delete-button.tsx"],
+			"linter": {
+				"rules": {
+					"a11y": {
+						"noStaticElementInteractions": "off"
+					}
+				}
+			}
+		}
+	]
+}
