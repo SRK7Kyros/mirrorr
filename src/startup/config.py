@@ -202,6 +202,10 @@ class MirrorrSettings(BaseModel):
             WEB_URL: str = ""
             JWT_SECRET_KEY: str = ""
             CORS_ALLOWED_ORIGINS: str = ""
+            RATE_LIMIT_LOGIN: int = 10
+            RATE_LIMIT_REGISTER: int = 5
+            COOKIE_SECURE: bool = True
+            COOKIE_DOMAIN: str = ""
 
             @model_validator(mode="after")
             def _derive_paths(self) -> Self:
@@ -236,7 +240,8 @@ class MirrorrSettings(BaseModel):
             "use_system_nats", "api_host", "api_port", "dev_serve_files",
             "dev_reset_database", "jwt_secret_key",
             "hls_window", "segment_duration", "autorun_check_interval",
-            "web_url",
+            "web_url", "rate_limit_login", "rate_limit_register",
+            "cookie_secure", "cookie_domain",
         ):
             env_key = field_name.upper()
             val = getattr(env, env_key, None)

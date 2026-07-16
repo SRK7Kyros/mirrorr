@@ -105,7 +105,11 @@ async def catch_all_exception_handler(_request: Request, exc: Exception):
 
 def _directory_listing(path: str, full_path) -> str:
     """Generate a simple HTML directory listing."""
+    MAX_ENTRIES = 1000
     entries = sorted(full_path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+    truncated = len(entries) > MAX_ENTRIES
+    if truncated:
+        entries = entries[:MAX_ENTRIES]
     rows = ""
     for entry in entries:
         name = entry.name + "/" if entry.is_dir() else entry.name
@@ -117,6 +121,7 @@ def _directory_listing(path: str, full_path) -> str:
 
     safe_path = html.escape(path)
     parent_href = html.escape(path.rstrip("/") + "/../", quote=True)
+    truncation_note = f"<p><em>(showing first {MAX_ENTRIES} entries)</em></p>" if truncated else ""
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Index of {safe_path}</title>
 <style>
@@ -127,6 +132,7 @@ td {{ padding: 2px 12px 2px 0; }}
 <h2>Index of {safe_path}</h2>
 <table><tr><td><a href="{parent_href}">..</a></td><td></td></tr>
 {rows}</table>
+{truncation_note}
 </body></html>"""
 
 

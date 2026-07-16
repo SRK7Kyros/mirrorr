@@ -9,9 +9,12 @@ import os
 
 def ensure_ffmpeg(settings: "MirrorrSettings") -> None:
     """Locate or set up ffmpeg and write its path to os.environ['FFMPEG_EXECUTABLE']."""
+    ffprobe_name = "ffprobe.exe" if os.name == "nt" else "ffprobe"
+
     if settings.use_system_ffmpeg:
         if shutil.which("ffmpeg"):
             os.environ["FFMPEG_EXECUTABLE"] = "ffmpeg"
+            os.environ["FFPROBE_EXECUTABLE"] = "ffprobe"
             logger.info("Using system ffmpeg")
         else:
             raise RuntimeError("use_system_ffmpeg is True but ffmpeg is not found in system path")
@@ -22,6 +25,7 @@ def ensure_ffmpeg(settings: "MirrorrSettings") -> None:
 
         if bundled.exists():
             os.environ["FFMPEG_EXECUTABLE"] = str(bundled)
+            os.environ["FFPROBE_EXECUTABLE"] = str(ffmpeg_dir / ffprobe_name)
             logger.info("Using bundled ffmpeg")
         else:
             try:
@@ -33,12 +37,14 @@ def ensure_ffmpeg(settings: "MirrorrSettings") -> None:
                     if success:
                         installed_exe = Path(custom_path) / exe_name
                         os.environ["FFMPEG_EXECUTABLE"] = str(installed_exe)
+                        os.environ["FFPROBE_EXECUTABLE"] = str(Path(custom_path) / ffprobe_name)
                         logger.info("Using bundled ffmpeg")
                     else:
                         logger.error(f"Installation failed: {message}")
                 else:
                     installed_exe = Path(custom_path) / exe_name
                     os.environ["FFMPEG_EXECUTABLE"] = str(installed_exe)
+                    os.environ["FFPROBE_EXECUTABLE"] = str(Path(custom_path) / ffprobe_name)
                     logger.info("Using bundled ffmpeg")
             except ImportError:
                 logger.critical(

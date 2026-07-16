@@ -86,8 +86,7 @@ async def handle_autorun_deleted(data: MirrorrEvent.AUTORUN_DELETED):
             if session and session.status in (SessionStatus.ACTIVE, SessionStatus.RECORDING):
                 logger.info(f"Autorun {data.id} deleted — stopping session {session.id}")
                 await _kill_supervisor(session.id)
-                # Use the shared lifecycle helper so NATS events are emitted
-                await db.commit()  # commit the kill before updating status
+                # Update status via lifecycle helper (emits NATS events)
                 from src.services.session_lifecycle import update_session
                 await update_session(
                     container.settings, session.id, status=SessionStatus.FAILED,

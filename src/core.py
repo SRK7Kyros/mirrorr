@@ -69,13 +69,19 @@ class MirrorrCore:
 
     def _ensure_plugin_dirs(self) -> None:
         """Create plugin dirs if missing and populate with defaults."""
-        dirs_exist = [self.settings.engines_dir.exists(), self.settings.resolvers_dir.exists()]
-        if not any(dirs_exist):
-            logger.info("No plugin dirs found, creating and populating with defaults.")
-            self.restore_default_plugins()
-            return
-        for plugin_dir in (self.settings.engines_dir, self.settings.resolvers_dir):
-            plugin_dir.mkdir(parents=True, exist_ok=True)
+        for plugin_dir, default_dir in [
+            (self.settings.engines_dir, _PACKAGE_ROOT / "default_plugins" / "engines"),
+            (self.settings.resolvers_dir, _PACKAGE_ROOT / "default_plugins" / "resolvers"),
+        ]:
+            if not plugin_dir.exists():
+                plugin_dir.mkdir(parents=True, exist_ok=True)
+                if default_dir.exists():
+                    import shutil
+                    for py_file in default_dir.glob("*.py"):
+                        if py_file.name.startswith("_"):
+                            continue
+                        shutil.copy2(py_file, plugin_dir / py_file.name)
+                        logger.info(f"Copied default plugin: {py_file.name} -> {plugin_dir / py_file.name}")
 
     # ── boot sequence ──────────────────────────────────────────────────
 

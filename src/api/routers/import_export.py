@@ -512,10 +512,11 @@ async def apply_bundle(
             retry_config=p.get("retry_config", {}),
             requester_user_token=requester,
         )
-        obj = await crud.create(db, profile_obj)
+        db.add(profile_obj)
+        await db.flush()  # flush to get ID without committing
         profiles_created += 1
-        created_profiles[p.get("name", "untitled")] = obj
-        existing_by_name[name] = obj
+        created_profiles[p.get("name", "untitled")] = profile_obj
+        existing_by_name[name] = profile_obj
 
     # ── Import autoruns ────────────────────────────────────────────
 
@@ -555,8 +556,12 @@ async def apply_bundle(
             recording=a.get("recording", True),
             requester_user_token=requester,
         )
-        await crud.create(db, autorun_obj)
+        db.add(autorun_obj)
+        await db.flush()  # flush to get ID without committing
         autoruns_created += 1
+
+    # Single commit for all changes (atomic)
+    await db.commit()
 
     return {
         "profiles_created": profiles_created,
