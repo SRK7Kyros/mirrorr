@@ -306,6 +306,9 @@ class SessionSupervisor:
             return_when=asyncio.FIRST_COMPLETED,
         )
 
+        # Capture stop_task state BEFORE cancelling non-done tasks
+        stop_also_pending = stop_task in finished
+
         for t in [done_task, crash_task, stop_task]:
             if not t.done():
                 t.cancel()
@@ -315,16 +318,6 @@ class SessionSupervisor:
                     pass
 
         result = finished.pop().result()
-
-        # If a stop was also pending alongside a crash/done, drain it
-        # so we treat the outcome as a clean stop.
-        stop_also_pending = not stop_task.done()
-        if stop_also_pending:
-            stop_task.cancel()
-            try:
-                await stop_task
-            except asyncio.CancelledError:
-                pass
 
         if isinstance(result, EngineDone):
             logger.opt(colors=True).success(f"<green>Session</green> completed: {result.reason}")
@@ -563,6 +556,10 @@ class SessionSupervisor:
             if proc.running:
                 logger.opt(colors=True).warning(f"Force-killing [<cyan>{proc.name}</cyan>]")
                 await proc.kill()
+
+        # Close all process handles to release pipe transports
+        for proc in self.processes:
+            await proc.close()
 
         logger.info(f"all processes terminated")
 

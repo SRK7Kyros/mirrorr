@@ -85,7 +85,7 @@ class NatsServerManager:
                     zip_ref.extractall(tmp_download_folder)
             else:
                 with tarfile.open(full_path, "r:gz") as tar:
-                    tar.extractall(tmp_download_folder)
+                    tar.extractall(tmp_download_folder, filter="data")
             if filename.endswith(".tar.gz"):
                 dir_name = filename[:-7]
             else:

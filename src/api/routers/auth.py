@@ -159,6 +159,17 @@ async def register(
     except IntegrityError:
         raise HTTPException(status_code=400, detail="Username already exists")
 
+    # TOCTOU guard: if another admin was created concurrently while this
+    # was the "first user", downgrade this user to USER.
+    if is_first_user and user.role == UserRole.ADMIN:
+        admin_count_result = await db.exec(
+            select(User).where(User.role == UserRole.ADMIN)
+        )
+        admin_count = len(list(admin_count_result.all()))
+        if admin_count > 1:
+            user.role = UserRole.USER
+            await db.commit()
+
     # Link to the current client
     if auth.client:
         link = ClientUser(client_id=auth.client.id, user_id=user.id)
@@ -379,7 +390,7 @@ async def change_password(
     db: AsyncSession = Depends(_get_db_session),
     auth: AuthState = Depends(require_auth),
 ):
-    """Change current user's password."""
+    """Change current user's password and invalidate all refresh tokens."""
     old_password = item.old_password
     new_password = item.new_password
 
@@ -390,6 +401,15 @@ async def change_password(
 
     auth.user.password_hash = await hash_password_async(new_password)
     db.add(auth.user)
+
+    # Invalidate all refresh tokens for this user (security best practice)
+    from sqlmodel import update as sql_update
+    await db.exec(
+        sql_update(RefreshTokenRecord)
+        .where(RefreshTokenRecord.user_id == auth.user.id, RefreshTokenRecord.revoked == False)  # noqa: E712
+        .values(revoked=True)
+    )
+
     await db.commit()
 
     return {"status": "password_changed"}

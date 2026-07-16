@@ -419,27 +419,13 @@ async def get_recording(id: int, db: AsyncSession = Depends(_get_db_session), au
 
 @recordings_router.delete("/{id}", status_code=204)
 async def delete_recording(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    from src.storage.models import EventSubscription, Notification
-    from src.storage.enums import ResourceType
-    from sqlmodel import delete as sql_delete
-
     obj = await crud.get_by_id(db, Recording, id)
     if not obj:
         raise HTTPException(status_code=404, detail="Not found")
     if not _require_owner_or_admin(auth, obj):
         raise HTTPException(status_code=403, detail="Not your recording")
 
-    # Clean up polymorphic-related records with bulk delete
-    res_type = ResourceType.RECORDING
-    for model in (EventSubscription, Notification):
-        await db.exec(
-            sql_delete(model).where(
-                model.resource_type == res_type,
-                model.resource_id == id,
-            )
-        )
-    await db.flush()
-
+    await _cleanup_related_records(db, ResourceType.RECORDING, id)
     await _safe_delete(db, Recording, id)
     await _safe_emit(MirrorrEvent.RECORDING_DELETED(id=id))
 
