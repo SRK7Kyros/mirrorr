@@ -15,7 +15,7 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { authApi, setStoredToken } from "@/lib/api";
+import { authApi } from "@/lib/api";
 import { registerSchema, type User } from "@/lib/schemas";
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -48,9 +48,9 @@ function RegisterPage() {
 			display_name?: string;
 		}) => authApi.register(data),
 		onSuccess: (data) => {
-			if (data.access_token && data.user) {
-				setStoredToken(data.access_token);
-				setAuth(data.access_token, data.user as User);
+			if (data.user) {
+				// Tokens are now in httpOnly cookies — just store user info
+				setAuth('cookie', data.user as User);
 				navigate({ to: "/" });
 			} else if (data.status === "pending") {
 				setSuccess(

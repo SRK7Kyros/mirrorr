@@ -25,6 +25,7 @@ import {
 	setStoredRefreshToken,
 	setStoredToken,
 } from "@/lib/storage";
+import { useAuthStore } from "@/stores/auth-store";
 import { useRequestLogStore } from "@/stores/request-log-store";
 
 // Re-export storage helpers for backward compatibility
@@ -100,11 +101,8 @@ async function _fetchJson<T = unknown>(
 		...headers,
 	};
 
+	// API key is still sent as a header (not a secret, identifies the app)
 	if (!noAuth) {
-		const token = getStoredToken();
-		if (token) {
-			fetchHeaders.Authorization = `Bearer ${token}`;
-		}
 		const apiKey = getStoredApiKey();
 		if (apiKey) {
 			fetchHeaders["X-API-Key"] = apiKey;
@@ -138,6 +136,7 @@ async function _fetchJson<T = unknown>(
 			method,
 			headers: fetchHeaders,
 			body: body ? JSON.stringify(body) : undefined,
+			credentials: "include", // Send httpOnly cookies with every request
 		});
 
 		const duration = Date.now() - startTime;
@@ -229,23 +228,38 @@ async function refreshAccessToken(): Promise<string> {
 
 	refreshPromise = (async () => {
 		const refreshToken = getStoredRefreshToken();
-		if (!refreshToken) throw new Error("No refresh token");
+
+		// Try cookie-based refresh first (no body needed)
+		// Falls back to sending refresh token in body if cookie is empty
+		const body: Record<string, string> = {};
+		if (refreshToken) {
+			body.refresh_token = refreshToken;
+		}
 
 		const res = await fetch(`${API_BASE}/auth/refresh`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ refresh_token: refreshToken }),
+			body: JSON.stringify(body),
+			credentials: "include",
 		});
 
-		if (!res.ok) throw new Error("Refresh failed");
+		if (!res.ok) throw new Error(`Refresh failed (status ${res.status})`);
 
+		// Cookie-based auth: backend sets new cookies via Set-Cookie headers
+		// We no longer receive tokens in the response body
 		const data = (await res.json()) as {
-			access_token: string;
-			refresh_token: string;
+			user?: { id: number; username: string; role: string };
 		};
-		setStoredToken(data.access_token);
-		setStoredRefreshToken(data.refresh_token);
-		return data.access_token;
+
+		// Update the zustand store with user info (token is in cookies now)
+		const authStore = useAuthStore.getState();
+		if (data.user && authStore.user) {
+			// Keep existing user data, cookies handle auth now
+			authStore.setAuth("cookie", authStore.user);
+		}
+
+		// Return a placeholder — actual auth is via cookies
+		return "cookie";
 	})()
 		.catch((err) => {
 			// Refresh failed — clear auth and notify the app
@@ -275,10 +289,16 @@ export function getTokenExpiry(): number | null {
 	}
 }
 
-/** Seconds remaining until the token expires, or 0 if unavailable. */
+/** Seconds remaining until the token expires, or 0 if unavailable.
+ *  With cookie-based auth, this checks localStorage for backward compat
+ *  but returns a generous default if only cookies are used. */
 export function getTokenRemainingSeconds(): number {
 	const exp = getTokenExpiry();
-	if (!exp) return 0;
+	if (!exp) {
+		// Cookie-based auth: if we have a user in the store, assume valid
+		const user = useAuthStore.getState().user;
+		return user ? 3600 : 0; // Assume 1 hour remaining if authenticated
+	}
 	return Math.max(0, exp - Math.floor(Date.now() / 1000));
 }
 
@@ -289,8 +309,10 @@ export function tokenExpiringSoon(withinSeconds: number): boolean {
 
 /** Token status for UI indicators. */
 export function tokenStatus(): "valid" | "expiring" | "expired" | "none" {
+	const isAuthenticated = useAuthStore.getState().isAuthenticated;
+	if (!isAuthenticated) return "none";
+
 	const remaining = getTokenRemainingSeconds();
-	if (remaining === 0 && !getStoredToken()) return "none";
 	if (remaining <= 0) return "expired";
 	if (remaining < 5 * 60) return "expiring";
 	return "valid";
@@ -298,19 +320,22 @@ export function tokenStatus(): "valid" | "expiring" | "expired" | "none" {
 
 let refreshInterval: ReturnType<typeof setInterval> | null = null;
 
-/** Start periodic token refresh. Refreshes every 13 minutes (tokens expire in 15). */
+/** Start periodic token refresh. With cookies, the backend handles rotation
+ *  transparently — we just need to verify the session is still valid. */
 export function startTokenRefresh() {
 	if (refreshInterval) return;
-	// Check every 60 seconds if token is expiring soon
-	refreshInterval = setInterval(() => {
-		if (tokenExpiringSoon(15 * 60)) {
-			refreshAccessToken().catch(() => {}); // errors handled inside
-		}
-	}, 60_000);
-	// Also do an immediate check on startup
-	if (tokenExpiringSoon(10 * 60)) {
-		refreshAccessToken().catch(() => {});
-	}
+	// Periodically verify the session is still valid
+	refreshInterval = setInterval(
+		() => {
+			if (!useAuthStore.getState().isAuthenticated) return;
+			// Try to hit /auth/me to verify the cookie is still valid
+			_fetchJson("/auth/me", { noAuth: true }).catch(() => {
+				// Session expired — try refresh
+				refreshAccessToken().catch(() => {});
+			});
+		},
+		15 * 60 * 1000,
+	); // Check every 15 minutes
 }
 
 export function stopTokenRefresh() {
@@ -333,7 +358,6 @@ export const authApi = {
 	}) =>
 		apiRequest<{
 			user?: { id: number; username: string; role: string };
-			access_token?: string;
 			message?: string;
 			request_id?: number;
 			status?: string;
@@ -342,8 +366,6 @@ export const authApi = {
 	login: (data: { username: string; password: string }) =>
 		apiRequest<{
 			user: { id: number; username: string; role: string };
-			access_token: string;
-			refresh_token: string;
 		}>("/auth/login", { method: "POST", body: data }),
 
 	me: () =>
@@ -362,7 +384,8 @@ export const authApi = {
 			method: "POST",
 			body: data,
 		}),
-
+	logout: () =>
+		apiRequest<{ status: string }>("/auth/logout", { method: "POST" }),
 	// Admin
 	users: () =>
 		apiRequest<
@@ -545,10 +568,10 @@ export const telemetryApi = {
 
 function buildWsUrl(path: string): string {
 	const base = API_BASE.replace(/^http/, "ws");
-	const token = getStoredToken();
-	const params = new URLSearchParams();
-	if (token) params.set("token", token);
-	return `${base}${path}?${params.toString()}`;
+	// Cookie-based auth: the browser sends httpOnly cookies with the WS upgrade
+	// request when SameSite=Lax and same-origin. For cross-origin, the backend
+	// also accepts ?token= as a fallback (set in use-ws-connection if needed).
+	return `${base}${path}`;
 }
 
 export const getWsEventsUrl = () => buildWsUrl("/ws/events");

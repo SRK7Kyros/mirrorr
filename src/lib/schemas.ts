@@ -4,22 +4,22 @@ import { z } from "zod";
 
 export const loginSchema = z.object({
 	username: z.string().min(1, "Username is required"),
-	password: z.string().min(4, "Password must be at least 4 characters"),
+	password: z.string().min(8, "Password must be at least 8 characters"),
 });
 
 export const registerSchema = z.object({
 	username: z.string().min(1, "Username is required"),
-	password: z.string().min(4, "Password must be at least 4 characters"),
+	password: z.string().min(8, "Password must be at least 8 characters"),
 	display_name: z.string().optional(),
 });
 
 export const changePasswordSchema = z
 	.object({
 		old_password: z.string().min(1, "Current password is required"),
-		new_password: z.string().min(4, "Password must be at least 4 characters"),
+		new_password: z.string().min(8, "Password must be at least 8 characters"),
 		confirm_password: z
 			.string()
-			.min(4, "Password must be at least 4 characters"),
+			.min(8, "Password must be at least 8 characters"),
 	})
 	.refine((data) => data.new_password === data.confirm_password, {
 		message: "Passwords do not match",
@@ -105,7 +105,6 @@ export const profileSchema = z.object({
 	resolver_config: z.record(z.string(), z.any()),
 	retry_mode: z.string(),
 	retry_config: z.record(z.string(), z.any()),
-	requester_user_token: z.string(),
 });
 
 export type Profile = z.infer<typeof profileSchema>;
@@ -152,7 +151,7 @@ export const sessionSchema = z.object({
 	retry_attempts: z.number(),
 	started_at: z.string().nullable(),
 	ended_at: z.string().nullable(),
-	requester_user_token: z.string(),
+	requester_user_token: z.string().optional(),
 	session_urls: z.array(z.record(z.string(), z.unknown())),
 	attempts: z.array(attemptSchema).default([]),
 });
@@ -185,7 +184,6 @@ export const autorunSchema = z.object({
 	start_time: z.string(),
 	end_time: z.string(),
 	recording: z.boolean(),
-	requester_user_token: z.string(),
 });
 
 export type Autorun = z.infer<typeof autorunSchema>;
@@ -220,7 +218,6 @@ export const recordingSchema = z.object({
 	duration_seconds: z.number(),
 	size_bytes: z.number(),
 	created_at: z.string(),
-	requester_user_token: z.string(),
 });
 
 export type Recording = z.infer<typeof recordingSchema>;

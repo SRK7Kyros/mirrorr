@@ -76,7 +76,11 @@ function MetricChart({
 	}));
 
 	return (
-		<div className="space-y-1">
+		<div
+			className="space-y-1"
+			role="img"
+			aria-label={`${label} telemetry chart`}
+		>
 			<div className="flex items-center justify-between">
 				<SectionTitle>{label}</SectionTitle>
 				<span className="text-xs font-mono text-muted-foreground">

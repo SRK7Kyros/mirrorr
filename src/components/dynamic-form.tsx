@@ -239,7 +239,7 @@ function SchemaField({
 							effectiveType === "integer"
 								? parseInt(e.target.value, 10)
 								: parseFloat(e.target.value);
-						onChange(Number.isNaN(v) ? undefined : v);
+						onChange(Number.isNaN(v) ? null : v);
 					}}
 					min={prop.minimum}
 					max={prop.maximum}

@@ -235,6 +235,7 @@ export function SidebarEntry({
 				}
 			}}
 			role="button"
+			aria-selected={isSelected}
 			tabIndex={0}
 		>
 			{children}

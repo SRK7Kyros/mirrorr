@@ -1,38 +1,8 @@
-import { useMutation } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import {
-	ChevronDown,
-	ChevronRight,
-	Loader2,
-	Radio,
-	Trash2,
-} from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
-import { PluginConfigFields } from "@/components/config-fields";
-import { FormField } from "@/components/form-field";
-import { InfoGrid } from "@/components/info-grid";
-import { KeyValueTable } from "@/components/key-value-table";
-import { ResizableSidebar } from "@/components/resizable-sidebar";
-import {
-	BulkActionBar,
-	CreatePanel,
-	DetailHeader,
-	DetailLayout,
-	EmptyDetail,
-	SidebarEntry,
-	SidebarGroupContainer,
-	SidebarLayout,
-} from "@/components/resource-layout";
-import { SaveAsProfileButton } from "@/components/save-as-profile-button";
-import { StatusBadge } from "@/components/status-badge";
+import { useMutation } from "@tanstack/react-query";
+import { sessionsApi } from "@/lib/api";
+import type { Session, Autorun } from "@/lib/schemas";
 import { Button } from "@/components/ui/button";
-import {
-	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { Label } from "@/components/ui/label";
 import {
 	Select,
 	SelectContent,
@@ -40,7 +10,20 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+	Trash2,
+	Radio,
+	Loader2,
+	ChevronDown,
+	ChevronRight,
+} from "lucide-react";
 import {
 	Table,
 	TableBody,
@@ -49,21 +32,38 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { useBulkDelete } from "@/hooks/use-bulk-delete";
+import { StatusBadge } from "@/components/status-badge";
+import { InfoGrid } from "@/components/info-grid";
+import { KeyValueTable } from "@/components/key-value-table";
+import {
+	SidebarLayout,
+	SidebarEntry,
+	DetailHeader,
+	DetailLayout,
+	CreatePanel,
+	EmptyDetail,
+	BulkActionBar,
+	SidebarGroupContainer,
+} from "@/components/resource-layout";
+import { FormField } from "@/components/form-field";
+import { ResizableSidebar } from "@/components/resizable-sidebar";
+import { formatDuration, formatLocalDate, parseUtcDate } from "@/lib/utils";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useInterval } from "@/hooks/use-interval";
 import { MultiSelectProvider } from "@/hooks/use-multi-select";
+import { useBulkDelete } from "@/hooks/use-bulk-delete";
 import { usePluginConfig } from "@/hooks/use-plugin-config";
+import { PluginConfigFields } from "@/components/config-fields";
 import {
-	useAutoruns,
-	useEngines,
-	useProfiles,
-	useResolvers,
 	useSessions,
+	useAutoruns,
+	useProfiles,
+	useEngines,
+	useResolvers,
 } from "@/hooks/use-queries";
 import { useSaveAsProfile } from "@/hooks/use-save-as-profile";
-import { sessionsApi } from "@/lib/api";
-import type { Autorun, Session } from "@/lib/schemas";
-import { formatDuration, formatLocalDate, parseUtcDate } from "@/lib/utils";
+import { SaveAsProfileButton } from "@/components/save-as-profile-button";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/sessions/")({
 	component: SessionsPage,
@@ -275,9 +275,8 @@ function SessionDetail({
 	deleting: boolean;
 }) {
 	const saveAsProfile = useSaveAsProfile(
-		async (sessionId: number, name: string) => {
-			await sessionsApi.saveAsProfile(sessionId, name);
-		},
+		(sessionId: number, name: string) =>
+			sessionsApi.saveAsProfile(sessionId, name) as unknown as Promise<void>,
 		"session",
 	);
 
@@ -287,9 +286,10 @@ function SessionDetail({
 
 	// 3-state recording switch: original → pending (center) → confirmed (final)
 	const [recPending, setRecPending] = useState(false);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: recording change triggers reset
 	useEffect(() => {
 		setRecPending(false);
-	}, []);
+	}, [session?.recording]);
 
 	if (!session) return null;
 
@@ -410,29 +410,21 @@ function SessionDetail({
 					</div>
 				)}
 			</div>
-			{(session as Session & { error?: string }).error && (
-				<div className="space-y-1">
-					<Label className="text-xs text-destructive">Error</Label>
-					<p className="text-xs text-destructive">
-						{(session as Session & { error?: string }).error}
-					</p>
-				</div>
-			)}
 			{session.session_urls?.length > 0 && (
 				<KeyValueTable
 					title="Public URLs"
 					leftAlignValues
 					entries={session.session_urls.map(
 						(entry: Record<string, unknown>) => [
-							String(entry.label),
+							String(entry.label ?? ""),
 							<a
-								key={String(entry.label)}
-								href={String(entry.url)}
+								key={String(entry.url ?? "")}
+								href={String(entry.url ?? "")}
 								target="_blank"
 								rel="noopener noreferrer"
 								className="text-xs font-mono text-foreground/80 hover:text-foreground hover:underline"
 							>
-								{String(entry.url)}
+								{String(entry.url ?? "")}
 							</a>,
 						],
 					)}
@@ -530,7 +522,7 @@ function CreateSessionPanel({ onClose }: { onClose: () => void }) {
 
 	const createMutation = useMutation({
 		mutationFn: (data: Record<string, unknown>) =>
-			sessionsApi.create(data as Parameters<typeof sessionsApi.create>[0]),
+			sessionsApi.create(data as any),
 		onSuccess: () => {
 			onClose();
 			toast.success("Session created");
@@ -550,11 +542,10 @@ function CreateSessionPanel({ onClose }: { onClose: () => void }) {
 			submitLabel="Start Session"
 			onSubmit={() => {
 				const data: Record<string, unknown> = { recording };
-				if (config.hasProfile) data.profile_id = parseInt(config.profileId, 10);
+				if (config.hasProfile) data.profile_id = parseInt(config.profileId);
 				if (config.showConfigFields) {
-					if (config.engineId) data.engine_id = parseInt(config.engineId, 10);
-					if (config.resolverId)
-						data.resolver_id = parseInt(config.resolverId, 10);
+					if (config.engineId) data.engine_id = parseInt(config.engineId);
+					if (config.resolverId) data.resolver_id = parseInt(config.resolverId);
 					data.retry_mode = config.retryMode;
 					data.retry_config = config.retryConfig;
 					data.resolver_config = config.resolverConfig;
@@ -604,7 +595,14 @@ function CreateSessionPanel({ onClose }: { onClose: () => void }) {
 					open={config.advancedOpen}
 					onOpenChange={config.setAdvancedOpen}
 				>
-					<CollapsibleTrigger className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors bg-transparent border-none p-0 cursor-pointer">
+					<CollapsibleTrigger
+						render={
+							<button
+								type="button"
+								className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+							/>
+						}
+					>
 						{config.advancedOpen ? (
 							<ChevronDown className="size-3" />
 						) : (

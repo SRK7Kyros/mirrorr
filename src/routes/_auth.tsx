@@ -5,7 +5,19 @@ import { AREAS, AUTH_LAYOUT } from "@/lib/layouts";
 import { useAuthStore } from "@/stores/auth-store";
 
 export const Route = createFileRoute("/_auth")({
-	beforeLoad: () => {
+	beforeLoad: async () => {
+		// Wait for zustand hydration before checking auth state
+		await new Promise<void>((resolve) => {
+			const unsub = useAuthStore.persist.onFinishHydration(() => {
+				unsub();
+				resolve();
+			});
+			// If already hydrated, resolve immediately
+			if (useAuthStore.persist.hasHydrated()) {
+				unsub();
+				resolve();
+			}
+		});
 		const { isAuthenticated } = useAuthStore.getState();
 		if (isAuthenticated) {
 			throw redirect({ to: "/" });

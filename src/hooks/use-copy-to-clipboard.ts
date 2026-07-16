@@ -8,7 +8,7 @@
  *     {copied ? "Copied!" : "Copy"}
  *   </Button>
  */
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export function useCopyToClipboard(timeout = 1500) {
 	const [copied, setCopied] = useState(false);
@@ -27,6 +27,11 @@ export function useCopyToClipboard(timeout = 1500) {
 		},
 		[timeout],
 	);
+
+
+	useEffect(() => {
+		return () => clearTimeout(timeoutRef.current);
+	}, []);
 
 	return [copied, copy] as const;
 }

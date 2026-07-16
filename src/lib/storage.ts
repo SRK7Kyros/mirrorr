@@ -1,6 +1,9 @@
 /**
  * Generic localStorage helpers.
  * Replaces the repetitive getter/setter/clearer pattern for each key.
+ *
+ * NOTE: JWT tokens are now stored in httpOnly cookies by the backend.
+ * localStorage is only used for non-sensitive data (API keys, user info).
  */
 
 function createStorage(key: string) {
@@ -11,9 +14,12 @@ function createStorage(key: string) {
 	};
 }
 
+const apiKeyStorage = createStorage("mirrorr_api_key");
+
+// JWT tokens are now in httpOnly cookies — these are kept for backward
+// compatibility but will be empty for new cookie-based auth.
 const tokenStorage = createStorage("mirrorr_jwt");
 const refreshStorage = createStorage("mirrorr_refresh_jwt");
-const apiKeyStorage = createStorage("mirrorr_api_key");
 
 export const getStoredToken = tokenStorage.get;
 export const setStoredToken = tokenStorage.set;

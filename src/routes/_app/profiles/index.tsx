@@ -1,35 +1,35 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { Cpu, Download, Loader2, Settings, Trash2, Zap } from "lucide-react";
-import { useState } from "react";
-import { toast } from "sonner";
-import { PluginConfigFields } from "@/components/config-fields";
-import { FormField } from "@/components/form-field";
-import { ImportDialog } from "@/components/import-dialog";
-import { ExportButton, ImportButton } from "@/components/import-export-buttons";
-import { InfoGrid } from "@/components/info-grid";
-import { InlineDeleteButton } from "@/components/inline-delete-button";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { profilesApi, importExportApi } from "@/lib/api";
+import type { Profile } from "@/lib/schemas";
 import { KeyValueTable } from "@/components/key-value-table";
-import { ResizableSidebar } from "@/components/resizable-sidebar";
-import {
-	BulkActionBar,
-	CreatePanel,
-	DetailHeader,
-	DetailLayout,
-	EmptyDetail,
-	SidebarEntry,
-	SidebarGroupContainer,
-	SidebarLayout,
-} from "@/components/resource-layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useBulkDelete } from "@/hooks/use-bulk-delete";
-import { useBulkExport } from "@/hooks/use-bulk-export";
+import { Trash2, Settings, Cpu, Zap, Loader2, Download } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
+import { ImportDialog } from "@/components/import-dialog";
+import { ImportButton, ExportButton } from "@/components/import-export-buttons";
+import { InfoGrid } from "@/components/info-grid";
+import { FormField } from "@/components/form-field";
+import {
+	SidebarLayout,
+	SidebarEntry,
+	DetailHeader,
+	DetailLayout,
+	CreatePanel,
+	EmptyDetail,
+	BulkActionBar,
+	SidebarGroupContainer,
+} from "@/components/resource-layout";
+import { ResizableSidebar } from "@/components/resizable-sidebar";
 import { MultiSelectProvider } from "@/hooks/use-multi-select";
 import { usePluginConfig } from "@/hooks/use-plugin-config";
-import { useEngines, useProfiles, useResolvers } from "@/hooks/use-queries";
-import { importExportApi, profilesApi } from "@/lib/api";
-import type { Profile } from "@/lib/schemas";
+import { useBulkDelete } from "@/hooks/use-bulk-delete";
+import { PluginConfigFields } from "@/components/config-fields";
+import { useProfiles, useEngines, useResolvers } from "@/hooks/use-queries";
+import { useBulkExport } from "@/hooks/use-bulk-export";
+import { InlineDeleteButton } from "@/components/inline-delete-button";
 
 export const Route = createFileRoute("/_app/profiles/")({
 	component: ProfilesPage,
@@ -286,7 +286,8 @@ function CreateProfilePanel({ onClose }: { onClose: () => void }) {
 	const [name, setName] = useState("");
 
 	const createMutation = useMutation({
-		mutationFn: (data: Record<string, unknown>) => profilesApi.create(data),
+		mutationFn: (data: Record<string, unknown>) =>
+			profilesApi.create(data) as unknown as Promise<void>,
 		onSuccess: () => {
 			onClose();
 			toast.success("Profile created");

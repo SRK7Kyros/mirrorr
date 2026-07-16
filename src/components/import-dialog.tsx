@@ -132,7 +132,7 @@ export function ImportDialog({
 				toast.error(`Validation failed: ${err.message}`);
 				onClose();
 			});
-	}, [open, bundle, onClose]);
+	}, [open, bundle]);
 	function allResolved(): boolean {
 		if (!report) return false;
 		for (const p of report.profiles) {
