@@ -85,6 +85,43 @@ async def _safe_delete(db: AsyncSession, model: type, id: int) -> None:
         raise
 
 
+T = SQLModel
+
+
+async def _get_paginated_for_user(
+    db: AsyncSession,
+    model: type[T],
+    user_token: str,
+    *,
+    cursor: int | None = None,
+    limit: int = 50,
+) -> dict:
+    """Cursor-based pagination filtered by requester_user_token.
+
+    Returns {"items": [...], "next_cursor": ..., "has_more": ...}.
+    """
+    stmt = select(model).where(model.requester_user_token == user_token)
+    if cursor is not None:
+        stmt = stmt.where(model.id < cursor)
+    stmt = stmt.order_by(model.id.desc()).limit(limit + 1)
+    items = list((await db.exec(stmt)).all())
+    has_more = len(items) > limit
+    if has_more:
+        items = items[:limit]
+    return {
+        "items": items,
+        "next_cursor": items[-1].id if has_more and items else None,
+        "has_more": has_more,
+    }
+
+
+def _paginate_response(result: crud.PaginatedResult | dict) -> dict:
+    """Normalize a PaginatedResult or dict into the standard response shape."""
+    if isinstance(result, dict):
+        return result
+    return {"items": result.items, "next_cursor": result.next_cursor, "has_more": result.has_more}
+
+
 # ── Sessions ──────────────────────────────────────────────────────────
 
 sessions_router = APIRouter(prefix="/sessions")
@@ -100,24 +137,8 @@ async def get_all_sessions(
     if auth.is_admin:
         result = await crud.get_all_paginated(db, Session, cursor=cursor, limit=limit)
     else:
-        stmt = select(Session).where(Session.requester_user_token == auth.user.username)
-        if cursor is not None:
-            stmt = stmt.where(Session.id < cursor)
-        stmt = stmt.order_by(Session.id.desc()).limit(limit + 1)
-        items = list((await db.exec(stmt)).all())
-        has_more = len(items) > limit
-        if has_more:
-            items = items[:limit]
-        result = crud.PaginatedResult(
-            items=items,
-            next_cursor=items[-1].id if has_more and items else None,
-            has_more=has_more,
-        )
-    return {
-        "items": result.items,
-        "next_cursor": result.next_cursor,
-        "has_more": result.has_more,
-    }
+        result = await _get_paginated_for_user(db, Session, auth.user.username, cursor=cursor, limit=limit)
+    return _paginate_response(result)
 
 
 @sessions_router.get("/{id}", response_model=SessionResponse)
@@ -203,24 +224,8 @@ async def get_all_autoruns(
     if auth.is_admin:
         result = await crud.get_all_paginated(db, Autorun, cursor=cursor, limit=limit)
     else:
-        stmt = select(Autorun).where(Autorun.requester_user_token == auth.user.username)
-        if cursor is not None:
-            stmt = stmt.where(Autorun.id < cursor)
-        stmt = stmt.order_by(Autorun.id.desc()).limit(limit + 1)
-        items = list((await db.exec(stmt)).all())
-        has_more = len(items) > limit
-        if has_more:
-            items = items[:limit]
-        result = crud.PaginatedResult(
-            items=items,
-            next_cursor=items[-1].id if has_more and items else None,
-            has_more=has_more,
-        )
-    return {
-        "items": result.items,
-        "next_cursor": result.next_cursor,
-        "has_more": result.has_more,
-    }
+        result = await _get_paginated_for_user(db, Autorun, auth.user.username, cursor=cursor, limit=limit)
+    return _paginate_response(result)
 
 
 @autoruns_router.get("/{id}", response_model=AutorunResponse)
@@ -387,24 +392,8 @@ async def get_all_recordings(
     if auth.is_admin:
         result = await crud.get_all_paginated(db, Recording, cursor=cursor, limit=limit)
     else:
-        stmt = select(Recording).where(Recording.requester_user_token == auth.user.username)
-        if cursor is not None:
-            stmt = stmt.where(Recording.id < cursor)
-        stmt = stmt.order_by(Recording.id.desc()).limit(limit + 1)
-        items = list((await db.exec(stmt)).all())
-        has_more = len(items) > limit
-        if has_more:
-            items = items[:limit]
-        result = crud.PaginatedResult(
-            items=items,
-            next_cursor=items[-1].id if has_more and items else None,
-            has_more=has_more,
-        )
-    return {
-        "items": result.items,
-        "next_cursor": result.next_cursor,
-        "has_more": result.has_more,
-    }
+        result = await _get_paginated_for_user(db, Recording, auth.user.username, cursor=cursor, limit=limit)
+    return _paginate_response(result)
 
 
 @recordings_router.get("/{id}", response_model=RecordingResponse)
@@ -447,24 +436,8 @@ async def get_all_profiles(
     if auth.is_admin:
         result = await crud.get_all_paginated(db, Profile, cursor=cursor, limit=limit)
     else:
-        stmt = select(Profile).where(Profile.requester_user_token == auth.user.username)
-        if cursor is not None:
-            stmt = stmt.where(Profile.id < cursor)
-        stmt = stmt.order_by(Profile.id.desc()).limit(limit + 1)
-        items = list((await db.exec(stmt)).all())
-        has_more = len(items) > limit
-        if has_more:
-            items = items[:limit]
-        result = crud.PaginatedResult(
-            items=items,
-            next_cursor=items[-1].id if has_more and items else None,
-            has_more=has_more,
-        )
-    return {
-        "items": result.items,
-        "next_cursor": result.next_cursor,
-        "has_more": result.has_more,
-    }
+        result = await _get_paginated_for_user(db, Profile, auth.user.username, cursor=cursor, limit=limit)
+    return _paginate_response(result)
 
 
 @profiles_router.get("/{id}", response_model=ProfileResponse)
