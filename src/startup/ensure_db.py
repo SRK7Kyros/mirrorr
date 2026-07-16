@@ -1,8 +1,18 @@
 from __future__ import annotations
+import re
 
 from loguru import logger
 from sqlmodel import SQLModel, inspect, text
 from sqlalchemy.ext.asyncio import AsyncEngine
+
+_IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+
+
+def _safe_identifier(name: str) -> str:
+    """Validate and return a SQL identifier to prevent injection."""
+    if not _IDENTIFIER_RE.match(name):
+        raise ValueError(f"Invalid SQL identifier: {name!r}")
+    return name
 
 
 async def reset_database(engine: AsyncEngine) -> None:
@@ -14,7 +24,7 @@ async def reset_database(engine: AsyncEngine) -> None:
             sync_conn.execute(text("PRAGMA foreign_keys = OFF"))
             for table_name in inspector_obj.get_table_names():
                 logger.warning(f"DEV_RESET_DATABASE: truncating table {table_name}")
-                sync_conn.execute(text(f"DELETE FROM {table_name}"))
+                sync_conn.execute(text(f"DELETE FROM {_safe_identifier(table_name)}"))
             sync_conn.execute(text("PRAGMA foreign_keys = ON"))
         await conn.run_sync(_truncate)
     logger.warning("DEV_RESET_DATABASE: all tables truncated")
@@ -26,10 +36,11 @@ def _rebuild_table_sqlite(sync_conn, table_name: str, model_table, dialect) -> N
     This handles nullable changes, default changes, and type changes that
     SQLite cannot apply via ALTER TABLE.
     """
+    _safe_identifier(table_name)
     temp_name = f"_old_{table_name}"
 
     # 1. Rename existing table aside
-    sync_conn.execute(text(f"ALTER TABLE {table_name} RENAME TO {temp_name}"))
+    sync_conn.execute(text(f"ALTER TABLE {_safe_identifier(table_name)} RENAME TO {_safe_identifier(temp_name)}"))
 
     # 2. Create the new table with correct schema
     model_table.create(sync_conn, checkfirst=False)
@@ -38,15 +49,24 @@ def _rebuild_table_sqlite(sync_conn, table_name: str, model_table, dialect) -> N
     old_cols = {c["name"] for c in inspect(sync_conn).get_columns(temp_name)}
     new_cols = [c.name for c in model_table.columns]
     common = [c for c in new_cols if c in old_cols]
-    cols_csv = ", ".join(common)
+    cols_csv = ", ".join(_safe_identifier(c) for c in common)
 
     # 4. Copy data
     sync_conn.execute(text(
-        f"INSERT INTO {table_name} ({cols_csv}) SELECT {cols_csv} FROM {temp_name}"
+        f"INSERT INTO {_safe_identifier(table_name)} ({cols_csv}) SELECT {cols_csv} FROM {_safe_identifier(temp_name)}"
     ))
 
+    # Validate row counts match
+    old_count = sync_conn.execute(text(f"SELECT COUNT(*) FROM [{temp_name}]")).scalar()
+    new_count = sync_conn.execute(text(f"SELECT COUNT(*) FROM [{table_name}]")).scalar()
+    if old_count != new_count:
+        logger.error(f"Row count mismatch after rebuild: old={old_count} new={new_count}")
+        # Roll back by renaming old table back
+        sync_conn.execute(text(f"ALTER TABLE [{temp_name}] RENAME TO [{table_name}]"))
+        return
+
     # 5. Drop old table
-    sync_conn.execute(text(f"DROP TABLE {temp_name}"))
+    sync_conn.execute(text(f"DROP TABLE {_safe_identifier(temp_name)}"))
 
     logger.info(f"Rebuilt table {table_name} with updated column constraints")
 
@@ -98,7 +118,7 @@ async def ensure_db(engine: AsyncEngine) -> None:
                     if col_name not in db_columns:
                         logger.warning(f"New column detected: {table_name}.{col_name}. Adding it...")
                         type_str = column.type.compile(dialect=dialect)
-                        statement = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {type_str}"
+                        statement = f"ALTER TABLE {_safe_identifier(table_name)} ADD COLUMN {_safe_identifier(col_name)} {type_str}"
                         if not column.nullable and column.default is None:
                             # Use JSON-compatible default for JSON columns
                             if type_str.upper() == "JSON":
@@ -117,7 +137,7 @@ async def ensure_db(engine: AsyncEngine) -> None:
 
                         logger.warning(f"DB Column not found in schema: {table_name}.{db_col_name}. Removing...")
                         try:
-                            statement = f"ALTER TABLE {table_name} DROP COLUMN {db_col_name}"
+                            statement = f"ALTER TABLE {_safe_identifier(table_name)} DROP COLUMN {_safe_identifier(db_col_name)}"
                             sync_conn.execute(text(statement))
                         except Exception as e:
                             logger.error(

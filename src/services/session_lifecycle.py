@@ -173,6 +173,7 @@ async def update_session(
                                 autorun_id = autorun.id
     except Exception as e:
         logger.error(f"Failed to update session {session_id}: {e}")
+        diff = {}  # Clear diff so we don't emit events for failed changes
 
     # ── Emit NATS events based on diff ────────────────────────────────
     if diff:
@@ -200,7 +201,8 @@ async def delete_session(
         logger.error(f"Failed to delete session {session_id}: {e}")
 
     if session_folder and session_folder.exists():
-        shutil.rmtree(session_folder, ignore_errors=True)
+        import asyncio as _asyncio
+        await _asyncio.to_thread(shutil.rmtree, session_folder, True)
 
     _nc = _resolve_nc(nc)
     if _nc is None:

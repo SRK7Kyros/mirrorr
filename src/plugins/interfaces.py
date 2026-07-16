@@ -162,7 +162,11 @@ class EngineInterface(ABC):
         if mode == "none":
             return False, 0.0
 
-        return True, get_retry_delay(mode, params)
+        delay = get_retry_delay(mode, params)
+        if config.get("mode") == "retry_always":
+            delay = max(delay, 2.0)
+
+        return True, delay
 
 
 class ResolverInterface(ABC, Generic[ConfigT]):
@@ -196,6 +200,6 @@ class ResolverInterface(ABC, Generic[ConfigT]):
         bus to tell the engine to re-resolve (e.g., URL expiry)."""
         ...
 
-    def stop(self, context: ResolverContext) -> None:
+    async def stop(self, context: ResolverContext) -> None:
         """Called when the supervisor shuts down. Override to clean up."""
         ...

@@ -45,7 +45,7 @@ class InterceptHandler(logging.Handler):
             level, record.getMessage(),
         )
 
-_process_name_length = 19
+_process_name_length = 28
 
 # 2. Configure standard logging to use our InterceptHandler
 def setup_logging():

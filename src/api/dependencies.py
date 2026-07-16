@@ -73,9 +73,20 @@ async def get_auth(
     bearer: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
     db: AsyncSession = Depends(_get_db_session),
 ) -> AuthState:
-    """FastAPI dependency: validate API key + JWT, resolve client + user."""
+    """FastAPI dependency: validate API key + JWT, resolve client + user.
+
+    JWT is resolved from (in priority order):
+    1. ``Authorization: Bearer`` header (backward compat, WS, API clients)
+    2. ``mirrorr_access_token`` httpOnly cookie (browser SPA)
+    """
     api_key = x_api_key or ""
+
+    # Try Bearer header first, fall back to cookie
     token = bearer.credentials if bearer else ""
+    if not token:
+        from src.api.jwt import ACCESS_TOKEN_COOKIE
+        token = request.cookies.get(ACCESS_TOKEN_COOKIE, "")
+
     return await _resolve_auth(db, api_key, token)
 
 
@@ -103,9 +114,24 @@ async def require_admin(
 async def ws_auth(
     websocket: WebSocket,
 ) -> tuple[AuthState | None, str | None]:
-    """Resolve auth from WebSocket connection (query params or headers)."""
+    """Resolve auth from WebSocket connection.
+
+    Auth sources (in priority order):
+    1. ``?token=`` query parameter (backward compat)
+    2. ``mirrorr_access_token`` cookie (same-origin or lax-SameSite)
+    3. ``X-API-Key`` header / ``?api_key=`` query param
+    """
     api_key = websocket.query_params.get("api_key", "") or websocket.headers.get("x-api-key", "")
-    token = websocket.query_params.get("token", "") or websocket.headers.get("authorization", "").removeprefix("Bearer ")
+
+    # Try query param first, then cookie
+    token = websocket.query_params.get("token", "")
+    if not token:
+        from src.api.jwt import ACCESS_TOKEN_COOKIE
+        token = websocket.cookies.get(ACCESS_TOKEN_COOKIE, "")
+
+    # Also check Authorization header
+    if not token:
+        token = websocket.headers.get("authorization", "").removeprefix("Bearer ")
 
     async with get_session_factory()() as db:
         auth = await _resolve_auth(db, api_key, token)

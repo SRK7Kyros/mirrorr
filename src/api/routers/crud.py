@@ -98,6 +98,17 @@ async def get_session(id: int, db: AsyncSession = Depends(_get_db_session), auth
 
 @sessions_router.post("/")
 async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+    # Validate FK references exist
+    engine = await crud.get_by_id(db, Engine, item.engine_id)
+    if not engine:
+        raise HTTPException(status_code=400, detail=f"Engine {item.engine_id} not found")
+    resolver = await crud.get_by_id(db, Resolver, item.resolver_id)
+    if not resolver:
+        raise HTTPException(status_code=400, detail=f"Resolver {item.resolver_id} not found")
+    if item.profile_id is not None:
+        profile = await crud.get_by_id(db, Profile, item.profile_id)
+        if not profile:
+            raise HTTPException(status_code=400, detail=f"Profile {item.profile_id} not found")
     payload = Session(
         profile_id=item.profile_id,
         engine_id=item.engine_id,
@@ -106,12 +117,12 @@ async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(
         retry_mode=item.retry_mode,
         retry_config=item.retry_config,
         recording=item.recording,
-        requester_user_token=item.requester_user_token or (auth.user.username if auth.user else ""),
+        requester_user_token=auth.user.username if auth.user else "",
     )
     try:
         obj = await crud.create(db, payload)
     except IntegrityError as e:
-        raise HTTPException(status_code=400, detail=f"Database integrity error: {e.orig}")
+        raise HTTPException(status_code=400, detail="A resource with that name already exists.")
     await subscribe_requester(db, payload.requester_user_token, ResourceType.SESSION, obj.id)
     await _safe_emit(MirrorrEvent.SESSION_CREATED(id=obj.id))
     return obj
@@ -178,6 +189,17 @@ def _parse_datetimes(item: dict[str, Any], fields: list[str]) -> dict[str, Any]:
 
 @autoruns_router.post("/")
 async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+    # Validate FK references exist
+    engine = await crud.get_by_id(db, Engine, item.engine_id)
+    if not engine:
+        raise HTTPException(status_code=400, detail=f"Engine {item.engine_id} not found")
+    resolver = await crud.get_by_id(db, Resolver, item.resolver_id)
+    if not resolver:
+        raise HTTPException(status_code=400, detail=f"Resolver {item.resolver_id} not found")
+    if item.profile_id is not None:
+        profile = await crud.get_by_id(db, Profile, item.profile_id)
+        if not profile:
+            raise HTTPException(status_code=400, detail=f"Profile {item.profile_id} not found")
     payload = Autorun(
         user_friendly_name=item.user_friendly_name,
         snake_case_name=item.snake_case_name,
@@ -190,12 +212,12 @@ async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(
         start_time=item.start_time.replace(tzinfo=None) if item.start_time.tzinfo else item.start_time,
         end_time=item.end_time.replace(tzinfo=None) if item.end_time.tzinfo else item.end_time,
         recording=item.recording,
-        requester_user_token=item.requester_user_token or (auth.user.username if auth.user else ""),
+        requester_user_token=auth.user.username if auth.user else "",
     )
     try:
         obj = await crud.create(db, payload)
     except IntegrityError as e:
-        raise HTTPException(status_code=400, detail=f"Database integrity error: {e.orig}")
+        raise HTTPException(status_code=400, detail="A resource with that name already exists.")
     await subscribe_requester(db, payload.requester_user_token, ResourceType.AUTORUN, obj.id)
     await _safe_emit(MirrorrEvent.AUTORUN_CREATED(id=obj.id))
     return obj
@@ -223,7 +245,7 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
     except ValueError:
         raise HTTPException(status_code=404, detail="Autorun not found")
     except IntegrityError as e:
-        raise HTTPException(status_code=400, detail=f"Database integrity error: {e.orig}")
+        raise HTTPException(status_code=400, detail="A resource with that name already exists.")
     await subscribe_requester(db, payload.requester_user_token, ResourceType.AUTORUN, id)
     await _safe_emit(MirrorrEvent.AUTORUN_UPDATED(id=id))
     return obj
@@ -333,6 +355,7 @@ async def get_recording(id: int, db: AsyncSession = Depends(_get_db_session), au
 async def delete_recording(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     from src.storage.models import EventSubscription, Notification
     from src.storage.enums import ResourceType
+    from sqlmodel import delete as sql_delete
 
     obj = await crud.get_by_id(db, Recording, id)
     if not obj:
@@ -340,18 +363,15 @@ async def delete_recording(id: int, db: AsyncSession = Depends(_get_db_session),
     if not _is_owner_or_admin(auth, obj):
         raise HTTPException(status_code=403, detail="Not your recording")
 
-    # Clean up polymorphic-related records first — SQLAlchemy can't cascade
-    # these because they use a primaryjoin on resource_type+resource_id,
-    # not a real foreign key.
+    # Clean up polymorphic-related records with bulk delete
     res_type = ResourceType.RECORDING
     for model in (EventSubscription, Notification):
-        stmt = select(model).where(
-            model.resource_type == res_type,
-            model.resource_id == id,
+        await db.exec(
+            sql_delete(model).where(
+                model.resource_type == res_type,
+                model.resource_id == id,
+            )
         )
-        rows = (await db.exec(stmt)).all()
-        for row in rows:
-            await db.delete(row)
     await db.flush()
 
     await _safe_delete(db, Recording, id)
@@ -389,14 +409,13 @@ async def get_profile(id: int, db: AsyncSession = Depends(_get_db_session), auth
 @profiles_router.post("/")
 async def create_profile(item: CreateProfileRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     payload = Profile.model_validate(item.model_dump())
-    if not payload.requester_user_token:
-        if not auth.user:
-            raise HTTPException(status_code=401, detail="Not authenticated")
-        payload.requester_user_token = auth.user.username
+    if not auth.user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload.requester_user_token = auth.user.username
     try:
         obj = await crud.create(db, payload)
     except IntegrityError as e:
-        raise HTTPException(status_code=400, detail=f"Database integrity error: {e.orig}")
+        raise HTTPException(status_code=400, detail="A resource with that name already exists.")
     await subscribe_requester(db, payload.requester_user_token, ResourceType.PROFILE, obj.id)
     await _safe_emit(MirrorrEvent.PROFILE_CREATED(id=obj.id))
     return obj
@@ -411,16 +430,15 @@ async def update_profile(id: int, item: UpdateProfileRequest, db: AsyncSession =
         raise HTTPException(status_code=403, detail="Not your profile")
     payload_data = item.model_dump(exclude_unset=True)
     payload = Profile.model_validate({**existing.model_dump(), **payload_data})
-    if not payload.requester_user_token:
-        if not auth.user:
-            raise HTTPException(status_code=401, detail="Not authenticated")
-        payload.requester_user_token = auth.user.username
+    if not auth.user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload.requester_user_token = auth.user.username
     try:
         obj = await crud.update(db, Profile, id, payload)
     except ValueError:
         raise HTTPException(status_code=404, detail="Profile not found")
     except IntegrityError as e:
-        raise HTTPException(status_code=400, detail=f"Database integrity error: {e.orig}")
+        raise HTTPException(status_code=400, detail="A resource with that name already exists.")
     await subscribe_requester(db, payload.requester_user_token, ResourceType.PROFILE, id)
     await _safe_emit(MirrorrEvent.PROFILE_UPDATED(id=id))
     return obj
@@ -508,7 +526,7 @@ async def _send_control(session_id: int, command: str, timeout: float = 5.0) -> 
         raise HTTPException(status_code=504, detail=f"Session supervisor {session_id} is not responding")
     except Exception as e:
         logger.error(f"Control command '{command}' failed for session {session_id}: {type(e).__name__}: {e}")
-        raise HTTPException(status_code=502, detail=f"Control command failed: {e}")
+        raise HTTPException(status_code=502, detail="Session control command failed")
 
     if "error" in reply:
         raise HTTPException(status_code=400, detail=reply["error"])

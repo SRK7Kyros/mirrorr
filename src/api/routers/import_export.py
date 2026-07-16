@@ -151,6 +151,8 @@ async def export_profile(
     profile = await crud.get_by_id(db, Profile, id)
     if not profile:
         raise HTTPException(404, "Profile not found")
+    if not auth.is_admin and profile.requester_user_token != auth.user.username:
+        raise HTTPException(status_code=403, detail="Not authorized to export this resource")
 
     engine = await crud.get_by_id(db, Engine, profile.default_engine_id)
     resolver = await crud.get_by_id(db, Resolver, profile.resolver_id)
@@ -176,6 +178,8 @@ async def export_autorun(
     autorun = await crud.get_by_id(db, Autorun, id)
     if not autorun:
         raise HTTPException(404, "Autorun not found")
+    if not auth.is_admin and autorun.requester_user_token != auth.user.username:
+        raise HTTPException(status_code=403, detail="Not authorized to export this resource")
 
     profile = await crud.get_by_id(db, Profile, autorun.profile_id)
     if not profile:

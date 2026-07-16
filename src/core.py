@@ -165,9 +165,10 @@ class MirrorrCore:
         logger.success("MirrorrCore boot complete.")
 
         # Log resolved configuration
+        _sensitive_keys = {"jwt_secret_key"}
         logger.info("----- CONFIGURATION -----")
         for k, v in self.settings.model_dump().items():
-            logger.info(f"{k}={v}")
+            logger.info(f"{k}=***" if k in _sensitive_keys else f"{k}={v}")
         logger.info("------------------------")
 
     # ── shutdown ───────────────────────────────────────────────────────
@@ -187,7 +188,7 @@ class MirrorrCore:
 
         # 0.5. Kill all running supervisor processes
         from src.event_bus.handlers.handlers import kill_all_supervisors
-        kill_all_supervisors()
+        await kill_all_supervisors()
 
         # 1. Drain NATS client first — unsubscribes all callbacks cleanly
         #    before closing, avoiding noisy "connection closed" log spam.
@@ -198,8 +199,11 @@ class MirrorrCore:
             pass
 
         # 1a. Drain the dedicated control NATS connection
-        from src.event_bus.nats import drain_control_nc
-        await drain_control_nc()
+        try:
+            from src.event_bus.nats import drain_control_nc
+            await drain_control_nc()
+        except Exception:
+            pass
 
         # 2. Stop NATS server process
         if self._nats_manager:

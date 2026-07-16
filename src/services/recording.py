@@ -93,10 +93,12 @@ class RecordingManager:
                 dest = self.stash_folder / name
                 if not dest.exists():
                     try:
-                        shutil.copy2(seg, dest)
+                        await asyncio.get_event_loop().run_in_executor(None, shutil.copy2, seg, dest)
+                        self._stash_seen.add(name)
                     except FileNotFoundError:
                         logger.debug(f"Segment {name} deleted before stash, skipping")
-                self._stash_seen.add(name)
+                else:
+                    self._stash_seen.add(name)
 
     # ── remux ───────────────────────────────────────────────────────
 
@@ -213,17 +215,26 @@ class RecordingManager:
         # Clean up temp files before moving
         concat_list.unlink(missing_ok=True)
         (self.session_folder / "stream.m3u8").unlink(missing_ok=True)
-        if self.stash_folder.exists():
-            shutil.rmtree(self.stash_folder)
-        for seg in self.segments_folder.iterdir():
-            seg.unlink()
-        self.segments_folder.rmdir()
 
-        shutil.move(str(self.session_folder), str(dest))
+        await asyncio.get_event_loop().run_in_executor(None, shutil.move, str(self.session_folder), str(dest))
         logger.info(f"Session {self.session_id}: moved to {dest}")
 
         # 6. Create Recording DB entry
         recording_id = await self._create_recording_entry(dest, mp4_name)
+
+        # 7. Clean up segments and stash (deferred until DB entry confirmed)
+        try:
+            dest_stash = dest / "stash"
+            if dest_stash.exists():
+                await asyncio.to_thread(shutil.rmtree, dest_stash)
+            dest_segments = dest / "segments"
+            if dest_segments.exists():
+                for seg in dest_segments.iterdir():
+                    seg.unlink()
+                dest_segments.rmdir()
+        except Exception as e:
+            logger.warning(f"Failed to clean up segments for session {self.session_id}: {e}")
+
         return recording_id
 
     # ── remux progress tracking ──────────────────────────────────────
