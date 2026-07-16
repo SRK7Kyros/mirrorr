@@ -82,7 +82,7 @@ class Autorun(SQLModel, table=True):
     snake_case_name: str
     profile_id: int | None = Field(foreign_key="profiles.id", default=None)
     engine_id: int = Field(foreign_key="engines.id")
-    resolver_id: int = Field(foreign_key="resolvers.id", default=1)
+    resolver_id: int = Field(foreign_key="resolvers.id")
     resolver_config: dict[str, Any] = Field(default_factory=dict, sa_column=Column(SAJSON))
     retry_mode: str = Field(default="none")
     retry_config: dict[str, Any] = Field(default_factory=dict, sa_column=Column(SAJSON))
@@ -108,7 +108,7 @@ class Session(SQLModel, table=True):
     profile_id: int | None = Field(foreign_key="profiles.id", default=None)
     autorun_id: int | None = Field(foreign_key="autoruns.id", default=None)
     engine_id: int = Field(foreign_key="engines.id")
-    resolver_id: int = Field(foreign_key="resolvers.id", default=1)
+    resolver_id: int = Field(foreign_key="resolvers.id")
     resolver_config: dict[str, Any] = Field(default_factory=dict, sa_column=Column(SAJSON))
     retry_mode: str = Field(default="none")
     retry_config: dict[str, Any] = Field(default_factory=dict, sa_column=Column(SAJSON))

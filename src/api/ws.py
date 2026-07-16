@@ -144,23 +144,28 @@ async def notifications_endpoint(websocket: WebSocket):
         unread = list(result.all())
 
     logger.debug(f"[ws/notifications] user={user.username} has {len(unread)} unread notifications")
-    for notif in unread:
-        try:
-            await websocket.send_text(json.dumps({
-                "type": "notification",
-                "data": {
-                    "id": notif.id,
-                    "resource_type": notif.resource_type,
-                    "resource_id": notif.resource_id,
-                    "event_type": notif.event_type,
-                    "title": notif.title,
-                    "body": notif.body,
-                    "created_at": notif.created_at.isoformat(),
-                },
-            }))
-        except Exception as e:
-            logger.warning(f"[ws/notifications] failed to send unread notif to user={user.username}: {e}")
-            return
+    async with get_session_factory()() as db:
+        for notif in unread:
+            try:
+                await websocket.send_text(json.dumps({
+                    "type": "notification",
+                    "data": {
+                        "id": notif.id,
+                        "resource_type": notif.resource_type,
+                        "resource_id": notif.resource_id,
+                        "event_type": notif.event_type,
+                        "title": notif.title,
+                        "body": notif.body,
+                        "created_at": notif.created_at.isoformat(),
+                    },
+                }))
+                # Mark notification as read after successful send
+                notif.read = True
+                db.add(notif)
+            except Exception as e:
+                logger.warning(f"[ws/notifications] failed to send unread notif to user={user.username}: {e}")
+                return
+        await db.commit()
 
     # Subscribe to NATS for new notifications
     subscribed_resources = await _get_subscribed_resources(user.username)
