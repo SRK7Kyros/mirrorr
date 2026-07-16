@@ -30,8 +30,27 @@ from src.api.schemas import (
 from src.storage.models import Session, Autorun, Recording, Profile, Engine, Resolver
 from src.storage.enums import SessionStatus, ResourceType
 from src.storage import crud
+from src.storage.models import EventSubscription, Notification
 
 crud_routers = APIRouter()
+
+
+async def _cleanup_related_records(db: AsyncSession, resource_type: str, resource_id: int) -> None:
+    """Clean up EventSubscription and Notification records for a deleted entity."""
+    from sqlmodel import delete as sql_delete
+    await db.exec(
+        sql_delete(EventSubscription).where(
+            EventSubscription.resource_type == resource_type,
+            EventSubscription.resource_id == resource_id,
+        )
+    )
+    await db.exec(
+        sql_delete(Notification).where(
+            Notification.resource_type == resource_type,
+            Notification.resource_id == resource_id,
+        )
+    )
+    await db.flush()
 
 
 def _require_owner_or_admin(auth: AuthState, obj) -> bool:
@@ -157,10 +176,12 @@ async def delete_session(id: int, db: AsyncSession = Depends(_get_db_session), a
             return await _send_control(id, "stop")
         except HTTPException as e:
             if e.status_code == 504:
+                await _cleanup_related_records(db, ResourceType.SESSION, id)
                 await _safe_delete(db, Session, id)
                 await _safe_emit(MirrorrEvent.SESSION_DELETED(id=id))
                 return None
             raise
+    await _cleanup_related_records(db, ResourceType.SESSION, id)
     await _safe_delete(db, Session, id)
     await _safe_emit(MirrorrEvent.SESSION_DELETED(id=id))
 
@@ -283,6 +304,7 @@ async def delete_autorun(id: int, db: AsyncSession = Depends(_get_db_session), a
         raise HTTPException(status_code=404, detail="Not found")
     if not _require_owner_or_admin(auth, obj):
         raise HTTPException(status_code=403, detail="Not your autorun")
+    await _cleanup_related_records(db, ResourceType.AUTORUN, id)
     await _safe_delete(db, Autorun, id)
     await _safe_emit(MirrorrEvent.AUTORUN_DELETED(id=id))
 
@@ -522,6 +544,7 @@ async def delete_profile(id: int, db: AsyncSession = Depends(_get_db_session), a
         raise HTTPException(status_code=404, detail="Not found")
     if not _require_owner_or_admin(auth, obj):
         raise HTTPException(status_code=403, detail="Not your profile")
+    await _cleanup_related_records(db, ResourceType.PROFILE, id)
     await _safe_delete(db, Profile, id)
     await _safe_emit(MirrorrEvent.PROFILE_DELETED(id=id))
 

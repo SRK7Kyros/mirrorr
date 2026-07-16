@@ -403,8 +403,12 @@ async def get_all_users(
     db: AsyncSession = Depends(_get_db_session),
     auth: AuthState = Depends(require_admin),
 ):
-    """List all users. Admin only."""
-    return await crud.get_all(db, User)
+    """List all users. Admin only. Excludes password_hash from response."""
+    users = await crud.get_all(db, User)
+    return [
+        {"id": u.id, "username": u.username, "role": u.role, "display_name": u.display_name}
+        for u in users
+    ]
 
 
 @auth_router.delete("/users/{username}")
@@ -492,11 +496,11 @@ async def delete_client(
     from sqlmodel import delete as sql_delete
     try:
         await db.exec(sql_delete(ClientUser).where(sa_col(ClientUser.client_id) == id))
-        await db.commit()
         await crud.delete(db, Client, id)
     except Exception:
         await db.rollback()
         raise HTTPException(status_code=500, detail="Failed to delete client and related records")
+    return {"status": "deleted"}
 
 
 # ── Notifications ────────────────────────────────────────────────────

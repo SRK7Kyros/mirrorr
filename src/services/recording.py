@@ -450,7 +450,7 @@ class RecordingManager:
 
     async def _create_recording_entry(self, dest: Path, mp4_name: str) -> int:
         """Create the recording DB entry. Returns the recording ID."""
-        from src.storage.database import create_db_engine
+        from src.services.session_lifecycle import _get_session_factory
         from src.storage.models import Recording
         from src.storage import crud
         from src.api.auth import subscribe_requester
@@ -461,8 +461,7 @@ class RecordingManager:
         ended_at = datetime.now(timezone.utc).replace(tzinfo=None)
         duration_seconds = await self._probe_duration(mp4_in_dest)
 
-        db_engine, session_factory = create_db_engine(self.settings)
-        try:
+        async with _get_session_factory(self.settings) as session_factory:
             async with session_factory() as db:
                 recording = Recording(
                     user_friendly_name=self.session.profile.name if self.session.profile else f"Session #{self.session.id}",
@@ -485,7 +484,5 @@ class RecordingManager:
                 )
                 await db.commit()
                 recording_id = recording.id
-        finally:
-            await db_engine.dispose()
 
         return recording_id
