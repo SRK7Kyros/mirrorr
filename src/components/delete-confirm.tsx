@@ -13,9 +13,9 @@ import {
 	AlertDialogTitle,
 	AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Trash2, Loader2 } from "lucide-react";
-import { useState } from "react";
 
 interface DeleteConfirmProps {
 	/** The entity name to display in the confirmation */
@@ -45,24 +45,29 @@ export function DeleteConfirm({
 }: DeleteConfirmProps) {
 	const [open, setOpen] = useState(false);
 
+	const defaultButton = (
+		<Button
+			variant={variant}
+			size={size}
+			className={className}
+			disabled={isPending}
+		>
+			{isPending ? (
+				<Loader2 className="size-3 animate-spin" />
+			) : (
+				<Trash2 className="size-3" />
+			)}
+		</Button>
+	);
+
 	return (
 		<AlertDialog open={open} onOpenChange={setOpen}>
-			<AlertDialogTrigger asChild>
-				{children ?? (
-					<Button
-						variant={variant}
-						size={size}
-						className={className}
-						disabled={isPending}
-					>
-						{isPending ? (
-							<Loader2 className="size-3 animate-spin" />
-						) : (
-							<Trash2 className="size-3" />
-						)}
-					</Button>
-				)}
-			</AlertDialogTrigger>
+			{/* If children is a single ReactElement, use render prop; otherwise wrap in a span */}
+			{children && typeof children !== "string" && typeof children !== "number" ? (
+				<AlertDialogTrigger render={children as React.ReactElement} />
+			) : (
+				<AlertDialogTrigger render={defaultButton} />
+			)}
 			<AlertDialogContent>
 				<AlertDialogHeader>
 					<AlertDialogTitle>Delete {entityName}</AlertDialogTitle>

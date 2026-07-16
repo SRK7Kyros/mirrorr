@@ -5,7 +5,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useMultiSelect } from "@/hooks/use-multi-select";
-import { apiRequest } from "@/lib/api";
 
 export function useBulkDelete(
 	deleteFn: (id: number) => Promise<void>,
