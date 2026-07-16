@@ -93,7 +93,7 @@ class RecordingManager:
                 dest = self.stash_folder / name
                 if not dest.exists():
                     try:
-                        await asyncio.get_event_loop().run_in_executor(None, shutil.copy2, seg, dest)
+                        await asyncio.get_running_loop().run_in_executor(None, shutil.copy2, seg, dest)
                         self._stash_seen.add(name)
                     except FileNotFoundError:
                         logger.debug(f"Segment {name} deleted before stash, skipping")
@@ -219,7 +219,7 @@ class RecordingManager:
         concat_list.unlink(missing_ok=True)
         (self.session_folder / "stream.m3u8").unlink(missing_ok=True)
 
-        await asyncio.get_event_loop().run_in_executor(None, shutil.move, str(self.session_folder), str(dest))
+        await asyncio.get_running_loop().run_in_executor(None, shutil.move, str(self.session_folder), str(dest))
         logger.info(f"Session {self.session_id}: moved to {dest}")
 
         # 6. Create Recording DB entry

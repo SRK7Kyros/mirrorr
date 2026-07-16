@@ -45,7 +45,7 @@ async def runner(
 
         # Monitor the cross-platform shutdown event and emit a stop into the ProcessBus
         async def _watch_shutdown():
-            await asyncio.get_event_loop().run_in_executor(None, shutdown_event.wait)
+            await asyncio.get_running_loop().run_in_executor(None, shutdown_event.wait)
             logger.info(f"Session {session_id}: shutdown event received")
             await supervisor.bus.emit("session.stop_requested")
 

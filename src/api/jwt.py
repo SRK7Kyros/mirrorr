@@ -74,6 +74,8 @@ def _get_secret_key(settings: MirrorrSettings | None = None) -> str:
                         secret_file = settings.base_dir / ".jwt_secret"
                         try:
                             secret_file.write_text(_cached_secret)
+                            import os
+                            os.chmod(str(secret_file), 0o600)
                         except OSError as e:
                             logger.warning(f"Could not persist JWT secret to {secret_file}: {e}")
 
