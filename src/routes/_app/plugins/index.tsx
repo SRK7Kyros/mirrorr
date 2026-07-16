@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
+import { useEngines, useResolvers } from "@/hooks/use-queries";
 import {
 	Braces,
 	ChevronDown,
@@ -25,7 +25,6 @@ import {
 import { CopyButton, SchemaTable } from "@/components/schema-viewer";
 import { SectionCard } from "@/components/section-card";
 import { Button } from "@/components/ui/button";
-import { pluginsApi } from "@/lib/api";
 import type { Engine, Resolver } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
 
@@ -37,14 +36,8 @@ function PluginsPage() {
 	const [tab, setTab] = useState<"engines" | "resolvers">("engines");
 	const [selectedId, setSelectedId] = useState<number | null>(null);
 
-	const { data: engines = [], isLoading: enginesLoading } = useQuery({
-		queryKey: ["engines"],
-		queryFn: () => pluginsApi.engines(),
-	});
-	const { data: resolvers = [], isLoading: resolversLoading } = useQuery({
-		queryKey: ["resolvers"],
-		queryFn: () => pluginsApi.resolvers(),
-	});
+	const { data: engines = [], isLoading: enginesLoading } = useEngines();
+	const { data: resolvers = [], isLoading: resolversLoading } = useResolvers();
 
 	const items = tab === "engines" ? engines : resolvers;
 	const selected = items.find((i) => i.id === selectedId);
