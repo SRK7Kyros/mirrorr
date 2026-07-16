@@ -471,6 +471,14 @@ async def get_profile(id: int, db: AsyncSession = Depends(_get_db_session), auth
 
 @profiles_router.post("/", response_model=ProfileResponse)
 async def create_profile(item: CreateProfileRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+    # Validate FK references exist
+    engine = await crud.get_by_id(db, Engine, item.default_engine_id)
+    if not engine:
+        raise HTTPException(status_code=400, detail=f"Engine {item.default_engine_id} not found")
+    resolver = await crud.get_by_id(db, Resolver, item.resolver_id)
+    if not resolver:
+        raise HTTPException(status_code=400, detail=f"Resolver {item.resolver_id} not found")
+
     payload = Profile.model_validate(item.model_dump())
     if not auth.user:
         raise HTTPException(status_code=401, detail="Not authenticated")

@@ -64,11 +64,9 @@ def setup_cors(app: FastAPI, allowed_origins: list[str] | None = None) -> None:
     )
 
 
-# CORS is configured at boot time in core.py via setup_cors(app, origins).
-# This is a development-only default; production must set CORS_ALLOWED_ORIGINS.
-# NOTE: If _boot() doesn't configure CORS, this provides localhost defaults.
-# In production, always set CORS_ALLOWED_ORIGINS in your .env.
-setup_cors(API)
+# CORS defaults are applied during _boot() in core.py.
+# Do NOT configure CORS at module level — it would result in duplicate middlewares.
+# If _boot() doesn't run (e.g., testing), the API has no CORS middleware.
 
 API.include_router(crud_routers)
 API.include_router(session_control_router)
@@ -117,14 +115,15 @@ def _directory_listing(path: str, full_path) -> str:
         size = f"{entry.stat().st_size:,} B" if entry.is_file() else "-"
         rows += f'<tr><td><a href="{safe_href}">{safe_name}</a></td><td>{size}</td></tr>\n'
 
+    safe_path = html.escape(path)
     return f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Index of {path}</title>
+<html><head><meta charset="utf-8"><title>Index of {safe_path}</title>
 <style>
 body {{ font-family: monospace; margin: 2em; background: #0b0b0b; color: #f2f2f2; }}
 a {{ color: #7cc5ff; text-decoration: none; }} a:hover {{ text-decoration: underline; }}
 td {{ padding: 2px 12px 2px 0; }}
 </style></head><body>
-<h2>Index of {path}</h2>
+<h2>Index of {safe_path}</h2>
 <table><tr><td><a href="{path.rstrip("/")}/../">..</a></td><td></td></tr>
 {rows}</table>
 </body></html>"""

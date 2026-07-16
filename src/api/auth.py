@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 
 import bcrypt
@@ -21,6 +22,16 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, password_hash: str) -> bool:
     return bcrypt.checkpw(password.encode(), password_hash.encode())
+
+
+async def hash_password_async(password: str) -> str:
+    """Async wrapper for hash_password — runs CPU-bound bcrypt in a thread."""
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(password: str, password_hash: str) -> bool:
+    """Async wrapper for verify_password — runs CPU-bound bcrypt in a thread."""
+    return await asyncio.to_thread(verify_password, password, password_hash)
 
 
 # ── API key hashing ─────────────────────────────────────────────────

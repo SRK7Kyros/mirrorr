@@ -10,7 +10,7 @@ from sqlmodel import col as sa_col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.api.dependencies import _get_db_session, get_auth, require_auth, require_admin, AuthState
-from src.api.auth import hash_api_key, hash_password, verify_password
+from src.api.auth import hash_api_key, hash_password_async, verify_password_async
 from src.api.jwt import (
     create_access_token, create_refresh_token, decode_refresh_token,
     ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, ACCESS_TOKEN_EXPIRE_SECONDS,
@@ -93,6 +93,13 @@ def _check_rate_limit(key: str, max_attempts: int, window: float = 60.0) -> bool
     if len(_rate_limits[key]) >= max_attempts:
         return False
     _rate_limits[key].append(now)
+
+    # Periodic cleanup: if dict grows too large, prune stale keys
+    if len(_rate_limits) > 10_000:
+        stale_keys = [k for k, v in _rate_limits.items() if not v or v[-1] < cutoff]
+        for k in stale_keys:
+            del _rate_limits[k]
+
     return True
 
 
@@ -140,7 +147,7 @@ async def register(
     from src.storage.enums import UserRole
     user = User(
         username=username,
-        password_hash=hash_password(password),
+        password_hash=await hash_password_async(password),
         role=UserRole.ADMIN if is_first_user else UserRole.USER,
         display_name=item.display_name or username,
     )
@@ -205,7 +212,7 @@ async def login(
     result = await db.exec(stmt)
     user = result.first()
 
-    if not user or not verify_password(password, user.password_hash):
+    if not user or not await verify_password_async(password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     access_token = create_access_token({"username": user.username, "role": user.role})
@@ -378,10 +385,10 @@ async def change_password(
 
     if not auth.user:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    if not verify_password(old_password, auth.user.password_hash):
+    if not await verify_password_async(old_password, auth.user.password_hash):
         raise HTTPException(status_code=400, detail="Invalid current password")
 
-    auth.user.password_hash = hash_password(new_password)
+    auth.user.password_hash = await hash_password_async(new_password)
     db.add(auth.user)
     await db.commit()
 
@@ -406,12 +413,23 @@ async def delete_user(
     db: AsyncSession = Depends(_get_db_session),
     auth: AuthState = Depends(require_admin),
 ):
-    """Delete a user. Admin only."""
+    """Delete a user. Admin only. Cannot delete the last admin."""
+    from src.storage.enums import UserRole
+
     stmt = select(User).where(User.username == username)
     result = await db.exec(stmt)
     user = result.first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    # Prevent deleting the last admin user
+    if user.role == UserRole.ADMIN:
+        admin_count_result = await db.exec(
+            select(User).where(User.role == UserRole.ADMIN)
+        )
+        admin_count = len(list(admin_count_result.all()))
+        if admin_count <= 1:
+            raise HTTPException(status_code=400, detail="Cannot delete the last admin user")
 
     # Clean up related records
     from sqlmodel import delete as sql_delete
@@ -419,6 +437,7 @@ async def delete_user(
         await db.exec(sql_delete(ClientUser).where(sa_col(ClientUser.user_id) == user.id))
         await db.exec(sql_delete(EventSubscription).where(sa_col(EventSubscription.user_id) == user.id))
         await db.exec(sql_delete(Notification).where(sa_col(Notification.user_id) == user.id))
+        await db.exec(sql_delete(RefreshTokenRecord).where(sa_col(RefreshTokenRecord.user_id) == user.id))
         await db.commit()
         await crud.delete(db, User, user.id)
     except Exception:

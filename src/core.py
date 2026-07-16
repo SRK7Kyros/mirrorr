@@ -145,6 +145,8 @@ class MirrorrCore:
             setup_cors(_api_app, self.settings.cors_allowed_origins)
             logger.info(f"CORS configured with origins: {self.settings.cors_allowed_origins}")
         else:
+            # No origins configured — use localhost defaults for development
+            setup_cors(_api_app)
             logger.warning(
                 "CORS_ALLOWED_ORIGINS is empty — using default localhost origins. "
                 "Set CORS_ALLOWED_ORIGINS in your .env for production use."
