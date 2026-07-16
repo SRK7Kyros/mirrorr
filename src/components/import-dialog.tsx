@@ -7,11 +7,15 @@ import {
 	ChevronRight,
 	Copy,
 	Cpu,
+	Filter,
 	Info,
 	Package,
+	Search,
+	Trash2,
+	UserCheck,
 	Zap,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,6 +30,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -40,6 +45,8 @@ import { importExportApi } from "@/lib/api";
 import { AREAS, PLUGIN_CELLS, TIME_RANGE } from "@/lib/layouts";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { cn } from "@/lib/utils";
+
+// ── Types ─────────────────────────────────────────────────────
 
 type PluginRef = { name: string; origin_hash: string };
 interface Issue {
@@ -69,6 +76,18 @@ interface ValidationReport {
 	autoruns: AutorunResult[];
 }
 type Phase = "loading" | "confirm" | "resolve";
+type FilterStatus = "all" | "ready" | "issue" | "removed";
+type BundleItem = {
+	id: string;
+	type: "profile" | "autorun";
+	data: Record<string, unknown>;
+	status: "ok" | "skip" | "rename" | "issue";
+	issues: Issue[];
+	removed: boolean;
+};
+
+// ── Main Dialog ───────────────────────────────────────────────
+
 export function ImportDialog({
 	open,
 	onClose,
@@ -87,17 +106,40 @@ export function ImportDialog({
 		Record<string, { type: string; id: number }>
 	>({});
 	const [importing, setImporting] = useState(false);
+	const [items, setItems] = useState<BundleItem[]>([]);
+	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+	const [search, setSearch] = useState("");
+	const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
+	const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+	const lastClickedId = useRef<string | null>(null);
 	const onCloseRef = useRef(onClose);
-	onCloseRef.current = onClose;
+	useEffect(() => {
+		onCloseRef.current = onClose;
+	}, [onClose]);
+	useEffect(() => {
+		onCloseRef.current = onClose;
+	}, [onClose]);
+
+	// Reset state when dialog opens
+	/* eslint-disable react-hooks/set-state-in-effect */
 	useEffect(() => {
 		if (!open || !bundle) return;
 		setPhase("loading");
 		setPluginMap({});
+		setItems([]);
+		setSelectedIds(new Set());
+		setSearch("");
+		setFilterStatus("all");
+		setExpandedIds(new Set());
+		lastClickedId.current = null;
+
 		importExportApi
 			.validate(bundle)
 			.then((data) => {
 				setReport(data as unknown as ValidationReport);
 				const r = data as unknown as ValidationReport;
+
+				// Build initial plugin mappings
 				const initialMap: Record<string, { type: string; id: number }> = {};
 				for (const p of r.profiles) {
 					for (const issue of p.issues) {
@@ -128,6 +170,53 @@ export function ImportDialog({
 					}
 				}
 				setPluginMap(initialMap);
+
+				// Build items list
+				const rawProfiles =
+					(bundle.profiles as Array<Record<string, unknown>>) ?? [];
+				const rawAutoruns =
+					(bundle.autoruns as Array<Record<string, unknown>>) ?? [];
+				const bundleItems: BundleItem[] = [];
+
+				for (let i = 0; i < rawProfiles.length; i++) {
+					const p = rawProfiles[i];
+					const profileReport = r.profiles[i];
+					const issues = profileReport?.issues ?? [];
+					const status =
+						issues.length === 0
+							? ("ok" as const)
+							: issues.some((iss) => iss.problem === "already_exists")
+								? ("skip" as const)
+								: issues.some((iss) => iss.problem === "name_conflict")
+									? ("rename" as const)
+									: ("issue" as const);
+					bundleItems.push({
+						id: `profile-${i}`,
+						type: "profile",
+						data: p,
+						status,
+						issues,
+						removed: false,
+					});
+				}
+
+				for (let i = 0; i < rawAutoruns.length; i++) {
+					const a = rawAutoruns[i];
+					const autorunReport = r.autoruns[i];
+					const issues = autorunReport?.issues ?? [];
+					const status =
+						issues.length === 0 ? ("ok" as const) : ("issue" as const);
+					bundleItems.push({
+						id: `autorun-${i}`,
+						type: "autorun",
+						data: a,
+						status,
+						issues,
+						removed: false,
+					});
+				}
+
+				setItems(bundleItems);
 				setPhase(r.valid ? "confirm" : "resolve");
 			})
 			.catch((err) => {
@@ -135,10 +224,57 @@ export function ImportDialog({
 				onCloseRef.current();
 			});
 	}, [open, bundle]);
-	function allResolved(): boolean {
+
+	// Computed values
+	const filteredItems = useMemo(() => {
+		return items.filter((item) => {
+			// Search filter
+			if (search) {
+				const q = search.toLowerCase();
+				const name =
+					(item.data.name as string) ??
+					(item.data.user_friendly_name as string) ??
+					"";
+				const engineName =
+					(item.data.default_engine as PluginRef)?.name ?? "";
+				const resolverName = (item.data.resolver as PluginRef)?.name ?? "";
+				if (
+					!name.toLowerCase().includes(q) &&
+					!engineName.toLowerCase().includes(q) &&
+					!resolverName.toLowerCase().includes(q)
+				) {
+					return false;
+				}
+			}
+			// Status filter
+			if (filterStatus === "ready") return item.status === "ok" && !item.removed;
+			if (filterStatus === "issue")
+				return (
+					(item.status === "issue" || item.status === "rename") && !item.removed
+				);
+			if (filterStatus === "removed") return item.removed;
+			return true;
+		});
+	}, [items, search, filterStatus]);
+
+	const stats = useMemo(() => {
+		const total = items.length;
+		const profiles = items.filter((i) => i.type === "profile").length;
+		const autoruns = items.filter((i) => i.type === "autorun").length;
+		const issues = items.filter(
+			(i) => (i.status === "issue" || i.status === "rename") && !i.removed,
+		).length;
+		const removed = items.filter((i) => i.removed).length;
+		return { total, profiles, autoruns, issues, removed };
+	}, [items]);
+
+	const allResolved = useMemo(() => {
 		if (!report) return false;
-		for (const p of report.profiles) {
-			for (const issue of p.issues) {
+		for (const item of items) {
+			if (item.removed) continue;
+			if (item.status === "ok" || item.status === "skip") continue;
+			if (item.status === "rename") continue;
+			for (const issue of item.issues) {
 				if (
 					issue.problem === "name_conflict" ||
 					issue.problem === "already_exists"
@@ -148,20 +284,104 @@ export function ImportDialog({
 					return false;
 			}
 		}
-		for (const a of report.autoruns) {
-			for (const issue of a.issues) {
-				if (issue.problem === "profile_missing") return false;
-				if (issue.bundled && !pluginMap[issue.bundled.origin_hash])
-					return false;
-			}
-		}
 		return true;
-	}
-	async function handleImport() {
+	}, [items, pluginMap, report]);
+
+	// Selection handlers
+	const handleItemClick = useCallback(
+		(id: string, e: React.MouseEvent) => {
+			const item = items.find((i) => i.id === id);
+			if (!item || item.removed) return;
+
+			if (e.shiftKey && lastClickedId.current !== null) {
+				// Range select
+				const allVisibleIds = filteredItems
+					.filter((i) => !i.removed)
+					.map((i) => i.id);
+				const fromIdx = allVisibleIds.indexOf(lastClickedId.current);
+				const toIdx = allVisibleIds.indexOf(id);
+				if (fromIdx !== -1 && toIdx !== -1) {
+					const start = Math.min(fromIdx, toIdx);
+					const end = Math.max(fromIdx, toIdx);
+					const rangeIds = allVisibleIds.slice(start, end + 1);
+					setSelectedIds((prev) => {
+						const next = new Set(prev);
+						for (const rid of rangeIds) next.add(rid);
+						return next;
+					});
+				}
+			} else if (e.ctrlKey || e.metaKey) {
+				// Toggle single
+				setSelectedIds((prev) => {
+					const next = new Set(prev);
+					if (next.has(id)) next.delete(id);
+					else next.add(id);
+					return next;
+				});
+			} else {
+				// Plain click — select only this
+				setSelectedIds(new Set([id]));
+			}
+			lastClickedId.current = id;
+		},
+		[items, filteredItems],
+	);
+
+	const toggleExpand = useCallback((id: string) => {
+		setExpandedIds((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+	}, []);
+
+	// Batch actions
+	const handleSelectAll = useCallback(() => {
+		const visibleIds = filteredItems.filter((i) => !i.removed).map((i) => i.id);
+		setSelectedIds(new Set(visibleIds));
+	}, [filteredItems]);
+
+	const handleDeselectAll = useCallback(() => {
+		setSelectedIds(new Set());
+	}, []);
+
+	const handleRemoveSelected = useCallback(() => {
+		setItems((prev) =>
+			prev.map((item) =>
+				selectedIds.has(item.id) ? { ...item, removed: true } : item,
+			),
+		);
+		setSelectedIds(new Set());
+	}, [selectedIds]);
+
+	const handleReincludeSelected = useCallback(() => {
+		setItems((prev) =>
+			prev.map((item) =>
+				selectedIds.has(item.id) ? { ...item, removed: false } : item,
+			),
+		);
+		setSelectedIds(new Set());
+	}, [selectedIds]);
+
+	// Import handler
+	const handleImport = useCallback(async () => {
 		if (!bundle) return;
 		setImporting(true);
 		try {
-			const result = await importExportApi.apply(bundle, pluginMap);
+			const removedProfiles = items
+				.filter((i) => i.type === "profile" && i.removed)
+				.map((i) => (i.data.name as string) ?? "untitled");
+			const removedAutoruns = items
+				.filter((i) => i.type === "autorun" && i.removed)
+				.map((i) => (i.data.user_friendly_name as string) ?? "untitled");
+
+			const result = await importExportApi.apply(
+				bundle,
+				pluginMap,
+				removedProfiles,
+				removedAutoruns,
+			);
 			const msgs: string[] = [];
 			if (result.profiles_created)
 				msgs.push(`${result.profiles_created} profile(s) created`);
@@ -180,297 +400,222 @@ export function ImportDialog({
 		} finally {
 			setImporting(false);
 		}
-	}
-	function setPluginMapping(hash: string, type: string, id: number) {
-		setPluginMap((prev) => ({ ...prev, [hash]: { type, id } }));
-	}
-	const profiles = (bundle?.profiles as Array<Record<string, unknown>>) ?? [];
-	const autoruns = (bundle?.autoruns as Array<Record<string, unknown>>) ?? [];
+	}, [bundle, pluginMap, items, queryClient, onImported, onClose]);
+
+	const setPluginMapping = useCallback(
+		(hash: string, type: string, id: number) => {
+			setPluginMap((prev) => ({ ...prev, [hash]: { type, id } }));
+		},
+		[],
+	);
+
+	const activeCount = items.filter((i) => !i.removed).length;
+
 	return (
 		<Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-			{" "}
-			<DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
-				{" "}
-				<DialogHeader>
-					{" "}
-					<DialogTitle className="flex items-center gap-2">
-						{" "}
-						<Package className="size-4" /> Import Bundle{" "}
-					</DialogTitle>{" "}
-				</DialogHeader>{" "}
-				<ScrollArea className="flex-1 min-h-0 pr-1">
-					{" "}
-					<div className="space-y-3">
-						{" "}
-						{phase === "loading" && (
-							<div className="flex items-center justify-center py-10 gap-2 text-sm text-muted-foreground">
-								{" "}
-								<Spinner className="size-4" /> Validating bundle...{" "}
-							</div>
-						)}{" "}
-						{(phase === "confirm" || phase === "resolve") && (
+			<DialogContent className="w-[90vw] h-[90vh] max-w-[1400px] flex flex-col p-0">
+				<DialogHeader className="px-6 pt-6 pb-4 border-b">
+					<DialogTitle className="flex items-center gap-2 text-base">
+						<Package className="size-4" /> Import Bundle
+					</DialogTitle>
+					{/* Summary stats */}
+					<div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+						<span className="font-medium text-foreground">
+							{stats.total} items
+						</span>
+						<span>·</span>
+						<span>{stats.profiles} profiles</span>
+						<span>·</span>
+						<span>{stats.autoruns} autoruns</span>
+						{stats.issues > 0 && (
 							<>
-								{" "}
-								{profiles.map((p, i) => {
-									const profileReport = report?.profiles[i];
-									const issues = profileReport?.issues ?? [];
-									const status =
-										issues.length === 0
-											? ("ok" as const)
-											: issues.some((i) => i.problem === "already_exists")
-												? ("skip" as const)
-												: issues.some((i) => i.problem === "name_conflict")
-													? ("rename" as const)
-													: ("issue" as const);
-									return (
-										<ProfilePreviewCard
-											key={String(p.name)}
-											profile={p}
-											status={status}
-											issues={issues}
-											pluginMap={pluginMap}
-											onPluginChange={setPluginMapping}
-										/>
-									);
-								})}{" "}
-								{autoruns.map((a, i) => {
-									const autorunReport = report?.autoruns[i];
-									const issues = autorunReport?.issues ?? [];
-									const status =
-										issues.length === 0 ? ("ok" as const) : ("issue" as const);
-									return (
-										<AutorunPreviewCard
-											key={String(a.name)}
-											autorun={a}
-											status={status}
-											issues={issues}
-											pluginMap={pluginMap}
-											onPluginChange={setPluginMapping}
-										/>
-									);
-								})}{" "}
+								<span>·</span>
+								<span className="text-amber-500">
+									{stats.issues} issues
+								</span>
 							</>
-						)}{" "}
-					</div>{" "}
-				</ScrollArea>{" "}
-				<DialogFooter>
-					{" "}
+						)}
+						{stats.removed > 0 && (
+							<>
+								<span>·</span>
+								<span className="text-destructive">
+									{stats.removed} removed
+								</span>
+							</>
+						)}
+					</div>
+				</DialogHeader>
+
+				{/* Toolbar */}
+				<div className="flex items-center gap-2 px-6 py-3 border-b bg-muted/30">
+					<div className="relative flex-1 max-w-xs">
+						<Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+						<Input
+							placeholder="Search items..."
+							value={search}
+							onChange={(e) => setSearch(e.target.value)}
+							className="h-7 pl-8 text-xs"
+						/>
+					</div>
+					<Select
+						value={filterStatus}
+						onValueChange={(v) => setFilterStatus(v as FilterStatus)}
+					>
+						<SelectTrigger className="h-7 w-[130px] text-xs">
+							<Filter className="size-3 mr-1.5" />
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="all">All items</SelectItem>
+							<SelectItem value="ready">Ready</SelectItem>
+							<SelectItem value="issue">Needs resolution</SelectItem>
+							<SelectItem value="removed">Removed</SelectItem>
+						</SelectContent>
+					</Select>
+					<div className="flex items-center gap-1 ml-auto">
+						<Button
+							variant="ghost"
+							size="sm"
+							className="h-7 text-xs"
+							onClick={handleSelectAll}
+						>
+							Select all
+						</Button>
+						<Button
+							variant="ghost"
+							size="sm"
+							className="h-7 text-xs"
+							onClick={handleDeselectAll}
+						>
+							Deselect
+						</Button>
+						<div className="w-px h-4 bg-border mx-1" />
+						{selectedIds.size > 0 && (
+							<>
+								<Button
+									variant="ghost"
+									size="sm"
+									className="h-7 text-xs text-destructive hover:text-destructive"
+									onClick={handleRemoveSelected}
+								>
+									<Trash2 className="size-3 mr-1" />
+									Remove ({selectedIds.size})
+								</Button>
+								<Button
+									variant="ghost"
+									size="sm"
+									className="h-7 text-xs"
+									onClick={handleReincludeSelected}
+								>
+									<UserCheck className="size-3 mr-1" />
+									Re-include ({selectedIds.size})
+								</Button>
+							</>
+						)}
+					</div>
+				</div>
+
+				{/* Content */}
+				<ScrollArea className="flex-1 min-h-0 px-6 py-4">
+					{phase === "loading" ? (
+						<div className="flex items-center justify-center py-10 gap-2 text-sm text-muted-foreground">
+							<Spinner className="size-4" /> Validating bundle...
+						</div>
+					) : filteredItems.length === 0 ? (
+						<div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
+							No items match your filters
+						</div>
+					) : (
+						<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+							{filteredItems.map((item) => (
+								<ImportItemCard
+									key={item.id}
+									item={item}
+									selected={selectedIds.has(item.id)}
+									expanded={expandedIds.has(item.id)}
+									pluginMap={pluginMap}
+									onClick={handleItemClick}
+									onToggleExpand={toggleExpand}
+									onToggleRemove={() => {
+										setItems((prev) =>
+											prev.map((it) =>
+												it.id === item.id
+													? { ...it, removed: !it.removed }
+													: it,
+											),
+										);
+									}}
+									onPluginChange={setPluginMapping}
+								/>
+							))}
+						</div>
+					)}
+				</ScrollArea>
+
+				{/* Footer */}
+				<DialogFooter className="px-6 py-4 border-t">
 					<Button
 						variant="ghost"
 						size="sm"
 						className="h-7 text-xs"
 						onClick={onClose}
 					>
-						{" "}
-						Cancel{" "}
-					</Button>{" "}
+						Cancel
+					</Button>
 					{(phase === "confirm" || phase === "resolve") && (
 						<Button
 							size="sm"
 							className="h-7 text-xs"
 							onClick={handleImport}
-							disabled={importing || (phase === "resolve" && !allResolved())}
+							disabled={
+								importing ||
+								activeCount === 0 ||
+								(phase === "resolve" && !allResolved)
+							}
 						>
-							{" "}
-							{importing && <Spinner className="size-3 mr-1" />} Import{" "}
+							{importing && <Spinner className="size-3 mr-1" />}
+							Import ({activeCount} items)
 						</Button>
-					)}{" "}
-				</DialogFooter>{" "}
-			</DialogContent>{" "}
+					)}
+				</DialogFooter>
+			</DialogContent>
 		</Dialog>
 	);
 }
-// ── Profile Preview Card ────────────────────────────────────────
-function ProfilePreviewCard({
-	profile,
-	status,
-	issues,
+
+// ── Item Card ─────────────────────────────────────────────────
+
+function ImportItemCard({
+	item,
+	selected,
+	expanded,
 	pluginMap,
+	onClick,
+	onToggleExpand,
+	onToggleRemove,
 	onPluginChange,
 }: {
-	profile: Record<string, unknown>;
-	status: "ok" | "skip" | "rename" | "issue";
-	issues: Issue[];
+	item: BundleItem;
+	selected: boolean;
+	expanded: boolean;
 	pluginMap: Record<string, { type: string; id: number }>;
+	onClick: (id: string, e: React.MouseEvent) => void;
+	onToggleExpand: (id: string) => void;
+	onToggleRemove: () => void;
 	onPluginChange: (hash: string, type: string, id: number) => void;
 }) {
-	const [open, setOpen] = useState(false);
-	const name = profile.name as string;
-	const engine = profile.default_engine as PluginRef | undefined;
-	const resolver = profile.resolver as PluginRef | undefined;
-	const resolverConfig = profile.resolver_config as
-		| Record<string, unknown>
-		| undefined;
-	const retryMode = (profile.retry_mode as string) ?? "none";
-	const retryConfig = profile.retry_config as
-		| Record<string, unknown>
-		| undefined;
-	const contentHash = profile.content_hash as string | undefined;
-	const sc = {
-		ok: {
-			color: "border-emerald-500/30",
-			bg: "bg-emerald-500/5",
-			Icon: CheckCircle2,
-			ic: "text-emerald-500",
-			label: "Ready to import",
-		},
-		skip: {
-			color: "border-emerald-500/30",
-			bg: "bg-emerald-500/5",
-			Icon: Info,
-			ic: "text-emerald-500",
-			label: "Already exists — will be skipped",
-		},
-		rename: {
-			color: "border-blue-500/30",
-			bg: "bg-blue-500/5",
-			Icon: AlertTriangle,
-			ic: "text-blue-500",
-			label: `Will be renamed to ${issues.find((i) => i.new_name)?.new_name ?? `${name}_2`}`,
-		},
-		issue: {
-			color: "border-amber-500/30",
-			bg: "bg-amber-500/5",
-			Icon: AlertTriangle,
-			ic: "text-amber-500",
-			label: "Needs resolution",
-		},
-	}[status];
-	return (
-		<Collapsible open={open} onOpenChange={setOpen}>
-			{" "}
-			<div className={cn("rounded-lg border transition-colors", sc.color)}>
-				{" "}
-				<CollapsibleTrigger className="w-full">
-					{" "}
-					<div className={cn("px-4 py-3", sc.bg)}>
-						{" "}
-						<div className="flex items-center gap-3">
-							{" "}
-							<ChevronRight
-								className={cn(
-									"size-4 shrink-0 transition-transform text-muted-foreground",
-									open && "rotate-90",
-								)}
-							/>{" "}
-							{/* Row 1: Name left, badge right */}{" "}
-							<div className="flex-1 min-w-0 text-left">
-								{" "}
-								<p className="text-sm font-medium truncate"> {name} </p>{" "}
-							</div>{" "}
-							<div className="flex items-center gap-1.5 shrink-0">
-								{" "}
-								<sc.Icon className={cn("size-3.5", sc.ic)} />{" "}
-								<span className="text-xs text-muted-foreground">
-									{" "}
-									{sc.label}{" "}
-								</span>{" "}
-							</div>{" "}
-						</div>{" "}
-						{/* Row 2: Engine + Resolver */}{" "}
-						<div className="flex items-center gap-4 ml-7 mt-1.5">
-							{" "}
-							<div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-								{" "}
-								<Cpu className="size-3" /> <span>
-									{engine?.name ?? "?"}
-								</span>{" "}
-							</div>{" "}
-							<div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-								{" "}
-								<Zap className="size-3" /> <span>
-									{resolver?.name ?? "?"}
-								</span>{" "}
-							</div>{" "}
-							{retryMode !== "none" && (
-								<span className="text-xs text-muted-foreground">
-									{" "}
-									Retry: {retryMode}{" "}
-								</span>
-							)}{" "}
-						</div>{" "}
-					</div>{" "}
-				</CollapsibleTrigger>{" "}
-				<CollapsibleContent>
-					{" "}
-					<div className="px-4 pb-4 pt-2 space-y-3 border-t">
-						{" "}
-						{/* Plugins grid */}{" "}
-						<div className="grid gap-3" style={PLUGIN_CELLS.style}>
-							{" "}
-							<div style={{ gridArea: AREAS.engine }}>
-								{" "}
-								<PluginCell icon={Cpu} label="Engine" plugin={engine} />{" "}
-							</div>{" "}
-							<div style={{ gridArea: AREAS.resolver }}>
-								{" "}
-								<PluginCell
-									icon={Zap}
-									label="Resolver"
-									plugin={resolver}
-								/>{" "}
-							</div>{" "}
-						</div>{" "}
-						{/* Resolver config */}{" "}
-						{resolverConfig && Object.keys(resolverConfig).length > 0 && (
-							<ConfigPreview title="Resolver Config" config={resolverConfig} />
-						)}{" "}
-						{/* Retry config — includes mode as a row */}{" "}
-						{retryMode !== "none" &&
-							retryConfig &&
-							Object.keys(retryConfig).length > 0 && (
-								<ConfigPreview
-									title={`Retry Config (${retryMode})`}
-									config={retryConfig}
-								/>
-							)}{" "}
-						{/* Content hash */}{" "}
-						{contentHash && (
-							<p className="text-[10px] text-muted-foreground font-mono">
-								{" "}
-								Hash: {contentHash}{" "}
-							</p>
-						)}{" "}
-						{/* Issues */}{" "}
-						{issues.map((issue, i) => (
-							<IssueRow
-								// biome-ignore lint/suspicious/noArrayIndexKey: issues have no unique ID
-								key={`${issue.problem}-${issue.field ?? ""}-${issue.profile_name ?? ""}-${i}`}
-								issue={issue}
-								pluginMap={pluginMap}
-								onChange={onPluginChange}
-							/>
-						))}{" "}
-					</div>{" "}
-				</CollapsibleContent>{" "}
-			</div>{" "}
-		</Collapsible>
-	);
-}
-// ── Autorun Preview Card ────────────────────────────────────────
-function AutorunPreviewCard({
-	autorun,
-	status,
-	issues,
-	pluginMap,
-	onPluginChange,
-}: {
-	autorun: Record<string, unknown>;
-	status: "ok" | "issue";
-	issues: Issue[];
-	pluginMap: Record<string, { type: string; id: number }>;
-	onPluginChange: (hash: string, type: string, id: number) => void;
-}) {
-	const [open, setOpen] = useState(false);
-	const name = autorun.user_friendly_name as string;
-	const startTime = autorun.start_time as string;
-	const endTime = autorun.end_time as string;
-	const recording = autorun.recording as boolean;
-	const profileName = autorun.profile_name as string | undefined;
-	const engineOverride = autorun.engine_override as PluginRef | undefined;
-	const contentHash = autorun.content_hash as string | undefined;
-	const sc =
-		status === "ok"
+	const isProfile = item.type === "profile";
+	const data = item.data;
+
+	const statusConfig = item.removed
+		? {
+				color: "border-muted",
+				bg: "bg-muted/30",
+				Icon: Trash2,
+				ic: "text-muted-foreground",
+				label: "Removed",
+			}
+		: item.status === "ok"
 			? {
 					color: "border-emerald-500/30",
 					bg: "bg-emerald-500/5",
@@ -478,114 +623,295 @@ function AutorunPreviewCard({
 					ic: "text-emerald-500",
 					label: "Ready to import",
 				}
-			: {
-					color: "border-amber-500/30",
-					bg: "bg-amber-500/5",
-					Icon: AlertTriangle,
-					ic: "text-amber-500",
-					label: "Needs resolution",
-				};
+			: item.status === "skip"
+				? {
+						color: "border-emerald-500/30",
+						bg: "bg-emerald-500/5",
+						Icon: Info,
+						ic: "text-emerald-500",
+						label: "Already exists — will be skipped",
+					}
+				: item.status === "rename"
+					? {
+							color: "border-blue-500/30",
+							bg: "bg-blue-500/5",
+							Icon: AlertTriangle,
+							ic: "text-blue-500",
+							label: "Will be renamed",
+						}
+					: {
+							color: "border-amber-500/30",
+							bg: "bg-amber-500/5",
+							Icon: AlertTriangle,
+							ic: "text-amber-500",
+							label: "Needs resolution",
+						};
+
+	if (isProfile) {
+		const engine = data.default_engine as PluginRef | undefined;
+		const resolver = data.resolver as PluginRef | undefined;
+		const resolverConfig = data.resolver_config as
+			| Record<string, unknown>
+			| undefined;
+		const retryMode = (data.retry_mode as string) ?? "none";
+		const retryConfig = data.retry_config as Record<string, unknown> | undefined;
+		const contentHash = data.content_hash as string | undefined;
+
+		return (
+			<Collapsible open={expanded} onOpenChange={() => onToggleExpand(item.id)}>
+				<div
+					className={cn(
+						"rounded-lg border transition-all",
+						statusConfig.color,
+						item.removed && "opacity-50",
+						selected && !item.removed && "ring-2 ring-primary/50",
+					)}
+					onClick={(e) => onClick(item.id, e)}
+					onKeyDown={(e) => {
+						if (e.key === "Enter" || e.key === " ") {
+							e.preventDefault();
+							onClick(item.id, e as unknown as React.MouseEvent);
+						}
+					}}
+					role="button"
+					tabIndex={0}
+				>
+					<CollapsibleTrigger className="w-full">
+						<div className={cn("px-4 py-3", statusConfig.bg)}>
+							<div className="flex items-center gap-3">
+								<ChevronRight
+									className={cn(
+										"size-4 shrink-0 transition-transform text-muted-foreground",
+										expanded && "rotate-90",
+									)}
+								/>
+								<div className="flex-1 min-w-0 text-left">
+									<p
+										className={cn(
+											"text-sm font-medium truncate",
+											item.removed && "line-through",
+										)}
+									>
+										{(data.name as string) ?? "Untitled"}
+									</p>
+								</div>
+								<div className="flex items-center gap-1.5 shrink-0">
+									<statusConfig.Icon
+										className={cn("size-3.5", statusConfig.ic)}
+									/>
+									<span className="text-xs text-muted-foreground">
+										{statusConfig.label}
+									</span>
+								</div>
+							</div>
+							<div className="flex items-center gap-4 ml-7 mt-1.5">
+								<div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+									<Cpu className="size-3" />{" "}
+									<span>{engine?.name ?? "?"}</span>
+								</div>
+								<div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+									<Zap className="size-3" />{" "}
+									<span>{resolver?.name ?? "?"}</span>
+								</div>
+								{retryMode !== "none" && (
+									<span className="text-xs text-muted-foreground">
+										Retry: {retryMode}
+									</span>
+								)}
+							</div>
+						</div>
+					</CollapsibleTrigger>
+					<CollapsibleContent>
+						<div className="px-4 pb-4 pt-2 space-y-3 border-t">
+							<div className="grid gap-3" style={PLUGIN_CELLS.style}>
+								<div style={{ gridArea: AREAS.engine }}>
+									<PluginCell icon={Cpu} label="Engine" plugin={engine} />
+								</div>
+								<div style={{ gridArea: AREAS.resolver }}>
+									<PluginCell icon={Zap} label="Resolver" plugin={resolver} />
+								</div>
+							</div>
+							{resolverConfig &&
+								Object.keys(resolverConfig).length > 0 && (
+									<ConfigPreview
+										title="Resolver Config"
+										config={resolverConfig}
+									/>
+								)}
+							{retryMode !== "none" &&
+								retryConfig &&
+								Object.keys(retryConfig).length > 0 && (
+									<ConfigPreview
+										title={`Retry Config (${retryMode})`}
+										config={retryConfig}
+									/>
+								)}
+							{contentHash && (
+								<p className="text-[10px] text-muted-foreground font-mono">
+									Hash: {contentHash}
+								</p>
+							)}
+							{item.issues.map((issue, i) => (
+								<IssueRow
+									key={`${issue.problem}-${issue.field ?? ""}-${issue.profile_name ?? ""}-${i}`}
+									issue={issue}
+									pluginMap={pluginMap}
+									onChange={onPluginChange}
+								/>
+							))}
+							<Button
+								variant="ghost"
+								size="sm"
+								className="h-6 text-xs text-destructive hover:text-destructive"
+								onClick={(e) => {
+									e.stopPropagation();
+									onToggleRemove();
+								}}
+							>
+								<Trash2 className="size-3 mr-1" />
+								{item.removed ? "Re-include" : "Remove"}
+							</Button>
+						</div>
+					</CollapsibleContent>
+				</div>
+			</Collapsible>
+		);
+	}
+
+	// Autorun card
+	const profileName = data.profile_name as string | undefined;
+	const recording = data.recording as boolean;
+	const engineOverride = data.engine_override as PluginRef | undefined;
+	const contentHash = data.content_hash as string | undefined;
+	const startTime = data.start_time as string;
+	const endTime = data.end_time as string;
+
 	return (
-		<Collapsible open={open} onOpenChange={setOpen}>
-			{" "}
-			<div className={cn("rounded-lg border transition-colors", sc.color)}>
-				{" "}
+		<Collapsible open={expanded} onOpenChange={() => onToggleExpand(item.id)}>
+			<div
+				className={cn(
+					"rounded-lg border transition-all",
+					statusConfig.color,
+					item.removed && "opacity-50",
+					selected && !item.removed && "ring-2 ring-primary/50",
+				)}
+				onClick={(e) => onClick(item.id, e)}
+				onKeyDown={(e) => {
+					if (e.key === "Enter" || e.key === " ") {
+						e.preventDefault();
+						onClick(item.id, e as unknown as React.MouseEvent);
+					}
+				}}
+				role="button"
+				tabIndex={0}
+			>
 				<CollapsibleTrigger className="w-full">
-					{" "}
-					<div className={cn("flex items-center gap-3 px-4 py-3", sc.bg)}>
-						{" "}
+					<div
+						className={cn(
+							"flex items-center gap-3 px-4 py-3",
+							statusConfig.bg,
+						)}
+					>
 						<ChevronRight
 							className={cn(
 								"size-4 shrink-0 transition-transform text-muted-foreground",
-								open && "rotate-90",
+								expanded && "rotate-90",
 							)}
-						/>{" "}
-						<CalendarClock className="size-4 shrink-0 text-muted-foreground" />{" "}
+						/>
+						<CalendarClock className="size-4 shrink-0 text-muted-foreground" />
 						<div className="flex-1 min-w-0 text-left">
-							{" "}
-							<p className="text-sm font-medium truncate"> {name} </p>{" "}
+							<p
+								className={cn(
+									"text-sm font-medium truncate",
+									item.removed && "line-through",
+								)}
+							>
+								{(data.user_friendly_name as string) ?? "Untitled"}
+							</p>
 							<p className="text-xs text-muted-foreground truncate">
-								{" "}
 								Profile: {profileName ?? "?"} ·{" "}
-								{recording ? "Recording" : "Stream only"}{" "}
-							</p>{" "}
-						</div>{" "}
+								{recording ? "Recording" : "Stream only"}
+							</p>
+						</div>
 						<div className="flex items-center gap-1.5 shrink-0">
-							{" "}
-							<sc.Icon className={cn("size-3.5", sc.ic)} />{" "}
+							<statusConfig.Icon
+								className={cn("size-3.5", statusConfig.ic)}
+							/>
 							<span className="text-xs text-muted-foreground">
-								{" "}
-								{sc.label}{" "}
-							</span>{" "}
-						</div>{" "}
-					</div>{" "}
-				</CollapsibleTrigger>{" "}
+								{statusConfig.label}
+							</span>
+						</div>
+					</div>
+				</CollapsibleTrigger>
 				<CollapsibleContent>
-					{" "}
 					<div className="px-4 pb-4 pt-1 space-y-3 border-t">
-						{" "}
 						<div className="grid gap-3" style={TIME_RANGE.style}>
-							{" "}
 							<div className="space-y-1" style={{ gridArea: AREAS.start }}>
-								{" "}
 								<Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
-									{" "}
-									Start{" "}
-								</Label>{" "}
+									Start
+								</Label>
 								<p className="text-xs">
-									{" "}
 									{startTime
 										? new Date(startTime).toLocaleString(undefined, {
 												hour12: false,
 											})
-										: "—"}{" "}
-								</p>{" "}
-							</div>{" "}
+										: "—"}
+								</p>
+							</div>
 							<div className="space-y-1" style={{ gridArea: AREAS.end }}>
-								{" "}
 								<Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
-									{" "}
-									End{" "}
-								</Label>{" "}
+									End
+								</Label>
 								<p className="text-xs">
-									{" "}
 									{endTime
 										? new Date(endTime).toLocaleString(undefined, {
 												hour12: false,
 											})
-										: "—"}{" "}
-								</p>{" "}
-							</div>{" "}
-						</div>{" "}
+										: "—"}
+								</p>
+							</div>
+						</div>
 						{engineOverride && (
 							<PluginCell
 								icon={Cpu}
 								label="Engine Override"
 								plugin={engineOverride}
 							/>
-						)}{" "}
+						)}
 						{contentHash && (
 							<p className="text-[10px] text-muted-foreground font-mono">
-								{" "}
-								Hash: {contentHash}{" "}
+								Hash: {contentHash}
 							</p>
-						)}{" "}
-						{issues.map((issue, i) => (
+						)}
+						{item.issues.map((issue, i) => (
 							<IssueRow
-								// biome-ignore lint/suspicious/noArrayIndexKey: issues have no unique ID
 								key={`${issue.problem}-${issue.field ?? ""}-${issue.profile_name ?? ""}-${i}`}
 								issue={issue}
 								pluginMap={pluginMap}
 								onChange={onPluginChange}
 							/>
-						))}{" "}
-					</div>{" "}
-				</CollapsibleContent>{" "}
-			</div>{" "}
+						))}
+						<Button
+							variant="ghost"
+							size="sm"
+							className="h-6 text-xs text-destructive hover:text-destructive"
+							onClick={(e) => {
+								e.stopPropagation();
+								onToggleRemove();
+							}}
+						>
+							<Trash2 className="size-3 mr-1" />
+							{item.removed ? "Re-include" : "Remove"}
+						</Button>
+					</div>
+				</CollapsibleContent>
+			</div>
 		</Collapsible>
 	);
 }
+
 // ── Plugin Cell (hover-to-reveal hash, click-to-copy) ───────────
+
 function PluginCell({
 	icon: Icon,
 	label,
@@ -606,9 +932,7 @@ function PluginCell({
 		<div
 			className="flex items-center gap-2 rounded-md border px-2.5 py-2 bg-muted/10 hover:bg-muted/20 transition-colors cursor-pointer select-none"
 			onMouseEnter={() => setHovered(true)}
-			onMouseLeave={() => {
-				setHovered(false);
-			}}
+			onMouseLeave={() => setHovered(false)}
 			onClick={handleClick}
 			onKeyDown={(e) => {
 				if (e.key === "Enter" || e.key === " ") {
@@ -620,56 +944,47 @@ function PluginCell({
 			tabIndex={0}
 			title={plugin?.origin_hash ? "Click to copy hash" : undefined}
 		>
-			{" "}
-			<Icon className="size-3.5 text-muted-foreground shrink-0" />{" "}
+			<Icon className="size-3.5 text-muted-foreground shrink-0" />
 			<div className="flex-1 min-w-0">
-				{" "}
 				<p className="text-[10px] text-muted-foreground uppercase tracking-wider">
-					{" "}
-					{label}{" "}
-				</p>{" "}
+					{label}
+				</p>
 				<div className="flex items-center gap-1">
-					{" "}
-					{/* Name (default) */}{" "}
 					<p
 						className={cn(
 							"text-xs font-medium truncate transition-all duration-200",
 							hovered ? "opacity-0 w-0" : "opacity-100",
 						)}
 					>
-						{" "}
-						{plugin?.name ?? "?"}{" "}
-					</p>{" "}
-					{/* Hash (on hover) */}{" "}
+						{plugin?.name ?? "?"}
+					</p>
 					<p
 						className={cn(
 							"text-[10px] font-mono text-muted-foreground transition-all duration-200 flex items-center gap-1 min-w-0",
 							hovered ? "opacity-100" : "opacity-0 w-0",
 						)}
 					>
-						{" "}
 						{copied ? (
 							<>
-								{" "}
-								<Check className="size-3 shrink-0 text-emerald-500" /> Copied!{" "}
+								<Check className="size-3 shrink-0 text-emerald-500" /> Copied!
 							</>
 						) : (
 							<>
-								{" "}
 								<span className="truncate">
-									{" "}
-									{plugin?.origin_hash?.slice(0, 16) ?? "?"}…{" "}
-								</span>{" "}
-								<Copy className="size-3 shrink-0 opacity-50" />{" "}
+									{plugin?.origin_hash?.slice(0, 16) ?? "?"}…
+								</span>
+								<Copy className="size-3 shrink-0 opacity-50" />
 							</>
-						)}{" "}
-					</p>{" "}
-				</div>{" "}
-			</div>{" "}
+						)}
+					</p>
+				</div>
+			</div>
 		</div>
 	);
 }
+
 // ── Config Preview (key-value table) ────────────────────────────
+
 function ConfigPreview({
 	title,
 	config,
@@ -681,29 +996,27 @@ function ConfigPreview({
 	if (entries.length === 0) return null;
 	return (
 		<div className="space-y-1">
-			{" "}
 			<Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
-				{" "}
-				{title}{" "}
-			</Label>{" "}
+				{title}
+			</Label>
 			<div className="rounded border bg-muted/20 overflow-hidden divide-y divide-border/50">
-				{" "}
 				{entries.map(([key, value]) => (
 					<div key={key} className="flex items-center gap-3 py-1.5 px-3">
-						{" "}
 						<code className="font-mono font-semibold text-foreground text-xs shrink-0">
-							{" "}
-							{key}{" "}
-						</code>{" "}
+							{key}
+						</code>
 						<ConfigValue
-							value={typeof value === "string" ? value : JSON.stringify(value)}
-						/>{" "}
+							value={
+								typeof value === "string" ? value : JSON.stringify(value)
+							}
+						/>
 					</div>
-				))}{" "}
-			</div>{" "}
+				))}
+			</div>
 		</div>
 	);
 }
+
 function ConfigValue({ value }: { value: string }) {
 	const [hovered, setHovered] = useState(false);
 	const [copied, copy] = useCopyToClipboard();
@@ -714,8 +1027,7 @@ function ConfigValue({ value }: { value: string }) {
 	if (!needsTruncate) {
 		return (
 			<code className="text-xs font-mono text-muted-foreground text-right flex-1 min-w-0">
-				{" "}
-				{value}{" "}
+				{value}
 			</code>
 		);
 	}
@@ -724,9 +1036,7 @@ function ConfigValue({ value }: { value: string }) {
 		<div
 			className="flex-1 min-w-0 flex items-center justify-end gap-1 cursor-pointer select-none"
 			onMouseEnter={() => setHovered(true)}
-			onMouseLeave={() => {
-				setHovered(false);
-			}}
+			onMouseLeave={() => setHovered(false)}
 			onClick={handleClick}
 			onKeyDown={(e) => {
 				if (e.key === "Enter" || e.key === " ") {
@@ -738,33 +1048,32 @@ function ConfigValue({ value }: { value: string }) {
 			tabIndex={0}
 			title="Click to copy"
 		>
-			{" "}
 			<code
 				className={cn(
 					"text-xs font-mono text-muted-foreground truncate min-w-0 text-right transition-all duration-200",
 					hovered && "text-foreground",
 				)}
 			>
-				{" "}
-				{copied ? "Copied!" : value}{" "}
-			</code>{" "}
+				{copied ? "Copied!" : value}
+			</code>
 			<span
 				className={cn(
 					"shrink-0 transition-all duration-200",
 					hovered ? "opacity-100" : "opacity-0",
 				)}
 			>
-				{" "}
 				{copied ? (
 					<Check className="size-3 text-emerald-500" />
 				) : (
 					<Copy className="size-3 text-muted-foreground opacity-50" />
-				)}{" "}
-			</span>{" "}
+				)}
+			</span>
 		</div>
 	);
 }
+
 // ── Issue Row ───────────────────────────────────────────────────
+
 function IssueRow({
 	issue,
 	pluginMap,
@@ -777,35 +1086,30 @@ function IssueRow({
 	if (issue.problem === "already_exists") {
 		return (
 			<div className="flex items-center gap-2 rounded border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
-				{" "}
-				<CheckCircle2 className="size-3.5 shrink-0" />{" "}
-				<span>Identical content already exists — will be skipped.</span>{" "}
+				<CheckCircle2 className="size-3.5 shrink-0" />
+				<span>Identical content already exists — will be skipped.</span>
 			</div>
 		);
 	}
 	if (issue.problem === "name_conflict") {
 		return (
 			<div className="flex items-center gap-2 rounded border border-blue-500/30 bg-blue-500/5 px-3 py-2 text-xs text-blue-700 dark:text-blue-300">
-				{" "}
-				<AlertTriangle className="size-3.5 shrink-0" />{" "}
+				<AlertTriangle className="size-3.5 shrink-0" />
 				<span>
-					{" "}
 					Name conflict — will be imported as:{" "}
-					<strong> {issue.new_name ?? `${issue.bundled?.name}_2`} </strong>{" "}
-				</span>{" "}
+					<strong>{issue.new_name ?? `${issue.bundled?.name}_2`}</strong>
+				</span>
 			</div>
 		);
 	}
 	if (issue.problem === "profile_missing") {
 		return (
 			<div className="flex items-center gap-2 rounded border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-700 dark:text-red-300">
-				{" "}
-				<AlertTriangle className="size-3.5 shrink-0" />{" "}
+				<AlertTriangle className="size-3.5 shrink-0" />
 				<span>
-					{" "}
 					References profile <strong>{issue.profile_name}</strong> which is not
-					available.{" "}
-				</span>{" "}
+					available.
+				</span>
 			</div>
 		);
 	}
@@ -814,58 +1118,47 @@ function IssueRow({
 	const currentSelection = pluginMap[currentHash];
 	return (
 		<div className="rounded border px-3 py-2.5 space-y-2">
-			{" "}
 			<div className="flex items-center justify-between">
-				{" "}
-				<span className="text-xs font-medium"> {issue.bundled.name} </span>{" "}
+				<span className="text-xs font-medium">{issue.bundled.name}</span>
 				<span className="text-[10px] text-muted-foreground font-mono truncate max-w-[120px]">
-					{" "}
-					{currentHash}{" "}
-				</span>{" "}
-			</div>{" "}
+					{currentHash}
+				</span>
+			</div>
 			<p className="text-xs text-muted-foreground">
-				{" "}
 				{issue.problem === "not_installed"
 					? "Not installed"
-					: "Hash mismatch — plugin was updated"}{" "}
-			</p>{" "}
+					: "Hash mismatch — plugin was updated"}
+			</p>
 			{issue.alternatives && issue.alternatives.length > 0 && (
 				<div className="space-y-1">
-					{" "}
-					<Label className="text-[10px]">Map to:</Label>{" "}
+					<Label className="text-[10px]">Map to:</Label>
 					<Select
 						value={currentSelection ? String(currentSelection.id) : ""}
 						onValueChange={(v: string) =>
 							onChange(currentHash, issue.field ?? "", parseInt(v, 10))
 						}
 					>
-						{" "}
 						<SelectTrigger className="h-7 text-xs">
-							{" "}
-							<SelectValue placeholder="Select plugin" />{" "}
-						</SelectTrigger>{" "}
+							<SelectValue placeholder="Select plugin" />
+						</SelectTrigger>
 						<SelectContent>
-							{" "}
 							{issue.alternatives.map((alt) => (
 								<SelectItem key={alt.id} value={String(alt.id)}>
-									{" "}
 									{alt.name}{" "}
 									<span className="text-[10px] text-muted-foreground ml-1">
-										{" "}
-										{alt.origin_hash.slice(0, 8)}…{" "}
-									</span>{" "}
+										{alt.origin_hash.slice(0, 8)}…
+									</span>
 								</SelectItem>
-							))}{" "}
-						</SelectContent>{" "}
-					</Select>{" "}
+							))}
+						</SelectContent>
+					</Select>
 				</div>
-			)}{" "}
+			)}
 			{issue.alternatives && issue.alternatives.length === 0 && (
 				<p className="text-xs text-destructive">
-					{" "}
-					No plugins available to resolve this.{" "}
+					No plugins available to resolve this.
 				</p>
-			)}{" "}
+			)}
 		</div>
 	);
 }

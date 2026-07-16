@@ -643,6 +643,8 @@ export const importExportApi = {
 	apply: (
 		bundle: Record<string, unknown>,
 		pluginMap: Record<string, { type: string; id: number }>,
+		removedProfiles: string[] = [],
+		removedAutoruns: string[] = [],
 	) =>
 		apiRequest<{
 			profiles_created: number;
@@ -650,7 +652,12 @@ export const importExportApi = {
 			profiles_skipped: number;
 		}>("/import-export/apply", {
 			method: "POST",
-			body: { bundle, plugin_map: pluginMap },
+			body: {
+				bundle,
+				plugin_map: pluginMap,
+				removed_profiles: removedProfiles,
+				removed_autoruns: removedAutoruns,
+			},
 		}),
 	exportProfile: (id: number) =>
 		apiRequest<ImportBundle>(`/import-export/profiles/${id}/export`, {
