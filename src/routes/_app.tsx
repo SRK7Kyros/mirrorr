@@ -156,13 +156,9 @@ function AppLayout() {
 		if (backendStatus !== "disconnected") return;
 		const timer = setTimeout(() => {
 			logout();
-		}, 10_000); // 10s grace period
+		}, 60_000); // 60s grace period
 		return () => clearTimeout(timer);
 	}, [backendStatus, logout]);
-
-	useEffect(() => {
-		setMobileOpen(false);
-	}, []);
 
 	const filteredNav = navItems;
 

@@ -123,7 +123,9 @@ export const createProfileSchema = z.object({
 export const sessionStatusSchema = z.enum([
 	"active",
 	"recording",
+	"terminating",
 	"remuxing",
+	"finalizing",
 	"completed",
 	"failed",
 ]);
@@ -180,7 +182,7 @@ export const autorunSchema = z.object({
 	resolver_config: z.record(z.string(), z.any()),
 	retry_mode: z.string(),
 	retry_config: z.record(z.string(), z.any()),
-	status: z.string().default("scheduled"),
+	status: z.enum(["scheduled", "active", "recording", "terminating", "remuxing", "finalizing", "completed", "failed"]).default("scheduled"),
 	start_time: z.string(),
 	end_time: z.string(),
 	recording: z.boolean(),

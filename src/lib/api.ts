@@ -149,7 +149,16 @@ async function _fetchJson<T = unknown>(
 				detail = errBody.detail ?? errBody.message ?? detail;
 				responseBody = JSON.stringify(errBody);
 			} catch {
-				// ignore parse error
+				// Fall back to raw text if JSON parsing fails
+				try {
+					const textBody = await res.text();
+					if (textBody) {
+						detail = textBody;
+						responseBody = textBody;
+					}
+				} catch {
+					// ignore read error
+				}
 			}
 			useRequestLogStore.getState().updateEntry(logId, {
 				status: res.status,
