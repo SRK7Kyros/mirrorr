@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { useWsConnection } from "@/hooks/use-ws-connection";
 import { getWsNotificationsUrl } from "@/lib/api";
-import type { Notification } from "@/lib/schemas";
+import { notificationSchema, type Notification } from "@/lib/schemas";
 import { useAuthStore } from "@/stores/auth-store";
 import { useRequestLogStore } from "@/stores/request-log-store";
 
@@ -17,7 +17,12 @@ export function useWsNotifications() {
 		try {
 			const data = JSON.parse(ev.data);
 			if (data.type === "notification" && data.data) {
-				const notif: Notification = data.data;
+				const result = notificationSchema.safeParse(data.data);
+				if (!result.success) {
+					console.debug("Invalid notification data ignored:", result.error.issues);
+					return;
+				}
+				const notif = result.data;
 				setNotifications((prev) => {
 					if (prev.some((n) => n.id === notif.id)) return prev;
 					return [notif, ...prev];

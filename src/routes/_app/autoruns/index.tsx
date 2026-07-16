@@ -202,10 +202,11 @@ function AutorunsPage() {
 }
 
 function BulkActions() {
-	const { mutate: deleteMutate, isPending: deletePending } = useBulkDelete(
+	const { mutate: deleteMutate, isPending: deletePending, selectedIds } = useBulkDelete(
 		(id: number) => autorunsApi.delete(id),
 		"Autoruns",
 	);
+	const count = selectedIds.size;
 	const { handleExport } = useBulkExport(
 		(id: number) => importExportApi.exportAutorun(id),
 		"autorun",
@@ -222,20 +223,25 @@ function BulkActions() {
 				<Download className="size-3 mr-1" />
 				Bulk Export
 			</Button>
-			<Button
-				variant="ghost"
-				size="sm"
-				className="h-6 text-[10px] text-destructive hover:text-destructive"
-				onClick={deleteMutate}
-				disabled={deletePending}
+			<DeleteConfirm
+				entityName={`${count} autorun(s)`}
+				isPending={deletePending}
+				onConfirm={deleteMutate}
 			>
-				{deletePending ? (
-					<Loader2 className="size-3 mr-1 animate-spin" />
-				) : (
-					<Trash2 className="size-3 mr-1" />
-				)}
-				Bulk Delete
-			</Button>
+				<Button
+					variant="ghost"
+					size="sm"
+					className="h-6 text-[10px] text-destructive hover:text-destructive"
+					disabled={deletePending || count === 0}
+				>
+					{deletePending ? (
+						<Loader2 className="size-3 mr-1 animate-spin" />
+					) : (
+						<Trash2 className="size-3 mr-1" />
+					)}
+					Bulk Delete ({count})
+				</Button>
+			</DeleteConfirm>
 		</>
 	);
 }
