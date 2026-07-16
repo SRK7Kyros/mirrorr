@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { Key, Loader2, Shield, User, UserCheck, UserX } from "lucide-react";
+import { Key, Loader2, Shield, User, UserX } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -240,34 +240,6 @@ function AdminSection() {
 		queryFn: () => authApi.users(),
 	});
 
-	const { data: requests = [], isLoading: requestsLoading } = useQuery({
-		queryKey: ["registration-requests"],
-		queryFn: () => authApi.registrationRequests(),
-	});
-
-	const approveMutation = useMutation({
-		mutationFn: (id: number) => authApi.approveRequest(id),
-		onSuccess: () => {
-			queryClient.invalidateQueries({
-				queryKey: ["registration-requests"],
-			});
-			queryClient.invalidateQueries({ queryKey: ["admin-users"] });
-			toast.success("Request approved");
-		},
-		onError: (err: Error) => toast.error(`Failed to approve: ${err.message}`),
-	});
-
-	const denyMutation = useMutation({
-		mutationFn: (id: number) => authApi.denyRequest(id),
-		onSuccess: () => {
-			queryClient.invalidateQueries({
-				queryKey: ["registration-requests"],
-			});
-			toast.success("Request denied");
-		},
-		onError: (err: Error) => toast.error(`Failed to deny: ${err.message}`),
-	});
-
 	const deleteUserMutation = useMutation({
 		mutationFn: (username: string) => authApi.deleteUser(username),
 		onSuccess: () => {
@@ -278,87 +250,8 @@ function AdminSection() {
 			toast.error(`Failed to delete user: ${err.message}`),
 	});
 
-	const pendingRequests = requests.filter((r) => r.status === "pending");
-
 	return (
 		<div className="space-y-4">
-			<SectionCard
-				title={
-					<SectionTitle icon={Shield}>Registration Requests</SectionTitle>
-				}
-				actions={
-					pendingRequests.length > 0 ? (
-						<Badge variant="destructive" className="text-[9px] h-4 px-1.5">
-							{pendingRequests.length}
-						</Badge>
-					) : undefined
-				}
-			>
-				{requestsLoading ? (
-					<div className="flex items-center justify-center py-8">
-						<Loader2 className="size-5 animate-spin text-muted-foreground" />
-					</div>
-				) : pendingRequests.length === 0 ? (
-					<p className="text-xs text-muted-foreground/50 py-6 text-center">
-						No pending requests
-					</p>
-				) : (
-					<div className="divide-y">
-						{pendingRequests.map((req) => (
-							<div
-								key={req.id}
-								className="flex items-center justify-between px-4 py-2.5 text-xs"
-							>
-								<div>
-									<span className="font-medium">{req.username}</span>
-									<span className="text-muted-foreground ml-2">
-										{new Date(req.created_at).toLocaleDateString()}
-									</span>
-								</div>
-								<div className="flex gap-1.5">
-									<Button
-										size="sm"
-										variant="ghost"
-										className="h-7 text-xs text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950"
-										onClick={() => approveMutation.mutate(req.id)}
-										disabled={
-											approveMutation.isPending &&
-											approveMutation.variables === req.id
-										}
-									>
-										{approveMutation.isPending &&
-										approveMutation.variables === req.id ? (
-											<Loader2 className="size-3 mr-1 animate-spin" />
-										) : (
-											<UserCheck className="size-3 mr-1" />
-										)}
-										Approve
-									</Button>
-									<Button
-										size="sm"
-										variant="ghost"
-										className="h-7 text-xs text-destructive hover:bg-destructive/10"
-										onClick={() => denyMutation.mutate(req.id)}
-										disabled={
-											denyMutation.isPending &&
-											denyMutation.variables === req.id
-										}
-									>
-										{denyMutation.isPending &&
-										denyMutation.variables === req.id ? (
-											<Loader2 className="size-3 mr-1 animate-spin" />
-										) : (
-											<UserX className="size-3 mr-1" />
-										)}
-										Deny
-									</Button>
-								</div>
-							</div>
-						))}
-					</div>
-				)}
-			</SectionCard>
-
 			<SectionCard title="Users">
 				{usersLoading ? (
 					<div className="flex items-center justify-center py-8">
@@ -393,7 +286,10 @@ function AdminSection() {
 									</Badge>
 									<DeleteConfirm
 										entityName={`user "${u.username}"`}
-										isPending={deleteUserMutation.isPending && deleteUserMutation.variables === u.username}
+										isPending={
+											deleteUserMutation.isPending &&
+											deleteUserMutation.variables === u.username
+										}
 										onConfirm={() => deleteUserMutation.mutate(u.username)}
 									>
 										<Button

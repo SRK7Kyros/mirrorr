@@ -3,18 +3,32 @@
  * Thin fetch wrapper with automatic auth header injection.
  */
 
-import type {
-	Autorun,
-	Engine,
-	ImportBundle,
-	Notification,
-	Profile,
-	Recording,
-	Resolver,
-	Session,
-	TelemetrySystem,
-	ValidationReport,
+import {
+	type Autorun,
+	type ControlResponse,
+	type Engine,
+	type ImportBundle,
+	type Notification,
+	type Profile,
+	type Recording,
+	type Resolver,
+	type Session,
+	type ValidationReport,
+	authStatusSchema,
+	autorunSchema,
+	controlResponseSchema,
+	engineSchema,
+	importBundleSchema,
+	meSchema,
+	notificationSchema,
+	profileSchema,
+	recordingSchema,
+	resolverSchema,
+	sessionSchema,
+	userSchema,
+	validationReportSchema,
 } from "@/lib/schemas";
+import { z } from "zod";
 import {
 	clearStoredRefreshToken,
 	clearStoredToken,
@@ -41,6 +55,34 @@ export {
 };
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+
+// ── Paginated response helpers ──────────────────────────────────
+
+/**
+ * Create a Zod schema that validates a paginated API response.
+ * Wraps any entity schema into { items: schema[], next_cursor, has_more }.
+ */
+function paginatedSchema<T extends z.ZodType>(itemSchema: T) {
+	return z.object({
+		items: z.array(itemSchema),
+		next_cursor: z.number().nullable(),
+		has_more: z.boolean(),
+	});
+}
+
+/** Unwrap a paginated API response into just the items array. */
+async function fetchList<T>(
+	path: string,
+	itemSchema?: z.ZodType,
+): Promise<T[]> {
+	if (itemSchema) {
+		const res = await apiRequest(path, {
+			schema: paginatedSchema(itemSchema),
+		});
+		return (res as { items: T[] }).items;
+	}
+	return (await apiRequest<{ items: T[] }>(path)).items;
+}
 
 // ── Auth failure callback (set by auth-store to avoid circular dep) ─
 
@@ -72,6 +114,8 @@ type RequestOptions = {
 	headers?: Record<string, string>;
 	/** Skip auth headers (for bootstrap endpoints). */
 	noAuth?: boolean;
+	/** Zod schema to validate the response at runtime. */
+	schema?: z.ZodType;
 };
 
 async function _fetchJson<T = unknown>(
@@ -182,7 +226,30 @@ async function _fetchJson<T = unknown>(
 			return undefined as T;
 		}
 
-		const data = (await res.json()) as T;
+		const raw = await res.json();
+
+		// Runtime validation: if a Zod schema is provided, parse the response.
+		// This catches backend/frontend contract mismatches that `as T` silently ignores.
+		let data: T;
+		if (options.schema) {
+			const parsed = options.schema.safeParse(raw);
+			if (!parsed.success) {
+				const errMsg = `API response validation failed for ${path}: ${parsed.error.message}`;
+				useRequestLogStore.getState().updateEntry(logId, {
+					status: res.status,
+					statusText: errMsg,
+					duration,
+					ok: false,
+					error: errMsg,
+					responseBody: JSON.stringify(raw),
+				});
+				throw new ApiError(res.status, errMsg);
+			}
+			data = parsed.data as T;
+		} else {
+			data = raw as T;
+		}
+
 		useRequestLogStore.getState().updateEntry(logId, {
 			status: res.status,
 			statusText: res.statusText,
@@ -362,7 +429,10 @@ export function stopTokenRefresh() {
 
 export const authApi = {
 	status: () =>
-		apiRequest<{ has_users: boolean }>("/auth/status", { noAuth: true }),
+		apiRequest<{ has_users: boolean }>("/auth/status", {
+			noAuth: true,
+			schema: authStatusSchema,
+		}),
 
 	register: (data: {
 		username: string;
@@ -390,7 +460,7 @@ export const authApi = {
 				display_name: string;
 			};
 			client: { id: number; name: string } | null;
-		}>("/auth/me"),
+		}>("/auth/me", { schema: meSchema }),
 
 	changePassword: (data: { old_password: string; new_password: string }) =>
 		apiRequest<{ status: string }>("/auth/change-password", {
@@ -408,45 +478,20 @@ export const authApi = {
 				role: string;
 				display_name: string;
 			}>
-		>("/auth/users"),
+		>("/auth/users", { schema: z.array(userSchema) }),
 
 	deleteUser: (username: string) =>
 		apiRequest<{ status: string }>(`/auth/users/${username}`, {
 			method: "DELETE",
-		}),
-
-	registrationRequests: (status?: string) =>
-		apiRequest<
-			Array<{
-				id: number;
-				username: string;
-				display_name: string;
-				status: string;
-				created_at: string;
-				reviewed_at: string | null;
-				reviewed_by: string | null;
-			}>
-		>("/auth/registration-requests", {
-			params: status ? { status } : undefined,
-		}),
-
-	approveRequest: (id: number) =>
-		apiRequest<{
-			status: string;
-			user: { id: number; username: string; role: string };
-		}>(`/auth/registration-requests/${id}/approve`, { method: "POST" }),
-
-	denyRequest: (id: number) =>
-		apiRequest<{ status: string }>(`/auth/registration-requests/${id}/deny`, {
-			method: "POST",
 		}),
 };
 
 // ── Sessions API ───────────────────────────────────────────────────
 
 export const sessionsApi = {
-	list: () => apiRequest<Session[]>("/sessions/"),
-	get: (id: number) => apiRequest<Session>(`/sessions/${id}`),
+	list: () => fetchList<Session>("/sessions/", sessionSchema),
+	get: (id: number) =>
+		apiRequest<Session>(`/sessions/${id}`, { schema: sessionSchema }),
 	create: (data: {
 		profile_id?: number;
 		engine_id: number;
@@ -455,31 +500,43 @@ export const sessionsApi = {
 		retry_mode?: string;
 		retry_config?: Record<string, unknown>;
 		recording?: boolean;
-	}) => apiRequest<Session>("/sessions/", { method: "POST", body: data }),
+	}) =>
+		apiRequest<Session>("/sessions/", {
+			method: "POST",
+			body: data,
+			schema: sessionSchema,
+		}),
 	delete: (id: number) =>
 		apiRequest<void>(`/sessions/${id}`, { method: "DELETE" }),
 	stop: (id: number) =>
-		apiRequest<Session>(`/sessions/${id}/stop`, { method: "POST" }),
-	enableRecording: (id: number) =>
-		apiRequest<Session>(`/sessions/${id}/recording/enable`, {
+		apiRequest<ControlResponse>(`/sessions/${id}/stop`, {
 			method: "POST",
+			schema: controlResponseSchema,
+		}),
+	enableRecording: (id: number) =>
+		apiRequest<ControlResponse>(`/sessions/${id}/recording/enable`, {
+			method: "POST",
+			schema: controlResponseSchema,
 		}),
 	disableRecording: (id: number) =>
-		apiRequest<Session>(`/sessions/${id}/recording/disable`, {
+		apiRequest<ControlResponse>(`/sessions/${id}/recording/disable`, {
 			method: "POST",
+			schema: controlResponseSchema,
 		}),
 	saveAsProfile: (sessionId: number, name: string) =>
 		apiRequest<Profile>(`/sessions/${sessionId}/save-as-profile`, {
 			method: "POST",
 			body: { name },
+			schema: profileSchema,
 		}),
 };
 
 // ── Autoruns API ───────────────────────────────────────────────────
 
 export const autorunsApi = {
-	list: () => apiRequest<Autorun[]>("/autoruns/"),
-	get: (id: number) => apiRequest<Autorun>(`/autoruns/${id}`),
+	list: () => fetchList<Autorun>("/autoruns/", autorunSchema),
+	get: (id: number) =>
+		apiRequest<Autorun>(`/autoruns/${id}`, { schema: autorunSchema }),
 	create: (data: {
 		user_friendly_name: string;
 		snake_case_name: string;
@@ -492,23 +549,34 @@ export const autorunsApi = {
 		start_time: string;
 		end_time: string;
 		recording?: boolean;
-	}) => apiRequest<Autorun>("/autoruns/", { method: "POST", body: data }),
+	}) =>
+		apiRequest<Autorun>("/autoruns/", {
+			method: "POST",
+			body: data,
+			schema: autorunSchema,
+		}),
 	update: (id: number, data: Record<string, unknown>) =>
-		apiRequest<Autorun>(`/autoruns/${id}`, { method: "PUT", body: data }),
+		apiRequest<Autorun>(`/autoruns/${id}`, {
+			method: "PUT",
+			body: data,
+			schema: autorunSchema,
+		}),
 	delete: (id: number) =>
 		apiRequest<void>(`/autoruns/${id}`, { method: "DELETE" }),
 	saveAsProfile: (autorunId: number, name: string) =>
 		apiRequest<Profile>(`/autoruns/${autorunId}/save-as-profile`, {
 			method: "POST",
 			body: { name },
+			schema: profileSchema,
 		}),
 };
 
 // ── Recordings API ─────────────────────────────────────────────────
 
 export const recordingsApi = {
-	list: () => apiRequest<Recording[]>("/recordings/"),
-	get: (id: number) => apiRequest<Recording>(`/recordings/${id}`),
+	list: () => fetchList<Recording>("/recordings/", recordingSchema),
+	get: (id: number) =>
+		apiRequest<Recording>(`/recordings/${id}`, { schema: recordingSchema }),
 	delete: (id: number) =>
 		apiRequest<void>(`/recordings/${id}`, { method: "DELETE" }),
 };
@@ -516,8 +584,9 @@ export const recordingsApi = {
 // ── Profiles API ───────────────────────────────────────────────────
 
 export const profilesApi = {
-	list: () => apiRequest<Profile[]>("/profiles/"),
-	get: (id: number) => apiRequest<Profile>(`/profiles/${id}`),
+	list: () => fetchList<Profile>("/profiles/", profileSchema),
+	get: (id: number) =>
+		apiRequest<Profile>(`/profiles/${id}`, { schema: profileSchema }),
 	create: (data: {
 		name: string;
 		default_engine_id: number;
@@ -525,15 +594,28 @@ export const profilesApi = {
 		resolver_config?: Record<string, unknown>;
 		retry_mode?: string;
 		retry_config?: Record<string, unknown>;
-	}) => apiRequest<Profile>("/profiles/", { method: "POST", body: data }),
-	update: (id: number, data: Partial<{
-		name: string;
-		default_engine_id: number;
-		resolver_id: number;
-		resolver_config: Record<string, unknown>;
-		retry_mode: string;
-		retry_config: Record<string, unknown>;
-	}>) => apiRequest<Profile>(`/profiles/${id}`, { method: "PUT", body: data }),
+	}) =>
+		apiRequest<Profile>("/profiles/", {
+			method: "POST",
+			body: data,
+			schema: profileSchema,
+		}),
+	update: (
+		id: number,
+		data: Partial<{
+			name: string;
+			default_engine_id: number;
+			resolver_id: number;
+			resolver_config: Record<string, unknown>;
+			retry_mode: string;
+			retry_config: Record<string, unknown>;
+		}>,
+	) =>
+		apiRequest<Profile>(`/profiles/${id}`, {
+			method: "PUT",
+			body: data,
+			schema: profileSchema,
+		}),
 	delete: (id: number) =>
 		apiRequest<void>(`/profiles/${id}`, { method: "DELETE" }),
 };
@@ -541,10 +623,12 @@ export const profilesApi = {
 // ── Plugins API ────────────────────────────────────────────────────
 
 export const pluginsApi = {
-	engines: () => apiRequest<Engine[]>("/engines/"),
-	engine: (id: number) => apiRequest<Engine>(`/engines/${id}`),
-	resolvers: () => apiRequest<Resolver[]>("/resolvers/"),
-	resolver: (id: number) => apiRequest<Resolver>(`/resolvers/${id}`),
+	engines: () => fetchList<Engine>("/engines/", engineSchema),
+	engine: (id: number) =>
+		apiRequest<Engine>(`/engines/${id}`, { schema: engineSchema }),
+	resolvers: () => fetchList<Resolver>("/resolvers/", resolverSchema),
+	resolver: (id: number) =>
+		apiRequest<Resolver>(`/resolvers/${id}`, { schema: resolverSchema }),
 };
 
 // ── Import/Export API ─────────────────────────────────────────────
@@ -554,6 +638,7 @@ export const importExportApi = {
 		apiRequest<ValidationReport>("/import-export/validate", {
 			method: "POST",
 			body: bundle,
+			schema: validationReportSchema,
 		}),
 	apply: (
 		bundle: Record<string, unknown>,
@@ -568,25 +653,22 @@ export const importExportApi = {
 			body: { bundle, plugin_map: pluginMap },
 		}),
 	exportProfile: (id: number) =>
-		apiRequest<ImportBundle>(`/import-export/profiles/${id}/export`),
+		apiRequest<ImportBundle>(`/import-export/profiles/${id}/export`, {
+			schema: importBundleSchema,
+		}),
 	exportAutorun: (id: number) =>
-		apiRequest<ImportBundle>(`/import-export/autoruns/${id}/export`),
+		apiRequest<ImportBundle>(`/import-export/autoruns/${id}/export`, {
+			schema: importBundleSchema,
+		}),
 };
 
 // ── Notifications API ──────────────────────────────────────────────
 
 export const notificationsApi = {
-	list: () => apiRequest<Notification[]>("/notifications/"),
-};
-
-// ── Telemetry API ─────────────────────────────────────────────────
-
-export const telemetryApi = {
-	system: () => apiRequest<TelemetrySystem>("/telemetry/system"),
-	sessionSamples: (sessionId: number) =>
-		apiRequest<import("@/lib/schemas").TelemetrySample[]>(
-			`/telemetry/sessions/${sessionId}/samples`,
-		),
+	list: () =>
+		apiRequest<Notification[]>("/notifications/", {
+			schema: z.array(notificationSchema),
+		}),
 };
 
 // ── WebSocket URLs ─────────────────────────────────────────────────
