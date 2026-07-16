@@ -31,17 +31,6 @@ from src.storage.models import Session, Autorun, Recording, Profile, Engine, Res
 from src.storage.enums import SessionStatus, ResourceType
 from src.storage import crud
 
-event_map: dict[type, tuple[type, type, type]] = {
-    Session: (MirrorrEvent.SESSION_CREATED, MirrorrEvent.SESSION_UPDATED, MirrorrEvent.SESSION_DELETED),
-    Autorun: (MirrorrEvent.AUTORUN_CREATED, MirrorrEvent.AUTORUN_UPDATED, MirrorrEvent.AUTORUN_DELETED),
-    Recording: (MirrorrEvent.RECORDING_CREATED, MirrorrEvent.RECORDING_UPDATED, MirrorrEvent.RECORDING_DELETED),
-    Profile: (MirrorrEvent.PROFILE_CREATED, MirrorrEvent.PROFILE_UPDATED, MirrorrEvent.PROFILE_DELETED),
-}
-
-protected_fields: dict[type, list[str]] = {
-    Session: ["status", "recording", "retry_attempts", "started_at", "ended_at"],
-}
-
 crud_routers = APIRouter()
 
 

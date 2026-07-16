@@ -64,8 +64,10 @@ def setup_cors(app: FastAPI, allowed_origins: list[str] | None = None) -> None:
     )
 
 
-# Development-only CORS defaults. Production CORS is configured
-# in core._boot() via setup_cors(API, settings.cors_allowed_origins).
+# CORS is configured at boot time in core.py via setup_cors(app, origins).
+# This is a development-only default; production must set CORS_ALLOWED_ORIGINS.
+# NOTE: If _boot() doesn't configure CORS, this provides localhost defaults.
+# In production, always set CORS_ALLOWED_ORIGINS in your .env.
 setup_cors(API)
 
 API.include_router(crud_routers)

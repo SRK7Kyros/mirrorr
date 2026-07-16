@@ -113,8 +113,3 @@ async def delete(db: AsyncSession, model: type[T], id: int) -> None:
     except Exception as e:
         await db.rollback()
         raise
-
-async def get_profile_by_name(session: AsyncSession, name: str) -> Profile | None:
-    statement = select(Profile).where(Profile.name == name)
-    result = await session.exec(statement)
-    return result.first()
