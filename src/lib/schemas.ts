@@ -49,20 +49,6 @@ export const meSchema = z.object({
 	client: z.object({ id: z.number(), name: z.string() }).nullable(),
 });
 
-// ── Registration Request ───────────────────────────────────────────
-
-export const registrationRequestSchema = z.object({
-	id: z.number(),
-	username: z.string(),
-	display_name: z.string(),
-	status: z.enum(["pending", "approved", "denied"]),
-	created_at: z.string(),
-	reviewed_at: z.string().nullable(),
-	reviewed_by: z.string().nullable(),
-});
-
-export type RegistrationRequest = z.infer<typeof registrationRequestSchema>;
-
 // ── Engine ─────────────────────────────────────────────────────────
 
 export const engineCapabilitiesSchema = z.object({
@@ -182,7 +168,18 @@ export const autorunSchema = z.object({
 	resolver_config: z.record(z.string(), z.any()),
 	retry_mode: z.string(),
 	retry_config: z.record(z.string(), z.any()),
-	status: z.enum(["scheduled", "active", "recording", "terminating", "remuxing", "finalizing", "completed", "failed"]).default("scheduled"),
+	status: z
+		.enum([
+			"scheduled",
+			"active",
+			"recording",
+			"terminating",
+			"remuxing",
+			"finalizing",
+			"completed",
+			"failed",
+		])
+		.default("scheduled"),
 	start_time: z.string(),
 	end_time: z.string(),
 	recording: z.boolean(),
@@ -239,27 +236,14 @@ export const notificationSchema = z.object({
 
 export type Notification = z.infer<typeof notificationSchema>;
 
-// ── Telemetry ─────────────────────────────────────────────────────
+// ── Session Control ────────────────────────────────────────────────
 
-export const telemetrySystemSchema = z.object({
-	total_cpu_percent: z.number(),
-	total_memory_bytes: z.number(),
-	total_processes: z.number(),
-	active_sessions: z.number(),
+export const controlResponseSchema = z.object({
+	ok: z.literal(true),
+	command: z.string(),
 });
 
-export type TelemetrySystem = z.infer<typeof telemetrySystemSchema>;
-
-export const telemetrySampleSchema = z.object({
-	id: z.number(),
-	session_id: z.number(),
-	timestamp: z.string(),
-	cpu_percent: z.number(),
-	memory_bytes: z.number(),
-	process_count: z.number(),
-});
-
-export type TelemetrySample = z.infer<typeof telemetrySampleSchema>;
+export type ControlResponse = z.infer<typeof controlResponseSchema>;
 
 // ── Import/Export ─────────────────────────────────────────────────
 

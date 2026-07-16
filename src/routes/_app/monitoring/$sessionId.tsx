@@ -10,10 +10,9 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { ArrowLeft } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
-import { TelemetryCharts } from "@/components/telemetry-charts";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { sessionsApi, telemetryApi } from "@/lib/api";
+import { sessionsApi } from "@/lib/api";
 import type { Session } from "@/lib/schemas";
 import { AREAS, MONITORING_SESSION } from "@/lib/layouts";
 import { formatDuration } from "@/lib/utils";
@@ -49,14 +48,6 @@ function SessionTelemetryPage() {
 		queryKey: ["sessions", sessionIdNum],
 		queryFn: () => sessionsApi.get(sessionIdNum),
 	});
-
-	const { data: samples = [], isLoading: samplesLoading } = useQuery({
-		queryKey: ["telemetry-session", sessionIdNum],
-		queryFn: () => telemetryApi.sessionSamples(sessionIdNum),
-		refetchInterval: 5000,
-	});
-
-	const isLoading = sessionLoading || samplesLoading;
 
 	if (sessionLoading) {
 		return (
@@ -108,7 +99,7 @@ function SessionTelemetryPage() {
 							endedAt={sessionData.ended_at}
 						/>
 						)}
-						<span>{samples.length} samples</span>
+						<span>{sessionData.session_urls?.length ?? 0} URLs</span>
 					</div>
 				</div>
 			</div>
@@ -117,24 +108,17 @@ function SessionTelemetryPage() {
 				className="flex-1 min-h-0 overflow-y-auto px-5 py-4"
 				style={{ gridArea: AREAS.charts }}
 			>
-				{isLoading ? (
+				{sessionLoading ? (
 					<div className="flex items-center justify-center h-full">
 						<Spinner className="size-5 text-muted-foreground" />
 					</div>
-				) : (samples as unknown[]).length === 0 ? (
+				) : (
 					<div className="flex flex-col items-center justify-center h-full text-xs text-muted-foreground gap-2">
-						<p>No telemetry data for this session</p>
+						<p>Session detail</p>
 						<p className="text-muted-foreground/60">
-							Telemetry is recorded for active and recording sessions
+							Telemetry coming soon
 						</p>
 					</div>
-				) : (
-					<TelemetryCharts
-						samples={
-							samples as unknown as import("@/lib/schemas").TelemetrySample[]
-						}
-						className="space-y-4"
-					/>
 				)}
 			</div>
 		</div>
