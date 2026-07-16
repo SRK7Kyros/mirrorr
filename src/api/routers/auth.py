@@ -329,14 +329,12 @@ async def refresh(
                     .where(RefreshTokenRecord.user_id == record.user_id, RefreshTokenRecord.revoked == False)  # noqa: E712
                     .values(revoked=True)
                 )
-                await db.commit()
             raise HTTPException(status_code=401, detail="Refresh token already used — all sessions revoked")
 
         # Revoke the old token
         if record:
             record.revoked = True
             db.add(record)
-            await db.commit()
 
     # Resolve user
     stmt = select(User).where(User.username == payload["username"])
@@ -359,7 +357,9 @@ async def refresh(
             expires_at=exp_dt,
         )
         db.add(record)
-        await db.commit()
+
+    # Single atomic commit for revoke + create
+    await db.commit()
 
     # Set new httpOnly cookies
     _set_auth_cookies(
@@ -431,14 +431,13 @@ async def delete_user(
         if admin_count <= 1:
             raise HTTPException(status_code=400, detail="Cannot delete the last admin user")
 
-    # Clean up related records
+    # Clean up related records — all in a single atomic commit
     from sqlmodel import delete as sql_delete
     try:
         await db.exec(sql_delete(ClientUser).where(sa_col(ClientUser.user_id) == user.id))
         await db.exec(sql_delete(EventSubscription).where(sa_col(EventSubscription.user_id) == user.id))
         await db.exec(sql_delete(Notification).where(sa_col(Notification.user_id) == user.id))
         await db.exec(sql_delete(RefreshTokenRecord).where(sa_col(RefreshTokenRecord.user_id) == user.id))
-        await db.commit()
         await crud.delete(db, User, user.id)
     except Exception:
         await db.rollback()
@@ -464,18 +463,14 @@ async def create_client(
     auth: AuthState = Depends(get_auth),
 ):
     """Create a client. Public for first client (bootstrapping), then admin only."""
-    # Allow unauthenticated creation if no clients exist yet,
-    # or if the requesting client is not authenticated (bootstrap phase)
+    # Allow unauthenticated creation if no clients exist yet (bootstrap phase)
     if not auth.client:
-        # No API key provided — check if we can bootstrap
         existing = await crud.get_all(db, Client)
         if existing:
             raise HTTPException(status_code=403, detail="Admin access required")
     elif not auth.is_admin:
-        # Has API key but not admin — check if any clients exist
-        existing = await crud.get_all(db, Client)
-        if len(existing) > 1:  # more than just the requesting client
-            raise HTTPException(status_code=403, detail="Admin access required")
+        # Has API key but not admin — only admin can create additional clients
+        raise HTTPException(status_code=403, detail="Admin access required")
 
     raw_key = secrets.token_urlsafe(32)
     client_data = {"name": item.name, "api_key_hash": hash_api_key(raw_key)}

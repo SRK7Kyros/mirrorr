@@ -234,7 +234,7 @@ class NatsServerManager:
         logger.info(f"Launched NATS server to start on port {self.port}...")
         max_retries = 10
         for i in range(max_retries):
-            time.sleep(0.5)
+            await asyncio.sleep(0.5)
             if is_port_open(self.port):
                 logger.info("NATS server is up and accepting connections!")
                 return

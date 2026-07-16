@@ -116,6 +116,7 @@ def _directory_listing(path: str, full_path) -> str:
         rows += f'<tr><td><a href="{safe_href}">{safe_name}</a></td><td>{size}</td></tr>\n'
 
     safe_path = html.escape(path)
+    parent_href = html.escape(path.rstrip("/") + "/../", quote=True)
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Index of {safe_path}</title>
 <style>
@@ -124,7 +125,7 @@ a {{ color: #7cc5ff; text-decoration: none; }} a:hover {{ text-decoration: under
 td {{ padding: 2px 12px 2px 0; }}
 </style></head><body>
 <h2>Index of {safe_path}</h2>
-<table><tr><td><a href="{path.rstrip("/")}/../">..</a></td><td></td></tr>
+<table><tr><td><a href="{parent_href}">..</a></td><td></td></tr>
 {rows}</table>
 </body></html>"""
 
