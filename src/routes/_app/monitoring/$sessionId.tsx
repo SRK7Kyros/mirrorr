@@ -81,13 +81,16 @@ function SessionTelemetryPage() {
 						<StatusBadge status={sessionData.status as string} />
 					</div>
 					<div className="flex items-center gap-3 text-xs text-muted-foreground">
-						{sessionData.duration_seconds != null &&
-							(sessionData.duration_seconds as number) > 0 && (
-								<span>
-									Duration:{" "}
-									{formatDuration(sessionData.duration_seconds as number)}
-								</span>
-							)}
+						{sessionData.started_at && (
+							<span>
+								Duration:{" "}
+								{formatDuration(
+									(sessionData.ended_at
+										? new Date(sessionData.ended_at).getTime() - new Date(sessionData.started_at).getTime()
+										: Date.now() - new Date(sessionData.started_at).getTime()) / 1000
+								)}
+							</span>
+						)}
 						<span>{(samples as unknown[]).length} samples</span>
 					</div>
 				</div>

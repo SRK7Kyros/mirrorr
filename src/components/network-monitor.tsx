@@ -414,9 +414,9 @@ function RequestRow({
 					className="py-1.5 flex items-center justify-center gap-0.5"
 					style={{ gridArea: AREAS.actions_net }}
 				>
-					<button
-						type="button"
-						className="p-0.5 rounded hover:bg-muted/50 transition-colors"
+					<Button
+						variant="ghost"
+						size="icon-xs"
 						title="Copy all as JSON"
 						onClick={(e) => {
 							e.stopPropagation();
@@ -440,7 +440,7 @@ function RequestRow({
 						) : (
 							<Copy className="size-3 text-muted-ghost" />
 						)}
-					</button>
+					</Button>
 					{expanded ? (
 						<ChevronDown className="size-3 text-muted-ghost" />
 					) : (
@@ -515,9 +515,9 @@ function DetailCard({
 					<span className="text-[9px] text-muted-subtle uppercase tracking-wider flex-1">
 						{label}
 					</span>
-					<button
-						type="button"
-						className="p-0.5 rounded hover:bg-muted transition-colors"
+					<Button
+						variant="ghost"
+						size="icon-xs"
 						onClick={(e) => {
 							e.stopPropagation();
 							setExpanded(true);
@@ -525,10 +525,10 @@ function DetailCard({
 						title="Expand"
 					>
 						<Maximize2 className="size-3 text-muted-faint" />
-					</button>
-					<button
-						type="button"
-						className="p-0.5 rounded hover:bg-muted transition-colors"
+					</Button>
+					<Button
+						variant="ghost"
+						size="icon-xs"
 						onClick={(e) => {
 							e.stopPropagation();
 							copy(value);
@@ -540,7 +540,7 @@ function DetailCard({
 						) : (
 							<Copy className="size-3 text-muted-faint" />
 						)}
-					</button>
+					</Button>
 				</div>
 				{/* Card content */}
 				<div
@@ -577,9 +577,9 @@ function DetailCard({
 							<div className="flex items-center justify-between px-4 py-2.5 border-b shrink-0">
 								<h3 className="text-xs font-semibold">{label}</h3>
 								<div className="flex items-center gap-2">
-									<button
-										type="button"
-										className="p-1 rounded hover:bg-muted transition-colors"
+									<Button
+										variant="ghost"
+										size="icon-xs"
 										onClick={(e) => {
 											e.stopPropagation();
 											copy(value);
@@ -591,14 +591,14 @@ function DetailCard({
 										) : (
 											<Copy className="size-3.5 text-muted-foreground" />
 										)}
-									</button>
-									<button
-										type="button"
-										className="text-xs text-muted-foreground hover:text-foreground"
+									</Button>
+									<Button
+										variant="ghost"
+										size="sm"
 										onClick={() => setExpanded(false)}
 									>
 										Close
-									</button>
+									</Button>
 								</div>
 							</div>
 							<ScrollArea className="flex-1 min-h-0">

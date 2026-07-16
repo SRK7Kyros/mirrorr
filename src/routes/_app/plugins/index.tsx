@@ -129,10 +129,11 @@ function TabBtn({
 	children: React.ReactNode;
 }) {
 	return (
-		<button
-			type="button"
+		<Button
+			variant="ghost"
+			size="sm"
 			className={cn(
-				"flex-1 flex items-center justify-center gap-1 px-1 py-2 text-[12px] font-medium border-b-2 -mb-px transition-colors",
+				"flex-1 flex items-center justify-center gap-1 px-1 py-2 text-[12px] font-medium border-b-2 -mb-px transition-colors h-auto rounded-none",
 				active
 					? "border-foreground text-foreground"
 					: "border-transparent text-muted-foreground hover:text-foreground",
@@ -140,7 +141,7 @@ function TabBtn({
 			onClick={onClick}
 		>
 			{children}
-		</button>
+		</Button>
 	);
 }
 

@@ -12,14 +12,12 @@ import { Trash2, Loader2 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 
 interface InlineDeleteButtonProps {
-	id: number;
 	isPending: boolean;
 	isActive: boolean;
 	onClick: (e: React.MouseEvent) => void;
 }
 
 export function InlineDeleteButton({
-	id: _unused_id,
 	isPending,
 	isActive,
 	onClick,

@@ -42,7 +42,8 @@ export const useRequestLogStore = create<RequestLogState>()((set, get) => ({
 		const id = get().nextId;
 		set((s) => ({
 			entries: [{ ...entry, id }, ...s.entries].slice(0, MAX_ENTRIES),
-			nextId: id + 1,
+			// Reset counter periodically to avoid unbounded growth
+			nextId: id % 1_000_000 + 1,
 		}));
 		return id;
 	},

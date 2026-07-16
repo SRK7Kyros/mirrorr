@@ -8,7 +8,7 @@ import { useMultiSelect } from "@/hooks/use-multi-select";
 import { apiRequest } from "@/lib/api";
 
 export function useBulkDelete(
-	_deleteFn: (id: number) => Promise<void>,
+	deleteFn: (id: number) => Promise<void>,
 	entityName: string,
 ) {
 	const multi = useMultiSelect();
@@ -16,7 +16,7 @@ export function useBulkDelete(
 	const mutation = useMutation({
 		mutationFn: async (ids: number[]) => {
 			const results = await Promise.allSettled(
-				ids.map((id) => apiRequest(`/sessions/${id}`, { method: "DELETE" })),
+				ids.map((id) => deleteFn(id)),
 			);
 			const failures = results.filter((r) => r.status === "rejected");
 			if (failures.length > 0) {

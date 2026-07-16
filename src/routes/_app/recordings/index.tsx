@@ -1,10 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { recordingsApi } from "@/lib/api";
 import type { Recording } from "@/lib/schemas";
 import { Button } from "@/components/ui/button";
 import { Trash2, Film, Clock, HardDrive, Loader2 } from "lucide-react";
 import { InfoGrid } from "@/components/info-grid";
+import { InlineDeleteButton } from "@/components/inline-delete-button";
+import { DeleteConfirm } from "@/components/delete-confirm";
 import {
     SidebarLayout,
     SidebarEntry,
@@ -28,6 +30,7 @@ export const Route = createFileRoute("/_app/recordings/")({
 });
 
 function RecordingsPage() {
+    const queryClient = useQueryClient();
     const [selectedId, setSelectedId] = useState<number | null>(null);
 
     const { data: recordings = [], isLoading } = useRecordings();
@@ -35,6 +38,7 @@ function RecordingsPage() {
     const deleteMutation = useMutation({
         mutationFn: (id: number) => recordingsApi.delete(id),
         onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["recordings"] });
             toast.success("Recording deleted");
         },
         onError: (err: Error) =>
@@ -65,11 +69,13 @@ function RecordingsPage() {
                                     <div className="text-[13px] font-medium truncate">
                                         {rec.user_friendly_name}
                                     </div>
-                                    <InlineDeleteButton
-                                        id={rec.id}
-                                        deleteMutation={deleteMutation}
-                                        selectedId={selectedId}
-                                        setSelectedId={setSelectedId}
+                                    <DeleteConfirm
+                                        entityName="Recording"
+                                        isPending={deleteMutation.isPending && deleteMutation.variables === rec.id}
+                                        onConfirm={() => {
+                                            deleteMutation.mutate(rec.id);
+                                            if (selectedId === rec.id) setSelectedId(null);
+                                        }}
                                     />
                                 </div>
                                 <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground/60">
@@ -102,41 +108,6 @@ function RecordingsPage() {
                 <EmptyDetail icon={Film} text="Select a recording" />
             )}
         </ResizableSidebar>
-    );
-}
-
-/** Per-row delete button — always visible, part of normal sidebar behaviour */
-function InlineDeleteButton({
-    id,
-    deleteMutation,
-    selectedId,
-    setSelectedId,
-}: {
-    id: number;
-    deleteMutation: any;
-    selectedId: number | null;
-    setSelectedId: (id: null) => void;
-}) {
-    return (
-        <Button
-            variant="ghost"
-            size="icon-xs"
-            className="ml-auto shrink-0 opacity-0 group-hover:opacity-100 hover:text-destructive"
-            onClick={(e) => {
-                e.stopPropagation();
-                deleteMutation.mutate(id);
-                if (selectedId === id) setSelectedId(null);
-            }}
-            disabled={
-                deleteMutation.isPending && deleteMutation.variables === id
-            }
-        >
-            {deleteMutation.isPending && deleteMutation.variables === id ? (
-                <Loader2 className="size-3 animate-spin" />
-            ) : (
-                <Trash2 className="size-3" />
-            )}
-        </Button>
     );
 }
 
@@ -183,30 +154,25 @@ function RecordingDetail({
                     onBack={onBack}
                     title={recording.user_friendly_name}
                     actions={
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 text-xs text-destructive"
-                            onClick={onDelete}
-                            onKeyDown={(e) => {
-                                if (e.key === "Delete" || e.key === "Backspace") {
-                                    e.preventDefault();
-                                    onDelete();
-                                }
-                            }}
-                            onContextMenu={(e) => {
-                                e.preventDefault();
-                                onDelete();
-                            }}
-                            disabled={deleting}
+                        <DeleteConfirm
+                            entityName="Recording"
+                            isPending={deleting}
+                            onConfirm={onDelete}
                         >
-                            {deleting ? (
-                                <Loader2 className="size-3 mr-1 animate-spin" />
-                            ) : (
-                                <Trash2 className="size-3 mr-1" />
-                            )}
-                            Delete
-                        </Button>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 text-xs text-destructive"
+                                disabled={deleting}
+                            >
+                                {deleting ? (
+                                    <Loader2 className="size-3 mr-1 animate-spin" />
+                                ) : (
+                                    <Trash2 className="size-3 mr-1" />
+                                )}
+                                Delete
+                            </Button>
+                        </DeleteConfirm>
                     }
                 />
             }

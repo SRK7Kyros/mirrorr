@@ -1,5 +1,5 @@
 import { type QueryKey, useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { useWsConnection } from "@/hooks/use-ws-connection";
 import { getWsEventsUrl } from "@/lib/api";
 import type { WsEventType } from "@/lib/ws-events";
@@ -26,6 +26,9 @@ interface WsEvent {
  * - Creates / updates → replace or append in list cache (zero round-trip)
  * - Deletes → remove from list cache by ID (zero round-trip)
  * - Missing data → invalidate as fallback (enrichment failure)
+ *
+ * Uses setQueryData with updater functions to avoid race conditions
+ * when multiple events arrive in quick succession for the same query key.
  */
 function patchQueryCache(
 	queryClient: ReturnType<typeof useQueryClient>,
@@ -74,6 +77,47 @@ function patchQueryCache(
 	queryClient.invalidateQueries({ queryKey });
 }
 
+// ── Batch processor ──────────────────────────────────────────────
+
+/**
+ * Batches WS events to avoid race conditions when multiple events
+ * arrive in quick succession. Processes events in a microtask to
+ * coalesce rapid updates to the same query key.
+ */
+class WsEventBatcher {
+	private pending = new Map<string, WsEvent>();
+	private flushScheduled = false;
+	private queryClient: ReturnType<typeof useQueryClient>;
+
+	constructor(queryClient: ReturnType<typeof useQueryClient>) {
+		this.queryClient = queryClient;
+	}
+
+	add(event: WsEvent) {
+		const key = `${event.event}:${event.id ?? "none"}`;
+		// Keep only the latest event for each entity (most recent wins)
+		this.pending.set(key, event);
+		this.scheduleFlush();
+	}
+
+	private scheduleFlush() {
+		if (this.flushScheduled) return;
+		this.flushScheduled = true;
+		// Use microtask to coalesce rapid updates
+		queueMicrotask(() => this.flush());
+	}
+
+	private flush() {
+		this.flushScheduled = false;
+		const events = Array.from(this.pending.values());
+		this.pending.clear();
+
+		for (const event of events) {
+			patchQueryCache(this.queryClient, event);
+		}
+	}
+}
+
 /**
  * Connects to the /ws/events WebSocket and patches TanStack Query caches
  * with entity data received over the wire — no round-trip needed.
@@ -83,12 +127,18 @@ function patchQueryCache(
 export function useWsEvents() {
 	const queryClient = useQueryClient();
 	const token = useAuthStore((s) => s.token);
+	const batcherRef = useRef<WsEventBatcher | null>(null);
+
+	// Initialize batcher once
+	if (!batcherRef.current) {
+		batcherRef.current = new WsEventBatcher(queryClient);
+	}
 
 	const onMessage = useCallback(
 		(ev: MessageEvent) => {
 			try {
 				const data = JSON.parse(ev.data) as WsEvent;
-				patchQueryCache(queryClient, data);
+				batcherRef.current!.add(data);
 				useRequestLogStore.getState().addEntry({
 					type: "ws-event",
 					timestamp: Date.now(),

@@ -52,7 +52,8 @@ export function useWsConnection({
 					return;
 				}
 				if (wsRef.current === ws && useAuthStore.getState().isAuthenticated) {
-					const delay = Math.min(3000 * 2 ** reconnectAttempts.current, 30000);
+					// Start with 1s delay, then exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s cap
+					const delay = Math.min(1000 * 2 ** reconnectAttempts.current, 30000);
 					reconnectAttempts.current++;
 					reconnectTimeout.current = setTimeout(connect, delay);
 				}
@@ -61,7 +62,7 @@ export function useWsConnection({
 			ws.onerror = () => ws.close();
 		} catch {
 			if (useAuthStore.getState().isAuthenticated) {
-				const delay = Math.min(3000 * 2 ** reconnectAttempts.current, 30000);
+				const delay = Math.min(1000 * 2 ** reconnectAttempts.current, 30000);
 				reconnectAttempts.current++;
 				reconnectTimeout.current = setTimeout(connect, delay);
 			}
