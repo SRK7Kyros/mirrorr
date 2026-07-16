@@ -243,22 +243,27 @@ function LiveCountup({
 }
 
 function BulkDelete() {
-	const { mutate, isPending } = useBulkDelete(sessionsApi.delete, "Sessions");
+	const { mutate, isPending, selectedIds } = useBulkDelete(sessionsApi.delete, "Sessions");
 	return (
-		<Button
-			variant="ghost"
-			size="sm"
-			className="h-6 text-[10px] text-destructive hover:text-destructive"
-			onClick={mutate}
-			disabled={isPending}
+		<DeleteConfirm
+			entityName={`${selectedIds.length} session(s)`}
+			isPending={isPending}
+			onConfirm={mutate}
 		>
-			{isPending ? (
-				<Loader2 className="size-3 mr-1 animate-spin" />
-			) : (
-				<Trash2 className="size-3 mr-1" />
-			)}
-			Bulk Delete
-		</Button>
+			<Button
+				variant="ghost"
+				size="sm"
+				className="h-6 text-[10px] text-destructive hover:text-destructive"
+				disabled={isPending || selectedIds.length === 0}
+			>
+				{isPending ? (
+					<Loader2 className="size-3 mr-1 animate-spin" />
+				) : (
+					<Trash2 className="size-3 mr-1" />
+				)}
+				Bulk Delete ({selectedIds.length})
+			</Button>
+		</DeleteConfirm>
 	);
 }
 
