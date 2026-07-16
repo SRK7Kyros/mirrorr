@@ -518,10 +518,22 @@ export const recordingsApi = {
 export const profilesApi = {
 	list: () => apiRequest<Profile[]>("/profiles/"),
 	get: (id: number) => apiRequest<Profile>(`/profiles/${id}`),
-	create: (data: Record<string, unknown>) =>
-		apiRequest<Profile>("/profiles/", { method: "POST", body: data }),
-	update: (id: number, data: Record<string, unknown>) =>
-		apiRequest<Profile>(`/profiles/${id}`, { method: "PUT", body: data }),
+	create: (data: {
+		name: string;
+		default_engine_id: number;
+		resolver_id: number;
+		resolver_config?: Record<string, unknown>;
+		retry_mode?: string;
+		retry_config?: Record<string, unknown>;
+	}) => apiRequest<Profile>("/profiles/", { method: "POST", body: data }),
+	update: (id: number, data: Partial<{
+		name: string;
+		default_engine_id: number;
+		resolver_id: number;
+		resolver_config: Record<string, unknown>;
+		retry_mode: string;
+		retry_config: Record<string, unknown>;
+	}>) => apiRequest<Profile>(`/profiles/${id}`, { method: "PUT", body: data }),
 	delete: (id: number) =>
 		apiRequest<void>(`/profiles/${id}`, { method: "DELETE" }),
 };

@@ -185,6 +185,8 @@ interface SidebarEntryProps {
 	selected?: boolean;
 	/** Manual click handler */
 	onClick?: (e: React.MouseEvent) => void;
+	/** Accessible label for screen readers */
+	"aria-label"?: string;
 	children: React.ReactNode;
 	className?: string;
 }
@@ -193,6 +195,7 @@ export function SidebarEntry({
 	id,
 	selected: manualSelected,
 	onClick: manualOnClick,
+	"aria-label": ariaLabel,
 	children,
 	className,
 }: SidebarEntryProps) {
@@ -236,6 +239,7 @@ export function SidebarEntry({
 			}}
 			role="button"
 			aria-selected={isSelected}
+			aria-label={ariaLabel}
 			tabIndex={0}
 		>
 			{children}

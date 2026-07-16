@@ -99,5 +99,6 @@ export function downloadJson(filename: string, data: unknown) {
 	a.href = url;
 	a.download = filename;
 	a.click();
-	URL.revokeObjectURL(url);
+	// Defer revocation to avoid race with browser download start
+	setTimeout(() => URL.revokeObjectURL(url), 100);
 }

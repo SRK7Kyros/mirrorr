@@ -22,6 +22,7 @@ import { AREAS, PROFILE_LAYOUT } from "@/lib/layouts";
 import { changePasswordSchema } from "@/lib/schemas";
 import { cn, getUserInitial } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth-store";
+import { DeleteConfirm } from "@/components/delete-confirm";
 
 export const Route = createFileRoute("/_app/profile")({
 	component: ProfilePage,
@@ -283,10 +284,7 @@ function AdminSection() {
 		<div className="space-y-4">
 			<SectionCard
 				title={
-					<h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-						<Shield className="size-3" />
-						Registration Requests
-					</h3>
+					<SectionTitle icon={Shield}>Registration Requests</SectionTitle>
 				}
 				actions={
 					pendingRequests.length > 0 ? (
@@ -393,22 +391,27 @@ function AdminSection() {
 									>
 										{u.role}
 									</Badge>
-									<Button
-										size="icon-xs"
-										variant="ghost"
-										onClick={() => deleteUserMutation.mutate(u.username)}
-										disabled={
-											deleteUserMutation.isPending &&
-											deleteUserMutation.variables === u.username
-										}
+									<DeleteConfirm
+										entityName={`user "${u.username}"`}
+										isPending={deleteUserMutation.isPending && deleteUserMutation.variables === u.username}
+										onConfirm={() => deleteUserMutation.mutate(u.username)}
 									>
-										{deleteUserMutation.isPending &&
-										deleteUserMutation.variables === u.username ? (
-											<Loader2 className="size-3 animate-spin" />
-										) : (
-											<UserX className="size-3 text-muted-foreground" />
-										)}
-									</Button>
+										<Button
+											size="icon-xs"
+											variant="ghost"
+											disabled={
+												deleteUserMutation.isPending &&
+												deleteUserMutation.variables === u.username
+											}
+										>
+											{deleteUserMutation.isPending &&
+											deleteUserMutation.variables === u.username ? (
+												<Loader2 className="size-3 animate-spin" />
+											) : (
+												<UserX className="size-3 text-muted-foreground" />
+											)}
+										</Button>
+									</DeleteConfirm>
 								</div>
 							</div>
 						))}

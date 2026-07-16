@@ -357,12 +357,13 @@ function AppLayout() {
 				<>
 					{/* biome-ignore lint/a11y/noStaticElementInteractions: backdrop overlay dismisses mobile nav */}
 					<div
+						role="button"
+						tabIndex={-1}
+						aria-label="Close navigation menu"
 						className="fixed inset-0 top-14 z-40 bg-black/50 md:hidden"
 						onClick={() => setMobileOpen(false)}
 						onKeyDown={(e) => {
-							if (e.key === "Enter" || e.key === " ") {
-								setMobileOpen(false);
-							}
+							if (e.key === "Escape") setMobileOpen(false);
 						}}
 					/>
 					<nav className="fixed top-14 inset-x-0 z-50 bg-background border-b p-3 md:hidden">
