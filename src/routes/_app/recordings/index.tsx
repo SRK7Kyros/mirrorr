@@ -5,7 +5,6 @@ import type { Recording } from "@/lib/schemas";
 import { Button } from "@/components/ui/button";
 import { Trash2, Film, Clock, HardDrive, Loader2 } from "lucide-react";
 import { InfoGrid } from "@/components/info-grid";
-import { InlineDeleteButton } from "@/components/inline-delete-button";
 import { DeleteConfirm } from "@/components/delete-confirm";
 import {
     SidebarLayout,

@@ -13,6 +13,7 @@ import { TelemetryCharts } from "@/components/telemetry-charts";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { sessionsApi, telemetryApi } from "@/lib/api";
+import type { Session } from "@/lib/schemas";
 import { AREAS, MONITORING_SESSION } from "@/lib/layouts";
 import { formatDuration } from "@/lib/utils";
 
@@ -59,7 +60,7 @@ function SessionTelemetryPage() {
 		);
 	}
 
-	const sessionData = session as Record<string, unknown>;
+	const sessionData = session as Session;
 
 	return (
 		<div className="h-full grid" style={MONITORING_SESSION.style}>
@@ -76,9 +77,9 @@ function SessionTelemetryPage() {
 							</Button>
 						</Link>
 						<h2 className="text-sm font-bold">
-							Session #{sessionData.id as number}
+							Session #{sessionData.id}
 						</h2>
-						<StatusBadge status={sessionData.status as string} />
+						<StatusBadge status={sessionData.status} />
 					</div>
 					<div className="flex items-center gap-3 text-xs text-muted-foreground">
 						{sessionData.started_at && (
@@ -91,7 +92,7 @@ function SessionTelemetryPage() {
 								)}
 							</span>
 						)}
-						<span>{(samples as unknown[]).length} samples</span>
+						<span>{samples.length} samples</span>
 					</div>
 				</div>
 			</div>

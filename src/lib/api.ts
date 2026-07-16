@@ -205,13 +205,17 @@ export async function apiRequest<T = unknown>(
 		return await _fetchJson<T>(path, options);
 	} catch (err) {
 		if (err instanceof ApiError && err.status === 401 && !options.noAuth) {
-			const newToken = await refreshAccessToken();
+			// Cookie-based refresh: backend sets new cookies via Set-Cookie headers.
+			// After refresh, retry without Authorization header — cookies handle auth.
+			await refreshAccessToken();
 			return await _fetchJson<T>(path, {
 				...options,
-				headers: {
-					...options.headers,
-					Authorization: `Bearer ${newToken}`,
-				},
+				// Remove any Authorization header — cookies handle auth after refresh
+				headers: Object.fromEntries(
+					Object.entries(options.headers ?? {}).filter(
+						([k]) => k.toLowerCase() !== "authorization",
+					),
+				),
 			});
 		}
 		throw err;
