@@ -50,7 +50,6 @@ import { FormField } from "@/components/form-field";
 import { ResizableSidebar } from "@/components/resizable-sidebar";
 import { formatDuration, formatLocalDate, parseUtcDate } from "@/lib/utils";
 import { useState, useMemo, useEffect, useRef } from "react";
-import { useInterval } from "@/hooks/use-interval";
 import { MultiSelectProvider } from "@/hooks/use-multi-select";
 import { useBulkDelete } from "@/hooks/use-bulk-delete";
 import { usePluginConfig } from "@/hooks/use-plugin-config";
@@ -106,11 +105,11 @@ function SessionsPage() {
 
 	const sessionIds = sessions.map((s) => s.id);
 
-	useEffect(() => {
-		if (deletingId !== null && !sessions.some((s) => s.id === deletingId)) {
-			setDeletingId(null);
-		}
-	}, [deletingId, sessions]);
+	// Derive effective deletingId: clear automatically when session disappears from list
+	const effectiveDeletingId =
+		deletingId !== null && sessions.some((s) => s.id === deletingId)
+			? deletingId
+			: null;
 
 	return (
 		<ResizableSidebar>
@@ -154,7 +153,7 @@ function SessionsPage() {
 						const session = sessions.find((s) => s.id === selectedId);
 						if (session) toggleRecMutation.mutate(session);
 					}}
-					deleting={deletingId === selectedId}
+					deleting={effectiveDeletingId === selectedId}
 				/>
 			) : (
 				<EmptyDetail icon={Radio} text="Select a session or create one" />
@@ -203,7 +202,7 @@ function SessionEntry({
  * Live-updating elapsed time counter. Shows `offset + (now - startedAt)`.
  * - `startedAt`: ISO timestamp to count from
  * - `offset`: seconds already elapsed (e.g. sum of completed attempts)
- * Ticks every 100ms. When `startedAt` is null, just shows `offset` statically.
+ * Ticks every 1s. When `startedAt` is null, just shows `offset` statically.
  */
 function LiveCountup({
 	startedAt,
@@ -212,12 +211,6 @@ function LiveCountup({
 	startedAt: string | null;
 	offset?: number;
 }) {
-	const startedAtRef = useRef(startedAt);
-	startedAtRef.current = startedAt;
-
-	const offsetRef = useRef(offset);
-	offsetRef.current = offset;
-
 	const [elapsed, setElapsed] = useState(() => {
 		if (!startedAt) return offset;
 		return (
@@ -226,18 +219,18 @@ function LiveCountup({
 		);
 	});
 
-	useInterval(
-		() => {
-			const sa = startedAtRef.current;
-			if (sa) {
-				setElapsed(
-					offsetRef.current +
-						(Date.now() - (parseUtcDate(sa)?.getTime() ?? Date.now())) / 1000,
-				);
-			}
-		},
-		startedAtRef.current ? 1000 : null,
-	);
+	useEffect(() => {
+		if (!startedAt) return;
+		const update = () =>
+			setElapsed(
+				offset +
+					(Date.now() - (parseUtcDate(startedAt)?.getTime() ?? Date.now())) /
+						1000,
+			);
+		update();
+		const id = setInterval(update, 1000);
+		return () => clearInterval(id);
+	}, [startedAt, offset]);
 
 	return <span className="tabular-nums">{formatDuration(elapsed)}</span>;
 }
@@ -292,10 +285,14 @@ function SessionDetail({
 	const { data: resolvers = [] } = useResolvers();
 
 	// 3-state recording switch: original → pending (center) → confirmed (final)
+	// Track toggle initiation via ref (no render), clear via effect when recording state changes
+	const recTogglePending = useRef(false);
 	const [recPending, setRecPending] = useState(false);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: recording change triggers reset
 	useEffect(() => {
-		setRecPending(false);
+		if (recTogglePending.current) {
+			recTogglePending.current = false;
+			setRecPending(false);
+		}
 	}, [session?.recording]);
 
 	if (!session) return null;
@@ -337,8 +334,7 @@ function SessionDetail({
 								<Switch
 									checked={!!session.recording}
 									pending={recPending}
-									onCheckedChange={() => {
-										setRecPending(true);
+									onCheckedChange={() => {									recTogglePending.current = true;										setRecPending(true);
 										onToggleRec();
 									}}
 								/>
