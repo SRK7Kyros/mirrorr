@@ -11,7 +11,7 @@ import {
 	Package,
 	Zap,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -87,6 +87,8 @@ export function ImportDialog({
 		Record<string, { type: string; id: number }>
 	>({});
 	const [importing, setImporting] = useState(false);
+	const onCloseRef = useRef(onClose);
+	onCloseRef.current = onClose;
 	useEffect(() => {
 		if (!open || !bundle) return;
 		setPhase("loading");
@@ -130,7 +132,7 @@ export function ImportDialog({
 			})
 			.catch((err) => {
 				toast.error(`Validation failed: ${err.message}`);
-				onClose();
+				onCloseRef.current();
 			});
 	}, [open, bundle]);
 	function allResolved(): boolean {

@@ -236,7 +236,7 @@ function LiveCountup({
 				);
 			}
 		},
-		startedAtRef.current ? 100 : null,
+		startedAtRef.current ? 1000 : null,
 	);
 
 	return <span className="tabular-nums">{formatDuration(elapsed)}</span>;

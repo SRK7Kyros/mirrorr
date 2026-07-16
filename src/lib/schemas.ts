@@ -154,7 +154,7 @@ export const sessionSchema = z.object({
 	started_at: z.string().nullable(),
 	ended_at: z.string().nullable(),
 	requester_user_token: z.string().optional(),
-	session_urls: z.array(z.record(z.string(), z.unknown())),
+	session_urls: z.array(z.object({ label: z.string(), url: z.string() })),
 	attempts: z.array(attemptSchema).default([]),
 });
 

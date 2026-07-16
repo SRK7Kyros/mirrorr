@@ -97,14 +97,24 @@ function ProfilesPage() {
 									<div className="text-[13px] font-medium truncate">
 										{p.name}
 									</div>
-									<InlineDeleteButton
-										isPending={deleteMutation.isPending}
-										isActive={deleteMutation.variables === p.id}
-										onClick={(e) => {
-											e.stopPropagation();
-											deleteMutation.mutate(p.id);
-										}}
-									/>
+									<DeleteConfirm
+										entityName={`profile "${p.name}"`}
+										isPending={deleteMutation.isPending && deleteMutation.variables === p.id}
+										onConfirm={() => deleteMutation.mutate(p.id)}
+									>
+										<span
+											role="button"
+											tabIndex={0}
+											onClick={(e) => e.stopPropagation()}
+											onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") e.stopPropagation(); }}
+										>
+											<InlineDeleteButton
+												isPending={deleteMutation.isPending && deleteMutation.variables === p.id}
+												isActive={deleteMutation.variables === p.id}
+												onClick={() => {}}
+											/>
+										</span>
+									</DeleteConfirm>
 								</div>
 								<div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground/60">
 									<span className="flex items-center gap-0.5">
@@ -287,7 +297,7 @@ function CreateProfilePanel({ onClose }: { onClose: () => void }) {
 	const [name, setName] = useState("");
 
 	const createMutation = useMutation({
-		mutationFn: (data: Record<string, unknown>) =>
+		mutationFn: (data: Parameters<typeof profilesApi.create>[0]) =>
 			profilesApi.create(data) as unknown as Promise<void>,
 		onSuccess: () => {
 			onClose();
