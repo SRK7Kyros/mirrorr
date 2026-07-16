@@ -7,7 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 const queryClient = new QueryClient({
 	defaultOptions: {
 		queries: {
-			staleTime: 0,
+			staleTime: 30_000,
 			retry: 1,
 		},
 	},

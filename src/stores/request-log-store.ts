@@ -34,7 +34,7 @@ const MAX_ENTRIES = 200;
 export const useRequestLogStore = create<RequestLogState>()((set, get) => ({
 	entries: [],
 	nextId: 1,
-	backendStatus: "checking",
+	backendStatus: "connected",
 	lastSuccessAt: null,
 	lastErrorAt: null,
 

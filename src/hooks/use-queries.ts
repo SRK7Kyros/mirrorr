@@ -12,22 +12,49 @@ import {
 } from "@/lib/api";
 
 export const useSessions = () =>
-	useQuery({ queryKey: ["sessions"], queryFn: () => sessionsApi.list() });
+	useQuery({
+		queryKey: ["sessions"],
+		queryFn: () => sessionsApi.list(),
+		staleTime: 30_000,
+		retry: 2,
+	});
 
 export const useAutoruns = () =>
-	useQuery({ queryKey: ["autoruns"], queryFn: () => autorunsApi.list() });
+	useQuery({
+		queryKey: ["autoruns"],
+		queryFn: () => autorunsApi.list(),
+		staleTime: 30_000,
+		retry: 2,
+	});
 
 export const useRecordings = () =>
-	useQuery({ queryKey: ["recordings"], queryFn: () => recordingsApi.list() });
+	useQuery({
+		queryKey: ["recordings"],
+		queryFn: () => recordingsApi.list(),
+		staleTime: 30_000,
+		retry: 2,
+	});
 
 export const useProfiles = () =>
-	useQuery({ queryKey: ["profiles"], queryFn: () => profilesApi.list() });
+	useQuery({
+		queryKey: ["profiles"],
+		queryFn: () => profilesApi.list(),
+		staleTime: 30_000,
+		retry: 2,
+	});
 
 export const useEngines = () =>
-	useQuery({ queryKey: ["engines"], queryFn: () => pluginsApi.engines() });
+	useQuery({
+		queryKey: ["engines"],
+		queryFn: () => pluginsApi.engines(),
+		staleTime: 30_000,
+		retry: 2,
+	});
 
 export const useResolvers = () =>
 	useQuery({
 		queryKey: ["resolvers"],
 		queryFn: () => pluginsApi.resolvers(),
+		staleTime: 30_000,
+		retry: 2,
 	});

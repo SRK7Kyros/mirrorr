@@ -22,6 +22,12 @@ export function useWsConnection({
 }: UseWsConnectionOptions) {
 	const wsRef = useRef<WebSocket | null>(null);
 	const reconnectTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
+	const onMessageRef = useRef(onMessage);
+	const reconnectAttempts = useRef(0);
+
+	useEffect(() => {
+		onMessageRef.current = onMessage;
+	}, [onMessage]);
 
 	const connect = useCallback(() => {
 		if (wsRef.current) {
@@ -33,22 +39,34 @@ export function useWsConnection({
 			const ws = new WebSocket(url);
 			wsRef.current = ws;
 
-			ws.onmessage = onMessage;
+			ws.onmessage = (ev) => onMessageRef.current(ev);
 
-			ws.onclose = () => {
+			ws.onopen = () => {
+				reconnectAttempts.current = 0;
+			};
+
+			ws.onclose = (ev) => {
+				// 4001 = Authentication required — don't reconnect, trigger logout
+				if (ev.code === 4001) {
+					useAuthStore.getState().logout();
+					return;
+				}
 				if (wsRef.current === ws && useAuthStore.getState().isAuthenticated) {
-					reconnectTimeout.current = setTimeout(connect, 3000);
+					const delay = Math.min(3000 * 2 ** reconnectAttempts.current, 30000);
+					reconnectAttempts.current++;
+					reconnectTimeout.current = setTimeout(connect, delay);
 				}
 			};
 
 			ws.onerror = () => ws.close();
 		} catch {
 			if (useAuthStore.getState().isAuthenticated) {
-				reconnectTimeout.current = setTimeout(connect, 3000);
+				const delay = Math.min(3000 * 2 ** reconnectAttempts.current, 30000);
+				reconnectAttempts.current++;
+				reconnectTimeout.current = setTimeout(connect, delay);
 			}
 		}
-	}, [url, onMessage]);
-
+	}, [url]);
 	useEffect(() => {
 		if (token) connect();
 

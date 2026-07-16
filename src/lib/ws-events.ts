@@ -98,6 +98,17 @@ export const EVENT_TO_QUERY_KEY: Record<string, readonly string[]> = {
 	"profile.deleted": ["profiles"],
 } as const;
 
+/** Check if a WS event name is a known telemetry event. */
+export function isTelemetryEvent(event: string): boolean {
+	return event.includes(".telemetry");
+}
+
+/** Validate a raw WS message against the telemetry schema. */
+export function validateTelemetryEvent(data: unknown): WsTelemetryEvent | null {
+	const result = telemetryEventSchema.safeParse(data);
+	return result.success ? result.data : null;
+}
+
 // ── Notification schema ────────────────────────────────────────────
 
 export const wsNotificationSchema = z.object({

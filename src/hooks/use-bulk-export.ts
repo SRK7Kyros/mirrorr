@@ -15,12 +15,19 @@ export function useBulkExport(
 		const ids = [...multi.selectedIds];
 		setIsPending(true);
 		try {
-			for (const id of ids) {
-				const bundle = await exportFn(id);
-				downloadJson(`${filenamePrefix}-${id}-export.json`, bundle);
+			const results = await Promise.allSettled(
+				ids.map(async (id) => {
+					const bundle = await exportFn(id);
+					downloadJson(`${filenamePrefix}-${id}-export.json`, bundle);
+				}),
+			);
+			const failures = results.filter((r) => r.status === "rejected");
+			if (failures.length > 0) {
+				toast.error(`${failures.length} of ${ids.length} exports failed`);
+			} else {
+				toast.success(`Exported ${ids.length} ${entityName.toLowerCase()}(s)`);
+				multi.clear();
 			}
-			toast.success(`Exported ${ids.length} ${entityName.toLowerCase()}(s)`);
-			multi.clear();
 		} catch (err: unknown) {
 			toast.error(
 				`Export failed: ${err instanceof Error ? err.message : String(err)}`,

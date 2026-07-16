@@ -16,6 +16,7 @@ export function Banner({
 			: "border-destructive/30 bg-destructive/5 text-destructive";
 	return (
 		<div
+			role={variant === "success" ? "status" : "alert"}
 			className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm ${styles}`}
 		>
 			{message}

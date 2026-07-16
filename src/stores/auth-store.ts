@@ -9,6 +9,7 @@ import {
 import type { User } from "@/lib/schemas";
 
 interface AuthState {
+	/** Legacy field — kept for backward compat. Actual JWT is in httpOnly cookie. */
 	token: string | null;
 	user: User | null;
 	isAuthenticated: boolean;
@@ -23,11 +24,25 @@ export const useAuthStore = create<AuthState>()(
 			token: null,
 			user: null,
 			isAuthenticated: false,
-			setAuth: (token, user) => set({ token, user, isAuthenticated: true }),
+			setAuth: (_token, user) =>
+				set({
+					// Token is now in httpOnly cookie — store "cookie" as placeholder
+					token: "cookie",
+					user,
+					isAuthenticated: true,
+				}),
 			logout: () => {
+				// Clear any legacy localStorage tokens
 				clearStoredToken();
 				clearStoredRefreshToken();
 				stopTokenRefresh();
+				// Clear httpOnly cookie by calling the backend logout endpoint
+				const API_BASE =
+					import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+				fetch(`${API_BASE}/auth/logout`, {
+					method: "POST",
+					credentials: "include",
+				}).catch(() => {}); // Best-effort — don't block logout
 				set({ token: null, user: null, isAuthenticated: false });
 			},
 			updateUser: (partial) =>
@@ -38,7 +53,7 @@ export const useAuthStore = create<AuthState>()(
 		{
 			name: "mirrorr-auth",
 			partialize: (state) => ({
-				token: state.token,
+				// Don't persist token — it's in httpOnly cookies
 				user: state.user,
 				isAuthenticated: state.isAuthenticated,
 			}),

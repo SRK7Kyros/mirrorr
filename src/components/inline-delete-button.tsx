@@ -7,10 +7,9 @@
  * - Delete key shortcut when focused
  * - Right-click context menu
  */
-
-import { Loader2, Trash2 } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Trash2, Loader2 } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
 
 interface InlineDeleteButtonProps {
 	id: number;
@@ -20,6 +19,7 @@ interface InlineDeleteButtonProps {
 }
 
 export function InlineDeleteButton({
+	id: _unused_id,
 	isPending,
 	isActive,
 	onClick,
@@ -66,11 +66,7 @@ export function InlineDeleteButton({
 	}, []);
 
 	return (
-		<div
-			className="relative"
-			onBlur={handleBlur}
-			onContextMenu={handleContextMenu}
-		>
+		<div className="relative" onBlur={handleBlur}>
 			<Button
 				ref={buttonRef}
 				variant="ghost"
@@ -78,6 +74,7 @@ export function InlineDeleteButton({
 				className="ml-auto shrink-0 opacity-0 group-hover:opacity-100 hover:text-destructive"
 				onClick={onClick}
 				onKeyDown={handleKeyDown}
+				onContextMenu={handleContextMenu}
 				tabIndex={0}
 				disabled={isPending && isActive}
 			>

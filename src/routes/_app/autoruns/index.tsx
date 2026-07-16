@@ -1,45 +1,13 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import {
-	ArrowRight,
-	CalendarClock,
-	ChevronDown,
-	ChevronRight,
-	Download,
-	Loader2,
-	Trash2,
-} from "lucide-react";
-import { useMemo, useState } from "react";
-import { toast } from "sonner";
-import { PluginConfigFields } from "@/components/config-fields";
-import { DateTimePicker } from "@/components/datetime-picker";
-import { EtaDisplay } from "@/components/eta-display";
-import { FormField } from "@/components/form-field";
-import { ImportDialog } from "@/components/import-dialog";
-import { ExportButton, ImportButton } from "@/components/import-export-buttons";
-import { InfoGrid } from "@/components/info-grid";
-import { TimeInput as RelativeTimeInput } from "@/components/masked-input";
-import { ResizableSidebar } from "@/components/resizable-sidebar";
-import {
-	BulkActionBar,
-	CreatePanel,
-	DetailHeader,
-	DetailLayout,
-	EmptyDetail,
-	SidebarEntry,
-	SidebarGroupContainer,
-	SidebarLayout,
-} from "@/components/resource-layout";
-import { SaveAsProfileButton } from "@/components/save-as-profile-button";
-import { StatusBadge } from "@/components/status-badge";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { autorunsApi, importExportApi } from "@/lib/api";
+import type { Autorun } from "@/lib/schemas";
 import { Button } from "@/components/ui/button";
-import {
-	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+import { StatusBadge } from "@/components/status-badge";
+import { InfoGrid } from "@/components/info-grid";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
 	Select,
 	SelectContent,
@@ -47,23 +15,55 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useBulkDelete } from "@/hooks/use-bulk-delete";
-import { useBulkExport } from "@/hooks/use-bulk-export";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { DateTimePicker } from "@/components/datetime-picker";
+import { TimeInput as RelativeTimeInput } from "@/components/masked-input";
+import { EtaDisplay } from "@/components/eta-display";
+import {
+	Trash2,
+	CalendarClock,
+	Loader2,
+	ArrowRight,
+	ChevronDown,
+	ChevronRight,
+	Download,
+} from "lucide-react";
+import { formatLocalDate } from "@/lib/utils";
+import { useState, useMemo } from "react";
 import { useInterval } from "@/hooks/use-interval";
+import { toast } from "sonner";
+import { ImportDialog } from "@/components/import-dialog";
+import { ImportButton, ExportButton } from "@/components/import-export-buttons";
+import { FormField } from "@/components/form-field";
+import {
+	SidebarLayout,
+	SidebarEntry,
+	DetailHeader,
+	DetailLayout,
+	CreatePanel,
+	EmptyDetail,
+	BulkActionBar,
+	SidebarGroupContainer,
+} from "@/components/resource-layout";
+import { ResizableSidebar } from "@/components/resizable-sidebar";
 import { MultiSelectProvider } from "@/hooks/use-multi-select";
 import { usePluginConfig } from "@/hooks/use-plugin-config";
+import { useBulkDelete } from "@/hooks/use-bulk-delete";
+import { useBulkExport } from "@/hooks/use-bulk-export";
+import { useSaveAsProfile } from "@/hooks/use-save-as-profile";
+import { PluginConfigFields } from "@/components/config-fields";
 import {
 	useAutoruns,
-	useEngines,
 	useProfiles,
+	useEngines,
 	useResolvers,
 } from "@/hooks/use-queries";
-import { useSaveAsProfile } from "@/hooks/use-save-as-profile";
-import { autorunsApi, importExportApi } from "@/lib/api";
-import type { Autorun } from "@/lib/schemas";
-import { formatLocalDate } from "@/lib/utils";
+import { SaveAsProfileButton } from "@/components/save-as-profile-button";
 
 export const Route = createFileRoute("/_app/autoruns/")({
 	component: AutorunsPage,
@@ -258,7 +258,7 @@ function AutorunDetail({
 
 	const saveAsProfile = useSaveAsProfile(
 		(autorunId: number, name: string) =>
-			autorunsApi.saveAsProfile(autorunId, name).then(() => {}),
+			autorunsApi.saveAsProfile(autorunId, name) as unknown as Promise<void>,
 		"autorun",
 	);
 
@@ -330,9 +330,9 @@ function AutorunDetail({
 					{
 						label: "Profile",
 						value:
-							autorun.profile_id != null
-								? (profileMap[autorun.profile_id] ?? `#${autorun.profile_id}`)
-								: "None",
+							(autorun.profile_id != null
+								? profileMap[autorun.profile_id]
+								: null) ?? `#${autorun.profile_id}`,
 					},
 					{
 						label: "Engine",
@@ -382,7 +382,7 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
 
 	const createMutation = useMutation({
 		mutationFn: (data: Record<string, unknown>) =>
-			autorunsApi.create(data as Parameters<typeof autorunsApi.create>[0]),
+			autorunsApi.create(data as any),
 		onSuccess: () => {
 			onClose();
 			queryClient.invalidateQueries({ queryKey: ["autoruns"] });
@@ -427,11 +427,10 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
 					start_time: getStartTime(),
 					end_time: getEndTime(),
 				};
-				if (config.hasProfile) data.profile_id = parseInt(config.profileId, 10);
+				if (config.hasProfile) data.profile_id = parseInt(config.profileId);
 				if (config.showConfigFields) {
-					if (config.engineId) data.engine_id = parseInt(config.engineId, 10);
-					if (config.resolverId)
-						data.resolver_id = parseInt(config.resolverId, 10);
+					if (config.engineId) data.engine_id = parseInt(config.engineId);
+					if (config.resolverId) data.resolver_id = parseInt(config.resolverId);
 					data.retry_mode = config.retryMode;
 					data.retry_config = config.retryConfig;
 					data.resolver_config = config.resolverConfig;
@@ -493,7 +492,14 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
 					open={config.advancedOpen}
 					onOpenChange={config.setAdvancedOpen}
 				>
-					<CollapsibleTrigger className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors bg-transparent border-none p-0 cursor-pointer">
+					<CollapsibleTrigger
+						render={
+							<button
+								type="button"
+								className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+							/>
+						}
+					>
 						{config.advancedOpen ? (
 							<ChevronDown className="size-3" />
 						) : (

@@ -15,7 +15,7 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { authApi, setStoredRefreshToken, setStoredToken } from "@/lib/api";
+import { authApi } from "@/lib/api";
 import { loginSchema, type User } from "@/lib/schemas";
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -38,9 +38,8 @@ function LoginPage() {
 		mutationFn: (data: { username: string; password: string }) =>
 			authApi.login(data),
 		onSuccess: (data) => {
-			setStoredToken(data.access_token);
-			if (data.refresh_token) setStoredRefreshToken(data.refresh_token);
-			setAuth(data.access_token, data.user as User);
+			// Tokens are now in httpOnly cookies — just store user info
+			setAuth('cookie', data.user as User);
 			queryClient.clear();
 			navigate({ to: "/" });
 		},

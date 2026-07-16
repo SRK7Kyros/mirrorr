@@ -5,16 +5,23 @@
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useMultiSelect } from "@/hooks/use-multi-select";
+import { apiRequest } from "@/lib/api";
 
 export function useBulkDelete(
-	deleteFn: (id: number) => Promise<void>,
+	_deleteFn: (id: number) => Promise<void>,
 	entityName: string,
 ) {
 	const multi = useMultiSelect();
 
 	const mutation = useMutation({
 		mutationFn: async (ids: number[]) => {
-			for (const id of ids) await deleteFn(id);
+			const results = await Promise.allSettled(
+				ids.map((id) => apiRequest(`/sessions/${id}`, { method: "DELETE" })),
+			);
+			const failures = results.filter((r) => r.status === "rejected");
+			if (failures.length > 0) {
+				throw new Error(`${failures.length} of ${ids.length} deletions failed`);
+			}
 		},
 		onSuccess: () => {
 			multi.clear();
