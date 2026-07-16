@@ -7,7 +7,7 @@ import shutil
 import os
 
 
-def ensure_ffmpeg(settings: "MirrorrSettings") -> None:
+def ensure_ffmpeg(settings: "MirrorrSettings") -> None:  # ty: ignore[unresolved-reference] — TYPE_CHECKING pattern
     """Locate or set up ffmpeg and write its path to os.environ['FFMPEG_EXECUTABLE']."""
     ffprobe_name = "ffprobe.exe" if os.name == "nt" else "ffprobe"
 

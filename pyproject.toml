@@ -28,8 +28,31 @@ dependencies = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.ty.environment]
+python-version = "3.14"
+root = ["src"]
+
+[tool.ty.src]
+include = ["src"]
+
+[tool.ty.rules]
+# Critical: catches missing imports (NameError at edit time — the asyncio bug class)
+possibly-missing-import = "error"
+# Suppress SQLModel/SQLAlchemy type-stub false positives
+invalid-argument-type = "ignore"
+unresolved-attribute = "ignore"
+# Catch unresolved references (missing imports, undefined names)
+unresolved-reference = "error"
+# Suppress stale pyright ignore comments that ty doesn't recognize
+unused-ignore-comment = "ignore"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+
+[dependency-groups]
+dev = [
+    "ty>=0.0.60",
+]
 
 [project.scripts]
 mirrorr = "src.main:main"

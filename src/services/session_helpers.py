@@ -93,7 +93,7 @@ def build_session_urls(
 async def load_session_from_db(
     settings: MirrorrSettings,
     session_id: int,
-) -> tuple[Session, "EngineInterface", "ResolverInterface"]:
+) -> tuple[Session, "EngineInterface", "ResolverInterface"]:  # ty: ignore[unresolved-reference] — runtime import inside function
     """Load the session from DB, JIT-load plugins, return components."""
     from src.plugins.interfaces import EngineInterface, ResolverInterface
     from src.storage.database import create_db_engine

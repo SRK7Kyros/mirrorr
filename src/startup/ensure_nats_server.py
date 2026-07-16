@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import atexit
 from contextlib import closing
 import io
@@ -9,7 +10,6 @@ import subprocess
 import sys
 import tarfile
 import threading
-import time
 import zipfile
 
 import httpx
@@ -33,7 +33,7 @@ class NatsServerManager:
     of how the parent dies (crash, hard kill, Ctrl+C, etc.).
     """
 
-    def __init__(self, settings: "MirrorrSettings") -> None:
+    def __init__(self, settings: "MirrorrSettings") -> None:  # ty: ignore[unresolved-reference] — TYPE_CHECKING pattern
         self._settings = settings
         self._process: psutil.Popen | None = None
         self._log_thread: threading.Thread | None = None
