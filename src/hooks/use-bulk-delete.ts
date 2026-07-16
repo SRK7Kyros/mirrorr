@@ -3,33 +3,33 @@
  * Encapsulates the sequential delete mutation pattern used in all resource pages.
  */
 import { useMutation } from "@tanstack/react-query";
-import { useMultiSelect } from "@/hooks/use-multi-select";
 import { toast } from "sonner";
+import { useMultiSelect } from "@/hooks/use-multi-select";
 
 export function useBulkDelete(
-    deleteFn: (id: number) => Promise<void>,
-    entityName: string,
+	deleteFn: (id: number) => Promise<void>,
+	entityName: string,
 ) {
-    const multi = useMultiSelect();
+	const multi = useMultiSelect();
 
-    const mutation = useMutation({
-        mutationFn: async (ids: number[]) => {
-            for (const id of ids) await deleteFn(id);
-        },
-        onSuccess: () => {
-            multi.clear();
-            toast.success(`${entityName} deleted`);
-        },
-        onError: (err: Error) =>
-            toast.error(
-                `Failed to delete ${entityName.toLowerCase()}: ${err.message}`,
-            ),
-    });
+	const mutation = useMutation({
+		mutationFn: async (ids: number[]) => {
+			for (const id of ids) await deleteFn(id);
+		},
+		onSuccess: () => {
+			multi.clear();
+			toast.success(`${entityName} deleted`);
+		},
+		onError: (err: Error) =>
+			toast.error(
+				`Failed to delete ${entityName.toLowerCase()}: ${err.message}`,
+			),
+	});
 
-    return {
-        ...mutation,
-        mutate: () => mutation.mutate([...multi.selectedIds]),
-        selectedIds: multi.selectedIds,
-        clearSelection: multi.clear,
-    };
+	return {
+		...mutation,
+		mutate: () => mutation.mutate([...multi.selectedIds]),
+		selectedIds: multi.selectedIds,
+		clearSelection: multi.clear,
+	};
 }

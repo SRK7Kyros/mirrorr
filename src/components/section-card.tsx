@@ -9,34 +9,34 @@
  *     {children}
  *   </div>
  */
-import { ReactNode } from "react";
-import { cn } from "@/lib/utils";
+import type { ReactNode } from "react";
 import { SectionTitle } from "@/components/section-title";
+import { cn } from "@/lib/utils";
 
 interface SectionCardProps {
-    title: ReactNode;
-    actions?: ReactNode;
-    children: ReactNode;
-    className?: string;
+	title: ReactNode;
+	actions?: ReactNode;
+	children: ReactNode;
+	className?: string;
 }
 
 export function SectionCard({
-    title,
-    actions,
-    children,
-    className,
+	title,
+	actions,
+	children,
+	className,
 }: SectionCardProps) {
-    return (
-        <div className={cn("border rounded-lg overflow-hidden", className)}>
-            <div className="px-4 py-2.5 border-b bg-muted/20 flex items-center justify-between">
-                {typeof title === "string" ? (
-                    <SectionTitle>{title}</SectionTitle>
-                ) : (
-                    title
-                )}
-                {actions}
-            </div>
-            {children}
-        </div>
-    );
+	return (
+		<div className={cn("border rounded-lg overflow-hidden", className)}>
+			<div className="px-4 py-2.5 border-b bg-muted/20 flex items-center justify-between">
+				{typeof title === "string" ? (
+					<SectionTitle>{title}</SectionTitle>
+				) : (
+					title
+				)}
+				{actions}
+			</div>
+			{children}
+		</div>
+	);
 }

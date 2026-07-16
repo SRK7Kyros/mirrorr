@@ -7,23 +7,28 @@
  *     {error && <p className="text-xs text-destructive">{error}</p>}
  *   </div>
  */
-import { ReactNode } from "react"
-import { Label } from "@/components/ui/label"
-import { cn } from "@/lib/utils"
+import type { ReactNode } from "react";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 interface FormFieldProps {
-  label: string
-  error?: string
-  children: ReactNode
-  className?: string
+	label: string;
+	error?: string;
+	children: ReactNode;
+	className?: string;
 }
 
-export function FormField({ label, error, children, className }: FormFieldProps) {
-  return (
-    <div className={cn("space-y-1.5", className)}>
-      <Label className="text-xs">{label}</Label>
-      {children}
-      {error && <p className="text-xs text-destructive">{error}</p>}
-    </div>
-  )
+export function FormField({
+	label,
+	error,
+	children,
+	className,
+}: FormFieldProps) {
+	return (
+		<div className={cn("space-y-1.5", className)}>
+			<Label className="text-xs">{label}</Label>
+			{children}
+			{error && <p className="text-xs text-destructive">{error}</p>}
+		</div>
+	);
 }

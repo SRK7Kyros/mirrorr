@@ -4,11 +4,11 @@
  */
 
 function createStorage(key: string) {
-    return {
-        get: (): string | null => localStorage.getItem(key),
-        set: (v: string): void => localStorage.setItem(key, v),
-        clear: (): void => localStorage.removeItem(key),
-    };
+	return {
+		get: (): string | null => localStorage.getItem(key),
+		set: (v: string): void => localStorage.setItem(key, v),
+		clear: (): void => localStorage.removeItem(key),
+	};
 }
 
 const tokenStorage = createStorage("mirrorr_jwt");
