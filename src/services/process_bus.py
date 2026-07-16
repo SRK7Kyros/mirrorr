@@ -27,6 +27,14 @@ class ProcessBus:
         self._subscribers.setdefault(topic, []).append(q)
         return q
 
+    def unsubscribe(self, topic: str, queue: asyncio.Queue) -> None:
+        """Remove a specific subscriber queue from a topic."""
+        if topic in self._subscribers:
+            try:
+                self._subscribers[topic].remove(queue)
+            except ValueError:
+                pass
+
     async def emit(self, topic: str, data: Any = None) -> None:
         """Publish *data* to *topic*. All current subscribers receive it."""
         for q in self._subscribers.get(topic, []):

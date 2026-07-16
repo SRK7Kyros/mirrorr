@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Self
 
-from pydantic import BaseModel, model_validator, computed_field
+from pydantic import BaseModel, Field, model_validator, computed_field
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +97,13 @@ class MirrorrSettings(BaseModel):
     dev_serve_files: bool = False  # mount content_dir as static files in uvicorn (dev only)
     dev_reset_database: bool = False  # truncate all DB tables on boot (dev only)
     jwt_secret_key: str = ""  # JWT signing key. If empty, auto-generated on first use.
+    cors_allowed_origins: list[str] = Field(default_factory=list)
+
+    # ── security ─────────────────────────────────────────────────────
+    rate_limit_login: int = 10  # max login attempts per minute per IP
+    rate_limit_register: int = 5  # max register attempts per minute per IP
+    cookie_secure: bool = True  # set Secure flag on auth cookies (disable for local dev)
+    cookie_domain: str = ""  # leave empty to use request host
 
     # ── validators / computed ──────────────────────────────────────────
 
@@ -194,6 +201,7 @@ class MirrorrSettings(BaseModel):
             DEV_RESET_DATABASE: bool = False
             WEB_URL: str = ""
             JWT_SECRET_KEY: str = ""
+            CORS_ALLOWED_ORIGINS: str = ""
 
             @model_validator(mode="after")
             def _derive_paths(self) -> Self:
@@ -234,6 +242,11 @@ class MirrorrSettings(BaseModel):
             val = getattr(env, env_key, None)
             if val is not None:
                 mapping[field_name] = val
+
+        if env.CORS_ALLOWED_ORIGINS:
+            mapping["cors_allowed_origins"] = [
+                o.strip() for o in env.CORS_ALLOWED_ORIGINS.split(",") if o.strip()
+            ]
 
         mapping.update(overrides)
         return cls(**mapping)

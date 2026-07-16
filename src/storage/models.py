@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel
@@ -25,7 +25,10 @@ class PydanticJSON(TypeDecorator):
         if isinstance(value, (dict, list)):
             return value
         if isinstance(value, str):
-            return json.loads(value)
+            try:
+                return json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                return value
         return value
 
     def process_result_value(self, value: Any, dialect: Any) -> Any:
@@ -54,7 +57,7 @@ class Recording(SQLModel, table=True):
     ended_at: datetime
     duration_seconds: float
     size_bytes: int
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     requester_user_token: str = Field(default="")
 
     subscriptions: list["EventSubscription"] = Relationship(
@@ -213,12 +216,28 @@ class Client(SQLModel, table=True):
     name: str  # human-readable label, e.g. "Discord Bot", "Web Dashboard"
     api_key_hash: str  # SHA-256 of the raw API key
     is_active: bool = Field(default=True)
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     users: list["User"] = Relationship(
         back_populates="clients",
         link_model=ClientUser,
     )
+
+
+class RefreshTokenRecord(SQLModel, table=True):
+    """Tracks issued refresh tokens for revocation support.
+
+    Each row represents one refresh token identified by its JTI claim.
+    Revoked tokens are marked but retained until they expire naturally
+    to prevent replay attacks.
+    """
+    __tablename__ = "refresh_tokens"
+
+    jti: str = Field(primary_key=True)  # JWT ID claim
+    user_id: int = Field(foreign_key="users.id", index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    expires_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    revoked: bool = Field(default=False)
 
 
 class User(SQLModel, table=True):
@@ -234,7 +253,7 @@ class User(SQLModel, table=True):
     password_hash: str = Field(default="")
     role: str = Field(default="user")  # "admin" or "user"
     display_name: str = Field(default="")
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     clients: list["Client"] = Relationship(
         back_populates="users",
@@ -256,7 +275,7 @@ class EventSubscription(SQLModel, table=True):
     user_id: int = Field(foreign_key="users.id", index=True)
     resource_type: str = Field(index=True)  # ResourceType enum value
     resource_id: int = Field(index=True)
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     user: "User" = Relationship(back_populates="subscriptions")
 
@@ -273,6 +292,6 @@ class Notification(SQLModel, table=True):
     title: str
     body: str = Field(default="")
     read: bool = Field(default=False)
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     user: "User" = Relationship(back_populates="notifications")

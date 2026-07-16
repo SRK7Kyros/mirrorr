@@ -1,13 +1,13 @@
 from pydantic import BaseModel, Field
 from typing import ClassVar, TypeVar
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 class BaseEvent(BaseModel):
     """Binds a NATS subject string directly to a Pydantic schema."""
     subject: ClassVar[str]
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: datetime = Field(default_factory=datetime.now)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     origin: str = "mirrorr-core"
 
 T = TypeVar("T", bound=BaseEvent)

@@ -1,9 +1,11 @@
+import asyncio
 import multiprocessing
 import time
 from multiprocessing.synchronize import Event as ShutdownEvent
 
 from loguru import logger
 
+import asyncio
 from src.event_bus.nats import bus
 from src.event_bus.event import MirrorrEvent
 from src.services import session_supervisor
@@ -27,7 +29,7 @@ def _spawn_supervisor(session_id: int) -> multiprocessing.Process:
     return process
 
 
-def _kill_supervisor(session_id: int) -> None:
+async def _kill_supervisor(session_id: int) -> None:
     entry = _sessions.pop(session_id, None)
     if not entry:
         return
@@ -37,14 +39,14 @@ def _kill_supervisor(session_id: int) -> None:
 
     logger.warning(f"Stopping supervisor process (pid={process.pid}) for session {session_id}")
     shutdown_event.set()
-    process.join(timeout=30)
+    await asyncio.to_thread(process.join, timeout=30)
     if process.is_alive():
         logger.warning(f"Force-killing supervisor (pid={process.pid}) for session {session_id}")
         try:
             process.kill()
         except OSError:
             pass
-        process.join(timeout=3)
+        await asyncio.to_thread(process.join, timeout=3)
 
 
 # ── Session lifecycle ────────────────────────────────────────────────
@@ -56,7 +58,7 @@ async def handle_session_created(data: MirrorrEvent.SESSION_CREATED):
 
 @bus.on(MirrorrEvent.SESSION_DELETED)
 async def handle_session_deleted(data: MirrorrEvent.SESSION_DELETED):
-    _kill_supervisor(data.id)
+    await _kill_supervisor(data.id)
 
 
 # ── Autorun lifecycle ────────────────────────────────────────────────
@@ -83,7 +85,7 @@ async def handle_autorun_deleted(data: MirrorrEvent.AUTORUN_DELETED):
 
             if session and session.status in (SessionStatus.ACTIVE, SessionStatus.RECORDING):
                 logger.info(f"Autorun {data.id} deleted — stopping session {session.id}")
-                _kill_supervisor(session.id)
+                await _kill_supervisor(session.id)
                 # Use the shared lifecycle helper so NATS events are emitted
                 await db.commit()  # commit the kill before updating status
                 from src.services.session_lifecycle import update_session
@@ -146,7 +148,7 @@ async def handle_recording_created(data: MirrorrEvent.RECORDING_CREATED):
 
 # ── Cleanup on shutdown ──────────────────────────────────────────────
 
-def kill_all_supervisors() -> None:
+async def kill_all_supervisors() -> None:
     """Gracefully stop all running supervisors, then force-kill stragglers.
 
     Signals each supervisor via its multiprocessing.Event, waits for clean
@@ -190,7 +192,7 @@ def kill_all_supervisors() -> None:
             logger.info(f"  Still waiting for {len(remaining)} session(s): {remaining} ({elapsed}s elapsed)")
             next_log = now + log_interval
 
-        time.sleep(poll_interval)
+        await asyncio.sleep(poll_interval)
 
     # 3. Force-kill any that are still alive
     for session_id, (process, _) in list(_sessions.items()):
@@ -198,9 +200,9 @@ def kill_all_supervisors() -> None:
             logger.warning(f"  Force-killing session {session_id} (pid={process.pid})")
             try:
                 process.kill()
-            except OSError:
+            except (OSError, ProcessLookupError):
                 pass
-            process.join(timeout=3)
+            await asyncio.to_thread(process.join, timeout=3)
 
     if done:
         logger.success(f"All {len(done)} supervisor(s) stopped gracefully")

@@ -68,6 +68,9 @@ class ManagedProcess:
         # Internal tasks — tracked so close() can wait for them
         self._tasks: list[asyncio.Task] = []
 
+        # Telemetry process handle
+        self._ps_proc = None
+
     # ── process access ────────────────────────────────────────────────
 
     @property
@@ -119,6 +122,14 @@ class ManagedProcess:
             **kwargs,
         )
         self._started = True
+
+        # Initialize psutil process for telemetry
+        try:
+            self._ps_proc = PsProcess(self._process.pid)
+            # Initialize cpu_percent counter so first real reading is meaningful
+            self._ps_proc.cpu_percent(interval=None)
+        except Exception:
+            self._ps_proc = None
 
         # Spawn readers
         if self._process.stdout and self._capture_stdout:
@@ -173,35 +184,20 @@ class ManagedProcess:
     # ── internal ──────────────────────────────────────────────────────
 
     async def _read_stream(self, stream: asyncio.StreamReader, stream_name: str) -> None:
-        """Read lines from a subprocess stream and publish to the bus.
-
-        Handles both \n-delimited output (normal logs) and \r-delimited
-        output (yt-dlp progress bars that overwrite the same line).
-        """
+        """Read lines from a subprocess stream and publish to the bus."""
         log_file = None
         if self._log_dir:
             log_path = self._log_dir / f"{self.name}.{stream_name}.log"
             log_file = open(log_path, "a", encoding="utf-8")
 
         try:
-            buf = bytearray()
             while True:
-                byte = await stream.read(1)
-                if not byte:
-                    # EOF — flush remaining buffer
-                    if buf:
-                        line = buf.decode("utf-8", errors="replace").rstrip("\n\r")
-                        if line:
-                            await self._emit_line(line, log_file, stream_name)
+                line = await stream.readline()
+                if not line:
                     break
-
-                if byte in (b"\n", b"\r"):
-                    line = buf.decode("utf-8", errors="replace").rstrip("\n\r")
-                    buf.clear()
-                    if line:
-                        await self._emit_line(line, log_file, stream_name)
-                else:
-                    buf.extend(byte)
+                decoded = line.decode("utf-8", errors="replace").rstrip("\n\r")
+                if decoded:
+                    await self._emit_line(decoded, log_file, stream_name)
         finally:
             if log_file:
                 log_file.close()
@@ -251,10 +247,12 @@ class ManagedProcess:
         if not self._process or not self._process.pid:
             return
 
-        try:
-            ps_proc = PsProcess(self._process.pid)
-        except Exception:
-            return
+        ps_proc = getattr(self, '_ps_proc', None)
+        if ps_proc is None:
+            try:
+                ps_proc = PsProcess(self._process.pid)
+            except Exception:
+                return
 
         try:
             while self._process.returncode is None:

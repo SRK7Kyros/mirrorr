@@ -48,7 +48,11 @@ class NatsRegistry(EventBus):
             )
 
             async def wrap(msg, handlers=handlers, subject=subject):
-                raw_json = json.loads(msg.data.decode())
+                try:
+                    raw_json = json.loads(msg.data.decode())
+                except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                    logger.error(f"Failed to decode NATS message on {subject}: {e}")
+                    return
                 tasks = []
                 for handler_func, schema in handlers:
                     try:
@@ -59,7 +63,10 @@ class NatsRegistry(EventBus):
                             f"Validation error for <blue>{subject}</blue>: {e}"
                         )
                 if tasks:
-                    await asyncio.gather(*tasks)
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    for r in results:
+                        if isinstance(r, Exception):
+                            logger.error(f"Handler error for {subject}: {r}")
 
             try:
                 await self.nc.subscribe(subject, cb=wrap)
@@ -88,15 +95,17 @@ bus = NatsRegistry()
 # control commands to supervisor processes.
 
 _control_nc: NATS | None = None
+_control_nc_lock: asyncio.Lock = asyncio.Lock()
 
 
 async def get_control_nc() -> NATS:
     """Return (and lazily create) a dedicated NATS connection for control requests."""
     global _control_nc
-    if _control_nc is None or not _control_nc.is_connected:
-        _control_nc = NATS()
-        await _control_nc.connect(bus._settings.nats_url)
-    return _control_nc
+    async with _control_nc_lock:
+        if _control_nc is None or not _control_nc.is_connected:
+            _control_nc = NATS()
+            await _control_nc.connect(bus._settings.nats_url)
+        return _control_nc
 
 
 async def drain_control_nc() -> None:

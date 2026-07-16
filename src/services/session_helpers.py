@@ -36,13 +36,19 @@ def make_session_dirs(
 
 
 def copy_static_assets(session_folder: Path, settings: MirrorrSettings) -> None:
-    """Copy player/vlc/outplayer HTML into the session folder."""
+    """Copy player/vlc/outplayer HTML into the session folder.
+
+    Uses shutil.copy2 for synchronous copy since this runs in a
+    subprocess context where async is not available.
+    """
     from src.startup.config import _PACKAGE_ROOT
     static_dir = _PACKAGE_ROOT / "static_files"
     if not static_dir.exists():
         return
     for f in static_dir.glob("*.html"):
-        shutil.copy2(f, session_folder / f.name)
+        dest = session_folder / f.name
+        if not dest.exists():
+            shutil.copy2(f, dest)
 
 
 def build_session_urls(

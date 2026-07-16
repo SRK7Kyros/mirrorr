@@ -75,6 +75,10 @@ class NatsServerManager:
                 shutil.copyfileobj(bytesio, f)
 
             logger.info(f"Downloaded NATS server: {full_path}")
+            logger.warning(
+                "NATS binary downloaded without SHA256 verification. "
+                "Consider pinning a checksum in production."
+            )
             if filename.endswith(".zip"):
                 with zipfile.ZipFile(full_path, "r") as zip_ref:
                     zip_ref.extractall(tmp_download_folder)

@@ -29,6 +29,9 @@ async def websocket_endpoint(websocket: WebSocket):
     connected_at = time.monotonic()
 
     auth, _ = await ws_auth(websocket)
+    if not auth or not auth.user:
+        await websocket.close(code=4001, reason="Authentication required")
+        return
     username = auth.user.username if auth and auth.user else None
     logger.info(f"[ws/events] connected — user={username}")
 

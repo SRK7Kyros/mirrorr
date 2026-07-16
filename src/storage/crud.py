@@ -7,8 +7,8 @@ from src.storage.models import Profile
 
 T = TypeVar("T", bound=SQLModel)
 # --- The "Engine Room" (Internal helpers) ---
-async def get_all(db: AsyncSession, model: type[T]) -> Sequence[T]:
-    return (await db.exec(select(model))).all()
+async def get_all(db: AsyncSession, model: type[T]) -> list[T]:
+    return list((await db.exec(select(model))).all())
 
 async def get_by_id(db: AsyncSession, model: type[T], id: int) -> T | None:
     return await db.get(model, id)
@@ -20,7 +20,7 @@ async def create(db: AsyncSession, obj: T) -> T:
         await db.refresh(obj)
     except Exception as e:
         await db.rollback()
-        raise e
+        raise
     return obj
 
 async def update(db: AsyncSession, model: type[T], id: int, data: T) -> T:
@@ -36,7 +36,7 @@ async def update(db: AsyncSession, model: type[T], id: int, data: T) -> T:
         await db.refresh(obj)
     except Exception as e:
         await db.rollback()
-        raise e
+        raise
     return obj
 
 async def delete(db: AsyncSession, model: type[T], id: int) -> None:

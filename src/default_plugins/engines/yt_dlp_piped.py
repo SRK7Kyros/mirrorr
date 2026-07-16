@@ -5,7 +5,7 @@ import os
 import shutil
 import subprocess
 
-from src.storage.models import (
+from src.plugins.interfaces import (
     EngineInterface, Capabilities, Source, EngineContext,
 )
 from src.services.managed_process import ManagedProcess
@@ -96,9 +96,13 @@ class YtDlpPipedEngine(EngineInterface):
 
         # Wire yt-dlp stdout -> ffmpeg stdin via a Python pipe task
         async def _pipe():
-            # Wait for both processes to be started
-            while ytdlp._process is None or ffmpeg._process is None:
+            # Wait for both processes to start (with timeout)
+            for _ in range(100):  # 1 second timeout
+                if ytdlp._process is not None and ffmpeg._process is not None:
+                    break
                 await asyncio.sleep(0.01)
+            else:
+                raise RuntimeError("Timed out waiting for processes to start")
 
             ytdlp_proc = ytdlp._process
             ffmpeg_proc = ffmpeg._process
@@ -153,19 +157,7 @@ class YtDlpPipedEngine(EngineInterface):
                     returncode=ffmpeg_exit.returncode,
                 ))
 
-        async def _watch_ffmpeg():
-            ffmpeg_exit_q = context.bus.subscribe("proc.ffmpeg.exit")
-            ffmpeg_exit = await ffmpeg_exit_q.get()
-            if not ffmpeg_exit.intentional and ffmpeg_exit.returncode != 0:
-                await ytdlp.terminate()
-                await context.bus.emit("engine.crashed", EngineCrashed(
-                    reason=f"ffmpeg exited unexpectedly with code {ffmpeg_exit.returncode}",
-                    source_process="ffmpeg",
-                    returncode=ffmpeg_exit.returncode,
-                ))
-
         context._tasks.append(asyncio.create_task(_coordinate()))
-        context._tasks.append(asyncio.create_task(_watch_ffmpeg()))
 
         ytdlp.set_log_dir(context.logs_folder)
         ffmpeg.set_log_dir(context.logs_folder)

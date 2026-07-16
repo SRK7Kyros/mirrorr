@@ -157,6 +157,10 @@ class SessionSupervisor:
                     await self._finalize_stopped()
                     return
 
+                if outcome == "failed":
+                    # Resolver or start failure — session already deleted in _run_attempt
+                    return
+
                 # Check retry for both crashes and done signals
                 if outcome == "crashed" and isinstance(signal, EngineCrashed):
                     retry, delay = await self.engine.should_retry(
@@ -263,7 +267,7 @@ class SessionSupervisor:
                 self.settings, self.session_id, self.session_folder,
                 nc=self._nc, autorun_id=self.session.autorun_id,
             )
-            return "stopped", None
+            return "failed", None
 
         # 2. Start engine
         try:
@@ -273,6 +277,15 @@ class SessionSupervisor:
             crash = EngineCrashed(reason=str(e))
             await self.bus.emit("engine.crashed", crash)
             return "crashed", crash
+
+        # 3. Subscribe BEFORE starting processes (C4 fix)
+        done_q = self.bus.subscribe("engine.done")
+        crash_q = self.bus.subscribe("engine.crashed")
+        stop_q = self.bus.subscribe("session.stop_requested")
+
+        done_task = asyncio.create_task(done_q.get())
+        crash_task = asyncio.create_task(crash_q.get())
+        stop_task = asyncio.create_task(stop_q.get())
 
         for proc in self.processes:
             await proc.start()
@@ -286,14 +299,7 @@ class SessionSupervisor:
         if self._recording:
             self._recording.start_stash()
 
-        # 4. Wait for engine lifecycle signal or stop command
-        done_q = self.bus.subscribe("engine.done")
-        crash_q = self.bus.subscribe("engine.crashed")
-        stop_q = self.bus.subscribe("session.stop_requested")
-
-        done_task = asyncio.create_task(done_q.get())
-        crash_task = asyncio.create_task(crash_q.get())
-        stop_task = asyncio.create_task(stop_q.get())
+        # 5. Wait for engine lifecycle signal or stop command
 
         finished, _ = await asyncio.wait(
             [done_task, crash_task, stop_task],
@@ -536,7 +542,7 @@ class SessionSupervisor:
         if self.engine_ctx:
             await self.engine.stop(self.engine_ctx, reason=reason)
         if self.resolver_ctx:
-            self.resolver.stop(self.resolver_ctx)
+            await self.resolver.stop(self.resolver_ctx)
 
         for proc in self.processes:
             if proc.running:

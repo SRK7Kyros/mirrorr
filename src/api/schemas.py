@@ -19,14 +19,14 @@ from pydantic import BaseModel, Field
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(max_length=64)
+    password: str = Field(max_length=128)
 
 
 class RegisterRequest(BaseModel):
-    username: str
-    password: str
-    display_name: str = ""
+    username: str = Field(max_length=64)
+    password: str = Field(min_length=4, max_length=128)
+    display_name: str = Field(default="", max_length=128)
 
 
 class RefreshRequest(BaseModel):
@@ -34,8 +34,8 @@ class RefreshRequest(BaseModel):
 
 
 class ChangePasswordRequest(BaseModel):
-    old_password: str
-    new_password: str
+    old_password: str = Field(max_length=128)
+    new_password: str = Field(min_length=4, max_length=128)
 
 
 # ── Sessions ───────────────────────────────────────────────────────────
@@ -49,7 +49,6 @@ class CreateSessionRequest(BaseModel):
     retry_mode: str = "none"
     retry_config: dict[str, Any] = Field(default_factory=dict)
     recording: bool = False
-    requester_user_token: str = ""
 
 
 # ── Autoruns ───────────────────────────────────────────────────────────
@@ -67,7 +66,6 @@ class CreateAutorunRequest(BaseModel):
     start_time: datetime
     end_time: datetime
     recording: bool = True
-    requester_user_token: str = ""
 
 
 class UpdateAutorunRequest(BaseModel):
@@ -82,7 +80,6 @@ class UpdateAutorunRequest(BaseModel):
     start_time: datetime | None = None
     end_time: datetime | None = None
     recording: bool | None = None
-    requester_user_token: str | None = None
 
 
 # ── Profiles ───────────────────────────────────────────────────────────
@@ -95,7 +92,6 @@ class CreateProfileRequest(BaseModel):
     resolver_config: dict[str, Any] = Field(default_factory=dict)
     retry_mode: str = "none"
     retry_config: dict[str, Any] = Field(default_factory=dict)
-    requester_user_token: str = ""
 
 
 class UpdateProfileRequest(BaseModel):
@@ -105,8 +101,11 @@ class UpdateProfileRequest(BaseModel):
     resolver_config: dict[str, Any] | None = None
     retry_mode: str | None = None
     retry_config: dict[str, Any] | None = None
-    requester_user_token: str | None = None
 
 
 class SaveProfileRequest(BaseModel):
     name: str
+
+
+class CreateClientRequest(BaseModel):
+    name: str = Field(max_length=128)

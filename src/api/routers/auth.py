@@ -2,25 +2,92 @@
 
 from __future__ import annotations
 
-import json
 import secrets
-from fastapi import APIRouter, Depends, HTTPException, Body, Query
+from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, Request
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import col as sa_col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.api.dependencies import _get_db_session, get_auth, require_auth, require_admin, AuthState
 from src.api.auth import hash_api_key, hash_password, verify_password
-from src.api.jwt import create_access_token, create_refresh_token, decode_refresh_token
-from src.api.schemas import RegisterRequest, LoginRequest, RefreshRequest, ChangePasswordRequest
+from src.api.jwt import (
+    create_access_token, create_refresh_token, decode_refresh_token,
+    ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, ACCESS_TOKEN_EXPIRE_SECONDS,
+    REFRESH_TOKEN_EXPIRE_SECONDS,
+)
+from src.api.schemas import RegisterRequest, LoginRequest, RefreshRequest, ChangePasswordRequest, CreateClientRequest
 from src.storage.models import (
     Client, User, ClientUser, EventSubscription, Notification,
+    RefreshTokenRecord,
 )
 from src.storage.enums import ResourceType
 from src.storage import crud
 
 auth_router = APIRouter(prefix="/auth")
 notifications_router = APIRouter(prefix="/notifications")
+
+
+# ── Cookie helpers ─────────────────────────────────────────────────
+
+
+def _set_auth_cookies(
+    response: Response,
+    access_token: str,
+    refresh_token: str,
+    *,
+    cookie_secure: bool = True,
+    cookie_domain: str = "",
+) -> None:
+    """Set httpOnly secure cookies for access and refresh tokens."""
+    common = dict(
+        httponly=True,
+        samesite="lax",
+        secure=cookie_secure,
+        domain=cookie_domain or None,
+    )
+    response.set_cookie(
+        ACCESS_TOKEN_COOKIE, access_token,
+        max_age=ACCESS_TOKEN_EXPIRE_SECONDS,
+        path="/",
+        **common,
+    )
+    response.set_cookie(
+        REFRESH_TOKEN_COOKIE, refresh_token,
+        max_age=REFRESH_TOKEN_EXPIRE_SECONDS,
+        path="/",
+        **common,
+    )
+
+
+def _clear_auth_cookies(response: Response, *, cookie_domain: str = "") -> None:
+    """Clear auth cookies on logout."""
+    common = dict(
+        httponly=True,
+        samesite="lax",
+        path="/",
+        domain=cookie_domain or None,
+    )
+    response.delete_cookie(ACCESS_TOKEN_COOKIE, **common)
+    response.delete_cookie(REFRESH_TOKEN_COOKIE, **common)
+
+
+# ── Rate limiting (simple in-memory) ───────────────────────────────
+
+_rate_limits: dict[str, list[float]] = {}
+
+def _check_rate_limit(key: str, max_attempts: int, window: float = 60.0) -> bool:
+    """Check if a rate limit has been exceeded. Returns True if allowed."""
+    import time
+    now = time.time()
+    cutoff = now - window
+    # Clean old entries
+    _rate_limits.setdefault(key, [])
+    _rate_limits[key] = [t for t in _rate_limits[key] if t > cutoff]
+    if len(_rate_limits[key]) >= max_attempts:
+        return False
+    _rate_limits[key].append(now)
+    return True
 
 
 @auth_router.get("/status")
@@ -37,17 +104,24 @@ async def auth_status(db: AsyncSession = Depends(_get_db_session)):
 @auth_router.post("/register")
 async def register(
     item: RegisterRequest,
+    request: Request,
+    response: Response,
     db: AsyncSession = Depends(_get_db_session),
     auth: AuthState = Depends(get_auth),
 ):
-    """Register a new user. First user auto-becomes admin."""
+    """Register a new user. First user auto-becomes admin. Sets httpOnly cookies."""
+    # Rate limit check
+    client_ip = request.client.host if request.client else "unknown"
+    if not _check_rate_limit(f"register:{client_ip}", max_attempts=5):
+        raise HTTPException(status_code=429, detail="Too many registration attempts. Try again later.")
+
     username = item.username.strip()
     password = item.password
 
     if not username or not password:
         raise HTTPException(status_code=400, detail="Username and password required")
-    if len(password) < 4:
-        raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
     # Check if this is the first user (auto-admin)
     count_stmt = select(User)
@@ -77,22 +151,45 @@ async def register(
         db.add(link)
         await db.commit()
 
-    token = create_access_token({"username": user.username, "role": user.role})
+    access_token = create_access_token({"username": user.username, "role": user.role})
     refresh_token = create_refresh_token({"username": user.username, "role": user.role})
+
+    # Store refresh token JTI for revocation
+    rt_payload = decode_refresh_token(refresh_token)
+    if rt_payload and "jti" in rt_payload:
+        exp_dt = datetime.fromtimestamp(rt_payload["exp"], tz=timezone.utc).replace(tzinfo=None)
+        record = RefreshTokenRecord(
+            jti=rt_payload["jti"],
+            user_id=user.id,
+            expires_at=exp_dt,
+        )
+        db.add(record)
+        await db.commit()
+
+    # Set httpOnly cookies
+    _set_auth_cookies(
+        response, access_token, refresh_token,
+        cookie_secure=True,
+    )
 
     return {
         "user": {"id": user.id, "username": user.username, "role": user.role},
-        "access_token": token,
-        "refresh_token": refresh_token,
     }
 
 
 @auth_router.post("/login")
 async def login(
     item: LoginRequest,
+    request: Request,
+    response: Response,
     db: AsyncSession = Depends(_get_db_session),
 ):
-    """Login with username + password. Requires API key header."""
+    """Login with username + password. Sets httpOnly cookies for token pair."""
+    # Rate limit check
+    client_ip = request.client.host if request.client else "unknown"
+    if not _check_rate_limit(f"login:{client_ip}", max_attempts=10):
+        raise HTTPException(status_code=429, detail="Too many login attempts. Try again later.")
+
     username = item.username
     password = item.password
 
@@ -103,14 +200,56 @@ async def login(
     if not user or not verify_password(password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    token = create_access_token({"username": user.username, "role": user.role})
+    access_token = create_access_token({"username": user.username, "role": user.role})
     refresh_token = create_refresh_token({"username": user.username, "role": user.role})
+
+    # Store refresh token JTI for revocation
+    rt_payload = decode_refresh_token(refresh_token)
+    if rt_payload and "jti" in rt_payload:
+        exp_dt = datetime.fromtimestamp(rt_payload["exp"], tz=timezone.utc).replace(tzinfo=None)
+        record = RefreshTokenRecord(
+            jti=rt_payload["jti"],
+            user_id=user.id,
+            expires_at=exp_dt,
+        )
+        db.add(record)
+        await db.commit()
+
+    # Set httpOnly cookies
+    _set_auth_cookies(
+        response, access_token, refresh_token,
+        cookie_secure=True,
+    )
 
     return {
         "user": {"id": user.id, "username": user.username, "role": user.role},
-        "access_token": token,
-        "refresh_token": refresh_token,
     }
+
+
+@auth_router.post("/logout")
+async def logout(
+    response: Response,
+    request: Request,
+    auth: AuthState = Depends(get_auth),
+    db: AsyncSession = Depends(_get_db_session),
+):
+    """Logout: revoke refresh token and clear cookies."""
+    # Revoke the current refresh token if present
+    rt_str = request.cookies.get(REFRESH_TOKEN_COOKIE)
+    if rt_str:
+        payload = decode_refresh_token(rt_str)
+        if payload and "jti" in payload:
+            stmt = select(RefreshTokenRecord).where(RefreshTokenRecord.jti == payload["jti"])
+            result = await db.exec(stmt)
+            record = result.first()
+            if record:
+                record.revoked = True
+                db.add(record)
+                await db.commit()
+
+    # Clear cookies
+    _clear_auth_cookies(response)
+    return {"status": "logged_out"}
 
 
 @auth_router.get("/me")
@@ -134,17 +273,54 @@ async def get_me(auth: AuthState = Depends(require_auth)):
 
 @auth_router.post("/refresh")
 async def refresh(
-    item: RefreshRequest,
+    request: Request,
+    response: Response,
+    item: RefreshRequest | None = None,
     db: AsyncSession = Depends(_get_db_session),
 ):
-    """Refresh an access token using a refresh token."""
-    rt_str = item.refresh_token
+    """Refresh an access token. Reads from httpOnly cookie or request body.
+
+    On success, issues a new token pair (rotation) and revokes the old
+    refresh token via JTI tracking.
+    """
+    # Accept refresh token from cookie or request body
+    rt_str = None
+    if item and item.refresh_token:
+        rt_str = item.refresh_token
+    else:
+        rt_str = request.cookies.get(REFRESH_TOKEN_COOKIE)
+
     if not rt_str:
         raise HTTPException(status_code=400, detail="Refresh token required")
 
     payload = decode_refresh_token(rt_str)
     if not payload or "username" not in payload:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
+    # ── JTI revocation check ──────────────────────────────────────
+    jti = payload.get("jti")
+    if jti:
+        stmt = select(RefreshTokenRecord).where(RefreshTokenRecord.jti == jti)
+        result = await db.exec(stmt)
+        record = result.first()
+        if record and record.revoked:
+            # This refresh token was already used — possible theft!
+            # Revoke ALL tokens for this user as a precaution
+            if record.user_id:
+                from sqlmodel import update as sql_update
+                await db.exec(
+                    sql_update(RefreshTokenRecord)
+                    .where(RefreshTokenRecord.user_id == record.user_id, RefreshTokenRecord.revoked == False)  # noqa: E712
+                    .values(revoked=True)
+                )
+                await db.commit()
+            raise HTTPException(status_code=401, detail="Refresh token already used — all sessions revoked")
+
+        # Revoke the old token
+        if record:
+            record.revoked = True
+            db.add(record)
+            await db.commit()
 
     # Resolve user
     stmt = select(User).where(User.username == payload["username"])
@@ -157,9 +333,26 @@ async def refresh(
     new_access = create_access_token({"username": user.username, "role": user.role})
     new_refresh = create_refresh_token({"username": user.username, "role": user.role})
 
+    # Store new refresh token JTI
+    new_payload = decode_refresh_token(new_refresh)
+    if new_payload and "jti" in new_payload:
+        exp_dt = datetime.fromtimestamp(new_payload["exp"], tz=timezone.utc).replace(tzinfo=None)
+        record = RefreshTokenRecord(
+            jti=new_payload["jti"],
+            user_id=user.id,
+            expires_at=exp_dt,
+        )
+        db.add(record)
+        await db.commit()
+
+    # Set new httpOnly cookies
+    _set_auth_cookies(
+        response, new_access, new_refresh,
+        cookie_secure=True,
+    )
+
     return {
-        "access_token": new_access,
-        "refresh_token": new_refresh,
+        "user": {"id": user.id, "username": user.username, "role": user.role},
     }
 
 
@@ -237,7 +430,7 @@ async def get_all_clients(
 
 @auth_router.post("/clients")
 async def create_client(
-    item: dict[str, Any] = Body(...),
+    item: CreateClientRequest,
     db: AsyncSession = Depends(_get_db_session),
     auth: AuthState = Depends(get_auth),
 ):
@@ -256,12 +449,12 @@ async def create_client(
             raise HTTPException(status_code=403, detail="Admin access required")
 
     raw_key = secrets.token_urlsafe(32)
-    item["api_key_hash"] = hash_api_key(raw_key)
-    payload = Client.model_validate_json(json.dumps(item))
+    client_data = {"name": item.name, "api_key_hash": hash_api_key(raw_key)}
+    payload = Client.model_validate(client_data)
     try:
         obj = await crud.create(db, payload)
     except IntegrityError as e:
-        raise HTTPException(status_code=400, detail=f"Database integrity error: {e.orig}")
+        raise HTTPException(status_code=400, detail="A resource with that name already exists.")
 
     return {"client": obj, "api_key": raw_key}
 
