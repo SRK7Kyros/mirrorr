@@ -93,6 +93,7 @@ function ProfilePage() {
 }
 
 function AccountSection() {
+	const queryClient = useQueryClient();
 	const user = useAuthStore((s) => s.user);
 
 	const { data: meData } = useQuery({
@@ -113,6 +114,7 @@ function AccountSection() {
 		mutationFn: (data: { old_password: string; new_password: string }) =>
 			authApi.changePassword(data),
 		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: ["auth-me"] });
 			toast.success("Password changed");
 			form.reset();
 		},

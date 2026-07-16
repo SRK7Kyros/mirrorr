@@ -4,6 +4,7 @@ import { profilesApi, importExportApi } from "@/lib/api";
 import type { Profile } from "@/lib/schemas";
 import { KeyValueTable } from "@/components/key-value-table";
 import { Button } from "@/components/ui/button";
+import { DeleteConfirm } from "@/components/delete-confirm";
 import { Input } from "@/components/ui/input";
 import { Trash2, Settings, Cpu, Zap, Loader2, Download } from "lucide-react";
 import { useState } from "react";
@@ -97,7 +98,6 @@ function ProfilesPage() {
 										{p.name}
 									</div>
 									<InlineDeleteButton
-										id={p.id}
 										isPending={deleteMutation.isPending}
 										isActive={deleteMutation.variables === p.id}
 										onClick={(e) => {
@@ -219,30 +219,25 @@ function ProfileDetail({
 								onExport={() => importExportApi.exportProfile(profile.id)}
 								filename={profile.name}
 							/>
-							<Button
-								variant="ghost"
-								size="sm"
-								className="h-7 text-xs text-destructive"
-								onClick={onDelete}
-								onKeyDown={(e) => {
-									if (e.key === "Delete" || e.key === "Backspace") {
-										e.preventDefault();
-										onDelete();
-									}
-								}}
-								onContextMenu={(e) => {
-									e.preventDefault();
-									onDelete();
-								}}
-								disabled={deleting}
+							<DeleteConfirm
+								entityName="Profile"
+								isPending={deleting}
+								onConfirm={onDelete}
 							>
-								{deleting ? (
-									<Loader2 className="size-3 mr-1 animate-spin" />
-								) : (
-									<Trash2 className="size-3 mr-1" />
-								)}
-								Delete
-							</Button>
+								<Button
+									variant="ghost"
+									size="sm"
+									className="h-7 text-xs text-destructive"
+									disabled={deleting}
+								>
+									{deleting ? (
+										<Loader2 className="size-3 mr-1 animate-spin" />
+									) : (
+										<Trash2 className="size-3 mr-1" />
+									)}
+									Delete
+								</Button>
+							</DeleteConfirm>
 						</div>
 					}
 				/>

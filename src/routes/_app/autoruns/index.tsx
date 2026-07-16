@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { autorunsApi, importExportApi } from "@/lib/api";
 import type { Autorun } from "@/lib/schemas";
 import { Button } from "@/components/ui/button";
+import { DeleteConfirm } from "@/components/delete-confirm";
 import { StatusBadge } from "@/components/status-badge";
 import { InfoGrid } from "@/components/info-grid";
 import { Input } from "@/components/ui/input";
@@ -291,30 +292,25 @@ function AutorunDetail({
 								onExport={() => importExportApi.exportAutorun(autorun.id)}
 								filename={autorun.user_friendly_name}
 							/>
-							<Button
-								variant="ghost"
-								size="sm"
-								className="h-7 text-xs text-destructive"
-								onClick={onDelete}
-								onKeyDown={(e) => {
-									if (e.key === "Delete" || e.key === "Backspace") {
-										e.preventDefault();
-										onDelete();
-									}
-								}}
-								onContextMenu={(e) => {
-									e.preventDefault();
-									onDelete();
-								}}
-								disabled={deleting}
+							<DeleteConfirm
+								entityName="Autorun"
+								isPending={deleting}
+								onConfirm={onDelete}
 							>
-								{deleting ? (
-									<Loader2 className="size-3 mr-1 animate-spin" />
-								) : (
-									<Trash2 className="size-3 mr-1" />
-								)}
-								Delete
-							</Button>
+								<Button
+									variant="ghost"
+									size="sm"
+									className="h-7 text-xs text-destructive"
+									disabled={deleting}
+								>
+									{deleting ? (
+										<Loader2 className="size-3 mr-1 animate-spin" />
+									) : (
+										<Trash2 className="size-3 mr-1" />
+									)}
+									Delete
+								</Button>
+							</DeleteConfirm>
 						</div>
 					}
 				/>
@@ -382,7 +378,7 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
 
 	const createMutation = useMutation({
 		mutationFn: (data: Record<string, unknown>) =>
-			autorunsApi.create(data as any),
+			autorunsApi.create(data as Parameters<typeof autorunsApi.create>[0]),
 		onSuccess: () => {
 			onClose();
 			queryClient.invalidateQueries({ queryKey: ["autoruns"] });

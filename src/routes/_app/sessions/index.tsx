@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { sessionsApi } from "@/lib/api";
 import type { Session, Autorun } from "@/lib/schemas";
 import { Button } from "@/components/ui/button";
+import { DeleteConfirm } from "@/components/delete-confirm";
 import {
 	Select,
 	SelectContent,
@@ -336,30 +337,25 @@ function SessionDetail({
 									}}
 								/>
 							</div>
-							<Button
-								variant="ghost"
-								size="sm"
-								className="h-7 text-xs text-destructive"
-								onClick={onDelete}
-								onKeyDown={(e) => {
-									if (e.key === "Delete" || e.key === "Backspace") {
-										e.preventDefault();
-										onDelete();
-									}
-								}}
-								onContextMenu={(e) => {
-									e.preventDefault();
-									onDelete();
-								}}
-								disabled={deleting}
+							<DeleteConfirm
+								entityName="Session"
+								isPending={deleting}
+								onConfirm={onDelete}
 							>
-								{deleting ? (
-									<Loader2 className="size-3 mr-1 animate-spin" />
-								) : (
-									<Trash2 className="size-3 mr-1" />
-								)}
-								Delete
-							</Button>
+								<Button
+									variant="ghost"
+									size="sm"
+									className="h-7 text-xs text-destructive"
+									disabled={deleting}
+								>
+									{deleting ? (
+										<Loader2 className="size-3 mr-1 animate-spin" />
+									) : (
+										<Trash2 className="size-3 mr-1" />
+									)}
+									Delete
+								</Button>
+							</DeleteConfirm>
 						</div>
 					}
 				/>
@@ -517,13 +513,15 @@ function SessionDetail({
 }
 
 function CreateSessionPanel({ onClose }: { onClose: () => void }) {
+	const queryClient = useQueryClient();
 	const config = usePluginConfig();
 	const [recording, setRecording] = useState(false);
 
 	const createMutation = useMutation({
 		mutationFn: (data: Record<string, unknown>) =>
-			sessionsApi.create(data as any),
+			sessionsApi.create(data as Parameters<typeof sessionsApi.create>[0]),
 		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: ["sessions"] });
 			onClose();
 			toast.success("Session created");
 		},

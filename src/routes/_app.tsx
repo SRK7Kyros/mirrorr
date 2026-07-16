@@ -204,10 +204,11 @@ function AppLayout() {
 				{/* Right actions */}
 				<div className="flex items-center gap-0.5 pr-3">
 					{/* Network status + monitor trigger */}
-					<button
-						type="button"
+					<Button
+						variant="outline"
+						size="sm"
 						ref={netTriggerRef}
-						className="relative h-7 px-2 rounded-md border border-border/50 bg-muted/30 hover:bg-muted/50 transition-colors cursor-pointer flex items-center"
+						className="relative h-7 px-2"
 						onClick={() => {
 							if (!netOpen && netTriggerRef.current) {
 								const rect = netTriggerRef.current.getBoundingClientRect();
@@ -222,7 +223,7 @@ function AppLayout() {
 					>
 						<NetworkStatusDot />
 						<span className="sr-only">Network Monitor</span>
-					</button>
+					</Button>
 
 					{/* Notifications */}
 					<Popover>
