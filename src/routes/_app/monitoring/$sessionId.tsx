@@ -7,6 +7,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState, useEffect } from "react";
 import { ArrowLeft } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
 import { TelemetryCharts } from "@/components/telemetry-charts";
@@ -20,6 +21,25 @@ import { formatDuration } from "@/lib/utils";
 export const Route = createFileRoute("/_app/monitoring/$sessionId")({
 	component: SessionTelemetryPage,
 });
+
+/** Live-updating duration display. Avoids Date.now() during render. */
+function LiveDuration({ startedAt, endedAt }: { startedAt: string; endedAt?: string | null }) {
+	const [elapsed, setElapsed] = useState(() => {
+		const end = endedAt ? new Date(endedAt).getTime() : Date.now();
+		return (end - new Date(startedAt).getTime()) / 1000;
+	});
+
+	useEffect(() => {
+		if (endedAt) return; // Session ended — no need to tick
+		const tick = () =>
+			setElapsed((Date.now() - new Date(startedAt).getTime()) / 1000);
+		tick();
+		const id = setInterval(tick, 1000);
+		return () => clearInterval(id);
+	}, [startedAt, endedAt]);
+
+	return <span>Duration: {formatDuration(elapsed)}</span>;
+}
 
 function SessionTelemetryPage() {
 	const { sessionId } = Route.useParams();
@@ -83,14 +103,10 @@ function SessionTelemetryPage() {
 					</div>
 					<div className="flex items-center gap-3 text-xs text-muted-foreground">
 						{sessionData.started_at && (
-							<span>
-								Duration:{" "}
-								{formatDuration(
-									(sessionData.ended_at
-										? new Date(sessionData.ended_at).getTime() - new Date(sessionData.started_at).getTime()
-										: Date.now() - new Date(sessionData.started_at).getTime()) / 1000
-								)}
-							</span>
+						<LiveDuration
+							startedAt={sessionData.started_at}
+							endedAt={sessionData.ended_at}
+						/>
 						)}
 						<span>{samples.length} samples</span>
 					</div>
