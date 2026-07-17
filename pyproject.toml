@@ -47,7 +47,7 @@ unresolved-reference = "error"
 unused-ignore-comment = "ignore"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+packages = ["src/mirrorr"]  
 
 [dependency-groups]
 dev = [
@@ -55,4 +55,4 @@ dev = [
 ]
 
 [project.scripts]
-mirrorr = "src.main:main"
+mirrorr = "mirrorr.main:main"
