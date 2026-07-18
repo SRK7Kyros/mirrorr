@@ -411,6 +411,31 @@ def _unique_name(base: str, existing: dict[str, Any]) -> str:
     return f"{base}_199"
 
 
+def _slugify(name: str) -> str:
+    """Convert a name to a filesystem-safe snake_case slug.
+
+    Lowercases, replaces spaces/dashes with underscores, strips non-alphanumeric
+    characters (except underscores), and collapses runs of underscores.
+    """
+    import re
+    slug = name.lower().replace(" ", "_").replace("-", "_")
+    slug = re.sub(r"[^a-z0-9_]", "", slug)
+    slug = re.sub(r"_+", "_", slug).strip("_")
+    return slug or "untitled"
+
+
+async def _unique_snake_case_name(db: AsyncSession, base: str) -> str:
+    """Find the next available snake_case_name not already in the autoruns table."""
+    from sqlmodel import col as sa_col
+    for i in range(2, 200):
+        candidate = base if i == 2 else f"{base}_{i}"
+        stmt = select(Autorun).where(sa_col(Autorun.snake_case_name) == candidate)
+        result = await db.exec(stmt)
+        if result.first() is None:
+            return candidate
+    return f"{base}_199"
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Apply endpoint
 # ═══════════════════════════════════════════════════════════════════════
@@ -437,12 +462,23 @@ async def apply_bundle(
     if not bundle or not isinstance(bundle, dict):
         raise HTTPException(400, "Missing or invalid bundle")
 
+    # Body size guard — prevent a malicious bundle with thousands of
+    # profiles/autoruns from OOMing the server. 500 items per type is
+    # generous for any legitimate import.
+    MAX_BUNDLE_ITEMS = 500
+    raw_profiles = bundle.get("profiles", [])
+    raw_autoruns = bundle.get("autoruns", [])
+    if not isinstance(raw_profiles, list) or not isinstance(raw_autoruns, list):
+        raise HTTPException(400, "Bundle profiles and autoruns must be arrays")
+    if len(raw_profiles) > MAX_BUNDLE_ITEMS or len(raw_autoruns) > MAX_BUNDLE_ITEMS:
+        raise HTTPException(
+            400,
+            f"Bundle too large: max {MAX_BUNDLE_ITEMS} profiles/autoruns each",
+        )
+
     version = bundle.get("version")
     if version != BUNDLE_VERSION:
         raise HTTPException(400, f"Unsupported bundle version: {version}")
-
-    raw_profiles = bundle.get("profiles", [])
-    raw_autoruns = bundle.get("autoruns", [])
 
     # Filter out items the user chose to remove
     raw_profiles = [p for p in raw_profiles if p.get("name", "untitled") not in removed_profiles]
@@ -547,8 +583,10 @@ async def apply_bundle(
         else:
             engine_id = linked_profile.default_engine_id
 
-        # Generate a snake_case_name
-        snake = a_name.lower().replace(" ", "_").replace("-", "_")
+        # Generate a unique snake_case_name. Slugify the user-friendly name
+        # and append a numeric suffix if it collides with an existing autorun.
+        snake = _slugify(a_name)
+        snake = await _unique_snake_case_name(db, snake)
 
         autorun_obj = Autorun(
             user_friendly_name=a_name,

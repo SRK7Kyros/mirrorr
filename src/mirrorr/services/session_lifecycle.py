@@ -73,6 +73,18 @@ _STATUS_MAP: dict[SessionStatus, AutorunStatus] = {
 }
 
 
+class SessionNotFoundError(RuntimeError):
+    """Raised when a session update targets a row that no longer exists.
+
+    Callers (e.g. ``SessionSupervisor.run``) should catch this and abort
+    their loop rather than continuing to operate on a phantom session.
+    """
+
+    def __init__(self, session_id: int) -> None:
+        super().__init__(f"Session {session_id} not found")
+        self.session_id = session_id
+
+
 @asynccontextmanager
 async def _get_session_factory(
     settings: MirrorrSettings | None = None,
@@ -131,8 +143,10 @@ async def update_session(
             async with session_factory() as db:
                 session = await crud.get_by_id(db, Session, session_id)
                 if not session:
-                    logger.warning(f"update_session: session {session_id} not found")
-                    return {}
+                    # Session was deleted between the caller's fetch and this
+                    # update. Raise so callers (e.g. supervisors) can abort
+                    # instead of continuing to operate on a phantom row.
+                    raise SessionNotFoundError(session_id)
 
                 # ── Compute diff and apply ───────────────────────────────
                 for key, new_val in fields.items():

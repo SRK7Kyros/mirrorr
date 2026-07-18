@@ -1,4 +1,6 @@
+import asyncio
 import html
+from pathlib import Path
 from mirrorr.event_bus.nats import bus
 from loguru import logger
 from fastapi import FastAPI, Request
@@ -64,6 +66,60 @@ def setup_cors(app: FastAPI, allowed_origins: list[str] | None = None) -> None:
     )
 
 
+# ── Security hardening middleware ───────────────────────────────────
+
+# Max bytes for any request body. Rejects oversized payloads (DoS protection).
+MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024  # 10 MiB
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add standard security response headers to every response."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+
+class RequestBodySizeLimitMiddleware(BaseHTTPMiddleware):
+    """Reject requests whose Content-Length exceeds the configured limit.
+
+    Streaming bodies without a Content-Length are checked as they arrive;
+    a request that exceeds the limit mid-stream is aborted with 413.
+    """
+
+    def __init__(self, app, max_bytes: int = MAX_REQUEST_BODY_BYTES):
+        super().__init__(app)
+        self.max_bytes = max_bytes
+
+    async def dispatch(self, request: Request, call_next):
+        declared = request.headers.get("content-length")
+        if declared is not None:
+            try:
+                if int(declared) > self.max_bytes:
+                    return JSONResponse(
+                        status_code=413,
+                        content={"detail": "Request body too large."},
+                    )
+            except ValueError:
+                return JSONResponse(
+                    status_code=400,
+                    content={"detail": "Invalid Content-Length header."},
+                )
+        return await call_next(request)
+
+
+def setup_security_middleware(app: FastAPI) -> None:
+    """Install security headers and request body size limit middlewares.
+
+    Call once during application bootstrapping (after CORS is configured).
+    """
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(RequestBodySizeLimitMiddleware)
+
+
 # CORS defaults are applied during _boot() in core.py.
 # Do NOT configure CORS at module level — it would result in duplicate middlewares.
 # If _boot() doesn't run (e.g., testing), the API has no CORS middleware.
@@ -116,7 +172,10 @@ def _directory_listing(path: str, full_path) -> str:
         href = path.rstrip("/") + "/" + name
         safe_name = html.escape(name)
         safe_href = html.escape(href, quote=True)
-        size = f"{entry.stat().st_size:,} B" if entry.is_file() else "-"
+        try:
+            size = f"{entry.stat().st_size:,} B" if entry.is_file() else "-"
+        except OSError:
+            size = "-"
         rows += f'<tr><td><a href="{safe_href}">{safe_name}</a></td><td>{size}</td></tr>\n'
 
     safe_path = html.escape(path)
@@ -136,27 +195,70 @@ td {{ padding: 2px 12px 2px 0; }}
 </body></html>"""
 
 
+def _is_within_directory(child: Path, parent: Path) -> bool:
+    """Path-traversal-safe check using pathlib relative_to.
+
+    Returns True if ``child`` is equal to or nested under ``parent``.
+    Both paths must be resolved (absolute) before calling.
+    """
+    try:
+        child.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
 class AutoIndexMiddleware(BaseHTTPMiddleware):
-    """Intercepts directory requests under /content and returns autoindex."""
+    """Intercepts directory requests under /content and returns autoindex.
+
+    Requires authentication: only authenticated users (or API-key clients)
+    may browse the content directory. This prevents unauthenticated
+    enumeration of session/recording metadata.
+    """
 
     def __init__(self, app, content_dir):
         super().__init__(app)
-        self.content_dir = content_dir
+        self.content_dir = content_dir.resolve()
 
     async def dispatch(self, request: Request, call_next):
         if not request.url.path.startswith("/content"):
             return await call_next(request)
 
+        # Auth check — require an authenticated user or client.
+        # AutoIndexMiddleware only runs when dev_serve_files is on (dev mode),
+        # but we still don't want unauthenticated directory enumeration.
+        from mirrorr.api.jwt import ACCESS_TOKEN_COOKIE
+        from mirrorr.api.dependencies import _resolve_auth
+        from mirrorr.storage.database import get_session_factory
+
+        api_key = request.headers.get("x-api-key", "") or ""
+        token = (
+            request.headers.get("authorization", "").removeprefix("Bearer ")
+            or request.cookies.get(ACCESS_TOKEN_COOKIE, "")
+        )
+        auth = None
+        if api_key or token:
+            try:
+                async with get_session_factory()() as db:
+                    auth = await _resolve_auth(db, api_key, token)
+            except Exception:
+                auth = None
+        if not auth or (not auth.user and not auth.client):
+            return JSONResponse(status_code=401, content={"detail": "Authentication required"})
+
         rel_path = request.url.path[len("/content"):].lstrip("/") or ""
         full_path = (self.content_dir / rel_path).resolve()
 
-        # Path traversal guard
-        if not str(full_path).startswith(str(self.content_dir.resolve())):
+        # Path traversal guard (pathlib-safe, not string startswith)
+        if not _is_within_directory(full_path, self.content_dir):
             return JSONResponse(status_code=403, content={"detail": "Forbidden"})
 
         if full_path.is_dir():
             display_path = "/content/" + rel_path
-            return HTMLResponse(_directory_listing(display_path, full_path))
+            # Directory listing does sync I/O — run in a thread to avoid
+            # blocking the event loop on large directories.
+            listing = await asyncio.to_thread(_directory_listing, display_path, full_path)
+            return HTMLResponse(listing)
 
         return await call_next(request)
 

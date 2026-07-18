@@ -2,6 +2,7 @@ import multiprocessing
 import sys
 import logging
 from loguru import logger
+import atexit
 
 _NOISY_LOGGERS = frozenset({
     "websockets.server",
@@ -49,7 +50,9 @@ _process_name_length = 28
 
 # 2. Configure standard logging to use our InterceptHandler
 def setup_logging():
-    sys.__stdout__.reconfigure(line_buffering=True)
+    if not sys.__stdout__.isatty():
+        sys.__stdout__.reconfigure(line_buffering=True, write_through=True)
+        sys.__stderr__.reconfigure(line_buffering=True, write_through=True)
     
     # Remove default handlers
     logger.remove()
@@ -88,17 +91,17 @@ def setup_logging():
     def default_format() -> str:
         return "<cyan>{extra[process]: <###}</cyan> | ".replace("###", str(_process_name_length)) + "{message}"
 
-    def raw_sink(msg):
-        sys.__stdout__.write(msg)
+    def sink(message):
+        sys.__stdout__.write(message)
         sys.__stdout__.flush()
 
-    logger.add(raw_sink, filter=_is_nats_server,
+    logger.add(sink, filter=_is_nats_server,
         format=start_str + magenta_format("NATS-Server"), colorize=True)
 
-    logger.add(raw_sink, filter=_is_uvicorn,
+    logger.add(sink, filter=_is_uvicorn,
         format=start_str + magenta_format("uvicorn"), colorize=True)
 
-    logger.add(raw_sink, filter=not_any, format=format_string, colorize=True)
+    logger.add(sink, filter=not_any, format=format_string, colorize=True)
 
     intercept_handler = InterceptHandler()
     logging.basicConfig(handlers=[intercept_handler], level=logging.INFO, force=True)
@@ -117,3 +120,7 @@ def setup_logging():
 
     logging.root.handlers = [intercept_handler]
     logging.root.setLevel(logging.INFO)
+
+    atexit.register(logger.complete)
+    atexit.register(sys.stderr.flush)
+    atexit.register(sys.stdout.flush)

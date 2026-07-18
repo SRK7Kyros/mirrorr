@@ -42,7 +42,7 @@ class YtDlpPipedEngine(EngineInterface):
         for k, v in headers.items():
             header_args.extend(["--add-headers", f"{k}:{v}"])
 
-        yt_dlp_path = shutil.which("yt-dlp")
+        yt_dlp_path = await asyncio.to_thread(shutil.which, "yt-dlp")
         if not yt_dlp_path:
             raise FileNotFoundError("yt-dlp not found in PATH")
 

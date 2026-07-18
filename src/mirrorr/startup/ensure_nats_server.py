@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import atexit
 from contextlib import closing
+import hashlib
 import io
 import os
 import platform
@@ -11,6 +12,7 @@ import sys
 import tarfile
 import threading
 import zipfile
+from pathlib import Path
 
 import httpx
 import psutil
@@ -23,6 +25,11 @@ def is_port_open(port: int, host: str = "127.0.0.1", timeout: float = 0.5) -> bo
     with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
         sock.settimeout(timeout)
         return sock.connect_ex((host, port)) == 0
+
+
+# NATS server version to download. When upgrading, verify the release
+# checksums page on GitHub matches the assets you expect.
+_NATS_VERSION = "v2.10.22"
 
 
 class NatsServerManager:
@@ -42,7 +49,7 @@ class NatsServerManager:
         self.port: int = settings.nats_port
         self.bin_dir: str = str(settings.nats_bin_dir)
         self.exe_name: str = "nats-server.exe" if platform.system() == "Windows" else "nats-server"
-        self.nats_path: str = os.path.join(self.bin_dir, self.exe_name)
+        self.nats_path: str = str(Path(self.bin_dir) / self.exe_name)
 
         atexit.register(self._atexit_stop)
 
@@ -51,7 +58,7 @@ class NatsServerManager:
     def _get_download_url(self) -> str:
         system = platform.system().lower()
         machine = platform.machine().lower()
-        version = "v2.10.22"
+        version = _NATS_VERSION
         arch = "arm64" if "arm" in machine or "aarch64" in machine else "amd64"
         ext = "zip" if system == "windows" else "tar.gz"
         return (
@@ -59,46 +66,115 @@ class NatsServerManager:
             f"{version}/nats-server-{version}-{system}-{arch}.{ext}"
         )
 
+    def _get_checksum_url(self) -> str:
+        """URL of the official SHA256 checksum file published alongside the release."""
+        return (
+            f"https://github.com/nats-io/nats-server/releases/download/"
+            f"{_NATS_VERSION}/SHA256SUMS"
+        )
+
+    async def _verify_checksum(self, filename: str, content: bytes) -> bool:
+        """Verify the downloaded archive against the official SHA256SUMS file.
+
+        Returns True if verification succeeds, False if the checksum file
+        could not be fetched (with a warning), and raises on mismatch.
+        """
+        try:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                resp = await client.get(self._get_checksum_url())
+                if resp.status_code != 200:
+                    logger.warning(
+                        f"Could not fetch SHA256SUMS (status {resp.status_code}) — "
+                        "skipping checksum verification."
+                    )
+                    return False
+                sums_text = resp.text
+        except Exception as e:
+            logger.warning(f"Could not fetch SHA256SUMS ({e}) — skipping checksum verification.")
+            return False
+
+        expected: str | None = None
+        for line in sums_text.splitlines():
+            parts = line.split(None, 1)
+            if len(parts) == 2 and parts[1].strip() == filename:
+                expected = parts[0].strip().lower()
+                break
+        if not expected:
+            logger.warning(
+                f"{filename} not found in SHA256SUMS — skipping checksum verification."
+            )
+            return False
+
+        actual = hashlib.sha256(content).hexdigest().lower()
+        if actual != expected:
+            raise RuntimeError(
+                f"NATS binary checksum mismatch for {filename}: "
+                f"expected {expected}, got {actual}. Aborting — possible "
+                "supply-chain tampering."
+            )
+        logger.info(f"NATS binary checksum verified for {filename}")
+        return True
+
     async def _install(self) -> None:
         url = self._get_download_url()
         tmp_download_folder = f"{self.bin_dir}_tmp"
         filename = url.split("/")[-1]
-        full_path = os.path.join(tmp_download_folder, filename)
+        full_path = str(Path(tmp_download_folder) / filename)
 
         logger.info(f"Downloading NATS server to {full_path}")
         try:
             async with httpx.AsyncClient(follow_redirects=True) as client:
                 response = await client.get(url)
                 response.raise_for_status()
-            bytesio = io.BytesIO(response.content)
-            os.makedirs(tmp_download_folder, exist_ok=True)
-            with open(full_path, "wb") as f:
-                shutil.copyfileobj(bytesio, f)
 
-            logger.info(f"Downloaded NATS server: {full_path}")
-            logger.warning(
-                "NATS binary downloaded without SHA256 verification. "
-                "Consider pinning a checksum in production."
+            # Verify the download against the official SHA256SUMS before
+            # extracting or executing anything. Aborts on mismatch.
+            await self._verify_checksum(filename, response.content)
+
+            # All file I/O below is blocking (open/copyfileobj/zipfile/tarfile/
+            # shutil.copytree/shutil.rmtree). Run it in a worker thread so the
+            # asyncio event loop is not frozen during the first-time download.
+            await asyncio.to_thread(
+                self._install_blocking,
+                full_path,
+                tmp_download_folder,
+                filename,
+                response.content,
             )
-            if filename.endswith(".zip"):
-                with zipfile.ZipFile(full_path, "r") as zip_ref:
-                    zip_ref.extractall(tmp_download_folder)
-            else:
-                with tarfile.open(full_path, "r:gz") as tar:
-                    tar.extractall(tmp_download_folder, filter="data")
-            if filename.endswith(".tar.gz"):
-                dir_name = filename[:-7]
-            else:
-                dir_name = filename.rsplit(".", 1)[0]
-            extracted_dir = os.path.join(tmp_download_folder, dir_name)
-
-            shutil.copytree(extracted_dir, self.bin_dir, dirs_exist_ok=True)
-            shutil.rmtree(tmp_download_folder)
             logger.info("NATS server downloaded successfully.")
         except Exception as e:
             logger.critical(f"NATS installation failed: {e}")
-            shutil.rmtree(tmp_download_folder, ignore_errors=True)
+            await asyncio.to_thread(shutil.rmtree, tmp_download_folder, ignore_errors=True)
             raise e
+
+    def _install_blocking(
+        self,
+        full_path: str,
+        tmp_download_folder: str,
+        filename: str,
+        content: bytes,
+    ) -> None:
+        """Synchronous blocking I/O for NATS install — run via asyncio.to_thread."""
+        bytesio = io.BytesIO(content)
+        Path(tmp_download_folder).mkdir(parents=True, exist_ok=True)
+        with open(full_path, "wb") as f:
+            shutil.copyfileobj(bytesio, f)
+
+        logger.info(f"Downloaded NATS server: {full_path}")
+        if filename.endswith(".zip"):
+            with zipfile.ZipFile(full_path, "r") as zip_ref:
+                zip_ref.extractall(tmp_download_folder)
+        else:
+            with tarfile.open(full_path, "r:gz") as tar:
+                tar.extractall(tmp_download_folder, filter="data")
+        if filename.endswith(".tar.gz"):
+            dir_name = filename[:-7]
+        else:
+            dir_name = filename.rsplit(".", 1)[0]
+        extracted_dir = str(Path(tmp_download_folder) / dir_name)
+
+        shutil.copytree(extracted_dir, self.bin_dir, dirs_exist_ok=True)
+        shutil.rmtree(tmp_download_folder)
 
     async def ensure(self) -> None:
         if self._settings.use_system_nats:
@@ -108,7 +184,7 @@ class NatsServerManager:
                 return
             raise RuntimeError("use_system_nats is True but nats-server not found in PATH")
 
-        if not os.path.exists(self.nats_path):
+        if not Path(self.nats_path).exists():
             await self._install()
         else:
             logger.info("Using bundled nats-server")
@@ -118,8 +194,8 @@ class NatsServerManager:
     def _write_js_conf(self) -> str:
         """Write js.conf into nats_server_dir with the correct store_dir."""
         nats_dir = str(self._settings.nats_server_dir)
-        os.makedirs(nats_dir, exist_ok=True)
-        js_conf_path = os.path.join(nats_dir, "js.conf")
+        Path(nats_dir).mkdir(parents=True, exist_ok=True)
+        js_conf_path = str(Path(nats_dir) / "js.conf")
         store_dir_posix = nats_dir.replace("\\", "/")
         with open(js_conf_path, "w") as f:
             f.write(

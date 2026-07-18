@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from loguru import logger
 from mirrorr.event_bus.nats import bus, get_control_nc
 from mirrorr.event_bus.event import MirrorrEvent, BaseEvent
-from typing import Any
+from typing import Any, TypeVar
 from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -26,6 +26,12 @@ from mirrorr.api.schemas import (
     ProfileResponse,
     EngineResponse,
     ResolverResponse,
+    SessionListResponse,
+    AutorunListResponse,
+    RecordingListResponse,
+    ProfileListResponse,
+    EngineListResponse,
+    ResolverListResponse,
 )
 from mirrorr.storage.models import Session, Autorun, Recording, Profile, Engine, Resolver
 from mirrorr.storage.enums import SessionStatus, ResourceType
@@ -85,7 +91,7 @@ async def _safe_delete(db: AsyncSession, model: type, id: int) -> None:
         raise
 
 
-T = SQLModel
+T = TypeVar("T", bound=SQLModel)
 
 
 async def _get_paginated_for_user(
@@ -127,7 +133,7 @@ def _paginate_response(result: crud.PaginatedResult | dict) -> dict:
 sessions_router = APIRouter(prefix="/sessions")
 
 
-@sessions_router.get("/")
+@sessions_router.get("/", response_model=SessionListResponse)
 async def get_all_sessions(
     db: AsyncSession = Depends(_get_db_session),
     auth: AuthState = Depends(require_auth),
@@ -194,9 +200,16 @@ async def delete_session(id: int, db: AsyncSession = Depends(_get_db_session), a
         raise HTTPException(status_code=409, detail="Session is remuxing. Wait for it to complete or fail before deleting.")
     if obj.status in (SessionStatus.ACTIVE, SessionStatus.RECORDING):
         try:
-            return await _send_control(id, "stop")
+            # Send stop command to the supervisor. We don't return its reply
+            # body — the endpoint is 204 No Content. The supervisor's cleanup
+            # (including folder removal) happens via the SESSION_DELETED event.
+            await _send_control(id, "stop")
         except HTTPException as e:
             if e.status_code == 504:
+                # Supervisor not responding — kill it explicitly to avoid
+                # orphaned processes (ffmpeg/yt-dlp) holding the folder open.
+                from mirrorr.event_bus.handlers.handlers import _kill_supervisor
+                await _kill_supervisor(id)
                 await _cleanup_related_records(db, ResourceType.SESSION, id)
                 await _safe_delete(db, Session, id)
                 await _safe_emit(MirrorrEvent.SESSION_DELETED(id=id))
@@ -214,7 +227,7 @@ crud_routers.include_router(sessions_router)
 autoruns_router = APIRouter(prefix="/autoruns")
 
 
-@autoruns_router.get("/")
+@autoruns_router.get("/", response_model=AutorunListResponse)
 async def get_all_autoruns(
     db: AsyncSession = Depends(_get_db_session),
     auth: AuthState = Depends(require_auth),
@@ -382,7 +395,7 @@ async def save_session_as_profile(session_id: int, req: SaveProfileRequest, db: 
 recordings_router = APIRouter(prefix="/recordings")
 
 
-@recordings_router.get("/")
+@recordings_router.get("/", response_model=RecordingListResponse)
 async def get_all_recordings(
     db: AsyncSession = Depends(_get_db_session),
     auth: AuthState = Depends(require_auth),
@@ -426,7 +439,7 @@ crud_routers.include_router(recordings_router)
 profiles_router = APIRouter(prefix="/profiles")
 
 
-@profiles_router.get("/")
+@profiles_router.get("/", response_model=ProfileListResponse)
 async def get_all_profiles(
     db: AsyncSession = Depends(_get_db_session),
     auth: AuthState = Depends(require_auth),
@@ -515,7 +528,7 @@ crud_routers.include_router(profiles_router)
 engines_router = APIRouter(prefix="/engines")
 
 
-@engines_router.get("/")
+@engines_router.get("/", response_model=EngineListResponse)
 async def get_all_engines(
     db: AsyncSession = Depends(_get_db_session),
     _auth: AuthState = Depends(require_auth),
@@ -545,7 +558,7 @@ crud_routers.include_router(engines_router)
 resolvers_router = APIRouter(prefix="/resolvers")
 
 
-@resolvers_router.get("/")
+@resolvers_router.get("/", response_model=ResolverListResponse)
 async def get_all_resolvers(
     db: AsyncSession = Depends(_get_db_session),
     _auth: AuthState = Depends(require_auth),
