@@ -4,6 +4,7 @@
  */
 
 import {
+	type AuthResponse,
 	type Autorun,
 	type ControlResponse,
 	type Engine,
@@ -14,12 +15,12 @@ import {
 	type Resolver,
 	type Session,
 	type ValidationReport,
+	authResponseSchema,
 	authStatusSchema,
 	autorunSchema,
 	controlResponseSchema,
 	engineSchema,
 	importBundleSchema,
-	meSchema,
 	notificationSchema,
 	profileSchema,
 	recordingSchema,
@@ -55,6 +56,19 @@ export {
 };
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+
+// ── Request log body truncation ───────────────────────────────────
+
+/** Maximum bytes of request/response body to store in the request log.
+ *  Prevents memory bloat from large list responses (200 entries × multi-MB). */
+const MAX_LOG_BODY_BYTES = 10_000;
+
+/** Truncate a string to approximately MAX_LOG_BODY_BYTES with a marker. */
+function truncateForLog(value: string | null): string | null {
+	if (value === null) return null;
+	if (value.length <= MAX_LOG_BODY_BYTES) return value;
+	return `${value.slice(0, MAX_LOG_BODY_BYTES)}…truncated (${value.length} chars)`;
+}
 
 // ── Paginated response helpers ──────────────────────────────────
 
@@ -165,11 +179,13 @@ async function _fetchJson<T = unknown>(
 		duration: null as number | null,
 		ok: null as boolean | null,
 		error: null as string | null,
-		requestBody: body
-			? typeof body === "string"
-				? body
-				: JSON.stringify(body)
-			: null,
+		requestBody: truncateForLog(
+			body
+				? typeof body === "string"
+					? body
+					: JSON.stringify(body)
+				: null,
+		),
 		responseBody: null as string | null,
 	};
 	const logId = useRequestLogStore.getState().addEntry(logEntry);
@@ -241,7 +257,7 @@ async function _fetchJson<T = unknown>(
 					duration,
 					ok: false,
 					error: errMsg,
-					responseBody: JSON.stringify(raw),
+					responseBody: truncateForLog(JSON.stringify(raw)),
 				});
 				throw new ApiError(res.status, errMsg);
 			}
@@ -255,7 +271,7 @@ async function _fetchJson<T = unknown>(
 			statusText: res.statusText,
 			duration,
 			ok: true,
-			responseBody: JSON.stringify(data),
+			responseBody: truncateForLog(JSON.stringify(data)),
 		});
 		return data;
 	} catch (err) {
@@ -327,15 +343,12 @@ async function refreshAccessToken(): Promise<string> {
 
 		// Cookie-based auth: backend sets new cookies via Set-Cookie headers
 		// We no longer receive tokens in the response body
-		const data = (await res.json()) as {
-			user?: { id: number; username: string; role: string };
-		};
+		const data = (await res.json()) as AuthResponse;
 
-		// Update the zustand store with user info (token is in cookies now)
+		// Update the zustand store with user info (cookies handle auth)
 		const authStore = useAuthStore.getState();
-		if (data.user && authStore.user) {
-			// Keep existing user data, cookies handle auth now
-			authStore.setAuth("cookie", authStore.user);
+		if (data.user) {
+			authStore.setAuth(data.user);
 		}
 
 		// Return a placeholder — actual auth is via cookies
@@ -355,46 +368,18 @@ async function refreshAccessToken(): Promise<string> {
 	return refreshPromise;
 }
 
-// ── Token expiry helpers ──────────────────────────────────────────
+// ── Session status (cookie-aware) ─────────────────────────────────
+//
+// With httpOnly cookie auth, the JWT is not accessible to JavaScript, so
+// we cannot inspect its expiry client-side. The status below reflects
+// only what the auth store knows: authenticated or not. The backend
+// enforces real expiry; a 401 on the next request triggers refresh or
+// logout transparently.
 
-/** Parse a stored JWT and return its expiry timestamp, or null if unavailable. */
-export function getTokenExpiry(): number | null {
-	const token = getStoredToken();
-	if (!token) return null;
-	try {
-		const payload = JSON.parse(atob(token.split(".")[1]));
-		return payload.exp;
-	} catch {
-		return null;
-	}
-}
-
-/** Seconds remaining until the token expires, or 0 if unavailable.
- *  With cookie-based auth, this checks localStorage for backward compat
- *  but returns a generous default if only cookies are used. */
-export function getTokenRemainingSeconds(): number {
-	const exp = getTokenExpiry();
-	if (!exp) {
-		// Cookie-based auth: if we have a user in the store, assume valid
-		const user = useAuthStore.getState().user;
-		return user ? 3600 : 0; // Assume 1 hour remaining if authenticated
-	}
-	return Math.max(0, exp - Math.floor(Date.now() / 1000));
-}
-
-/** Whether the token is likely to expire within `withinSeconds`. */
-export function tokenExpiringSoon(withinSeconds: number): boolean {
-	return getTokenRemainingSeconds() < withinSeconds;
-}
-
-/** Token status for UI indicators. */
-export function tokenStatus(): "valid" | "expiring" | "expired" | "none" {
+/** Auth status for UI indicators. */
+export function tokenStatus(): "valid" | "expired" | "none" {
 	const isAuthenticated = useAuthStore.getState().isAuthenticated;
 	if (!isAuthenticated) return "none";
-
-	const remaining = getTokenRemainingSeconds();
-	if (remaining <= 0) return "expired";
-	if (remaining < 5 * 60) return "expiring";
 	return "valid";
 }
 
@@ -439,28 +424,22 @@ export const authApi = {
 		password: string;
 		display_name?: string;
 	}) =>
-		apiRequest<{
-			user?: { id: number; username: string; role: string };
-			message?: string;
-			request_id?: number;
-			status?: string;
-		}>("/auth/register", { method: "POST", body: data, noAuth: true }),
+		apiRequest<AuthResponse>("/auth/register", {
+			method: "POST",
+			body: data,
+			noAuth: true,
+			schema: authResponseSchema,
+		}),
 
 	login: (data: { username: string; password: string }) =>
-		apiRequest<{
-			user: { id: number; username: string; role: string };
-		}>("/auth/login", { method: "POST", body: data }),
+		apiRequest<AuthResponse>("/auth/login", {
+			method: "POST",
+			body: data,
+			schema: authResponseSchema,
+		}),
 
 	me: () =>
-		apiRequest<{
-			user: {
-				id: number;
-				username: string;
-				role: string;
-				display_name: string;
-			};
-			client: { id: number; name: string } | null;
-		}>("/auth/me", { schema: meSchema }),
+		apiRequest<AuthResponse>("/auth/me", { schema: authResponseSchema }),
 
 	changePassword: (data: { old_password: string; new_password: string }) =>
 		apiRequest<{ status: string }>("/auth/change-password", {

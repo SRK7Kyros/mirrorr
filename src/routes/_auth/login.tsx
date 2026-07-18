@@ -39,7 +39,7 @@ function LoginPage() {
 			authApi.login(data),
 		onSuccess: (data) => {
 			// Tokens are now in httpOnly cookies — just store user info
-			setAuth('cookie', data.user as User);
+			setAuth(data.user as User);
 			queryClient.clear();
 			navigate({ to: "/" });
 		},

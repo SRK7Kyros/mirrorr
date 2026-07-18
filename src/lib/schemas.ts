@@ -49,6 +49,10 @@ export const meSchema = z.object({
 	client: z.object({ id: z.number(), name: z.string() }).nullable(),
 });
 
+/** Auth response shape returned by /auth/login, /auth/register, /auth/refresh, /auth/me */
+export const authResponseSchema = meSchema;
+export type AuthResponse = z.infer<typeof authResponseSchema>;
+
 // ── Engine ─────────────────────────────────────────────────────────
 
 export const engineCapabilitiesSchema = z.object({
@@ -91,6 +95,7 @@ export const profileSchema = z.object({
 	resolver_config: z.record(z.string(), z.any()),
 	retry_mode: z.string(),
 	retry_config: z.record(z.string(), z.any()),
+	requester_user_token: z.string().optional(),
 });
 
 export type Profile = z.infer<typeof profileSchema>;
@@ -183,6 +188,7 @@ export const autorunSchema = z.object({
 	start_time: z.string(),
 	end_time: z.string(),
 	recording: z.boolean(),
+	requester_user_token: z.string().optional(),
 });
 
 export type Autorun = z.infer<typeof autorunSchema>;
@@ -217,6 +223,7 @@ export const recordingSchema = z.object({
 	duration_seconds: z.number(),
 	size_bytes: z.number(),
 	created_at: z.string(),
+	requester_user_token: z.string().optional(),
 });
 
 export type Recording = z.infer<typeof recordingSchema>;
@@ -224,13 +231,13 @@ export type Recording = z.infer<typeof recordingSchema>;
 // ── Notification ───────────────────────────────────────────────────
 
 export const notificationSchema = z.object({
-	id: z.number(),
+	id: z.number().optional(),
 	resource_type: z.string(),
 	resource_id: z.number(),
 	event_type: z.string(),
 	title: z.string(),
-	body: z.string(),
-	read: z.boolean(),
+	body: z.string().optional(),
+	read: z.boolean().optional(),
 	created_at: z.string(),
 });
 

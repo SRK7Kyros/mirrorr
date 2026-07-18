@@ -2,6 +2,12 @@ import { type QueryKey, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef } from "react";
 import { useWsConnection } from "@/hooks/use-ws-connection";
 import { getWsEventsUrl } from "@/lib/api";
+import {
+	autorunSchema,
+	profileSchema,
+	recordingSchema,
+	sessionSchema,
+} from "@/lib/schemas";
 import type { WsEventType } from "@/lib/ws-events";
 import { EVENT_TO_QUERY_KEY, wsEventSchema } from "@/lib/ws-events";
 import { useAuthStore } from "@/stores/auth-store";
@@ -17,6 +23,34 @@ interface WsEvent {
 	data?: Record<string, unknown>;
 }
 
+// ── Entity schema selection ────────────────────────────────────────
+
+/**
+ * Maps an event name to the Zod schema that validates its `data` payload.
+ * Returns `null` for events that never carry entity data (e.g. telemetry).
+ */
+function schemaForEvent(eventName: string) {
+	if (eventName.startsWith("session.")) return sessionSchema;
+	if (eventName.startsWith("autorun.")) return autorunSchema;
+	if (eventName.startsWith("recording.")) return recordingSchema;
+	if (eventName.startsWith("profile.")) return profileSchema;
+	return null;
+}
+
+/**
+ * Maps an event name to the detail query key for that entity.
+ * e.g. "session.updated" with id=5 → ["sessions", 5]
+ * Returns `null` if the event has no detail-query equivalent.
+ */
+function detailQueryKey(eventName: string, id: number | undefined) {
+	if (id === undefined) return null;
+	if (eventName.startsWith("session.")) return ["sessions", id];
+	if (eventName.startsWith("autorun.")) return ["autoruns", id];
+	if (eventName.startsWith("recording.")) return ["recordings", id];
+	if (eventName.startsWith("profile.")) return ["profiles", id];
+	return null;
+}
+
 // ── Cache helpers ──────────────────────────────────────────────────
 
 /**
@@ -24,7 +58,8 @@ interface WsEvent {
  * All NATS events are emitted after DB commit — they're authoritative.
  *
  * - Creates / updates → replace or append in list cache (zero round-trip)
- * - Deletes → remove from list cache by ID (zero round-trip)
+ *                    → also patch the detail cache (["entity", id])
+ * - Deletes → remove from list cache by ID + remove detail cache
  * - Missing data → invalidate as fallback (enrichment failure)
  *
  * Uses setQueryData with updater functions to avoid race conditions
@@ -48,12 +83,32 @@ function patchQueryCache(
 				(item) => (item as Record<string, unknown>)?.id !== event.id,
 			);
 		});
+		// Also remove the detail query cache for this entity
+		const detailKey = detailQueryKey(event.event, event.id);
+		if (detailKey) {
+			queryClient.removeQueries({ queryKey: detailKey });
+		}
 		return;
 	}
 
 	// Creates / updates carry the full entity payload — patch the list cache
-	// directly with zero HTTP round-trip.
+	// directly with zero HTTP round-trip. Validate against the entity schema
+	// first to catch backend/frontend contract drift early.
 	if (event.data) {
+		const schema = schemaForEvent(event.event);
+		const validated = schema ? schema.safeParse(event.data) : null;
+		if (validated && !validated.success) {
+			// Schema drift — log and fall back to invalidation so the next
+			// fetch either repairs the cache or surfaces the real error.
+			console.warn(
+				`[ws-events] ${event.event} payload failed schema validation — falling back to invalidate:`,
+				validated.error.issues,
+			);
+			queryClient.invalidateQueries({ queryKey });
+			return;
+		}
+		const payload = validated?.success ? validated.data : event.data;
+
 		queryClient.setQueryData<unknown[]>(queryKey, (old) => {
 			if (!old) return old; // cache not mounted yet — fall back to refetch
 			const arr = [...old];
@@ -62,19 +117,30 @@ function patchQueryCache(
 			);
 			if (idx >= 0) {
 				// Replace existing item with fresh data
-				arr[idx] = event.data;
+				arr[idx] = payload;
 			} else {
 				// Append new entity
-				arr.unshift(event.data);
+				arr.unshift(payload);
 			}
 			return arr;
 		});
+
+		// Also patch the detail query (e.g. ["sessions", id]) so pages like
+		// the monitoring detail view stay live without a 30s staleTime wait.
+		const detailKey = detailQueryKey(event.event, event.id);
+		if (detailKey) {
+			queryClient.setQueryData(detailKey, payload);
+		}
 		return;
 	}
 
 	// Fallback: no data payload available (enrichment failed on the backend).
 	// Invalidate so React Query re-fetches.
 	queryClient.invalidateQueries({ queryKey });
+	const detailKey = detailQueryKey(event.event, event.id);
+	if (detailKey) {
+		queryClient.invalidateQueries({ queryKey: detailKey });
+	}
 }
 
 // ── Batch processor ──────────────────────────────────────────────
@@ -126,7 +192,7 @@ class WsEventBatcher {
  */
 export function useWsEvents() {
 	const queryClient = useQueryClient();
-	const token = useAuthStore((s) => s.token);
+	const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 	const batcherRef = useRef<WsEventBatcher | null>(null);
 
 	// Initialize batcher once
@@ -166,5 +232,5 @@ export function useWsEvents() {
 		[queryClient],
 	);
 
-	useWsConnection({ url: getWsEventsUrl(), onMessage, token });
+	useWsConnection({ url: getWsEventsUrl(), onMessage, isAuthenticated });
 }

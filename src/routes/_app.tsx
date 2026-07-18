@@ -270,7 +270,9 @@ function AppLayout() {
 														variant="ghost"
 														size="icon-xs"
 														className="shrink-0 mt-0.5"
-														onClick={() => markRead(notif.id)}
+														onClick={() => {
+															if (notif.id !== undefined) markRead(notif.id);
+														}}
 													>
 														<CheckCircle className="size-3" />
 													</Button>

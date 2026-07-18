@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { sessionsApi } from "@/lib/api";
 import type { Session, Autorun } from "@/lib/schemas";
+import { BulkDeleteButton } from "@/components/bulk-delete-button";
 import { Button } from "@/components/ui/button";
 import { DeleteConfirm } from "@/components/delete-confirm";
 import {
@@ -51,7 +52,6 @@ import { ResizableSidebar } from "@/components/resizable-sidebar";
 import { formatDuration, formatLocalDate, parseUtcDate } from "@/lib/utils";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { MultiSelectProvider } from "@/hooks/use-multi-select";
-import { useBulkDelete } from "@/hooks/use-bulk-delete";
 import { usePluginConfig } from "@/hooks/use-plugin-config";
 import { PluginConfigFields } from "@/components/config-fields";
 import {
@@ -137,7 +137,7 @@ function SessionsPage() {
 						))}
 					</SidebarGroupContainer>
 				</SidebarLayout>
-				<BulkActionBar actions={<BulkDelete />} />
+				<BulkActionBar actions={<BulkDeleteButton deleteFn={sessionsApi.delete} entityLabel="session" entityLabelPlural="Sessions" />} />
 			</MultiSelectProvider>
 			{showCreate ? (
 				<CreateSessionPanel onClose={() => setShowCreate(false)} />
@@ -235,32 +235,6 @@ function LiveCountup({
 	return <span className="tabular-nums">{formatDuration(elapsed)}</span>;
 }
 
-function BulkDelete() {
-	const { mutate, isPending, selectedIds } = useBulkDelete(sessionsApi.delete, "Sessions");
-	const count = selectedIds.size;
-	return (
-		<DeleteConfirm
-			entityName={`${count} session(s)`}
-			isPending={isPending}
-			onConfirm={mutate}
-		>
-			<Button
-				variant="ghost"
-				size="sm"
-				className="h-6 text-[10px] text-destructive hover:text-destructive"
-				disabled={isPending || count === 0}
-			>
-				{isPending ? (
-					<Loader2 className="size-3 mr-1 animate-spin" />
-				) : (
-					<Trash2 className="size-3 mr-1" />
-				)}
-				Bulk Delete ({count})
-			</Button>
-		</DeleteConfirm>
-	);
-}
-
 function SessionDetail({
 	session,
 	onBack,
@@ -276,7 +250,7 @@ function SessionDetail({
 }) {
 	const saveAsProfile = useSaveAsProfile(
 		(sessionId: number, name: string) =>
-			sessionsApi.saveAsProfile(sessionId, name) as unknown as Promise<void>,
+			sessionsApi.saveAsProfile(sessionId, name),
 		"session",
 	);
 

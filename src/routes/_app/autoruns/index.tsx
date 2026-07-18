@@ -52,9 +52,9 @@ import {
 	SidebarGroupContainer,
 } from "@/components/resource-layout";
 import { ResizableSidebar } from "@/components/resizable-sidebar";
+import { BulkDeleteButton } from "@/components/bulk-delete-button";
 import { MultiSelectProvider } from "@/hooks/use-multi-select";
 import { usePluginConfig } from "@/hooks/use-plugin-config";
-import { useBulkDelete } from "@/hooks/use-bulk-delete";
 import { useBulkExport } from "@/hooks/use-bulk-export";
 import { useSaveAsProfile } from "@/hooks/use-save-as-profile";
 import { PluginConfigFields } from "@/components/config-fields";
@@ -202,11 +202,6 @@ function AutorunsPage() {
 }
 
 function BulkActions() {
-	const { mutate: deleteMutate, isPending: deletePending, selectedIds } = useBulkDelete(
-		(id: number) => autorunsApi.delete(id),
-		"Autoruns",
-	);
-	const count = selectedIds.size;
 	const { handleExport } = useBulkExport(
 		(id: number) => importExportApi.exportAutorun(id),
 		"autorun",
@@ -223,25 +218,11 @@ function BulkActions() {
 				<Download className="size-3 mr-1" />
 				Bulk Export
 			</Button>
-			<DeleteConfirm
-				entityName={`${count} autorun(s)`}
-				isPending={deletePending}
-				onConfirm={deleteMutate}
-			>
-				<Button
-					variant="ghost"
-					size="sm"
-					className="h-6 text-[10px] text-destructive hover:text-destructive"
-					disabled={deletePending || count === 0}
-				>
-					{deletePending ? (
-						<Loader2 className="size-3 mr-1 animate-spin" />
-					) : (
-						<Trash2 className="size-3 mr-1" />
-					)}
-					Bulk Delete ({count})
-				</Button>
-			</DeleteConfirm>
+			<BulkDeleteButton
+				deleteFn={(id: number) => autorunsApi.delete(id)}
+				entityLabel="autorun"
+				entityLabelPlural="Autoruns"
+			/>
 		</>
 	);
 }
@@ -265,7 +246,7 @@ function AutorunDetail({
 
 	const saveAsProfile = useSaveAsProfile(
 		(autorunId: number, name: string) =>
-			autorunsApi.saveAsProfile(autorunId, name) as unknown as Promise<void>,
+			autorunsApi.saveAsProfile(autorunId, name),
 		"autorun",
 	);
 

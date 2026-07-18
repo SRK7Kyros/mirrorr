@@ -11,7 +11,7 @@ import { useRequestLogStore } from "@/stores/request-log-store";
  */
 export function useWsNotifications() {
 	const [notifications, setNotifications] = useState<Notification[]>([]);
-	const token = useAuthStore((s) => s.token);
+	const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
 	const onMessage = useCallback((ev: MessageEvent) => {
 		try {
@@ -47,7 +47,7 @@ export function useWsNotifications() {
 		}
 	}, []);
 
-	useWsConnection({ url: getWsNotificationsUrl(), onMessage, token });
+	useWsConnection({ url: getWsNotificationsUrl(), onMessage, isAuthenticated });
 
 	const markRead = useCallback((id: number) => {
 		setNotifications((prev) => prev.filter((n) => n.id !== id));

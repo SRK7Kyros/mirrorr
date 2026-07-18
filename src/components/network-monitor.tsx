@@ -58,18 +58,17 @@ export function NetworkStatusDot() {
 		lastErrorAt ? 5000 : null,
 	);
 
-	// Color priority: auth issues > backend issues > all good
+	// Color priority: auth issues > backend issues > all good.
+	// With cookie auth we can only know "valid" or "none" client-side;
+	// the backend enforces real expiry and a 401 triggers refresh/logout.
 	const color =
 		!isAuthenticated || auth === "expired"
 			? "bg-red-500"
-			: auth === "expiring"
-				? "bg-amber-500 animate-pulse"
-				: getBackendStatusColor(backendStatus);
+			: getBackendStatusColor(backendStatus);
 
 	const label = (() => {
 		if (!isAuthenticated) return "Auth off";
 		if (auth === "expired") return "Expired";
-		if (auth === "expiring") return "Expiring";
 		if (backendStatus === "connected") return "OK";
 		if (backendStatus === "disconnected") return "Down";
 		return "…";
@@ -78,7 +77,6 @@ export function NetworkStatusDot() {
 	const title = (() => {
 		if (!isAuthenticated) return "Not authenticated";
 		if (auth === "expired") return "Session expired";
-		if (auth === "expiring") return "Session expiring soon (refreshing…)";
 		if (backendStatus === "connected") return "Connected · Session valid";
 		if (backendStatus === "disconnected")
 			return `Disconnected${showAge ? ` (${showAge})` : ""}`;
@@ -98,7 +96,7 @@ export function NetworkStatusDot() {
 // ── Floating network monitor window ─────────────────────────────
 export function NetworkStatusTracker() {
 	const entries = useRequestLogStore((s) => s.entries);
-	const token = useAuthStore((s) => s.token);
+	const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
 	// Track backend health from API responses
 	useEffect(() => {
@@ -124,12 +122,12 @@ export function NetworkStatusTracker() {
 		}
 	}, []);
 
-	// Initial check on mount / token change
+	// Initial check on mount / auth change
 	useEffect(() => {
-		if (token) check();
-	}, [token, check]);
+		if (isAuthenticated) check();
+	}, [isAuthenticated, check]);
 
-	useInterval(check, token ? 15_000 : null);
+	useInterval(check, isAuthenticated ? 15_000 : null);
 
 	return null;
 }
@@ -222,6 +220,7 @@ export function NetworkMonitor({
 						className="size-5"
 						onClick={clear}
 						title="Clear log"
+						aria-label="Clear log"
 					>
 						<Trash2 className="size-3" />
 					</Button>
@@ -231,6 +230,7 @@ export function NetworkMonitor({
 						className="size-5"
 						onClick={() => setMinimized(!minimized)}
 						title={minimized ? "Expand" : "Minimize"}
+						aria-label={minimized ? "Expand" : "Minimize"}
 					>
 						{minimized ? (
 							<Maximize2 className="size-3" />
@@ -244,6 +244,7 @@ export function NetworkMonitor({
 						className="size-5"
 						onClick={onClose}
 						title="Close"
+						aria-label="Close"
 					>
 						<X className="size-3" />
 					</Button>
