@@ -89,6 +89,7 @@
 @layer base {
 	* {
 		@apply border-border;
+		caret-color: transparent;
 	}
 	input,
 	textarea,

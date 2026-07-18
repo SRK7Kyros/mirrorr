@@ -9,11 +9,9 @@ import {
 import type { User } from "@/lib/schemas";
 
 interface AuthState {
-	/** Legacy field — kept for backward compat. Actual JWT is in httpOnly cookie. */
-	token: string | null;
 	user: User | null;
 	isAuthenticated: boolean;
-	setAuth: (token: string, user: User) => void;
+	setAuth: (user: User) => void;
 	logout: () => void;
 	updateUser: (user: Partial<User>) => void;
 }
@@ -21,13 +19,10 @@ interface AuthState {
 export const useAuthStore = create<AuthState>()(
 	persist(
 		(set) => ({
-			token: null,
 			user: null,
 			isAuthenticated: false,
-			setAuth: (_token, user) =>
+			setAuth: (user) =>
 				set({
-					// Token is now in httpOnly cookie — store "cookie" as placeholder
-					token: "cookie",
 					user,
 					isAuthenticated: true,
 				}),
@@ -43,7 +38,7 @@ export const useAuthStore = create<AuthState>()(
 					method: "POST",
 					credentials: "include",
 				}).catch(() => {}); // Best-effort — don't block logout
-				set({ token: null, user: null, isAuthenticated: false });
+				set({ user: null, isAuthenticated: false });
 			},
 			updateUser: (partial) =>
 				set((state) => ({
@@ -53,7 +48,7 @@ export const useAuthStore = create<AuthState>()(
 		{
 			name: "mirrorr-auth",
 			partialize: (state) => ({
-				// Don't persist token — it's in httpOnly cookies
+				// Don't persist tokens — they're in httpOnly cookies
 				user: state.user,
 				isAuthenticated: state.isAuthenticated,
 			}),

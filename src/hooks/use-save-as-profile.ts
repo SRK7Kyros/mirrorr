@@ -9,7 +9,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 export function useSaveAsProfile(
-	saveFn: (entityId: number, name: string) => Promise<void>,
+	saveFn: (entityId: number, name: string) => Promise<unknown>,
 	entityLabel: string,
 ) {
 	const queryClient = useQueryClient();

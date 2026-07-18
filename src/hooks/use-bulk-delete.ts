@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { useMultiSelect } from "@/hooks/use-multi-select";
 
 export function useBulkDelete(
-	deleteFn: (id: number) => Promise<void>,
+	deleteFn: (id: number) => Promise<unknown>,
 	entityName: string,
 ) {
 	const multi = useMultiSelect();

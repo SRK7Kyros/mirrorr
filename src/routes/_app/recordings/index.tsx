@@ -16,8 +16,8 @@ import {
     SidebarGroupContainer,
 } from "@/components/resource-layout";
 import { ResizableSidebar } from "@/components/resizable-sidebar";
+import { BulkDeleteButton } from "@/components/bulk-delete-button";
 import { MultiSelectProvider } from "@/hooks/use-multi-select";
-import { useBulkDelete } from "@/hooks/use-bulk-delete";
 import { useRecordings } from "@/hooks/use-queries";
 
 import { formatDuration, formatBytes, formatLocalDate } from "@/lib/utils";
@@ -91,7 +91,7 @@ function RecordingsPage() {
                         ))}
                     </SidebarGroupContainer>
                 </SidebarLayout>
-                <BulkActionBar actions={<BulkDelete />} />
+                <BulkActionBar actions={<BulkDeleteButton deleteFn={recordingsApi.delete} entityLabel="recording" entityLabelPlural="Recordings" />} />
             </MultiSelectProvider>
             {selectedId ? (
                 <RecordingDetail
@@ -107,36 +107,6 @@ function RecordingsPage() {
                 <EmptyDetail icon={Film} text="Select a recording" />
             )}
         </ResizableSidebar>
-    );
-}
-
-/** Bulk delete button for the floating action bar */
-function BulkDelete() {
-    const { mutate, isPending, selectedIds } = useBulkDelete(
-        recordingsApi.delete,
-        "Recordings",
-    );
-    const count = selectedIds.size;
-    return (
-        <DeleteConfirm
-            entityName={`${count} recording(s)`}
-            isPending={isPending}
-            onConfirm={mutate}
-        >
-            <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 text-[10px] text-destructive hover:text-destructive"
-                disabled={isPending || count === 0}
-            >
-                {isPending ? (
-                    <Loader2 className="size-3 mr-1 animate-spin" />
-                ) : (
-                    <Trash2 className="size-3 mr-1" />
-                )}
-                Bulk Delete ({count})
-            </Button>
-        </DeleteConfirm>
     );
 }
 

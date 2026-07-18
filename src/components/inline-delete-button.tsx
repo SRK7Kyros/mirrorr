@@ -75,6 +75,7 @@ export function InlineDeleteButton({
 				onContextMenu={handleContextMenu}
 				tabIndex={0}
 				disabled={isPending && isActive}
+				aria-label="Delete"
 			>
 				{isPending && isActive ? (
 					<Loader2 className="size-3 animate-spin" />
