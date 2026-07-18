@@ -28,7 +28,6 @@ export function useCopyToClipboard(timeout = 1500) {
 		[timeout],
 	);
 
-
 	useEffect(() => {
 		return () => clearTimeout(timeoutRef.current);
 	}, []);

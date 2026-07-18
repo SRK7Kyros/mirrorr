@@ -11,7 +11,7 @@ import { useRequestLogStore } from "@/stores/request-log-store";
  */
 export function useWsNotifications() {
 	const [notifications, setNotifications] = useState<Notification[]>([]);
-	const token = useAuthStore((s) => s.token);
+	const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
 	const onMessage = useCallback((ev: MessageEvent) => {
 		try {
@@ -19,7 +19,10 @@ export function useWsNotifications() {
 			if (data.type === "notification" && data.data) {
 				const result = notificationSchema.safeParse(data.data);
 				if (!result.success) {
-					console.debug("Invalid notification data ignored:", result.error.issues);
+					console.debug(
+						"Invalid notification data ignored:",
+						result.error.issues,
+					);
 					return;
 				}
 				const notif = result.data;
@@ -47,7 +50,7 @@ export function useWsNotifications() {
 		}
 	}, []);
 
-	useWsConnection({ url: getWsNotificationsUrl(), onMessage, token });
+	useWsConnection({ url: getWsNotificationsUrl(), onMessage, isAuthenticated });
 
 	const markRead = useCallback((id: number) => {
 		setNotifications((prev) => prev.filter((n) => n.id !== id));

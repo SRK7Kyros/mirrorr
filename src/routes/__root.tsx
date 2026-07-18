@@ -16,7 +16,6 @@ const queryClient = new QueryClient({
 
 export interface RouterContext {
 	auth: {
-		token: string | null;
 		isAuthenticated: boolean;
 		userRole: string | null;
 	};

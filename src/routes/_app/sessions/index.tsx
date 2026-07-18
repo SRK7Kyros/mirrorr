@@ -1,7 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { sessionsApi } from "@/lib/api";
+import { createSessionSchema } from "@/lib/schemas";
 import type { Session, Autorun } from "@/lib/schemas";
+import { BulkDeleteButton } from "@/components/bulk-delete-button";
 import { Button } from "@/components/ui/button";
 import { DeleteConfirm } from "@/components/delete-confirm";
 import {
@@ -51,7 +53,6 @@ import { ResizableSidebar } from "@/components/resizable-sidebar";
 import { formatDuration, formatLocalDate, parseUtcDate } from "@/lib/utils";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { MultiSelectProvider } from "@/hooks/use-multi-select";
-import { useBulkDelete } from "@/hooks/use-bulk-delete";
 import { usePluginConfig } from "@/hooks/use-plugin-config";
 import { PluginConfigFields } from "@/components/config-fields";
 import {
@@ -121,7 +122,6 @@ function SessionsPage() {
 					onNew={() => setShowCreate(true)}
 					isLoading={isLoading}
 					emptyText="No sessions"
-					className="bg-card border rounded-xl h-full"
 				>
 					<SidebarGroupContainer>
 						{sessions.map((s) => (
@@ -137,7 +137,15 @@ function SessionsPage() {
 						))}
 					</SidebarGroupContainer>
 				</SidebarLayout>
-				<BulkActionBar actions={<BulkDelete />} />
+				<BulkActionBar
+					actions={
+						<BulkDeleteButton
+							deleteFn={sessionsApi.delete}
+							entityLabel="session"
+							entityLabelPlural="Sessions"
+						/>
+					}
+				/>
 			</MultiSelectProvider>
 			{showCreate ? (
 				<CreateSessionPanel onClose={() => setShowCreate(false)} />
@@ -235,32 +243,6 @@ function LiveCountup({
 	return <span className="tabular-nums">{formatDuration(elapsed)}</span>;
 }
 
-function BulkDelete() {
-	const { mutate, isPending, selectedIds } = useBulkDelete(sessionsApi.delete, "Sessions");
-	const count = selectedIds.size;
-	return (
-		<DeleteConfirm
-			entityName={`${count} session(s)`}
-			isPending={isPending}
-			onConfirm={mutate}
-		>
-			<Button
-				variant="ghost"
-				size="sm"
-				className="h-6 text-[10px] text-destructive hover:text-destructive"
-				disabled={isPending || count === 0}
-			>
-				{isPending ? (
-					<Loader2 className="size-3 mr-1 animate-spin" />
-				) : (
-					<Trash2 className="size-3 mr-1" />
-				)}
-				Bulk Delete ({count})
-			</Button>
-		</DeleteConfirm>
-	);
-}
-
 function SessionDetail({
 	session,
 	onBack,
@@ -276,7 +258,7 @@ function SessionDetail({
 }) {
 	const saveAsProfile = useSaveAsProfile(
 		(sessionId: number, name: string) =>
-			sessionsApi.saveAsProfile(sessionId, name) as unknown as Promise<void>,
+			sessionsApi.saveAsProfile(sessionId, name),
 		"session",
 	);
 
@@ -288,6 +270,7 @@ function SessionDetail({
 	// Track toggle initiation via ref (no render), clear via effect when recording state changes
 	const recTogglePending = useRef(false);
 	const [recPending, setRecPending] = useState(false);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: session?.recording is a trigger dep — the effect must re-run when recording state changes but does not read the value inside the body
 	useEffect(() => {
 		if (recTogglePending.current) {
 			recTogglePending.current = false;
@@ -334,7 +317,9 @@ function SessionDetail({
 								<Switch
 									checked={!!session.recording}
 									pending={recPending}
-									onCheckedChange={() => {									recTogglePending.current = true;										setRecPending(true);
+									onCheckedChange={() => {
+										recTogglePending.current = true;
+										setRecPending(true);
 										onToggleRec();
 									}}
 								/>
@@ -437,22 +422,22 @@ function SessionDetail({
 						<Table>
 							<TableHeader>
 								<TableRow className="h-7">
-									<TableHead className="text-[10px] font-medium h-7 px-2">
+									<TableHead className="text-micro font-medium h-7 px-2">
 										#
 									</TableHead>
-									<TableHead className="text-[10px] font-medium h-7 px-2">
+									<TableHead className="text-micro font-medium h-7 px-2">
 										Started
 									</TableHead>
-									<TableHead className="text-[10px] font-medium h-7 px-2">
+									<TableHead className="text-micro font-medium h-7 px-2">
 										Ended
 									</TableHead>
-									<TableHead className="text-[10px] font-medium h-7 px-2">
+									<TableHead className="text-micro font-medium h-7 px-2">
 										Duration
 									</TableHead>
-									<TableHead className="text-[10px] font-medium h-7 px-2">
+									<TableHead className="text-micro font-medium h-7 px-2">
 										Exit Code
 									</TableHead>
-									<TableHead className="text-[10px] font-medium h-7 px-2">
+									<TableHead className="text-micro font-medium h-7 px-2">
 										Reason
 									</TableHead>
 								</TableRow>
@@ -521,7 +506,7 @@ function CreateSessionPanel({ onClose }: { onClose: () => void }) {
 
 	const createMutation = useMutation({
 		mutationFn: (data: Record<string, unknown>) =>
-			sessionsApi.create(data as Parameters<typeof sessionsApi.create>[0]),
+			sessionsApi.create(createSessionSchema.parse(data)),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: ["sessions"] });
 			onClose();
@@ -542,10 +527,11 @@ function CreateSessionPanel({ onClose }: { onClose: () => void }) {
 			submitLabel="Start Session"
 			onSubmit={() => {
 				const data: Record<string, unknown> = { recording };
-				if (config.hasProfile) data.profile_id = parseInt(config.profileId);
+				if (config.hasProfile) data.profile_id = parseInt(config.profileId, 10);
 				if (config.showConfigFields) {
-					if (config.engineId) data.engine_id = parseInt(config.engineId);
-					if (config.resolverId) data.resolver_id = parseInt(config.resolverId);
+					if (config.engineId) data.engine_id = parseInt(config.engineId, 10);
+					if (config.resolverId)
+						data.resolver_id = parseInt(config.resolverId, 10);
 					data.retry_mode = config.retryMode;
 					data.retry_config = config.retryConfig;
 					data.resolver_config = config.resolverConfig;
