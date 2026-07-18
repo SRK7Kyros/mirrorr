@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { autorunsApi, importExportApi } from "@/lib/api";
+import { createAutorunSchema } from "@/lib/schemas";
 import type { Autorun } from "@/lib/schemas";
 import { Button } from "@/components/ui/button";
 import { DeleteConfirm } from "@/components/delete-confirm";
@@ -123,7 +124,6 @@ function AutorunsPage() {
 							}}
 						/>
 					}
-					className="bg-card border rounded-xl h-full"
 				>
 					<SidebarGroupContainer>
 						{autoruns.map((a) => (
@@ -143,7 +143,7 @@ function AutorunsPage() {
 									status={a.status ?? "scheduled"}
 									className="mt-px"
 								/>
-								<div className="flex items-center gap-1.5 mt-1 text-[10px] text-muted-foreground/60 col-span-2">
+								<div className="flex items-center gap-1.5 mt-1 text-micro text-muted-foreground/60 col-span-2">
 									<span>
 										{formatLocalDate(a.start_time, {
 											month: "short",
@@ -212,7 +212,7 @@ function BulkActions() {
 			<Button
 				variant="ghost"
 				size="sm"
-				className="h-6 text-[10px]"
+				className="h-6 text-micro"
 				onClick={handleExport}
 			>
 				<Download className="size-3 mr-1" />
@@ -365,7 +365,7 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
 
 	const createMutation = useMutation({
 		mutationFn: (data: Record<string, unknown>) =>
-			autorunsApi.create(data as Parameters<typeof autorunsApi.create>[0]),
+			autorunsApi.create(createAutorunSchema.parse(data)),
 		onSuccess: () => {
 			onClose();
 			queryClient.invalidateQueries({ queryKey: ["autoruns"] });
@@ -410,10 +410,11 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
 					start_time: getStartTime(),
 					end_time: getEndTime(),
 				};
-				if (config.hasProfile) data.profile_id = parseInt(config.profileId);
+				if (config.hasProfile) data.profile_id = parseInt(config.profileId, 10);
 				if (config.showConfigFields) {
-					if (config.engineId) data.engine_id = parseInt(config.engineId);
-					if (config.resolverId) data.resolver_id = parseInt(config.resolverId);
+					if (config.engineId) data.engine_id = parseInt(config.engineId, 10);
+					if (config.resolverId)
+						data.resolver_id = parseInt(config.resolverId, 10);
 					data.retry_mode = config.retryMode;
 					data.retry_config = config.retryConfig;
 					data.resolver_config = config.resolverConfig;
@@ -562,7 +563,7 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
 									<EtaDisplay
 										value={startTime}
 										mode="relative"
-										className="text-[10px] text-muted-foreground/70 italic"
+										className="text-micro text-muted-foreground/70 italic"
 									/>
 								)}
 							</FormField>
@@ -572,7 +573,7 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
 									<EtaDisplay
 										value={endTime}
 										mode="relative"
-										className="text-[10px] text-muted-foreground/70 italic"
+										className="text-micro text-muted-foreground/70 italic"
 									/>
 								)}
 							</FormField>
@@ -590,7 +591,7 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
 									<EtaDisplay
 										value={new Date(now + relativeStartOffset).toISOString()}
 										mode="relative"
-										className="text-[10px] text-muted-foreground/70 italic"
+										className="text-micro text-muted-foreground/70 italic"
 									/>
 								)}
 							</FormField>
@@ -604,7 +605,7 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
 									<EtaDisplay
 										value={new Date(now + relativeEndOffset).toISOString()}
 										mode="relative"
-										className="text-[10px] text-muted-foreground/70 italic"
+										className="text-micro text-muted-foreground/70 italic"
 									/>
 								)}
 							</FormField>

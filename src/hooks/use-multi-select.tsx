@@ -19,8 +19,12 @@ interface MultiSelectContextValue {
 	active: boolean;
 	/** Check if an ID is selected */
 	isSelected: (id: number) => boolean;
-	/** Handle modifier-click (Ctrl/Cmd/Shift) — toggles or range-selects */
-	handleModifierClick: (id: number, e: React.MouseEvent) => void;
+	/** Handle modifier-click (Ctrl/Cmd/Shift) — toggles or range-selects.
+	 * Accepts either a mouse or keyboard event since both expose the modifier keys. */
+	handleModifierClick: (
+		id: number,
+		e: React.MouseEvent | React.KeyboardEvent,
+	) => void;
 	/** Handle plain click — updates anchor only, never touches selection */
 	handlePlainClick: (id: number) => void;
 	/** Clear all selection */
@@ -76,7 +80,7 @@ export function MultiSelectProvider({
 	}, []);
 
 	const handleModifierClick = useCallback(
-		(id: number, e: React.MouseEvent) => {
+		(id: number, e: React.MouseEvent | React.KeyboardEvent) => {
 			if (e.shiftKey && lastFocusedRef.current !== null) {
 				// Range select from anchor to clicked item
 				const fromIdx = idToIndex.get(lastFocusedRef.current);

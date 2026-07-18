@@ -200,37 +200,34 @@ export function useWsEvents() {
 		batcherRef.current = new WsEventBatcher(queryClient);
 	}
 
-	const onMessage = useCallback(
-		(ev: MessageEvent) => {
-			try {
-				const parsed = JSON.parse(ev.data);
-				const result = wsEventSchema.safeParse(parsed);
-				if (result.success) {
-					batcherRef.current!.add(result.data);
-					useRequestLogStore.getState().addEntry({
-						type: "ws-event",
-						timestamp: Date.now(),
-						method: "WS",
-						url: "/ws/events",
-						path: result.data.event ?? "unknown",
-						status: 200,
-						statusText: "OK",
-						duration: null,
-						ok: true,
-						error: null,
-						requestBody: null,
-						responseBody: JSON.stringify(result.data),
-					});
-				} else {
-					// Invalid event — log and ignore
-					console.debug("Invalid WS event ignored:", result.error.issues);
-				}
-			} catch {
-				// ignore non-JSON messages
+	const onMessage = useCallback((ev: MessageEvent) => {
+		try {
+			const parsed = JSON.parse(ev.data);
+			const result = wsEventSchema.safeParse(parsed);
+			if (result.success) {
+				batcherRef.current!.add(result.data);
+				useRequestLogStore.getState().addEntry({
+					type: "ws-event",
+					timestamp: Date.now(),
+					method: "WS",
+					url: "/ws/events",
+					path: result.data.event ?? "unknown",
+					status: 200,
+					statusText: "OK",
+					duration: null,
+					ok: true,
+					error: null,
+					requestBody: null,
+					responseBody: JSON.stringify(result.data),
+				});
+			} else {
+				// Invalid event — log and ignore
+				console.debug("Invalid WS event ignored:", result.error.issues);
 			}
-		},
-		[queryClient],
-	);
+		} catch {
+			// ignore non-JSON messages
+		}
+	}, []);
 
 	useWsConnection({ url: getWsEventsUrl(), onMessage, isAuthenticated });
 }

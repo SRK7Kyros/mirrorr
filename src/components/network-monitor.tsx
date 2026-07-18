@@ -86,7 +86,7 @@ export function NetworkStatusDot() {
 	return (
 		<span className="flex items-center gap-1.5 shrink-0" title={title}>
 			<span className={cn("size-2 rounded-full shrink-0", color)} />
-			<span className="text-[10px] text-muted-foreground font-medium w-[8.5ch] text-left">
+			<span className="text-micro text-muted-foreground font-medium w-[8.5ch] text-left">
 				{label}
 			</span>
 		</span>
@@ -211,7 +211,7 @@ export function NetworkMonitor({
 						)}
 					/>
 					<div className="flex-1" />
-					<span className="text-[10px] text-muted-foreground font-mono mr-1">
+					<span className="text-micro text-muted-foreground font-mono mr-1">
 						{entries.length} reqs
 					</span>
 					<Button
@@ -372,14 +372,14 @@ function RequestRow({
 				tabIndex={0}
 			>
 				<span
-					className="text-[10px] text-muted-subtle font-mono py-1.5 flex items-center"
+					className="text-micro text-muted-subtle font-mono py-1.5 flex items-center"
 					style={{ gridArea: AREAS.time }}
 				>
 					{time}
 				</span>
 				<span
 					className={cn(
-						"text-[10px] font-bold font-mono uppercase py-1.5 flex items-center",
+						"text-micro font-bold font-mono uppercase py-1.5 flex items-center",
 						methodColor,
 					)}
 					style={{ gridArea: AREAS.method }}
@@ -388,7 +388,7 @@ function RequestRow({
 				</span>
 				<span
 					className={cn(
-						"text-[10px] font-mono py-1.5 flex items-center",
+						"text-micro font-mono py-1.5 flex items-center",
 						statusColor,
 					)}
 					style={{ gridArea: AREAS.status }}
@@ -402,7 +402,7 @@ function RequestRow({
 					{entry.path}
 				</span>
 				<span
-					className="text-[10px] text-muted-subtle font-mono text-right py-1.5 flex items-center justify-end"
+					className="text-micro text-muted-subtle font-mono text-right py-1.5 flex items-center justify-end"
 					style={{ gridArea: AREAS.dur }}
 				>
 					{entry.duration !== null
@@ -546,7 +546,7 @@ function DetailCard({
 				{/* Card content */}
 				<div
 					className={cn(
-						"text-[10px] px-2 py-1.5 max-h-32 overflow-x-auto overflow-y-auto break-words scrollbar-thin",
+						"text-micro px-2 py-1.5 max-h-32 overflow-x-auto overflow-y-auto break-words scrollbar-thin",
 						mono ? "font-mono text-muted-foreground" : "text-foreground",
 					)}
 				>
