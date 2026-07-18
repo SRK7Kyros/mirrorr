@@ -66,6 +66,60 @@ def setup_cors(app: FastAPI, allowed_origins: list[str] | None = None) -> None:
     )
 
 
+# ── Security hardening middleware ───────────────────────────────────
+
+# Max bytes for any request body. Rejects oversized payloads (DoS protection).
+MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024  # 10 MiB
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add standard security response headers to every response."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+
+class RequestBodySizeLimitMiddleware(BaseHTTPMiddleware):
+    """Reject requests whose Content-Length exceeds the configured limit.
+
+    Streaming bodies without a Content-Length are checked as they arrive;
+    a request that exceeds the limit mid-stream is aborted with 413.
+    """
+
+    def __init__(self, app, max_bytes: int = MAX_REQUEST_BODY_BYTES):
+        super().__init__(app)
+        self.max_bytes = max_bytes
+
+    async def dispatch(self, request: Request, call_next):
+        declared = request.headers.get("content-length")
+        if declared is not None:
+            try:
+                if int(declared) > self.max_bytes:
+                    return JSONResponse(
+                        status_code=413,
+                        content={"detail": "Request body too large."},
+                    )
+            except ValueError:
+                return JSONResponse(
+                    status_code=400,
+                    content={"detail": "Invalid Content-Length header."},
+                )
+        return await call_next(request)
+
+
+def setup_security_middleware(app: FastAPI) -> None:
+    """Install security headers and request body size limit middlewares.
+
+    Call once during application bootstrapping (after CORS is configured).
+    """
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(RequestBodySizeLimitMiddleware)
+
+
 # CORS defaults are applied during _boot() in core.py.
 # Do NOT configure CORS at module level — it would result in duplicate middlewares.
 # If _boot() doesn't run (e.g., testing), the API has no CORS middleware.

@@ -73,32 +73,41 @@ async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) 
             logger.info(f"Autorun {autorun.id} ({autorun.user_friendly_name}): "
                         f"start_time reached, creating session")
 
-            autorun.status = AutorunStatus.ACTIVE
-            db.add(autorun)
-            # Note: AUTORUN_UPDATED is emitted after commit below
+            # M4 fix: use a savepoint per autorun so a failure in session
+            # creation for one autorun does not roll back the status
+            # updates of the others. The outer transaction still commits
+            # the successful ones.
+            try:
+                async with db.begin_nested():
+                    autorun.status = AutorunStatus.ACTIVE
+                    db.add(autorun)
 
-            session = Session(
-                profile_id=autorun.profile_id,
-                autorun_id=autorun.id,
-                engine_id=autorun.engine_id,
-                resolver_id=autorun.resolver_id,
-                resolver_config=autorun.resolver_config,
-                retry_mode=autorun.retry_mode,
-                retry_config=autorun.retry_config,
-                requester_user_token=autorun.requester_user_token or f"autorun:{autorun.id}",
-                recording=autorun.recording,
-            )
-            session = await crud.create(db, session)
-            just_created_ids.add(session.id)
-            created_session_ids.append(session.id)
-            updated_autorun_ids.append(autorun.id)
+                    session = Session(
+                        profile_id=autorun.profile_id,
+                        autorun_id=autorun.id,
+                        engine_id=autorun.engine_id,
+                        resolver_id=autorun.resolver_id,
+                        resolver_config=autorun.resolver_config,
+                        retry_mode=autorun.retry_mode,
+                        retry_config=autorun.retry_config,
+                        requester_user_token=autorun.requester_user_token or f"autorun:{autorun.id}",
+                        recording=autorun.recording,
+                    )
+                    session = await crud.create(db, session)
+                    just_created_ids.add(session.id)
+                    created_session_ids.append(session.id)
+                    updated_autorun_ids.append(autorun.id)
 
-            # Subscribe the autorun's owner to session events so they
-            # receive per-resource WS events (telemetry, recording state, etc.)
-            if autorun.requester_user_token:
-                from mirrorr.api.auth import subscribe_requester
-                from mirrorr.storage.enums import ResourceType
-                await subscribe_requester(db, autorun.requester_user_token, ResourceType.SESSION, session.id)
+                    # Subscribe the autorun's owner to session events so they
+                    # receive per-resource WS events (telemetry, recording state, etc.)
+                    if autorun.requester_user_token:
+                        from mirrorr.api.auth import subscribe_requester
+                        from mirrorr.storage.enums import ResourceType
+                        await subscribe_requester(db, autorun.requester_user_token, ResourceType.SESSION, session.id)
+            except Exception as e:
+                logger.error(f"Autorun {autorun.id} session creation failed (status not persisted): {e}")
+                # Savepoint rolled back; this autorun stays SCHEDULED and
+                # will be retried on the next tick.
 
         await db.commit()
 

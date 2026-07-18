@@ -69,8 +69,9 @@ def _get_secret_key(settings: MirrorrSettings | None = None) -> str:
     2. ``MIRRORR_JWT_SECRET`` environment variable
     3. Auto-generated and persisted to ``<base_dir>/.jwt_secret``
 
-    If auto-generated, a warning is logged advising the operator to set an
-    explicit key for production use.
+    In production (``MIRRORR_ENV != "development"``), auto-generation is
+    forbidden — an explicit key must be configured. This prevents silent
+    token invalidation on restart and ensures HA deployments share tokens.
     """
     global _cached_secret
     if _cached_secret is not None:
@@ -80,6 +81,8 @@ def _get_secret_key(settings: MirrorrSettings | None = None) -> str:
         # Double-check after acquiring lock
         if _cached_secret is not None:
             return _cached_secret
+
+        env = os.environ.get("MIRRORR_ENV", "development")
 
         if settings and settings.jwt_secret_key:
             _cached_secret = settings.jwt_secret_key
@@ -97,6 +100,13 @@ def _get_secret_key(settings: MirrorrSettings | None = None) -> str:
                         pass
 
                 if not _cached_secret:
+                    if env != "development":
+                        raise RuntimeError(
+                            "MIRRORR_JWT_SECRET (or settings.jwt_secret_key) must be "
+                            "explicitly set in production. Generate one with:\n"
+                            "  python -c 'import secrets; print(secrets.token_hex(32))'"
+                        )
+
                     from loguru import logger
                     _cached_secret = secrets.token_hex(32)
                     logger.warning(

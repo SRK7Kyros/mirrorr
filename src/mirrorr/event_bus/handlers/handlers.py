@@ -111,6 +111,7 @@ async def _create_notification(resource_type: str, resource_id: int, event_type:
         async with session_factory() as db:
             count = await notify_subscribers(db, resource_type, resource_id, event_type, title, body)
             if count:
+                await db.commit()
                 logger.info(f"Notification: {title} → {count} user(s)")
     except Exception as e:
         logger.error(f"Failed to create notification: {e}")

@@ -91,6 +91,18 @@ _rate_limit_status: int = 30
 _cookie_secure: bool = True
 _cookie_domain: str = ""
 
+def _client_ip(request: Request) -> str:
+    """Return the originating client IP, honoring X-Forwarded-For from trusted proxies.
+
+    Takes the first hop from X-Forwarded-For (if present), falling back to
+    the direct connection's peer host. Used as the rate-limit key so limits
+    work correctly behind reverse proxies (nginx, Caddy, etc.).
+    """
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
 def _check_rate_limit(key: str, max_attempts: int, window: float = 60.0) -> bool:
     """Check if a rate limit has been exceeded. Returns True if allowed.
 
@@ -131,7 +143,7 @@ async def auth_status(
     constant ``has_users: true`` after the first user exists (the only
     useful information for the bootstrap flow is "no users yet").
     """
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _client_ip(request)
     if not _check_rate_limit(f"status:{client_ip}", max_attempts=_rate_limit_status):
         raise HTTPException(status_code=429, detail="Too many requests. Try again later.")
     result = await db.exec(select(User))
@@ -158,7 +170,7 @@ async def register(
     users and both create admin accounts.
     """
     # Rate limit check
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _client_ip(request)
     if not _check_rate_limit(f"register:{client_ip}", max_attempts=_rate_limit_register):
         raise HTTPException(status_code=429, detail="Too many registration attempts. Try again later.")
 
@@ -172,35 +184,30 @@ async def register(
 
     from mirrorr.storage.enums import UserRole
 
-    # Atomic first-user check: BEGIN IMMEDIATE acquires the SQLite write lock
-    # before we count users, so concurrent registrations serialize. The count
-    # and insert happen within the same transaction, closing the TOCTOU window.
+    # Atomic first-user check: use a nested transaction (savepoint) to
+    # serialize concurrent registrations without raw BEGIN IMMEDIATE which
+    # conflicts with SQLAlchemy's transaction management.
     is_first_user = False
     try:
-        # Begin a write transaction immediately (SQLite: acquires RESERVED lock).
-        # We use the raw connection to issue BEGIN IMMEDIATE because SQLModel's
-        # session.exec() is for SELECT/DML, not transaction-control statements.
-        raw_conn = await db.connection()
-        await raw_conn.execute(sa_text("BEGIN IMMEDIATE"))
-        count_result = await db.exec(select(User))
-        existing_users = list(count_result.all())
-        is_first_user = len(existing_users) == 0
+        async with db.begin_nested():
+            count_result = await db.exec(select(User))
+            existing_users = list(count_result.all())
+            is_first_user = len(existing_users) == 0
 
-        if not is_first_user and not auth.is_admin:
-            await db.rollback()
-            raise HTTPException(status_code=403, detail="Admin access required to create users")
+            if not is_first_user and not auth.is_admin:
+                raise HTTPException(status_code=403, detail="Admin access required to create users")
 
-        user = User(
-            username=username,
-            password_hash=await hash_password_async(password),
-            role=UserRole.ADMIN if is_first_user else UserRole.USER,
-            display_name=item.display_name or username,
-        )
-        db.add(user)
-        await db.commit()
+            user = User(
+                username=username,
+                password_hash=await hash_password_async(password),
+                role=UserRole.ADMIN if is_first_user else UserRole.USER,
+                display_name=item.display_name or username,
+            )
+            db.add(user)
+            await db.flush()
+
         await db.refresh(user)
     except IntegrityError:
-        await db.rollback()
         raise HTTPException(status_code=400, detail="Username already exists")
     except HTTPException:
         raise
@@ -255,7 +262,7 @@ async def login(
 ):
     """Login with username + password. Sets httpOnly cookies for token pair."""
     # Rate limit check
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _client_ip(request)
     if not _check_rate_limit(f"login:{client_ip}", max_attempts=_rate_limit_login):
         raise HTTPException(status_code=429, detail="Too many login attempts. Try again later.")
 
@@ -419,6 +426,9 @@ async def refresh(
 
     # Best-effort cleanup of expired revoked tokens (keeps the table from
     # growing unbounded). Runs inline but is a single DELETE — cheap.
+    # NOTE: this is a *separate* commit on purpose. The token rotation
+    # above is already persisted; cleanup failure must never roll it back.
+    # The try/except isolates cleanup errors from the caller's response.
     try:
         from sqlmodel import delete as sql_delete
         now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -529,6 +539,11 @@ async def delete_user(
     # Clean up related records — all in a single atomic commit
     from sqlmodel import delete as sql_delete
     try:
+        # Bump credentials_version BEFORE deleting so any still-valid access
+        # tokens for this user are rejected by the auth middleware.
+        user.credentials_version = (user.credentials_version or 0) + 1
+        db.add(user)
+
         await db.exec(sql_delete(ClientUser).where(sa_col(ClientUser.user_id) == user.id))
         await db.exec(sql_delete(EventSubscription).where(sa_col(EventSubscription.user_id) == user.id))
         await db.exec(sql_delete(Notification).where(sa_col(Notification.user_id) == user.id))

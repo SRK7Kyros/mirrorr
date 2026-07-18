@@ -12,6 +12,7 @@ import sys
 import tarfile
 import threading
 import zipfile
+from pathlib import Path
 
 import httpx
 import psutil
@@ -48,7 +49,7 @@ class NatsServerManager:
         self.port: int = settings.nats_port
         self.bin_dir: str = str(settings.nats_bin_dir)
         self.exe_name: str = "nats-server.exe" if platform.system() == "Windows" else "nats-server"
-        self.nats_path: str = os.path.join(self.bin_dir, self.exe_name)
+        self.nats_path: str = str(Path(self.bin_dir) / self.exe_name)
 
         atexit.register(self._atexit_stop)
 
@@ -118,7 +119,7 @@ class NatsServerManager:
         url = self._get_download_url()
         tmp_download_folder = f"{self.bin_dir}_tmp"
         filename = url.split("/")[-1]
-        full_path = os.path.join(tmp_download_folder, filename)
+        full_path = str(Path(tmp_download_folder) / filename)
 
         logger.info(f"Downloading NATS server to {full_path}")
         try:
@@ -130,31 +131,50 @@ class NatsServerManager:
             # extracting or executing anything. Aborts on mismatch.
             await self._verify_checksum(filename, response.content)
 
-            bytesio = io.BytesIO(response.content)
-            os.makedirs(tmp_download_folder, exist_ok=True)
-            with open(full_path, "wb") as f:
-                shutil.copyfileobj(bytesio, f)
-
-            logger.info(f"Downloaded NATS server: {full_path}")
-            if filename.endswith(".zip"):
-                with zipfile.ZipFile(full_path, "r") as zip_ref:
-                    zip_ref.extractall(tmp_download_folder)
-            else:
-                with tarfile.open(full_path, "r:gz") as tar:
-                    tar.extractall(tmp_download_folder, filter="data")
-            if filename.endswith(".tar.gz"):
-                dir_name = filename[:-7]
-            else:
-                dir_name = filename.rsplit(".", 1)[0]
-            extracted_dir = os.path.join(tmp_download_folder, dir_name)
-
-            shutil.copytree(extracted_dir, self.bin_dir, dirs_exist_ok=True)
-            shutil.rmtree(tmp_download_folder)
+            # All file I/O below is blocking (open/copyfileobj/zipfile/tarfile/
+            # shutil.copytree/shutil.rmtree). Run it in a worker thread so the
+            # asyncio event loop is not frozen during the first-time download.
+            await asyncio.to_thread(
+                self._install_blocking,
+                full_path,
+                tmp_download_folder,
+                filename,
+                response.content,
+            )
             logger.info("NATS server downloaded successfully.")
         except Exception as e:
             logger.critical(f"NATS installation failed: {e}")
-            shutil.rmtree(tmp_download_folder, ignore_errors=True)
+            await asyncio.to_thread(shutil.rmtree, tmp_download_folder, ignore_errors=True)
             raise e
+
+    def _install_blocking(
+        self,
+        full_path: str,
+        tmp_download_folder: str,
+        filename: str,
+        content: bytes,
+    ) -> None:
+        """Synchronous blocking I/O for NATS install — run via asyncio.to_thread."""
+        bytesio = io.BytesIO(content)
+        Path(tmp_download_folder).mkdir(parents=True, exist_ok=True)
+        with open(full_path, "wb") as f:
+            shutil.copyfileobj(bytesio, f)
+
+        logger.info(f"Downloaded NATS server: {full_path}")
+        if filename.endswith(".zip"):
+            with zipfile.ZipFile(full_path, "r") as zip_ref:
+                zip_ref.extractall(tmp_download_folder)
+        else:
+            with tarfile.open(full_path, "r:gz") as tar:
+                tar.extractall(tmp_download_folder, filter="data")
+        if filename.endswith(".tar.gz"):
+            dir_name = filename[:-7]
+        else:
+            dir_name = filename.rsplit(".", 1)[0]
+        extracted_dir = str(Path(tmp_download_folder) / dir_name)
+
+        shutil.copytree(extracted_dir, self.bin_dir, dirs_exist_ok=True)
+        shutil.rmtree(tmp_download_folder)
 
     async def ensure(self) -> None:
         if self._settings.use_system_nats:
@@ -164,7 +184,7 @@ class NatsServerManager:
                 return
             raise RuntimeError("use_system_nats is True but nats-server not found in PATH")
 
-        if not os.path.exists(self.nats_path):
+        if not Path(self.nats_path).exists():
             await self._install()
         else:
             logger.info("Using bundled nats-server")
@@ -174,8 +194,8 @@ class NatsServerManager:
     def _write_js_conf(self) -> str:
         """Write js.conf into nats_server_dir with the correct store_dir."""
         nats_dir = str(self._settings.nats_server_dir)
-        os.makedirs(nats_dir, exist_ok=True)
-        js_conf_path = os.path.join(nats_dir, "js.conf")
+        Path(nats_dir).mkdir(parents=True, exist_ok=True)
+        js_conf_path = str(Path(nats_dir) / "js.conf")
         store_dir_posix = nats_dir.replace("\\", "/")
         with open(js_conf_path, "w") as f:
             f.write(

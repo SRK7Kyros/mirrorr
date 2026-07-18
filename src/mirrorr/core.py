@@ -76,8 +76,13 @@ class MirrorrCore:
                         f"Copied default plugin: {py_file.name} -> {plugin_dir / py_file.name}"
                     )
 
-    def _ensure_plugin_dirs(self) -> None:
-        """Create plugin dirs if missing and populate with defaults."""
+    async def _ensure_plugin_dirs(self) -> None:
+        """Create plugin dirs if missing and populate with defaults.
+
+        The ``shutil.copy2`` calls are blocking file I/O; run them in a
+        worker thread so the asyncio event loop is not frozen during the
+        one-time first-boot copy.
+        """
         for plugin_dir, default_dir in [
             (self.settings.engines_dir, _PACKAGE_ROOT / "default_plugins" / "engines"),
             (
@@ -88,15 +93,20 @@ class MirrorrCore:
             if not plugin_dir.exists():
                 plugin_dir.mkdir(parents=True, exist_ok=True)
                 if default_dir.exists():
-                    import shutil
+                    await asyncio.to_thread(self._copy_default_plugins, default_dir, plugin_dir)
 
-                    for py_file in default_dir.glob("*.py"):
-                        if py_file.name.startswith("_"):
-                            continue
-                        shutil.copy2(py_file, plugin_dir / py_file.name)
-                        logger.info(
-                            f"Copied default plugin: {py_file.name} -> {plugin_dir / py_file.name}"
-                        )
+    @staticmethod
+    def _copy_default_plugins(default_dir, plugin_dir) -> None:
+        """Blocking helper — copy default plugin .py files. Run via to_thread."""
+        import shutil
+
+        for py_file in default_dir.glob("*.py"):
+            if py_file.name.startswith("_"):
+                continue
+            shutil.copy2(py_file, plugin_dir / py_file.name)
+            logger.info(
+                f"Copied default plugin: {py_file.name} -> {plugin_dir / py_file.name}"
+            )
 
     # ── boot sequence ──────────────────────────────────────────────────
 
@@ -113,7 +123,7 @@ class MirrorrCore:
         logger.info("MirrorrCore booting...")
 
         # 1. Create directories
-        self._ensure_plugin_dirs()
+        await self._ensure_plugin_dirs()
         self.settings.ensure_directories()
 
         # 2. Validate that at least one engine and one resolver plugin exist
@@ -167,7 +177,7 @@ class MirrorrCore:
         await self._nats_manager.start()
 
         # 7. CORS — wire configured origins into the API
-        from mirrorr.api.api import API as _api_app, setup_cors
+        from mirrorr.api.api import API as _api_app, setup_cors, setup_security_middleware
 
         if self.settings.cors_allowed_origins:
             setup_cors(_api_app, self.settings.cors_allowed_origins)
@@ -181,6 +191,10 @@ class MirrorrCore:
                 "CORS_ALLOWED_ORIGINS is empty — using default localhost origins. "
                 "Set CORS_ALLOWED_ORIGINS in your .env for production use."
             )
+
+        # 7b. Security headers + request body size limit
+        setup_security_middleware(_api_app)
+        logger.info("Security headers and request body size limit middleware installed")
 
         # 7a. Wire settings into auth router
         from mirrorr.api.routers import auth as _auth_module
@@ -269,7 +283,7 @@ class MirrorrCore:
         if self._scheduler_task:
             try:
                 await asyncio.wait_for(self._scheduler_task, timeout=5.0)
-            except asyncio.TimeoutError, asyncio.CancelledError:
+            except (asyncio.TimeoutError, asyncio.CancelledError):
                 self._scheduler_task.cancel()
 
         # 0.5. Kill all running supervisor processes

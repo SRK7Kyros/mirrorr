@@ -96,10 +96,6 @@ class ManagedProcess:
         self._log_dir = path
         self._log_dir.mkdir(parents=True, exist_ok=True)
 
-    def close_pipes(self) -> None:
-        """No-op — kept for compatibility. Pipes are now managed by asyncio."""
-        pass
-
     async def start(self) -> None:
         """Spawn the subprocess and begin capturing output + telemetry."""
         if self._started:
