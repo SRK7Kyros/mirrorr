@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import secrets
+import sys
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import jwt
@@ -24,6 +27,40 @@ _cached_secret: str | None = None
 _secret_lock = threading.Lock()
 
 
+def _restrict_file_permissions(path: Path) -> None:
+    """Restrict a secret file to the current user only.
+
+    On Unix, ``chmod 0o600`` is sufficient. On Windows, ``os.chmod`` only
+    toggles the read-only flag and does NOT restrict ACLs — we use
+    ``icacls`` to grant access only to the current user and remove
+    inherited ACEs. Falls back to a best-effort ``os.chmod`` if ``icacls``
+    is unavailable.
+    """
+    try:
+        if sys.platform == "win32":
+            import subprocess
+
+            # Remove inheritance and copy current ACEs, then strip everyone but
+            # the current user. "%username%" is expanded by cmd.exe.
+            subprocess.run(
+                [
+                    "icacls", str(path),
+                    "/inheritance:r",
+                    "/grant:r", f"{os.getlogin()}:F",
+                ],
+                check=True,
+                capture_output=True,
+            )
+        else:
+            os.chmod(str(path), 0o600)
+    except Exception as e:  # noqa: BLE001 — best-effort hardening, never fatal
+        from loguru import logger
+        logger.warning(
+            f"Could not restrict permissions on JWT secret file {path}: {e}. "
+            "Ensure the file is only readable by the Mirrorr process user."
+        )
+
+
 def _get_secret_key(settings: MirrorrSettings | None = None) -> str:
     """Get JWT secret key. Caches the result for the process lifetime.
 
@@ -32,8 +69,9 @@ def _get_secret_key(settings: MirrorrSettings | None = None) -> str:
     2. ``MIRRORR_JWT_SECRET`` environment variable
     3. Auto-generated and persisted to ``<base_dir>/.jwt_secret``
 
-    If auto-generated, a warning is logged advising the operator to set an
-    explicit key for production use.
+    In production (``MIRRORR_ENV != "development"``), auto-generation is
+    forbidden — an explicit key must be configured. This prevents silent
+    token invalidation on restart and ensures HA deployments share tokens.
     """
     global _cached_secret
     if _cached_secret is not None:
@@ -44,10 +82,11 @@ def _get_secret_key(settings: MirrorrSettings | None = None) -> str:
         if _cached_secret is not None:
             return _cached_secret
 
+        env = os.environ.get("MIRRORR_ENV", "development")
+
         if settings and settings.jwt_secret_key:
             _cached_secret = settings.jwt_secret_key
         else:
-            import os
             _cached_secret = os.environ.get("MIRRORR_JWT_SECRET")
 
             if not _cached_secret:
@@ -61,6 +100,13 @@ def _get_secret_key(settings: MirrorrSettings | None = None) -> str:
                         pass
 
                 if not _cached_secret:
+                    if env != "development":
+                        raise RuntimeError(
+                            "MIRRORR_JWT_SECRET (or settings.jwt_secret_key) must be "
+                            "explicitly set in production. Generate one with:\n"
+                            "  python -c 'import secrets; print(secrets.token_hex(32))'"
+                        )
+
                     from loguru import logger
                     _cached_secret = secrets.token_hex(32)
                     logger.warning(
@@ -74,8 +120,7 @@ def _get_secret_key(settings: MirrorrSettings | None = None) -> str:
                         secret_file = settings.base_dir / ".jwt_secret"
                         try:
                             secret_file.write_text(_cached_secret)
-                            import os
-                            os.chmod(str(secret_file), 0o600)
+                            _restrict_file_permissions(secret_file)
                         except OSError as e:
                             logger.warning(f"Could not persist JWT secret to {secret_file}: {e}")
 

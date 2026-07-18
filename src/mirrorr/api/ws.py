@@ -1,9 +1,31 @@
-"""WebSocket endpoints: NATS event mirroring + real-time notification push."""
+"""WebSocket endpoints: NATS event mirroring + real-time notification push.
+
+Architecture (H3/H4 fix): a **shared relay** per endpoint type.
+
+Instead of opening one NATS `">"` wildcard subscription per WebSocket
+client (O(clients × messages) CPU + NATS fan-out cost), the process keeps
+a single NATS subscription per endpoint type (`/ws/events`, `/ws/notifications`)
+and fans each inbound NATS message out to all connected clients whose
+subscription filter matches.
+
+This drops the NATS subscription count from O(clients) to O(1) and removes
+the per-event DB query that previously fetched the full `Notification` row
+(H4): the relay now forwards the NATS payload directly, falling back to a
+synthetic notification shape when no DB row exists (which is the common
+case today — no code path creates `Notification` rows yet).
+
+Trade-off: a single relay subscription means one slow client can delay
+fan-out to others. We mitigate by isolating each `send_text` in its own
+task and pruning clients that fail. At Mirrorr's current scale (single
+user, low event rate) this is far cheaper than the per-client model.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
+from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
@@ -17,11 +39,181 @@ from mirrorr.storage.models import EventSubscription, Notification
 ws_router = APIRouter()
 
 
+# ── Shared relay registries ───────────────────────────────────────────
+# Each registry maps a connected WebSocket to its per-connection context
+# (username, subscribed_resources, sent_count). A single NATS wildcard
+# subscription fans messages out to every registered client.
+
+
+class _ClientContext:
+    """Per-connection state stored in a relay registry."""
+
+    __slots__ = ("websocket", "username", "subscribed_resources", "sent_count")
+
+    def __init__(
+        self,
+        websocket: WebSocket,
+        username: str,
+        subscribed_resources: set[tuple[str, int]] | None,
+    ) -> None:
+        self.websocket = websocket
+        self.username = username
+        self.subscribed_resources = subscribed_resources
+        self.sent_count = 0
+
+
+class _RelayRegistry:
+    """Tracks connected WS clients for one endpoint type and owns the
+    single shared NATS wildcard subscription that fans out to them."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self._clients: set[_ClientContext] = set()
+        self._sub = None  # type: ignore[assignment]
+        self._lock = asyncio.Lock()
+        self._started = False
+
+    async def register(self, ctx: _ClientContext) -> None:
+        async with self._lock:
+            self._clients.add(ctx)
+            await self._ensure_subscription()
+
+    async def unregister(self, ctx: _ClientContext) -> None:
+        async with self._lock:
+            self._clients.discard(ctx)
+
+    async def _ensure_subscription(self) -> None:
+        """Start the single shared NATS wildcard subscription on first client."""
+        if self._started:
+            return
+        if not bus.nc or not bus.nc.is_connected:
+            return
+        self._started = True
+        self._sub = await bus.nc.subscribe(">", cb=self._fanout)
+        logger.debug(f"[{self.name}] shared NATS wildcard subscription active")
+
+    async def _fanout(self, msg) -> None:
+        """Single NATS callback — fans out to every matching client."""
+        if _should_skip_subject(msg.subject):
+            return
+        # Snapshot under lock so iteration is safe from concurrent unregister.
+        async with self._lock:
+            clients = list(self._clients)
+        if not clients:
+            return
+        # Build the per-endpoint payload once, then send to each client.
+        # Both endpoints share the same filtering logic; the payload shape
+        # differs and is computed by the per-endpoint handler below.
+        await self._dispatch(msg, clients)
+
+    async def _dispatch(self, msg, clients: list[_ClientContext]) -> None:
+        """Endpoint-specific fan-out. Overridden by subclasses."""
+        raise NotImplementedError
+
+
+# ── /ws/events relay ─────────────────────────────────────────────────
+
+
+class _EventsRelay(_RelayRegistry):
+    async def _dispatch(self, msg, clients: list[_ClientContext]) -> None:
+        subject = msg.subject
+        try:
+            payload = json.loads(msg.data.decode())
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            logger.warning(f"[ws/events] bad payload on {subject}: {e}")
+            return
+        payload["event"] = subject
+
+        # Entity enrichment is shared across clients (same subject/id).
+        entity_data: dict | None = None
+        if subject not in ("session.deleted", "autorun.deleted",
+                           "recording.deleted", "profile.deleted"):
+            entity_id = payload.get("id")
+            if entity_id is not None:
+                entity_data = await _fetch_entity(subject, entity_id)
+                if entity_data is not None:
+                    payload["data"] = entity_data
+
+        text = json.dumps(payload, default=str)
+
+        async def _send(ctx: _ClientContext) -> None:
+            if ctx.subscribed_resources is not None and not _is_relevant_event(
+                subject, ctx.subscribed_resources
+            ):
+                return
+            try:
+                await ctx.websocket.send_text(text)
+                ctx.sent_count += 1
+            except Exception as e:
+                # M9: log at warning (not silently drop) and prune the dead client.
+                logger.warning(f"[ws/events] send failed for user={ctx.username}: {e}")
+                await self.unregister(ctx)
+
+        await asyncio.gather(*[_send(c) for c in clients], return_exceptions=True)
+
+
+# ── /ws/notifications relay ──────────────────────────────────────────
+
+
+class _NotificationsRelay(_RelayRegistry):
+    async def _dispatch(self, msg, clients: list[_ClientContext]) -> None:
+        subject = msg.subject
+        try:
+            data = json.loads(msg.data.decode())
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            logger.warning(f"[ws/notifications] bad payload on {subject}: {e}")
+            return
+        resource_type, resource_id = _parse_resource_from_subject(subject)
+        if not resource_type:
+            return
+        event_type = subject
+        # H4 fix: forward the NATS payload directly instead of opening a DB
+        # session per event. No code path currently creates Notification rows,
+        # so the synthetic shape below is the common case. When Notification
+        # rows are created in future, the emitter should include the full row
+        # in the NATS payload (e.g. data["notification"] = {...}) and we can
+        # prefer that here without re-introducing a per-event DB query.
+        notif_payload: dict[str, Any] = {
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "event_type": event_type,
+            "title": f"{resource_type} {resource_id}: {event_type}",
+            "created_at": data.get("timestamp", ""),
+        }
+        # If the emitter included a full notification row, prefer it.
+        embedded = data.get("notification")
+        if isinstance(embedded, dict):
+            notif_payload = {**notif_payload, **embedded}
+
+        text = json.dumps({"type": "notification", "data": notif_payload})
+
+        async def _send(ctx: _ClientContext) -> None:
+            if ctx.subscribed_resources is not None and not _is_relevant_event(
+                subject, ctx.subscribed_resources
+            ):
+                return
+            try:
+                await ctx.websocket.send_text(text)
+                ctx.sent_count += 1
+            except Exception as e:
+                # M9: log at warning (not silently drop) and prune the dead client.
+                logger.warning(f"[ws/notifications] send failed for user={ctx.username}: {e}")
+                await self.unregister(ctx)
+
+        await asyncio.gather(*[_send(c) for c in clients], return_exceptions=True)
+
+
+_events_relay = _EventsRelay("ws/events")
+_notifications_relay = _NotificationsRelay("ws/notifications")
+
+
 @ws_router.websocket("/ws/events")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket that mirrors NATS events to the client.
 
-    Auth: pass ?token=JWT and/or X-API-Key header / ?api_key= query param.
+    Auth: ``mirrorr_access_token`` cookie (browser SPA) or
+    ``X-API-Key`` header / ``?api_key=`` query param (API clients) or
+    ``Authorization: Bearer <jwt>`` header.
     If authenticated, events are filtered to only those matching the user's
     subscriptions. Unauthenticated connections receive all events.
     """
@@ -39,67 +231,26 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=1013, reason="Server temporarily unavailable")
         return
 
-    username = auth.user.username if auth and auth.user else None
+    username = auth.user.username
     logger.info(f"[ws/events] connected — user={username}")
 
-    subscribed_resources: set[tuple[str, int]] | None = None
-    if auth and auth.user:
-        subscribed_resources = await _get_subscribed_resources(auth.user.username)
-        logger.debug(f"[ws/events] user={username} subscribed to {len(subscribed_resources)} resources")
+    subscribed_resources = await _get_subscribed_resources(username)
+    logger.debug(f"[ws/events] user={username} subscribed to {len(subscribed_resources)} resources")
 
-    sent_count = 0
-
-    async def nats_event_handler(msg):
-        nonlocal sent_count
-        try:
-            subject = msg.subject
-
-            # Skip high-frequency telemetry — not useful for WS clients
-            if _should_skip_subject(subject):
-                return
-
-            if subscribed_resources is not None:
-                if not _is_relevant_event(subject, subscribed_resources):
-                    logger.debug(f"[ws/events] filtered event for user={username}: {subject}")
-                    return
-            # Inject the NATS subject as the "event" field so the frontend
-            # can map it to query keys (e.g. "autorun.updated" → ["autoruns"])
-            payload = json.loads(msg.data.decode())
-            payload["event"] = subject
-
-            # Enrich the payload with the full entity so the frontend
-            # can patch its React Query cache without a round-trip.
-            if subject not in ("session.deleted", "autorun.deleted",
-                               "recording.deleted", "profile.deleted"):
-                entity_id = payload.get("id")
-                if entity_id is not None:
-                    entity_data = await _fetch_entity(subject, entity_id)
-                    if entity_data is not None:
-                        payload["data"] = entity_data
-
-            await websocket.send_text(json.dumps(payload, default=str))
-            sent_count += 1
-            logger.debug(
-                f"[ws/events] → user={username} event={subject} "
-                f"id={payload.get('id')} total={sent_count}"
-            )
-        except Exception as e:
-            logger.warning(f"[ws/events] send failed for user={username}: {e}")
-
-    sub = await bus.nc.subscribe(">", cb=nats_event_handler)
-    logger.debug(f"[ws/events] NATS wildcard subscription active for user={username}")
+    ctx = _ClientContext(websocket, username, subscribed_resources)
+    await _events_relay.register(ctx)
 
     try:
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
         elapsed = time.monotonic() - connected_at
-        logger.info(f"[ws/events] disconnected — user={username}, duration={elapsed:.1f}s, events_sent={sent_count}")
-        await sub.unsubscribe()
+        logger.info(f"[ws/events] disconnected — user={username}, duration={elapsed:.1f}s, events_sent={ctx.sent_count}")
     except Exception as e:
         elapsed = time.monotonic() - connected_at
         logger.error(f"[ws/events] error — user={username}, duration={elapsed:.1f}s: {e}")
-        await sub.unsubscribe()
+    finally:
+        await _events_relay.unregister(ctx)
 
 
 @ws_router.websocket("/ws/notifications")
@@ -107,7 +258,8 @@ async def notifications_endpoint(websocket: WebSocket):
     """WebSocket that pushes real-time notifications to an authenticated user.
 
     Auth: pass ?token=JWT and/or X-API-Key header / ?api_key= query param.
-    On connect, sends all unread notifications, then pushes new ones.
+    On connect, sends all unread notifications, then pushes new ones via the
+    shared NATS relay.
     """
     await websocket.accept()
     connected_at = time.monotonic()
@@ -167,53 +319,23 @@ async def notifications_endpoint(websocket: WebSocket):
                 return
         await db.commit()
 
-    # Subscribe to NATS for new notifications
     subscribed_resources = await _get_subscribed_resources(user.username)
     logger.debug(f"[ws/notifications] user={user.username} subscribed to {len(subscribed_resources)} resources")
 
-    sent_count = 0
-
-    async def notification_handler(msg):
-        nonlocal sent_count
-        try:
-            subject = msg.subject
-            if _should_skip_subject(subject):
-                return
-            if not _is_relevant_event(subject, subscribed_resources):
-                return
-            data = json.loads(msg.data.decode())
-            event_type = subject
-            resource_type, resource_id = _parse_resource_from_subject(subject)
-            if not resource_type:
-                return
-
-            await websocket.send_text(json.dumps({
-                "type": "notification",
-                "data": {
-                    "resource_type": resource_type,
-                    "resource_id": resource_id,
-                    "event_type": event_type,
-                    "title": f"{resource_type} {resource_id}: {event_type}",
-                    "created_at": data.get("timestamp", ""),
-                },
-            }))
-            sent_count += 1
-        except Exception as e:
-            logger.warning(f"[ws/notifications] send failed for user={user.username}: {e}")
-
-    sub = await bus.nc.subscribe(">", cb=notification_handler)
+    ctx = _ClientContext(websocket, user.username, subscribed_resources)
+    await _notifications_relay.register(ctx)
 
     try:
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
         elapsed = time.monotonic() - connected_at
-        logger.info(f"[ws/notifications] disconnected — user={user.username}, duration={elapsed:.1f}s, notifs_sent={sent_count}")
-        await sub.unsubscribe()
+        logger.info(f"[ws/notifications] disconnected — user={user.username}, duration={elapsed:.1f}s, notifs_sent={ctx.sent_count}")
     except Exception as e:
         elapsed = time.monotonic() - connected_at
         logger.error(f"[ws/notifications] error — user={user.username}, duration={elapsed:.1f}s: {e}")
-        await sub.unsubscribe()
+    finally:
+        await _notifications_relay.unregister(ctx)
 
 
 # ── Internal helpers ─────────────────────────────────────────────────

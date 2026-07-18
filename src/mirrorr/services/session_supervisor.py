@@ -289,7 +289,6 @@ class SessionSupervisor:
 
         for proc in self.processes:
             await proc.start()
-            proc.close_pipes()
 
         logger.opt(colors=True).success(f"<green>Session</green> bootstrapped — "
                        f"{len(self.processes)} processes running")
@@ -549,6 +548,9 @@ class SessionSupervisor:
                     [asyncio.create_task(p._process.wait()) for p in running_procs if p._process is not None],
                     timeout=5.0,
                 )
+            except asyncio.CancelledError:
+                # Shutdown was cancelled — propagate so the caller can handle it.
+                raise
             except Exception as e:
                 logger.warning(f"Error waiting for processes to exit: {e}")
 
