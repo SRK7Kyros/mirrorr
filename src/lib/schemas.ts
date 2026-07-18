@@ -56,8 +56,8 @@ export type AuthResponse = z.infer<typeof authResponseSchema>;
 // ── Engine ─────────────────────────────────────────────────────────
 
 export const engineCapabilitiesSchema = z.object({
-	can_record: z.boolean(),
-	can_playlist: z.boolean(),
+	can_record: z.boolean().default(false),
+	can_playlist: z.boolean().default(false),
 });
 
 export const engineSchema = z.object({
@@ -325,3 +325,34 @@ export const validationReportSchema = z.object({
 });
 
 export type ValidationReport = z.infer<typeof validationReportSchema>;
+
+// ── Update Autorun (validated request body) ──────────────────────
+
+export const updateAutorunSchema = z.object({
+	user_friendly_name: z.string().min(1).optional(),
+	snake_case_name: z
+		.string()
+		.regex(/^[a-zA-Z0-9_-]+$/)
+		.optional(),
+	profile_id: z.number().optional(),
+	engine_id: z.number().optional(),
+	resolver_id: z.number().optional(),
+	resolver_config: z.record(z.string(), z.any()).optional(),
+	retry_mode: z.string().optional(),
+	retry_config: z.record(z.string(), z.any()).optional(),
+	start_time: z.string().optional(),
+	end_time: z.string().optional(),
+	recording: z.boolean().optional(),
+});
+
+export type UpdateAutorunPayload = z.infer<typeof updateAutorunSchema>;
+
+// ── Import/Export apply response ─────────────────────────────────
+
+export const applyResponseSchema = z.object({
+	profiles_created: z.number(),
+	autoruns_created: z.number(),
+	profiles_skipped: z.number(),
+});
+
+export type ApplyResponse = z.infer<typeof applyResponseSchema>;

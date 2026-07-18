@@ -43,7 +43,7 @@ export function SidebarLayout({
 	headerExtra,
 	sidebarActions,
 	children,
-	className,
+	className = "bg-card border rounded-xl h-full",
 }: SidebarLayoutProps) {
 	return (
 		// biome-ignore lint/a11y/useSemanticElements: clickable list item with selection UX
@@ -183,8 +183,8 @@ interface SidebarEntryProps {
 	id?: number;
 	/** Manual selected state (used outside MultiSelectProvider) */
 	selected?: boolean;
-	/** Manual click handler */
-	onClick?: (e: React.MouseEvent) => void;
+	/** Manual click handler — receives the triggering mouse or keyboard event */
+	onClick?: (e: React.MouseEvent | React.KeyboardEvent) => void;
 	/** Accessible label for screen readers */
 	"aria-label"?: string;
 	children: React.ReactNode;
@@ -204,7 +204,7 @@ export function SidebarEntry({
 	const isSelected =
 		multi && id != null ? multi.isSelected(id) : (manualSelected ?? false);
 
-	const handleClick = (e: React.MouseEvent) => {
+	const handleClick = (e: React.MouseEvent | React.KeyboardEvent) => {
 		if (multi && id != null) {
 			if (e.ctrlKey || e.metaKey || e.shiftKey) {
 				multi.handleModifierClick(id, e);
@@ -234,11 +234,11 @@ export function SidebarEntry({
 			onKeyDown={(e) => {
 				if (e.key === "Enter" || e.key === " ") {
 					e.preventDefault();
-					handleClick(e as unknown as React.MouseEvent);
+					handleClick(e);
 				}
 			}}
 			role="button"
-			aria-selected={isSelected}
+			aria-pressed={isSelected}
 			aria-label={ariaLabel}
 			tabIndex={0}
 		>
@@ -282,7 +282,7 @@ export function BulkActionBar({
 			<Button
 				variant="ghost"
 				size="sm"
-				className="h-6 text-[10px] text-muted-foreground"
+				className="h-6 text-micro text-muted-foreground"
 				onClick={onClear}
 			>
 				Clear

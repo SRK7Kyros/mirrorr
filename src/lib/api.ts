@@ -15,6 +15,8 @@ import {
 	type Resolver,
 	type Session,
 	type ValidationReport,
+	type UpdateAutorunPayload,
+	type ApplyResponse,
 	authResponseSchema,
 	authStatusSchema,
 	autorunSchema,
@@ -28,6 +30,8 @@ import {
 	sessionSchema,
 	userSchema,
 	validationReportSchema,
+	updateAutorunSchema,
+	applyResponseSchema,
 } from "@/lib/schemas";
 import { z } from "zod";
 import {
@@ -180,11 +184,7 @@ async function _fetchJson<T = unknown>(
 		ok: null as boolean | null,
 		error: null as string | null,
 		requestBody: truncateForLog(
-			body
-				? typeof body === "string"
-					? body
-					: JSON.stringify(body)
-				: null,
+			body ? (typeof body === "string" ? body : JSON.stringify(body)) : null,
 		),
 		responseBody: null as string | null,
 	};
@@ -534,12 +534,14 @@ export const autorunsApi = {
 			body: data,
 			schema: autorunSchema,
 		}),
-	update: (id: number, data: Record<string, unknown>) =>
-		apiRequest<Autorun>(`/autoruns/${id}`, {
+	update: (id: number, data: UpdateAutorunPayload) => {
+		const parsed = updateAutorunSchema.parse(data);
+		return apiRequest<Autorun>(`/autoruns/${id}`, {
 			method: "PUT",
-			body: data,
+			body: parsed,
 			schema: autorunSchema,
-		}),
+		});
+	},
 	delete: (id: number) =>
 		apiRequest<void>(`/autoruns/${id}`, { method: "DELETE" }),
 	saveAsProfile: (autorunId: number, name: string) =>
@@ -625,11 +627,7 @@ export const importExportApi = {
 		removedProfiles: string[] = [],
 		removedAutoruns: string[] = [],
 	) =>
-		apiRequest<{
-			profiles_created: number;
-			autoruns_created: number;
-			profiles_skipped: number;
-		}>("/import-export/apply", {
+		apiRequest<ApplyResponse>("/import-export/apply", {
 			method: "POST",
 			body: {
 				bundle,
@@ -637,6 +635,7 @@ export const importExportApi = {
 				removed_profiles: removedProfiles,
 				removed_autoruns: removedAutoruns,
 			},
+			schema: applyResponseSchema,
 		}),
 	exportProfile: (id: number) =>
 		apiRequest<ImportBundle>(`/import-export/profiles/${id}/export`, {

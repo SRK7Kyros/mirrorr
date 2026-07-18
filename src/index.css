@@ -6,48 +6,52 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-    --font-sans:
-        "JetBrains Mono Variable", "JetBrains Mono", "Inter Variable", "Inter",
-        system-ui, sans-serif;
-    --font-mono:
-        "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
+	--font-sans:
+		"JetBrains Mono Variable", "JetBrains Mono", "Inter Variable", "Inter",
+		system-ui, sans-serif;
+	--font-mono:
+		"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
 
-    /* Semantic muted-foreground opacities */
-    --color-muted-subtle: oklch(0.556 0.005 285.823 / 0.6);
-    --color-muted-faint: oklch(0.556 0.005 285.823 / 0.5);
-    --color-muted-ghost: oklch(0.556 0.005 285.823 / 0.4);
-    --color-muted-trace: oklch(0.556 0.005 285.823 / 0.3);
-    --color-background: oklch(1 0 0);
-    --color-foreground: oklch(0.145 0.004 285.823);
-    --color-card: oklch(1 0 0);
-    --color-card-foreground: oklch(0.145 0.004 285.823);
-    --color-popover: oklch(1 0 0);
-    --color-popover-foreground: oklch(0.145 0.004 285.823);
-    --color-primary: oklch(0.145 0.004 285.823);
-    --color-primary-foreground: oklch(0.985 0 0);
-    --color-secondary: oklch(0.97 0.003 285.823);
-    --color-secondary-foreground: oklch(0.205 0.006 285.823);
-    --color-muted: oklch(0.97 0.003 285.823);
-    --color-muted-foreground: oklch(0.556 0.005 285.823);
-    --color-accent: oklch(0.97 0.003 285.823);
-    --color-accent-foreground: oklch(0.205 0.006 285.823);
-    --color-destructive: oklch(0.577 0.245 27.325);
-    --color-destructive-foreground: oklch(0.985 0 0);
-    --color-border: oklch(0.922 0.004 285.823);
-    --color-input: oklch(0.922 0.004 285.823);
-    --color-ring: oklch(0.708 0.004 285.823);
-    --color-sidebar: oklch(0.985 0 0);
-    --color-sidebar-foreground: oklch(0.145 0.004 285.823);
-    --color-sidebar-primary: oklch(0.145 0.004 285.823);
-    --color-sidebar-primary-foreground: oklch(0.985 0 0);
-    --color-sidebar-accent: oklch(0.97 0.003 285.823);
-    --color-sidebar-accent-foreground: oklch(0.205 0.006 285.823);
-    --color-sidebar-border: oklch(0.922 0.004 285.823);
-    --color-sidebar-ring: oklch(0.708 0.004 285.823);
-    --radius-sm: 0.25rem;
-    --radius-md: 0.375rem;
-    --radius-lg: 0.5rem;
-    --radius-xl: 0.75rem;
+	/* Micro text size for dense UI: badges, status indicators, uppercase labels */
+	--text-micro: 0.625rem;
+	--text-micro--line-height: 1rem;
+
+	/* Semantic muted-foreground opacities */
+	--color-muted-subtle: oklch(0.556 0.005 285.823 / 0.6);
+	--color-muted-faint: oklch(0.556 0.005 285.823 / 0.5);
+	--color-muted-ghost: oklch(0.556 0.005 285.823 / 0.4);
+	--color-muted-trace: oklch(0.556 0.005 285.823 / 0.3);
+	--color-background: oklch(1 0 0);
+	--color-foreground: oklch(0.145 0.004 285.823);
+	--color-card: oklch(1 0 0);
+	--color-card-foreground: oklch(0.145 0.004 285.823);
+	--color-popover: oklch(1 0 0);
+	--color-popover-foreground: oklch(0.145 0.004 285.823);
+	--color-primary: oklch(0.145 0.004 285.823);
+	--color-primary-foreground: oklch(0.985 0 0);
+	--color-secondary: oklch(0.97 0.003 285.823);
+	--color-secondary-foreground: oklch(0.205 0.006 285.823);
+	--color-muted: oklch(0.97 0.003 285.823);
+	--color-muted-foreground: oklch(0.556 0.005 285.823);
+	--color-accent: oklch(0.97 0.003 285.823);
+	--color-accent-foreground: oklch(0.205 0.006 285.823);
+	--color-destructive: oklch(0.577 0.245 27.325);
+	--color-destructive-foreground: oklch(0.985 0 0);
+	--color-border: oklch(0.922 0.004 285.823);
+	--color-input: oklch(0.922 0.004 285.823);
+	--color-ring: oklch(0.708 0.004 285.823);
+	--color-sidebar: oklch(0.985 0 0);
+	--color-sidebar-foreground: oklch(0.145 0.004 285.823);
+	--color-sidebar-primary: oklch(0.145 0.004 285.823);
+	--color-sidebar-primary-foreground: oklch(0.985 0 0);
+	--color-sidebar-accent: oklch(0.97 0.003 285.823);
+	--color-sidebar-accent-foreground: oklch(0.205 0.006 285.823);
+	--color-sidebar-border: oklch(0.922 0.004 285.823);
+	--color-sidebar-ring: oklch(0.708 0.004 285.823);
+	--radius-sm: 0.25rem;
+	--radius-md: 0.375rem;
+	--radius-lg: 0.5rem;
+	--radius-xl: 0.75rem;
 }
 
 .dark {

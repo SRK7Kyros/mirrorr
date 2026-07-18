@@ -19,7 +19,10 @@ export function useWsNotifications() {
 			if (data.type === "notification" && data.data) {
 				const result = notificationSchema.safeParse(data.data);
 				if (!result.success) {
-					console.debug("Invalid notification data ignored:", result.error.issues);
+					console.debug(
+						"Invalid notification data ignored:",
+						result.error.issues,
+					);
 					return;
 				}
 				const notif = result.data;

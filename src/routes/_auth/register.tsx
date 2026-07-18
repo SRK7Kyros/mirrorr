@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { authApi } from "@/lib/api";
-import { registerSchema, type User } from "@/lib/schemas";
+import { registerSchema } from "@/lib/schemas";
 import { useAuthStore } from "@/stores/auth-store";
 
 export const Route = createFileRoute("/_auth/register")({
@@ -51,7 +51,7 @@ function RegisterPage() {
 		onSuccess: (data) => {
 			if (data.user) {
 				// Tokens are now in httpOnly cookies — just store user info
-				setAuth(data.user as User);
+				setAuth(data.user);
 				// Clear the auth-status cache so the register page doesn't
 				// show a stale "first user" state on next visit.
 				queryClient.clear();

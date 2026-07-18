@@ -81,7 +81,6 @@ function ProfilesPage() {
 							}}
 						/>
 					}
-					className="bg-card border rounded-xl h-full"
 				>
 					<SidebarGroupContainer>
 						{profiles.map((p) => (
@@ -99,24 +98,32 @@ function ProfilesPage() {
 									</div>
 									<DeleteConfirm
 										entityName={`profile "${p.name}"`}
-										isPending={deleteMutation.isPending && deleteMutation.variables === p.id}
+										isPending={
+											deleteMutation.isPending &&
+											deleteMutation.variables === p.id
+										}
 										onConfirm={() => deleteMutation.mutate(p.id)}
 									>
+										{/* biome-ignore lint/a11y/noStaticElementInteractions: event boundary — stops click bubbling to parent SidebarEntry; InlineDeleteButton inside handles its own a11y */}
 										<span
-											role="button"
-											tabIndex={0}
 											onClick={(e) => e.stopPropagation()}
-											onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") e.stopPropagation(); }}
+											onKeyDown={(e) => {
+												if (e.key === "Enter" || e.key === " ")
+													e.stopPropagation();
+											}}
 										>
 											<InlineDeleteButton
-												isPending={deleteMutation.isPending && deleteMutation.variables === p.id}
+												isPending={
+													deleteMutation.isPending &&
+													deleteMutation.variables === p.id
+												}
 												isActive={deleteMutation.variables === p.id}
 												onClick={() => {}}
 											/>
 										</span>
 									</DeleteConfirm>
 								</div>
-								<div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground/60">
+								<div className="flex items-center gap-2 mt-1 text-micro text-muted-foreground/60">
 									<span className="flex items-center gap-0.5">
 										<Cpu className="size-3" />
 										{engines.find((e) => e.id === p.default_engine_id)?.name ??
@@ -172,7 +179,7 @@ function BulkActions() {
 			<Button
 				variant="ghost"
 				size="sm"
-				className="h-6 text-[10px]"
+				className="h-6 text-micro"
 				onClick={handleExport}
 			>
 				<Download className="size-3 mr-1" />
@@ -274,6 +281,7 @@ function ProfileDetail({
 }
 
 function CreateProfilePanel({ onClose }: { onClose: () => void }) {
+	const queryClient = useQueryClient();
 	const config = usePluginConfig();
 	const [name, setName] = useState("");
 
@@ -281,6 +289,7 @@ function CreateProfilePanel({ onClose }: { onClose: () => void }) {
 		mutationFn: (data: Parameters<typeof profilesApi.create>[0]) =>
 			profilesApi.create(data),
 		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: ["profiles"] });
 			onClose();
 			toast.success("Profile created");
 		},

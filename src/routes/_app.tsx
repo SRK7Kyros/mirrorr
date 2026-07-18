@@ -230,7 +230,7 @@ function AppLayout() {
 						>
 							<Bell className="size-4" />
 							{notifications.length > 0 && (
-								<span className="absolute -top-0.5 -right-0.5 size-4 rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground flex items-center justify-center">
+								<span className="absolute -top-0.5 -right-0.5 size-4 rounded-full bg-destructive text-micro font-medium text-destructive-foreground flex items-center justify-center">
 									{notifications.length > 9 ? "9+" : notifications.length}
 								</span>
 							)}
@@ -282,7 +282,7 @@ function AppLayout() {
 														{notif.body}
 													</p>
 												)}
-												<p className="text-[10px] text-muted-foreground/70">
+												<p className="text-micro text-muted-foreground/70">
 													{notif.resource_type} ·{" "}
 													{formatLocalDate(notif.created_at)}
 												</p>
@@ -357,12 +357,11 @@ function AppLayout() {
 			{/* ── Mobile nav ───────────────────────────────────────── */}
 			{mobileOpen && (
 				<>
-					{/* biome-ignore lint/a11y/noStaticElementInteractions: backdrop overlay dismisses mobile nav */}
-					<div
-						role="button"
+					<button
+						type="button"
 						tabIndex={-1}
 						aria-label="Close navigation menu"
-						className="fixed inset-0 top-14 z-40 bg-black/50 md:hidden"
+						className="fixed inset-0 top-14 z-40 bg-black/50 md:hidden border-0 p-0 cursor-default"
 						onClick={() => setMobileOpen(false)}
 						onKeyDown={(e) => {
 							if (e.key === "Escape") setMobileOpen(false);

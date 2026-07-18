@@ -22,7 +22,10 @@ export function BulkDeleteButton({
 	entityLabel,
 	entityLabelPlural,
 }: BulkDeleteButtonProps) {
-	const { mutate, isPending, selectedIds } = useBulkDelete(deleteFn, entityLabelPlural);
+	const { mutate, isPending, selectedIds } = useBulkDelete(
+		deleteFn,
+		entityLabelPlural,
+	);
 	const count = selectedIds.size;
 	return (
 		<DeleteConfirm
@@ -33,7 +36,7 @@ export function BulkDeleteButton({
 			<Button
 				variant="ghost"
 				size="sm"
-				className="h-6 text-[10px] text-destructive hover:text-destructive"
+				className="h-6 text-micro text-destructive hover:text-destructive"
 				disabled={isPending || count === 0}
 				aria-label={`Bulk delete ${count} ${entityLabel}${count === 1 ? "" : "s"}`}
 			>

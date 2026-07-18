@@ -648,7 +648,7 @@ function SummaryBar({ stats }: { stats: ReturnType<typeof computeStats> }) {
 								}}
 							/>
 						</div>
-						<span className="text-[10px]">
+						<span className="text-micro">
 							{stats.profiles}p · {stats.autoruns}a
 						</span>
 					</div>
@@ -827,7 +827,7 @@ function ProfileHeader({
 						{(data.name as string) ?? "Untitled"}
 					</p>
 				</div>
-				<Badge variant={badgeVariant} className="text-[10px] shrink-0">
+				<Badge variant={badgeVariant} className="text-micro shrink-0">
 					{badgeLabel}
 				</Badge>
 			</div>
@@ -902,7 +902,7 @@ function AutorunHeader({
 					{recording ? "Recording" : "Stream only"}
 				</p>
 			</div>
-			<Badge variant={badgeVariant} className="text-[10px] shrink-0">
+			<Badge variant={badgeVariant} className="text-micro shrink-0">
 				{badgeLabel}
 			</Badge>
 		</div>
@@ -956,7 +956,7 @@ function ProfileExpanded({
 				)}
 			{contentHash && (
 				<p
-					className="text-[10px] text-muted-foreground/60 font-mono truncate"
+					className="text-micro text-muted-foreground/60 font-mono truncate"
 					title={contentHash}
 				>
 					{contentHash}
@@ -994,7 +994,7 @@ function AutorunExpanded({
 		<>
 			<div className="grid gap-3" style={TIME_RANGE.style}>
 				<div className="space-y-1" style={{ gridArea: AREAS.start }}>
-					<Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+					<Label className="text-micro text-muted-foreground uppercase tracking-wider">
 						Start
 					</Label>
 					<p className="text-xs">
@@ -1006,7 +1006,7 @@ function AutorunExpanded({
 					</p>
 				</div>
 				<div className="space-y-1" style={{ gridArea: AREAS.end }}>
-					<Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+					<Label className="text-micro text-muted-foreground uppercase tracking-wider">
 						End
 					</Label>
 					<p className="text-xs">
@@ -1039,7 +1039,7 @@ function AutorunExpanded({
 			)}
 			{contentHash && (
 				<p
-					className="text-[10px] text-muted-foreground/60 font-mono truncate"
+					className="text-micro text-muted-foreground/60 font-mono truncate"
 					title={contentHash}
 				>
 					{contentHash}
@@ -1119,7 +1119,7 @@ function PluginCell({
 		>
 			<Icon className="size-3.5 text-muted-foreground shrink-0" />
 			<div className="flex-1 min-w-0">
-				<p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+				<p className="text-micro text-muted-foreground uppercase tracking-wider">
 					{label}
 				</p>
 				<div className="relative h-4">
@@ -1133,7 +1133,7 @@ function PluginCell({
 					</p>
 					<p
 						className={cn(
-							"absolute inset-0 flex items-center gap-1 text-[10px] font-mono text-muted-foreground transition-opacity duration-200",
+							"absolute inset-0 flex items-center gap-1 text-micro font-mono text-muted-foreground transition-opacity duration-200",
 							hovered ? "opacity-100" : "opacity-0",
 						)}
 					>
@@ -1170,7 +1170,7 @@ function ConfigPreview({
 
 	return (
 		<div className="space-y-1">
-			<Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+			<Label className="text-micro text-muted-foreground uppercase tracking-wider">
 				{title}
 			</Label>
 			<div className="rounded border bg-muted/20 overflow-hidden divide-y divide-border/50">
@@ -1302,7 +1302,7 @@ function IssueRow({
 		<div className="rounded border px-3 py-2.5 space-y-2">
 			<div className="flex items-center justify-between">
 				<span className="text-xs font-medium">{issue.bundled.name}</span>
-				<span className="text-[10px] text-muted-foreground font-mono truncate max-w-[120px]">
+				<span className="text-micro text-muted-foreground font-mono truncate max-w-[120px]">
 					{currentHash}
 				</span>
 			</div>
@@ -1313,7 +1313,7 @@ function IssueRow({
 			</p>
 			{issue.alternatives && issue.alternatives.length > 0 && (
 				<div className="space-y-1">
-					<Label className="text-[10px]">Map to:</Label>
+					<Label className="text-micro">Map to:</Label>
 					<Select
 						items={issueAlternatives}
 						value={currentSelection ? String(currentSelection.id) : ""}
@@ -1328,7 +1328,7 @@ function IssueRow({
 							{issue.alternatives.map((alt) => (
 								<SelectItem key={alt.id} value={String(alt.id)}>
 									{alt.name}{" "}
-									<span className="text-[10px] text-muted-foreground ml-1">
+									<span className="text-micro text-muted-foreground ml-1">
 										{alt.origin_hash.slice(0, 8)}…
 									</span>
 								</SelectItem>
