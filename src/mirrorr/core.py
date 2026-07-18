@@ -1,8 +1,7 @@
 from __future__ import annotations
+
 from mirrorr.startup.logging import setup_logging
-
 setup_logging()
-
 
 import sys
 import asyncio
@@ -103,7 +102,6 @@ class MirrorrCore:
 
     async def _boot(self) -> None:
         """Initialise every subsystem in the correct order."""
-        from mirrorr.startup.logging import setup_logging
         from mirrorr.startup.ensure_db import ensure_db
         from mirrorr.startup.ensure_ffmpeg import ensure_ffmpeg
         from mirrorr.startup.ensure_engines import sync_engines_db
@@ -112,7 +110,7 @@ class MirrorrCore:
         from mirrorr.event_bus.nats import bus
         import mirrorr.event_bus.handlers  # noqa: F401  — registers handlers
 
-        setup_logging()
+        logger.info("MirrorrCore booting...")
 
         # 1. Create directories
         self._ensure_plugin_dirs()

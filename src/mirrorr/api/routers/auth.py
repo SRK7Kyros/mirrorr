@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import secrets
+import threading
+import time
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, Request
+from loguru import logger
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import text as sa_text
 from sqlmodel import col as sa_col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -16,7 +20,10 @@ from mirrorr.api.jwt import (
     ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, ACCESS_TOKEN_EXPIRE_SECONDS,
     REFRESH_TOKEN_EXPIRE_SECONDS,
 )
-from mirrorr.api.schemas import RegisterRequest, LoginRequest, RefreshRequest, ChangePasswordRequest, CreateClientRequest
+from mirrorr.api.schemas import (
+    AuthResponse, ClientResponse, RegisterRequest, LoginRequest, RefreshRequest,
+    ChangePasswordRequest, CreateClientRequest, UserResponse,
+)
 from mirrorr.storage.models import (
     Client, User, ClientUser, EventSubscription, Notification,
     RefreshTokenRecord,
@@ -72,40 +79,61 @@ def _clear_auth_cookies(response: Response, *, cookie_domain: str = "") -> None:
     response.delete_cookie(REFRESH_TOKEN_COOKIE, **common)
 
 
-# ── Rate limiting (simple in-memory) ───────────────────────────────
+# ── Rate limiting (simple in-memory, thread-safe) ──────────────────
 
 _rate_limits: dict[str, list[float]] = {}
+_rate_limits_lock = threading.Lock()
 
 # Module-level settings reference — set during boot in core.py
 _rate_limit_login: int = 10
 _rate_limit_register: int = 5
+_rate_limit_status: int = 30
 _cookie_secure: bool = True
 _cookie_domain: str = ""
 
 def _check_rate_limit(key: str, max_attempts: int, window: float = 60.0) -> bool:
-    """Check if a rate limit has been exceeded. Returns True if allowed."""
-    import time
+    """Check if a rate limit has been exceeded. Returns True if allowed.
+
+    Thread-safe via a module-level lock. Note: this is per-process — under
+    multiple uvicorn workers, each worker has its own counter, so the
+    effective limit is ``N × max_attempts``. For production multi-worker
+    deployments, replace with a shared store (Redis or SQLite-backed).
+    """
     now = time.time()
     cutoff = now - window
-    # Clean old entries
-    _rate_limits.setdefault(key, [])
-    _rate_limits[key] = [t for t in _rate_limits[key] if t > cutoff]
-    if len(_rate_limits[key]) >= max_attempts:
-        return False
-    _rate_limits[key].append(now)
+    with _rate_limits_lock:
+        entries = _rate_limits.get(key)
+        if entries is None:
+            entries = []
+            _rate_limits[key] = entries
+        entries[:] = [t for t in entries if t > cutoff]
+        if len(entries) >= max_attempts:
+            return False
+        entries.append(now)
 
-    # Periodic cleanup: if dict grows too large, prune stale keys
-    if len(_rate_limits) > 10_000:
-        stale_keys = [k for k, v in _rate_limits.items() if not v or v[-1] < cutoff]
-        for k in stale_keys:
-            del _rate_limits[k]
+        # Periodic cleanup: if dict grows too large, prune stale keys
+        if len(_rate_limits) > 10_000:
+            stale_keys = [k for k, v in _rate_limits.items() if not v or v[-1] < cutoff]
+            for k in stale_keys:
+                del _rate_limits[k]
 
     return True
 
 
 @auth_router.get("/status")
-async def auth_status(db: AsyncSession = Depends(_get_db_session)):
-    """Check if any users exist. Used by the register page to detect first-user setup."""
+async def auth_status(
+    request: Request,
+    db: AsyncSession = Depends(_get_db_session),
+):
+    """Check if any users exist. Used by the register page to detect first-user setup.
+
+    Rate-limited by IP to prevent user-existence enumeration. Returns a
+    constant ``has_users: true`` after the first user exists (the only
+    useful information for the bootstrap flow is "no users yet").
+    """
+    client_ip = request.client.host if request.client else "unknown"
+    if not _check_rate_limit(f"status:{client_ip}", max_attempts=_rate_limit_status):
+        raise HTTPException(status_code=429, detail="Too many requests. Try again later.")
     result = await db.exec(select(User))
     has_users = len(list(result.all())) > 0
     return {"has_users": has_users}
@@ -114,7 +142,7 @@ async def auth_status(db: AsyncSession = Depends(_get_db_session)):
 # ── Registration & Login ────────────────────────────────────────────
 
 
-@auth_router.post("/register")
+@auth_router.post("/register", response_model=AuthResponse)
 async def register(
     item: RegisterRequest,
     request: Request,
@@ -122,7 +150,13 @@ async def register(
     db: AsyncSession = Depends(_get_db_session),
     auth: AuthState = Depends(get_auth),
 ):
-    """Register a new user. First user auto-becomes admin. Sets httpOnly cookies."""
+    """Register a new user. First user auto-becomes admin. Sets httpOnly cookies.
+
+    The first-user check is atomic: we issue ``BEGIN IMMEDIATE`` to acquire
+    a write lock before counting users, preventing the TOCTOU race where
+    two concurrent unauthenticated registrations could both observe zero
+    users and both create admin accounts.
+    """
     # Rate limit check
     client_ip = request.client.host if request.client else "unknown"
     if not _check_rate_limit(f"register:{client_ip}", max_attempts=_rate_limit_register):
@@ -136,39 +170,43 @@ async def register(
     if len(password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
-    # Check if this is the first user (auto-admin)
-    count_stmt = select(User)
-    count_result = await db.exec(count_stmt)
-    is_first_user = len(list(count_result.all())) == 0
-
-    if not is_first_user and not auth.is_admin:
-        raise HTTPException(status_code=403, detail="Admin access required to create users")
-
     from mirrorr.storage.enums import UserRole
-    user = User(
-        username=username,
-        password_hash=await hash_password_async(password),
-        role=UserRole.ADMIN if is_first_user else UserRole.USER,
-        display_name=item.display_name or username,
-    )
 
+    # Atomic first-user check: BEGIN IMMEDIATE acquires the SQLite write lock
+    # before we count users, so concurrent registrations serialize. The count
+    # and insert happen within the same transaction, closing the TOCTOU window.
+    is_first_user = False
     try:
+        # Begin a write transaction immediately (SQLite: acquires RESERVED lock).
+        # We use the raw connection to issue BEGIN IMMEDIATE because SQLModel's
+        # session.exec() is for SELECT/DML, not transaction-control statements.
+        raw_conn = await db.connection()
+        await raw_conn.execute(sa_text("BEGIN IMMEDIATE"))
+        count_result = await db.exec(select(User))
+        existing_users = list(count_result.all())
+        is_first_user = len(existing_users) == 0
+
+        if not is_first_user and not auth.is_admin:
+            await db.rollback()
+            raise HTTPException(status_code=403, detail="Admin access required to create users")
+
+        user = User(
+            username=username,
+            password_hash=await hash_password_async(password),
+            role=UserRole.ADMIN if is_first_user else UserRole.USER,
+            display_name=item.display_name or username,
+        )
         db.add(user)
         await db.commit()
         await db.refresh(user)
     except IntegrityError:
+        await db.rollback()
         raise HTTPException(status_code=400, detail="Username already exists")
-
-    # TOCTOU guard: if another admin was created concurrently while this
-    # was the "first user", downgrade this user to USER.
-    if is_first_user and user.role == UserRole.ADMIN:
-        admin_count_result = await db.exec(
-            select(User).where(User.role == UserRole.ADMIN)
-        )
-        admin_count = len(list(admin_count_result.all()))
-        if admin_count > 1:
-            user.role = UserRole.USER
-            await db.commit()
+    except HTTPException:
+        raise
+    except Exception:
+        await db.rollback()
+        raise
 
     # Link to the current client
     if auth.client:
@@ -198,12 +236,17 @@ async def register(
         cookie_domain=_cookie_domain,
     )
 
-    return {
-        "user": {"id": user.id, "username": user.username, "role": user.role},
-    }
+    return AuthResponse(
+        user=UserResponse(
+            id=user.id,
+            username=user.username,
+            role=user.role,
+            display_name=user.display_name,
+        ),
+    )
 
 
-@auth_router.post("/login")
+@auth_router.post("/login", response_model=AuthResponse)
 async def login(
     item: LoginRequest,
     request: Request,
@@ -226,7 +269,7 @@ async def login(
     if not user or not await verify_password_async(password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    access_token = create_access_token({"username": user.username, "role": user.role})
+    access_token = create_access_token({"username": user.username, "role": user.role, "cv": user.credentials_version or 0})
     refresh_token = create_refresh_token({"username": user.username, "role": user.role})
 
     # Store refresh token JTI for revocation
@@ -248,9 +291,14 @@ async def login(
         cookie_domain=_cookie_domain,
     )
 
-    return {
-        "user": {"id": user.id, "username": user.username, "role": user.role},
-    }
+    return AuthResponse(
+        user=UserResponse(
+            id=user.id,
+            username=user.username,
+            role=user.role,
+            display_name=user.display_name,
+        ),
+    )
 
 
 @auth_router.post("/logout")
@@ -279,26 +327,23 @@ async def logout(
     return {"status": "logged_out"}
 
 
-@auth_router.get("/me")
+@auth_router.get("/me", response_model=AuthResponse)
 async def get_me(auth: AuthState = Depends(require_auth)):
     """Get current user info."""
     if auth.user is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return {
-        "user": {
-            "id": auth.user.id,
-            "username": auth.user.username,
-            "role": auth.user.role,
-            "display_name": auth.user.display_name,
-        },
-        "client": {
-            "id": auth.client.id,
-            "name": auth.client.name,
-        } if auth.client else None,
-    }
+    return AuthResponse(
+        user=UserResponse(
+            id=auth.user.id,
+            username=auth.user.username,
+            role=auth.user.role,
+            display_name=auth.user.display_name,
+        ),
+        client=ClientResponse(id=auth.client.id, name=auth.client.name) if auth.client else None,
+    )
 
 
-@auth_router.post("/refresh")
+@auth_router.post("/refresh", response_model=AuthResponse)
 async def refresh(
     request: Request,
     response: Response,
@@ -355,7 +400,7 @@ async def refresh(
         raise HTTPException(status_code=401, detail="User not found")
 
     # Issue new token pair (rotation)
-    new_access = create_access_token({"username": user.username, "role": user.role})
+    new_access = create_access_token({"username": user.username, "role": user.role, "cv": user.credentials_version or 0})
     new_refresh = create_refresh_token({"username": user.username, "role": user.role})
 
     # Store new refresh token JTI
@@ -372,6 +417,21 @@ async def refresh(
     # Single atomic commit for revoke + create
     await db.commit()
 
+    # Best-effort cleanup of expired revoked tokens (keeps the table from
+    # growing unbounded). Runs inline but is a single DELETE — cheap.
+    try:
+        from sqlmodel import delete as sql_delete
+        now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        await db.exec(
+            sql_delete(RefreshTokenRecord).where(
+                RefreshTokenRecord.revoked == True,  # noqa: E712
+                RefreshTokenRecord.expires_at < now_utc,
+            )
+        )
+        await db.commit()
+    except Exception as e:
+        logger.debug(f"Expired token cleanup failed (non-fatal): {e}")
+
     # Set new httpOnly cookies
     _set_auth_cookies(
         response, new_access, new_refresh,
@@ -379,9 +439,14 @@ async def refresh(
         cookie_domain=_cookie_domain,
     )
 
-    return {
-        "user": {"id": user.id, "username": user.username, "role": user.role},
-    }
+    return AuthResponse(
+        user=UserResponse(
+            id=user.id,
+            username=user.username,
+            role=user.role,
+            display_name=user.display_name,
+        ),
+    )
 
 
 @auth_router.post("/change-password")
@@ -400,6 +465,10 @@ async def change_password(
         raise HTTPException(status_code=400, detail="Invalid current password")
 
     auth.user.password_hash = await hash_password_async(new_password)
+    # Bump credentials_version so existing access tokens are invalidated
+    # immediately (not just refresh tokens). The JWT carries this claim
+    # and is rejected in _resolve_auth if it doesn't match.
+    auth.user.credentials_version = (auth.user.credentials_version or 0) + 1
     db.add(auth.user)
 
     # Invalidate all refresh tokens for this user (security best practice)
@@ -418,7 +487,7 @@ async def change_password(
 # ── User Management (Admin) ─────────────────────────────────────────
 
 
-@auth_router.get("/users")
+@auth_router.get("/users", response_model=list[UserResponse])
 async def get_all_users(
     db: AsyncSession = Depends(_get_db_session),
     auth: AuthState = Depends(require_admin),
@@ -426,7 +495,9 @@ async def get_all_users(
     """List all users. Admin only. Excludes password_hash from response."""
     users = await crud.get_all(db, User)
     return [
-        {"id": u.id, "username": u.username, "role": u.role, "display_name": u.display_name}
+        UserResponse(
+            id=u.id, username=u.username, role=u.role, display_name=u.display_name
+        )
         for u in users
     ]
 

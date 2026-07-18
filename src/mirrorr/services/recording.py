@@ -85,7 +85,9 @@ class RecordingManager:
             await self._stash_batch_copy()
 
     async def _stash_batch_copy(self) -> None:
-        segments = sorted(self.segments_folder.glob("*.ts"))
+        # Directory glob is sync I/O — run in a thread to avoid blocking.
+        loop = asyncio.get_running_loop()
+        segments = sorted(await loop.run_in_executor(None, lambda: list(self.segments_folder.glob("*.ts"))))
         batch = segments[: self._stash_batch]
         for seg in batch:
             name = seg.name
@@ -106,13 +108,14 @@ class RecordingManager:
         """Concatenate stash + remaining segments into MP4 via ManagedProcess,
         track progress with telemetry, move to recordings, create Recording DB
         entry. Returns the recording ID."""
-        # 1. Gather and deduplicate segments
+        # 1. Gather and deduplicate segments (sync I/O — run in a thread)
+        loop = asyncio.get_running_loop()
         stash_segments = (
-            sorted(self.stash_folder.glob("*.ts"))
+            sorted(await loop.run_in_executor(None, lambda: list(self.stash_folder.glob("*.ts"))))
             if self.stash_folder.exists()
             else []
         )
-        live_segments = sorted(self.segments_folder.glob("*.ts"))
+        live_segments = sorted(await loop.run_in_executor(None, lambda: list(self.segments_folder.glob("*.ts"))))
         stash_names = {s.name for s in stash_segments}
         live_only = [s for s in live_segments if s.name not in stash_names]
         ordered = stash_segments + live_only
@@ -283,7 +286,7 @@ class RecordingManager:
 
         # Estimate total duration from segment count * segment_duration
         total_duration = len(segments) * self.settings.segment_duration
-        start_time = datetime.now()
+        start_time = datetime.now(timezone.utc)
         last_summary_time = start_time
         summary_interval = 5.0  # seconds between summary logs
 
@@ -453,6 +456,7 @@ class RecordingManager:
         from mirrorr.services.session_lifecycle import _get_session_factory
         from mirrorr.storage.models import Recording
         from mirrorr.storage import crud
+        from mirrorr.storage.enums import ResourceType
         from mirrorr.api.auth import subscribe_requester
 
         mp4_in_dest = dest / mp4_name
@@ -480,7 +484,7 @@ class RecordingManager:
                 recording = await crud.create(db, recording)
                 await subscribe_requester(
                     db, self.session.requester_user_token,
-                    "recording", recording.id,
+                    ResourceType.RECORDING, recording.id,
                 )
                 await db.commit()
                 recording_id = recording.id

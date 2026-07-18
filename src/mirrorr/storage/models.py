@@ -245,6 +245,10 @@ class User(SQLModel, table=True):
     password_hash: str = Field(default="")
     role: UserRole = Field(default=UserRole.USER, sa_column=Column(SQLEnum(UserRole)))
     display_name: str = Field(default="")
+    # Bumped on password change so existing access tokens are invalidated
+    # even before their 24h expiry elapses. The JWT carries the same claim
+    # and is rejected if it doesn't match the current value.
+    credentials_version: int = Field(default=0)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     clients: list["Client"] = Relationship(

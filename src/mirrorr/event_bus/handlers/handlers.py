@@ -70,7 +70,7 @@ async def handle_autorun_created(data: MirrorrEvent.AUTORUN_CREATED):
 
 @bus.on(MirrorrEvent.AUTORUN_DELETED)
 async def handle_autorun_deleted(data: MirrorrEvent.AUTORUN_DELETED):
-    """When an autorun is deleted, stop its session if one is running."""
+    """When an autorun is deleted, stop and delete its session if one is running."""
     from mirrorr.di import container
     from mirrorr.storage.models import Session
     from mirrorr.storage.enums import SessionStatus
@@ -84,12 +84,16 @@ async def handle_autorun_deleted(data: MirrorrEvent.AUTORUN_DELETED):
             session = result.first()
 
             if session and session.status in (SessionStatus.ACTIVE, SessionStatus.RECORDING):
-                logger.info(f"Autorun {data.id} deleted — stopping session {session.id}")
+                logger.info(f"Autorun {data.id} deleted — stopping & deleting session {session.id}")
                 await _kill_supervisor(session.id)
-                # Update status via lifecycle helper (emits NATS events)
-                from mirrorr.services.session_lifecycle import update_session
-                await update_session(
-                    container.settings, session.id, status=SessionStatus.FAILED,
+                # Delete the session (DB row + folder) so we don't leak
+                # resources. delete_session emits SESSION_DELETED itself.
+                from mirrorr.services.session_lifecycle import delete_session
+                await delete_session(
+                    container.settings,
+                    session.id,
+                    None,  # session_folder derived by caller if needed
+                    autorun_id=session.autorun_id,
                 )
     except Exception as e:
         logger.error(f"Failed to handle autorun deletion {data.id}: {e}")

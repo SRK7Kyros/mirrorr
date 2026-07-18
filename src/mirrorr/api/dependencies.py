@@ -62,6 +62,14 @@ async def _resolve_auth(
                 user = await resolve_user(db, payload["username"])
                 from mirrorr.storage.enums import UserRole
                 is_admin = user.role == UserRole.ADMIN
+                # Reject access tokens issued before the last password change.
+                # The JWT carries a "cv" (credentials_version) claim that must
+                # match the user's current value — otherwise the token was
+                # issued before the password was rotated and is now invalid.
+                token_cv = payload.get("cv", 0)
+                user_cv = getattr(user, "credentials_version", 0) or 0
+                if token_cv != user_cv:
+                    user = None  # token is stale — treat as unauthenticated
             except HTTPException:
                 pass
 
@@ -118,19 +126,20 @@ async def ws_auth(
     """Resolve auth from WebSocket connection.
 
     Auth sources (in priority order):
-    1. ``?token=`` query parameter (backward compat)
-    2. ``mirrorr_access_token`` cookie (same-origin or lax-SameSite)
-    3. ``X-API-Key`` header / ``?api_key=`` query param
+    1. ``mirrorr_access_token`` cookie (same-origin or lax-SameSite)
+    2. ``X-API-Key`` header / ``?api_key=`` query param
+    3. ``Authorization: Bearer <jwt>`` header
+
+    Note: ``?token=`` query parameter is intentionally NOT accepted —
+    query strings are logged by proxies and leak via ``Referer``. Use
+    cookies (browser SPA) or the ``Authorization`` header (API clients).
     """
     api_key = websocket.query_params.get("api_key", "") or websocket.headers.get("x-api-key", "")
 
-    # Try query param first, then cookie
-    token = websocket.query_params.get("token", "")
-    if not token:
-        from mirrorr.api.jwt import ACCESS_TOKEN_COOKIE
-        token = websocket.cookies.get(ACCESS_TOKEN_COOKIE, "")
+    from mirrorr.api.jwt import ACCESS_TOKEN_COOKIE
+    token = websocket.cookies.get(ACCESS_TOKEN_COOKIE, "")
 
-    # Also check Authorization header
+    # Also check Authorization header (for non-browser clients)
     if not token:
         token = websocket.headers.get("authorization", "").removeprefix("Bearer ")
 
