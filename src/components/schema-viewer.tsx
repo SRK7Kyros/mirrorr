@@ -21,7 +21,7 @@ export function TypeBadge({ type }: { type: string }) {
 	return (
 		<span
 			className={cn(
-				"inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-mono font-medium",
+				"inline-flex items-center rounded-md border px-1.5 py-0.5 text-micro font-mono font-medium",
 				typeColor[type] ?? "bg-muted text-muted-foreground",
 			)}
 		>

@@ -3,7 +3,7 @@
  * Replaces the duplicated pattern:
  *   <div className="rounded-lg border bg-muted/20 px-3 py-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted-foreground">
  *     <span className="inline-flex items-center gap-1.5">
- *       <span className="text-muted-foreground/60 text-[10px] uppercase tracking-wider">Label</span>
+ *       <span className="text-muted-foreground/60 text-micro uppercase tracking-wider">Label</span>
  *       ...
  *     </span>
  *     <span className="text-border">·</span>
@@ -44,7 +44,7 @@ export function MetadataItem({
 }: MetadataItemProps) {
 	return (
 		<span className={cn("inline-flex items-center gap-1.5", className)}>
-			<span className="text-muted-subtle text-[10px] uppercase tracking-wider">
+			<span className="text-muted-subtle text-micro uppercase tracking-wider">
 				{label}
 			</span>
 			{children}

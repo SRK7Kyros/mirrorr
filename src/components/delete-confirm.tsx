@@ -63,7 +63,9 @@ export function DeleteConfirm({
 	return (
 		<AlertDialog open={open} onOpenChange={setOpen}>
 			{/* If children is a single ReactElement, use render prop; otherwise wrap in a span */}
-			{children && typeof children !== "string" && typeof children !== "number" ? (
+			{children &&
+			typeof children !== "string" &&
+			typeof children !== "number" ? (
 				<AlertDialogTrigger render={children as React.ReactElement} />
 			) : (
 				<AlertDialogTrigger render={defaultButton} />
@@ -72,8 +74,8 @@ export function DeleteConfirm({
 				<AlertDialogHeader>
 					<AlertDialogTitle>Delete {entityName}</AlertDialogTitle>
 					<AlertDialogDescription>
-						Are you sure you want to delete this {entityName.toLowerCase()}? This action
-						cannot be undone.
+						Are you sure you want to delete this {entityName.toLowerCase()}?
+						This action cannot be undone.
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 				<AlertDialogFooter>

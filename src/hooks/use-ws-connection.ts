@@ -11,14 +11,23 @@ interface UseWsConnectionOptions {
 	url: string;
 	/** Called when a message is received */
 	onMessage: (ev: MessageEvent) => void;
-	/** Token to watch for auth changes */
-	token: string | null;
+	/** Whether the user is authenticated (gates connection lifecycle) */
+	isAuthenticated: boolean;
+}
+
+/** Max reconnect attempts before giving up (requires page reload). */
+const MAX_RECONNECT_ATTEMPTS = 12;
+
+/** Compute a reconnect delay with exponential backoff + ±20% jitter. */
+function reconnectDelay(attempts: number): number {
+	const base = Math.min(1000 * 2 ** attempts, 30000);
+	return Math.round(base * (0.8 + Math.random() * 0.4));
 }
 
 export function useWsConnection({
 	url,
 	onMessage,
-	token,
+	isAuthenticated,
 }: UseWsConnectionOptions) {
 	const wsRef = useRef<WebSocket | null>(null);
 	const reconnectTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -51,9 +60,12 @@ export function useWsConnection({
 					useAuthStore.getState().logout();
 					return;
 				}
-				if (wsRef.current === ws && useAuthStore.getState().isAuthenticated) {
-					// Start with 1s delay, then exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s cap
-					const delay = Math.min(1000 * 2 ** reconnectAttempts.current, 30000);
+				if (
+					wsRef.current === ws &&
+					useAuthStore.getState().isAuthenticated &&
+					reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS
+				) {
+					const delay = reconnectDelay(reconnectAttempts.current);
 					reconnectAttempts.current++;
 					reconnectTimeout.current = setTimeout(connect, delay);
 				}
@@ -61,15 +73,18 @@ export function useWsConnection({
 
 			ws.onerror = () => ws.close();
 		} catch {
-			if (useAuthStore.getState().isAuthenticated) {
-				const delay = Math.min(1000 * 2 ** reconnectAttempts.current, 30000);
+			if (
+				useAuthStore.getState().isAuthenticated &&
+				reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS
+			) {
+				const delay = reconnectDelay(reconnectAttempts.current);
 				reconnectAttempts.current++;
 				reconnectTimeout.current = setTimeout(connect, delay);
 			}
 		}
 	}, [url]);
 	useEffect(() => {
-		if (token) connect();
+		if (isAuthenticated) connect();
 
 		return () => {
 			clearTimeout(reconnectTimeout.current);
@@ -78,5 +93,5 @@ export function useWsConnection({
 				wsRef.current = null;
 			}
 		};
-	}, [token, connect]);
+	}, [isAuthenticated, connect]);
 }

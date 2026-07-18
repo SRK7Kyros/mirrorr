@@ -13,25 +13,33 @@ import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { sessionsApi } from "@/lib/api";
-import type { Session } from "@/lib/schemas";
 import { AREAS, MONITORING_SESSION } from "@/lib/layouts";
-import { formatDuration } from "@/lib/utils";
+import { formatDuration, parseUtcDate } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/monitoring/$sessionId")({
 	component: SessionTelemetryPage,
 });
 
 /** Live-updating duration display. Avoids Date.now() during render. */
-function LiveDuration({ startedAt, endedAt }: { startedAt: string; endedAt?: string | null }) {
+function LiveDuration({
+	startedAt,
+	endedAt,
+}: {
+	startedAt: string;
+	endedAt?: string | null;
+}) {
 	const [elapsed, setElapsed] = useState(() => {
-		const end = endedAt ? new Date(endedAt).getTime() : Date.now();
-		return (end - new Date(startedAt).getTime()) / 1000;
+		const end = endedAt
+			? (parseUtcDate(endedAt)?.getTime() ?? Date.now())
+			: Date.now();
+		const start = parseUtcDate(startedAt)?.getTime() ?? Date.now();
+		return (end - start) / 1000;
 	});
 
 	useEffect(() => {
 		if (endedAt) return; // Session ended — no need to tick
-		const tick = () =>
-			setElapsed((Date.now() - new Date(startedAt).getTime()) / 1000);
+		const startMs = parseUtcDate(startedAt)?.getTime() ?? Date.now();
+		const tick = () => setElapsed((Date.now() - startMs) / 1000);
 		tick();
 		const id = setInterval(tick, 1000);
 		return () => clearInterval(id);
@@ -71,7 +79,7 @@ function SessionTelemetryPage() {
 		);
 	}
 
-	const sessionData = session as Session;
+	const sessionData = session;
 
 	return (
 		<div className="h-full grid" style={MONITORING_SESSION.style}>
@@ -87,17 +95,15 @@ function SessionTelemetryPage() {
 								Back
 							</Button>
 						</Link>
-						<h2 className="text-sm font-bold">
-							Session #{sessionData.id}
-						</h2>
+						<h2 className="text-sm font-bold">Session #{sessionData.id}</h2>
 						<StatusBadge status={sessionData.status} />
 					</div>
 					<div className="flex items-center gap-3 text-xs text-muted-foreground">
 						{sessionData.started_at && (
-						<LiveDuration
-							startedAt={sessionData.started_at}
-							endedAt={sessionData.ended_at}
-						/>
+							<LiveDuration
+								startedAt={sessionData.started_at}
+								endedAt={sessionData.ended_at}
+							/>
 						)}
 						<span>{sessionData.session_urls?.length ?? 0} URLs</span>
 					</div>
@@ -115,9 +121,7 @@ function SessionTelemetryPage() {
 				) : (
 					<div className="flex flex-col items-center justify-center h-full text-xs text-muted-foreground gap-2">
 						<p>Session detail</p>
-						<p className="text-muted-foreground/60">
-							Telemetry coming soon
-						</p>
+						<p className="text-muted-foreground/60">Telemetry coming soon</p>
 					</div>
 				)}
 			</div>

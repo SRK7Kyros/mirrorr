@@ -60,7 +60,7 @@ export function clamp(value: number, min: number, max: number): number {
 export function getUserInitial(
 	user: { display_name?: string; username?: string } | null | undefined,
 ): string {
-	return (user?.display_name ?? user?.username ?? "?")[0].toUpperCase();
+	return (user?.display_name || user?.username || "?")[0].toUpperCase();
 }
 
 /** Get the color class for a session/autorun status dot. */

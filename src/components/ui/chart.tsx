@@ -89,8 +89,8 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
 	}
 
 	return (
-		// biome-ignore lint/security/noDangerouslySetInnerHtml: intentional CSS theme injection
 		<style
+			// biome-ignore lint/security/noDangerouslySetInnerHtml: intentional CSS theme injection — __html is built only from static THEMES constants and developer-provided ChartConfig color values, never user input
 			dangerouslySetInnerHTML={{
 				__html: Object.entries(THEMES)
 					.map(

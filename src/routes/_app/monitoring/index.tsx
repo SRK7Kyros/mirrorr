@@ -9,7 +9,6 @@ import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { Spinner } from "@/components/ui/spinner";
 import { useSessions } from "@/hooks/use-queries";
-import type { Session } from "@/lib/schemas";
 import { cn, getStatusDotColor } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/monitoring/")({
@@ -30,7 +29,7 @@ function MonitoringPage() {
 					<EmptyState text="No sessions" />
 				) : (
 					<div className="divide-y">
-						{(sessions as Session[]).map((s) => (
+						{sessions.map((s) => (
 							<Link
 								key={s.id}
 								to="/monitoring/$sessionId"
@@ -46,8 +45,8 @@ function MonitoringPage() {
 								<span className="text-sm font-medium">Session #{s.id}</span>
 								<StatusBadge status={s.status} />
 								{s.session_urls && s.session_urls.length > 0 && (
-									<span className="text-[10px] text-muted-foreground truncate ml-auto">
-										{s.session_urls[0].label as React.ReactNode}
+									<span className="text-micro text-muted-foreground truncate ml-auto">
+										{s.session_urls[0].label}
 									</span>
 								)}
 							</Link>

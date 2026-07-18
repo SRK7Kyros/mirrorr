@@ -3,6 +3,12 @@
 	"files": {
 		"includes": ["src/**", "!src/routeTree.gen.ts"]
 	},
+	"css": {
+		"parser": {
+			"cssModules": true,
+			"tailwindDirectives": true
+		}
+	},
 	"overrides": [
 		{
 			"includes": ["src/components/inline-delete-button.tsx"],
