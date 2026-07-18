@@ -3,6 +3,21 @@
 Both ensure_engines and ensure_resolvers share the same structure:
 load module → hash → compare → create/update/delete. This module
 extracts that common logic.
+
+SECURITY NOTE — TRUST BOUNDARY
+-----------------------------
+Plugins are Python files loaded via ``importlib`` and executed in the
+Mirrorr process with full privileges. The hash check below only verifies
+that the file matches the DB record — it does NOT constrain what the
+plugin code can do.
+
+Only the operator should have write access to the plugins directory
+(``ENGINES_DIR`` / ``RESOLVERS_DIR``). Any process that can write to
+these directories gains code execution inside the Mirrorr process.
+
+If plugins come from untrusted sources, they must be run in a separate
+subprocess with restricted privileges (not currently supported by this
+loader). Treat the plugins directory as part of the trust boundary.
 """
 
 from __future__ import annotations

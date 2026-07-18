@@ -111,6 +111,10 @@ class ManagedProcess:
             kwargs["creationflags"] = (
                 subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
             )
+        else:
+            # Start a new session so we can kill the whole process group
+            # (including grandchildren like ffmpeg/yt-dlp) on shutdown.
+            kwargs["start_new_session"] = True
 
         self._process = await asyncio.create_subprocess_exec(
             *self.command,
@@ -153,10 +157,41 @@ class ManagedProcess:
             self._process.terminate()
 
     async def kill(self) -> None:
-        """Force-kill the process."""
-        if self._process and self._process.returncode is None:
-            self._intentionally_stopped = True
+        """Force-kill the process and any descendants.
+
+        On Unix, kills the entire process group (started via
+        ``start_new_session=True``) so grandchildren like ffmpeg/yt-dlp
+        don't survive as orphans. On Windows, falls back to killing the
+        process and its psutil-visible children.
+        """
+        if not self._process or self._process.returncode is not None:
+            return
+        self._intentionally_stopped = True
+        pid = self._process.pid
+
+        # Best-effort: kill descendants via psutil (works on both platforms)
+        try:
+            proc = PsProcess(pid)
+            for child in proc.children(recursive=True):
+                try:
+                    child.kill()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # On Unix, kill the whole process group (SIGKILL to -pgid)
+        if sys.platform != "win32":
+            try:
+                os.killpg(os.getpgid(pid), 9)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+        # Finally kill the main process
+        try:
             self._process.kill()
+        except ProcessLookupError:
+            pass
 
     async def close(self) -> None:
         """Wait for internal tasks to finish and close subprocess pipe handles."""

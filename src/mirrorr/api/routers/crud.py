@@ -194,9 +194,16 @@ async def delete_session(id: int, db: AsyncSession = Depends(_get_db_session), a
         raise HTTPException(status_code=409, detail="Session is remuxing. Wait for it to complete or fail before deleting.")
     if obj.status in (SessionStatus.ACTIVE, SessionStatus.RECORDING):
         try:
-            return await _send_control(id, "stop")
+            # Send stop command to the supervisor. We don't return its reply
+            # body — the endpoint is 204 No Content. The supervisor's cleanup
+            # (including folder removal) happens via the SESSION_DELETED event.
+            await _send_control(id, "stop")
         except HTTPException as e:
             if e.status_code == 504:
+                # Supervisor not responding — kill it explicitly to avoid
+                # orphaned processes (ffmpeg/yt-dlp) holding the folder open.
+                from mirrorr.event_bus.handlers.handlers import _kill_supervisor
+                await _kill_supervisor(id)
                 await _cleanup_related_records(db, ResourceType.SESSION, id)
                 await _safe_delete(db, Session, id)
                 await _safe_emit(MirrorrEvent.SESSION_DELETED(id=id))

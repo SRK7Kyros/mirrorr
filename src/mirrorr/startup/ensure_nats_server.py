@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import atexit
 from contextlib import closing
+import hashlib
 import io
 import os
 import platform
@@ -23,6 +24,11 @@ def is_port_open(port: int, host: str = "127.0.0.1", timeout: float = 0.5) -> bo
     with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
         sock.settimeout(timeout)
         return sock.connect_ex((host, port)) == 0
+
+
+# NATS server version to download. When upgrading, verify the release
+# checksums page on GitHub matches the assets you expect.
+_NATS_VERSION = "v2.10.22"
 
 
 class NatsServerManager:
@@ -51,13 +57,62 @@ class NatsServerManager:
     def _get_download_url(self) -> str:
         system = platform.system().lower()
         machine = platform.machine().lower()
-        version = "v2.10.22"
+        version = _NATS_VERSION
         arch = "arm64" if "arm" in machine or "aarch64" in machine else "amd64"
         ext = "zip" if system == "windows" else "tar.gz"
         return (
             f"https://github.com/nats-io/nats-server/releases/download/"
             f"{version}/nats-server-{version}-{system}-{arch}.{ext}"
         )
+
+    def _get_checksum_url(self) -> str:
+        """URL of the official SHA256 checksum file published alongside the release."""
+        return (
+            f"https://github.com/nats-io/nats-server/releases/download/"
+            f"{_NATS_VERSION}/SHA256SUMS"
+        )
+
+    async def _verify_checksum(self, filename: str, content: bytes) -> bool:
+        """Verify the downloaded archive against the official SHA256SUMS file.
+
+        Returns True if verification succeeds, False if the checksum file
+        could not be fetched (with a warning), and raises on mismatch.
+        """
+        try:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                resp = await client.get(self._get_checksum_url())
+                if resp.status_code != 200:
+                    logger.warning(
+                        f"Could not fetch SHA256SUMS (status {resp.status_code}) — "
+                        "skipping checksum verification."
+                    )
+                    return False
+                sums_text = resp.text
+        except Exception as e:
+            logger.warning(f"Could not fetch SHA256SUMS ({e}) — skipping checksum verification.")
+            return False
+
+        expected: str | None = None
+        for line in sums_text.splitlines():
+            parts = line.split(None, 1)
+            if len(parts) == 2 and parts[1].strip() == filename:
+                expected = parts[0].strip().lower()
+                break
+        if not expected:
+            logger.warning(
+                f"{filename} not found in SHA256SUMS — skipping checksum verification."
+            )
+            return False
+
+        actual = hashlib.sha256(content).hexdigest().lower()
+        if actual != expected:
+            raise RuntimeError(
+                f"NATS binary checksum mismatch for {filename}: "
+                f"expected {expected}, got {actual}. Aborting — possible "
+                "supply-chain tampering."
+            )
+        logger.info(f"NATS binary checksum verified for {filename}")
+        return True
 
     async def _install(self) -> None:
         url = self._get_download_url()
@@ -70,16 +125,17 @@ class NatsServerManager:
             async with httpx.AsyncClient(follow_redirects=True) as client:
                 response = await client.get(url)
                 response.raise_for_status()
+
+            # Verify the download against the official SHA256SUMS before
+            # extracting or executing anything. Aborts on mismatch.
+            await self._verify_checksum(filename, response.content)
+
             bytesio = io.BytesIO(response.content)
             os.makedirs(tmp_download_folder, exist_ok=True)
             with open(full_path, "wb") as f:
                 shutil.copyfileobj(bytesio, f)
 
             logger.info(f"Downloaded NATS server: {full_path}")
-            logger.warning(
-                "NATS binary downloaded without SHA256 verification. "
-                "Consider pinning a checksum in production."
-            )
             if filename.endswith(".zip"):
                 with zipfile.ZipFile(full_path, "r") as zip_ref:
                     zip_ref.extractall(tmp_download_folder)

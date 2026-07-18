@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
@@ -21,7 +22,9 @@ ws_router = APIRouter()
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket that mirrors NATS events to the client.
 
-    Auth: pass ?token=JWT and/or X-API-Key header / ?api_key= query param.
+    Auth: ``mirrorr_access_token`` cookie (browser SPA) or
+    ``X-API-Key`` header / ``?api_key=`` query param (API clients) or
+    ``Authorization: Bearer <jwt>`` header.
     If authenticated, events are filtered to only those matching the user's
     subscriptions. Unauthenticated connections receive all events.
     """
@@ -187,15 +190,45 @@ async def notifications_endpoint(websocket: WebSocket):
             if not resource_type:
                 return
 
+            # Query the full Notification row for this user so the frontend
+            # receives a consistent shape (id, body, read, created_at).
+            # Falls back to a synthetic payload if no DB row exists yet.
+            notif_payload: dict[str, Any] = {
+                "resource_type": resource_type,
+                "resource_id": resource_id,
+                "event_type": event_type,
+                "title": f"{resource_type} {resource_id}: {event_type}",
+                "created_at": data.get("timestamp", ""),
+            }
+            async with get_session_factory()() as db:
+                stmt = (
+                    select(Notification)
+                    .where(
+                        col(Notification.user_id) == user.id,
+                        col(Notification.resource_type) == resource_type,
+                        col(Notification.resource_id) == resource_id,
+                        col(Notification.event_type) == event_type,
+                    )
+                    .order_by(col(Notification.created_at).desc())
+                    .limit(1)
+                )
+                result = await db.exec(stmt)
+                notif = result.first()
+                if notif is not None:
+                    notif_payload = {
+                        "id": notif.id,
+                        "resource_type": notif.resource_type,
+                        "resource_id": notif.resource_id,
+                        "event_type": notif.event_type,
+                        "title": notif.title,
+                        "body": notif.body,
+                        "read": notif.read,
+                        "created_at": notif.created_at.isoformat(),
+                    }
+
             await websocket.send_text(json.dumps({
                 "type": "notification",
-                "data": {
-                    "resource_type": resource_type,
-                    "resource_id": resource_id,
-                    "event_type": event_type,
-                    "title": f"{resource_type} {resource_id}: {event_type}",
-                    "created_at": data.get("timestamp", ""),
-                },
+                "data": notif_payload,
             }))
             sent_count += 1
         except Exception as e:
