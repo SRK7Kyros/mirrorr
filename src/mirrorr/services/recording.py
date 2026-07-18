@@ -140,7 +140,7 @@ class RecordingManager:
 
         await asyncio.to_thread(_write_concat)
 
-        ffmpeg_bin = os.environ.get("FFMPEG_EXECUTABLE") or shutil.which("ffmpeg")
+        ffmpeg_bin = os.environ.get("FFMPEG_EXECUTABLE") or await asyncio.to_thread(shutil.which, "ffmpeg")
         if not ffmpeg_bin:
             raise RuntimeError("ffmpeg not found")
 
@@ -430,7 +430,7 @@ class RecordingManager:
         return f"{minutes}:{secs:02d}"
 
     async def _probe_duration(self, path: Path) -> float:
-        ffprobe_bin = os.environ.get("FFPROBE_EXECUTABLE") or shutil.which("ffprobe")
+        ffprobe_bin = os.environ.get("FFPROBE_EXECUTABLE") or await asyncio.to_thread(shutil.which, "ffprobe")
         if not ffprobe_bin:
             logger.warning("ffprobe not found — falling back to wall-clock duration")
             return 0.0

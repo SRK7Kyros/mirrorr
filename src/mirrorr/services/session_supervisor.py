@@ -289,7 +289,6 @@ class SessionSupervisor:
 
         for proc in self.processes:
             await proc.start()
-            proc.close_pipes()
 
         logger.opt(colors=True).success(f"<green>Session</green> bootstrapped — "
                        f"{len(self.processes)} processes running")

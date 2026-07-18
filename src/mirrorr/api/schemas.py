@@ -56,7 +56,7 @@ class CreateSessionRequest(BaseModel):
 
 class CreateAutorunRequest(BaseModel):
     user_friendly_name: str
-    snake_case_name: str
+    snake_case_name: str = Field(pattern=r'^[a-zA-Z0-9_-]+$')
     profile_id: int | None = None
     engine_id: int
     resolver_id: int
@@ -70,7 +70,7 @@ class CreateAutorunRequest(BaseModel):
 
 class UpdateAutorunRequest(BaseModel):
     user_friendly_name: str | None = None
-    snake_case_name: str | None = None
+    snake_case_name: str | None = Field(default=None, pattern=r'^[a-zA-Z0-9_-]+$')
     profile_id: int | None = None
     engine_id: int | None = None
     resolver_id: int | None = None
@@ -216,5 +216,46 @@ class ResolverResponse(BaseModel):
 
 class PaginatedResponse(BaseModel):
     items: list[Any]
+    next_cursor: int | None = None
+    has_more: bool = False
+
+
+# ── Typed list responses (for OpenAPI schema + runtime validation) ────
+# Generic PaginatedResponse uses `list[Any]`, which produces no schema for
+# the item shape. These typed variants give the frontend a real contract.
+
+
+class SessionListResponse(BaseModel):
+    items: list[SessionResponse]
+    next_cursor: int | None = None
+    has_more: bool = False
+
+
+class AutorunListResponse(BaseModel):
+    items: list[AutorunResponse]
+    next_cursor: int | None = None
+    has_more: bool = False
+
+
+class RecordingListResponse(BaseModel):
+    items: list[RecordingResponse]
+    next_cursor: int | None = None
+    has_more: bool = False
+
+
+class ProfileListResponse(BaseModel):
+    items: list[ProfileResponse]
+    next_cursor: int | None = None
+    has_more: bool = False
+
+
+class EngineListResponse(BaseModel):
+    items: list[EngineResponse]
+    next_cursor: int | None = None
+    has_more: bool = False
+
+
+class ResolverListResponse(BaseModel):
+    items: list[ResolverResponse]
     next_cursor: int | None = None
     has_more: bool = False
