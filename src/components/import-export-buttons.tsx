@@ -13,8 +13,13 @@ import { downloadJson } from "@/lib/utils";
 
 // ── Import Button ──────────────────────────────────────────────
 
+export type BundleFile = {
+	bundle: Record<string, unknown>;
+	filename: string;
+};
+
 interface ImportButtonProps {
-	onBundle: (bundle: Record<string, unknown>) => void;
+	onBundle: (bundles: BundleFile[]) => void;
 }
 
 export function ImportButton({ onBundle }: ImportButtonProps) {
@@ -29,14 +34,24 @@ export function ImportButton({ onBundle }: ImportButtonProps) {
 				multiple
 				className="hidden"
 				onChange={(e) => {
-					const file = e.target.files?.[0];
-					if (!file) return;
-					file.text().then((text) => {
-						try {
-							onBundle(JSON.parse(text));
-						} catch {
-							toast.error("Invalid JSON file");
-						}
+					const files = Array.from(e.target.files ?? []);
+					if (files.length === 0) return;
+					Promise.all(
+						files.map(async (file) => {
+							try {
+								const bundle = JSON.parse(await file.text()) as Record<
+									string,
+									unknown
+								>;
+								return { bundle, filename: file.name };
+							} catch {
+								toast.error(`Invalid JSON in ${file.name}`);
+								return null;
+							}
+						}),
+					).then((results) => {
+						const bundles = results.filter((r): r is BundleFile => r !== null);
+						if (bundles.length > 0) onBundle(bundles);
 					});
 					e.target.value = "";
 				}}

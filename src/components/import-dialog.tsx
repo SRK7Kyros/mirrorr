@@ -1,7 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
 	AlertTriangle,
-	CalendarClock,
 	Check,
 	CheckCircle2,
 	ChevronRight,
@@ -10,7 +9,9 @@ import {
 	Filter,
 	Package,
 	Search,
+	Timer,
 	Trash2,
+	User,
 	UserCheck,
 	Zap,
 } from "lucide-react";
@@ -23,9 +24,18 @@ import {
 	useState,
 } from "react";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,10 +49,15 @@ import {
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import {
+	type ColumnDef,
+	useResizableColumns,
+} from "@/hooks/use-resizable-columns";
 import { importExportApi } from "@/lib/api";
-import { AREAS, PLUGIN_CELLS, TIME_RANGE } from "@/lib/layouts";
+import { AREAS, AUTORUN_EXPANDED, PROFILE_EXPANDED } from "@/lib/layouts";
 import type { ValidationReport } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
+import type { BundleFile } from "@/components/import-export-buttons";
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -60,20 +75,12 @@ type BundleItem = {
 	status: "ok" | "skip" | "rename" | "issue";
 	issues: Issue[];
 	removed: boolean;
+	sourceFile: string;
 };
 
 type PluginMap = Record<string, { type: string; id: number }>;
 
 // ── Helpers ───────────────────────────────────────────────────
-
-function statusBadgeVariant(
-	item: BundleItem,
-): "secondary" | "outline" | "destructive" | "default" {
-	if (item.removed) return "destructive";
-	if (item.status === "ok" || item.status === "skip") return "secondary";
-	if (item.status === "rename") return "outline";
-	return "default";
-}
 
 function statusLabel(item: BundleItem): string {
 	if (item.removed) return "Removed";
@@ -81,14 +88,6 @@ function statusLabel(item: BundleItem): string {
 	if (item.status === "skip") return "Skipped";
 	if (item.status === "rename") return "Rename";
 	return "Issues";
-}
-
-function statusBorderColor(item: BundleItem): string {
-	if (item.removed) return "border-muted";
-	if (item.status === "ok" || item.status === "skip")
-		return "border-emerald-500/30";
-	if (item.status === "rename") return "border-blue-500/30";
-	return "border-amber-500/30";
 }
 
 function buildInitialPluginMap(report: ValidationReport): PluginMap {
@@ -111,47 +110,57 @@ function buildInitialPluginMap(report: ValidationReport): PluginMap {
 }
 
 function buildBundleItems(
-	bundle: Record<string, unknown>,
-	report: ValidationReport,
+	bundles: BundleFile[],
+	reports: ValidationReport[],
 ): BundleItem[] {
-	const rawProfiles = (bundle.profiles as Array<Record<string, unknown>>) ?? [];
-	const rawAutoruns = (bundle.autoruns as Array<Record<string, unknown>>) ?? [];
 	const items: BundleItem[] = [];
+	let profileIdx = 0;
+	let autorunIdx = 0;
 
-	for (let i = 0; i < rawProfiles.length; i++) {
-		const p = rawProfiles[i];
-		const issues = report.profiles[i]?.issues ?? [];
-		const status =
-			issues.length === 0
-				? ("ok" as const)
-				: issues.some((iss) => iss.problem === "already_exists")
-					? ("skip" as const)
-					: issues.some((iss) => iss.problem === "name_conflict")
-						? ("rename" as const)
-						: ("issue" as const);
-		items.push({
-			id: `profile-${i}`,
-			type: "profile",
-			data: p,
-			status,
-			issues,
-			removed: false,
-		});
-	}
+	bundles.forEach(({ bundle, filename }, k) => {
+		const report = reports[k];
+		const rawProfiles =
+			(bundle.profiles as Array<Record<string, unknown>>) ?? [];
+		const rawAutoruns =
+			(bundle.autoruns as Array<Record<string, unknown>>) ?? [];
 
-	for (let i = 0; i < rawAutoruns.length; i++) {
-		const a = rawAutoruns[i];
-		const issues = report.autoruns[i]?.issues ?? [];
-		const status = issues.length === 0 ? ("ok" as const) : ("issue" as const);
-		items.push({
-			id: `autorun-${i}`,
-			type: "autorun",
-			data: a,
-			status,
-			issues,
-			removed: false,
-		});
-	}
+		for (let i = 0; i < rawProfiles.length; i++) {
+			const p = rawProfiles[i];
+			const issues = report?.profiles[i]?.issues ?? [];
+			const status =
+				issues.length === 0
+					? ("ok" as const)
+					: issues.some((iss) => iss.problem === "already_exists")
+						? ("skip" as const)
+						: issues.some((iss) => iss.problem === "name_conflict")
+							? ("rename" as const)
+							: ("issue" as const);
+			items.push({
+				id: `profile-${profileIdx++}`,
+				type: "profile",
+				data: p,
+				status,
+				issues,
+				removed: false,
+				sourceFile: filename,
+			});
+		}
+
+		for (let i = 0; i < rawAutoruns.length; i++) {
+			const a = rawAutoruns[i];
+			const issues = report?.autoruns[i]?.issues ?? [];
+			const status = issues.length === 0 ? ("ok" as const) : ("issue" as const);
+			items.push({
+				id: `autorun-${autorunIdx++}`,
+				type: "autorun",
+				data: a,
+				status,
+				issues,
+				removed: false,
+				sourceFile: filename,
+			});
+		}
+	});
 
 	return items;
 }
@@ -193,8 +202,10 @@ function filterItems(
 	items: BundleItem[],
 	search: string,
 	activeFilters: Set<FilterStatus>,
+	fileFilter: string | null,
 ): BundleItem[] {
 	return items.filter((item) => {
+		if (fileFilter && item.sourceFile !== fileFilter) return false;
 		if (search) {
 			const q = search.toLowerCase();
 			const name =
@@ -227,18 +238,91 @@ function filterItems(
 	});
 }
 
+// ── Date / duration formatting ────────────────────────────────
+
+/** "Monday 17, March 2026 at 13:43" */
+function formatFullTimestamp(iso: string | undefined): string {
+	if (!iso) return "—";
+	const d = new Date(iso);
+	if (Number.isNaN(d.getTime())) return "—";
+	const weekday = d.toLocaleDateString(undefined, { weekday: "long" });
+	const day = d.getDate();
+	const month = d.toLocaleDateString(undefined, { month: "long" });
+	const year = d.getFullYear();
+	const time = d.toLocaleTimeString(undefined, {
+		hour: "2-digit",
+		minute: "2-digit",
+		hour12: false,
+	});
+	return `${weekday} ${day}, ${month} ${year} at ${time}`;
+}
+
+/** Compact "07/18 18:00" for table cells */
+function formatShortTimestamp(iso: string | undefined): string {
+	if (!iso) return "—";
+	const d = new Date(iso);
+	if (Number.isNaN(d.getTime())) return "—";
+	const mm = String(d.getMonth() + 1).padStart(2, "0");
+	const dd = String(d.getDate()).padStart(2, "0");
+	const hh = String(d.getHours()).padStart(2, "0");
+	const min = String(d.getMinutes()).padStart(2, "0");
+	return `${mm}/${dd} ${hh}:${min}`;
+}
+
+/** Human duration "2h 14m" / "3d 5h" / "12m" */
+function formatDuration(ms: number): string {
+	const totalMin = Math.max(0, Math.round(ms / 60000));
+	const days = Math.floor(totalMin / 1440);
+	const hours = Math.floor((totalMin % 1440) / 60);
+	const mins = totalMin % 60;
+	if (days > 0) return `${days}d ${hours}h`;
+	if (hours > 0) return `${hours}h ${mins}m`;
+	return `${mins}m`;
+}
+
+/** Live-updating ETA label for an autorun window. */
+function LiveEta({ start, end }: { start?: string; end?: string }) {
+	const [, setTick] = useState(0);
+	useEffect(() => {
+		const id = setInterval(() => setTick((t) => t + 1), 30000);
+		return () => clearInterval(id);
+	}, []);
+
+	const now = Date.now();
+	const startMs = start ? new Date(start).getTime() : Number.NaN;
+	const endMs = end ? new Date(end).getTime() : Number.NaN;
+
+	let label: string;
+	if (!Number.isNaN(startMs) && now < startMs) {
+		label = `starts in ${formatDuration(startMs - now)}`;
+	} else if (!Number.isNaN(endMs) && now < endMs) {
+		label = `ends in ${formatDuration(endMs - now)}`;
+	} else if (!Number.isNaN(endMs)) {
+		label = "ended";
+	} else {
+		label = "—";
+	}
+
+	return (
+		<span className="inline-flex items-center gap-1 text-micro font-medium text-blue-500">
+			<Timer className="size-3" />
+			{label}
+		</span>
+	);
+}
+
 // ── Main Dialog ───────────────────────────────────────────────
 
 export function ImportDialog({
 	open,
 	onClose,
 	onImported,
-	bundle,
+	bundles,
 }: {
 	open: boolean;
 	onClose: () => void;
 	onImported: () => void;
-	bundle: Record<string, unknown> | null;
+	bundles: BundleFile[] | null;
 }) {
 	const queryClient = useQueryClient();
 
@@ -254,7 +338,9 @@ export function ImportDialog({
 	const [activeFilters, setActiveFilters] = useState<Set<FilterStatus>>(
 		new Set(),
 	);
+	const [fileFilter, setFileFilter] = useState<string | null>(null);
 	const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+	const [confirmOpen, setConfirmOpen] = useState(false);
 	const lastClickedId = useRef<string | null>(null);
 
 	const onCloseRef = useRef(onClose);
@@ -270,34 +356,50 @@ export function ImportDialog({
 		setSelectedIds(new Set());
 		setSearch("");
 		setActiveFilters(new Set());
+		setFileFilter(null);
 		setExpandedIds(new Set());
+		setConfirmOpen(false);
 		lastClickedId.current = null;
 	}, []);
 
 	useEffect(() => {
-		if (!open || !bundle) return;
+		if (!open || !bundles || bundles.length === 0) return;
 		resetState();
 
-		importExportApi
-			.validate(bundle)
-			.then((data) => {
-				const r = data as ValidationReport;
-				setPluginMap(buildInitialPluginMap(r));
-				setItems(buildBundleItems(bundle, r));
-				setPhase(r.valid ? "confirm" : "resolve");
+		Promise.all(bundles.map((b) => importExportApi.validate(b.bundle)))
+			.then((reports) => {
+				const rs = reports as ValidationReport[];
+				const merged: PluginMap = {};
+				for (const r of rs) Object.assign(merged, buildInitialPluginMap(r));
+				setPluginMap(merged);
+				setItems(buildBundleItems(bundles, rs));
+				setPhase(rs.every((r) => r.valid) ? "confirm" : "resolve");
 			})
 			.catch((err) => {
 				toast.error(`Validation failed: ${err.message}`);
 				onCloseRef.current();
 			});
-	}, [open, bundle, resetState]);
+	}, [open, bundles, resetState]);
 
 	// Derived state
 	const filteredItems = useMemo(
-		() => filterItems(items, search, activeFilters),
-		[items, search, activeFilters],
+		() => filterItems(items, search, activeFilters, fileFilter),
+		[items, search, activeFilters, fileFilter],
+	);
+	const filteredProfiles = useMemo(
+		() => filteredItems.filter((i) => i.type === "profile"),
+		[filteredItems],
+	);
+	const filteredAutoruns = useMemo(
+		() => filteredItems.filter((i) => i.type === "autorun"),
+		[filteredItems],
 	);
 	const stats = useMemo(() => computeStats(items), [items]);
+	const sourceFiles = useMemo(
+		() => [...new Set(items.map((i) => i.sourceFile))],
+		[items],
+	);
+	const showFile = sourceFiles.length > 1;
 	const allResolved = useMemo(
 		() => isAllResolved(items, pluginMap),
 		[items, pluginMap],
@@ -399,10 +501,62 @@ export function ImportDialog({
 		setSelectedIds(new Set());
 	}, [selectedIds, filteredItems]);
 
+	// Count of selected items that aren't already removed (i.e. removable)
+	const removableSelectedCount = useMemo(
+		() => items.filter((i) => selectedIds.has(i.id) && !i.removed).length,
+		[items, selectedIds],
+	);
+	// Count of selected items that are removed (i.e. re-includable)
+	const reincludableSelectedCount = useMemo(
+		() => items.filter((i) => selectedIds.has(i.id) && i.removed).length,
+		[items, selectedIds],
+	);
+
+	// Request removal: confirm when removing 2+ items
+	const requestRemoveSelected = useCallback(() => {
+		if (removableSelectedCount >= 2) {
+			setConfirmOpen(true);
+		} else {
+			handleRemoveSelected();
+		}
+	}, [removableSelectedCount, handleRemoveSelected]);
+
+	// Delete-key shortcut for bulk remove
+	useEffect(() => {
+		if (!open) return;
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key !== "Delete") return;
+			const target = e.target as HTMLElement | null;
+			if (
+				target &&
+				(target.tagName === "INPUT" ||
+					target.tagName === "TEXTAREA" ||
+					target.isContentEditable)
+			) {
+				return;
+			}
+			if (selectedIds.size === 0) return;
+			e.preventDefault();
+			requestRemoveSelected();
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [open, selectedIds, requestRemoveSelected]);
+
 	const toggleItemRemove = useCallback((id: string) => {
 		setItems((prev) =>
 			prev.map((it) => (it.id === id ? { ...it, removed: !it.removed } : it)),
 		);
+	}, []);
+
+	const toggleItemSelect = useCallback((id: string, _checked: boolean) => {
+		setSelectedIds((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+		lastClickedId.current = id;
 	}, []);
 
 	const setPluginMapping = useCallback(
@@ -415,7 +569,7 @@ export function ImportDialog({
 	// ── Import ───────────────────────────────────────────
 
 	const handleImport = useCallback(async () => {
-		if (!bundle) return;
+		if (!bundles || bundles.length === 0) return;
 		setImporting(true);
 		try {
 			const removedProfiles = items
@@ -425,8 +579,13 @@ export function ImportDialog({
 				.filter((i) => i.type === "autorun" && i.removed)
 				.map((i) => (i.data.user_friendly_name as string) ?? "untitled");
 
+			const mergedBundle = {
+				profiles: items.filter((i) => i.type === "profile").map((i) => i.data),
+				autoruns: items.filter((i) => i.type === "autorun").map((i) => i.data),
+			};
+
 			const result = await importExportApi.apply(
-				bundle,
+				mergedBundle,
 				pluginMap,
 				removedProfiles,
 				removedAutoruns,
@@ -448,7 +607,7 @@ export function ImportDialog({
 		} finally {
 			setImporting(false);
 		}
-	}, [bundle, pluginMap, items, queryClient, onImported, onClose]);
+	}, [bundles, pluginMap, items, queryClient, onImported, onClose]);
 
 	// ── Render ───────────────────────────────────────────
 
@@ -463,12 +622,12 @@ export function ImportDialog({
 					<DialogTitle className="flex items-center gap-2 text-base">
 						<Package className="size-4" /> Import Bundle
 					</DialogTitle>
-					<SummaryBar stats={stats} />
+					<SummaryBar stats={stats} fileCount={sourceFiles.length} />
 				</div>
 
 				{/* Toolbar */}
 				<div className="flex items-center gap-2 px-6 py-3 border-b bg-muted/30 shrink-0">
-					<div className="relative flex-1 max-w-xs">
+					<div className="relative w-56 shrink-0">
 						<Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
 						<Input
 							placeholder="Search items..."
@@ -477,42 +636,72 @@ export function ImportDialog({
 							className="h-7 pl-8 text-xs"
 						/>
 					</div>
-					<div className="flex items-center gap-1">
-						<Filter className="size-3 text-muted-foreground mr-1" />
-						{(
-							[
-								["ready", `Ready${stats.ready > 0 ? ` (${stats.ready})` : ""}`],
+					{/* Horizontally scrollable filter badges — no truncation */}
+					<div className="flex-1 min-w-0 overflow-x-auto [scrollbar-width:thin]">
+						<div className="flex items-center gap-1 flex-nowrap w-max pr-2">
+							<Filter className="size-3 text-muted-foreground mr-1 shrink-0" />
+							{(
 								[
-									"issue",
-									`Issues${stats.issues > 0 ? ` (${stats.issues})` : ""}`,
-								],
-								[
-									"removed",
-									`Removed${stats.removed > 0 ? ` (${stats.removed})` : ""}`,
-								],
-							] as const
-						).map(([key, label]) => (
-							<button
-								key={key}
-								type="button"
-								className={cn(
-									"h-6 px-2 text-xs rounded-md border transition-colors",
-									activeFilters.has(key)
-										? "bg-foreground text-background border-foreground"
-										: "bg-transparent text-muted-foreground border-border hover:bg-muted/50",
-								)}
-								onClick={() => {
-									setActiveFilters((prev) => {
-										const next = new Set(prev);
-										if (next.has(key)) next.delete(key);
-										else next.add(key);
-										return next;
-									});
-								}}
-							>
-								{label}
-							</button>
-						))}
+									[
+										"ready",
+										`Ready${stats.ready > 0 ? ` (${stats.ready})` : ""}`,
+									],
+									[
+										"issue",
+										`Issues${stats.issues > 0 ? ` (${stats.issues})` : ""}`,
+									],
+									[
+										"removed",
+										`Removed${stats.removed > 0 ? ` (${stats.removed})` : ""}`,
+									],
+								] as const
+							).map(([key, label]) => (
+								<button
+									key={key}
+									type="button"
+									className={cn(
+										"h-6 px-2 text-xs rounded-md border transition-colors whitespace-nowrap shrink-0",
+										activeFilters.has(key)
+											? "bg-foreground text-background border-foreground"
+											: "bg-transparent text-muted-foreground border-border hover:bg-muted/50",
+									)}
+									onClick={() => {
+										setActiveFilters((prev) => {
+											const next = new Set(prev);
+											if (next.has(key)) next.delete(key);
+											else next.add(key);
+											return next;
+										});
+									}}
+								>
+									{label}
+								</button>
+							))}
+							{/* File filter (only when >1 source file) */}
+							{showFile && (
+								<>
+									<div className="w-px h-4 bg-border mx-1 shrink-0" />
+									{sourceFiles.map((f) => (
+										<button
+											key={f}
+											type="button"
+											title={f}
+											className={cn(
+												"h-6 px-2 text-xs rounded-md border transition-colors whitespace-nowrap shrink-0 font-mono",
+												fileFilter === f
+													? "bg-foreground text-background border-foreground"
+													: "bg-transparent text-muted-foreground border-border hover:bg-muted/50",
+											)}
+											onClick={() =>
+												setFileFilter((prev) => (prev === f ? null : f))
+											}
+										>
+											{f}
+										</button>
+									))}
+								</>
+							)}
+						</div>
 					</div>
 					<div className="flex items-center gap-1 ml-auto">
 						{selectedIds.size > 0 ? (
@@ -535,34 +724,34 @@ export function ImportDialog({
 							</Button>
 						)}
 						<div className="w-px h-4 bg-border mx-1" />
-						{selectedIds.size > 0 && (
-							<>
-								<Button
-									variant="ghost"
-									size="sm"
-									className="h-7 text-xs text-destructive hover:text-destructive"
-									onClick={handleRemoveSelected}
-								>
-									<Trash2 className="size-3 mr-1" />
-									Remove ({selectedIds.size})
-								</Button>
-								<Button
-									variant="ghost"
-									size="sm"
-									className="h-7 text-xs"
-									onClick={handleReincludeSelected}
-								>
-									<UserCheck className="size-3 mr-1" />
-									Re-include ({selectedIds.size})
-								</Button>
-							</>
+						{removableSelectedCount > 0 && (
+							<Button
+								variant="ghost"
+								size="sm"
+								className="h-7 text-xs text-destructive hover:text-destructive"
+								onClick={requestRemoveSelected}
+							>
+								<Trash2 className="size-3 mr-1" />
+								Remove ({removableSelectedCount})
+							</Button>
+						)}
+						{reincludableSelectedCount > 0 && (
+							<Button
+								variant="ghost"
+								size="sm"
+								className="h-7 text-xs"
+								onClick={handleReincludeSelected}
+							>
+								<UserCheck className="size-3 mr-1" />
+								Re-include ({reincludableSelectedCount})
+							</Button>
 						)}
 					</div>
 				</div>
 
 				{/* Content */}
 				<ScrollArea className="flex-1 min-h-0">
-					<div className="px-6 py-4">
+					<div className="px-6 py-3 space-y-6">
 						{phase === "loading" ? (
 							<div className="flex items-center justify-center py-10 gap-2 text-sm text-muted-foreground">
 								<Spinner className="size-4" /> Validating bundle...
@@ -572,21 +761,34 @@ export function ImportDialog({
 								No items match your filters
 							</div>
 						) : (
-							<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-								{filteredItems.map((item) => (
-									<ImportItemCard
-										key={item.id}
-										item={item}
-										selected={selectedIds.has(item.id)}
-										expanded={expandedIds.has(item.id)}
-										pluginMap={pluginMap}
-										onClick={handleItemClick}
-										onToggleExpand={toggleExpand}
-										onToggleRemove={toggleItemRemove}
-										onPluginChange={setPluginMapping}
-									/>
-								))}
-							</div>
+							<>
+								<ItemSection
+									title="Profiles"
+									items={filteredProfiles}
+									showFile={showFile}
+									selectedIds={selectedIds}
+									expandedIds={expandedIds}
+									pluginMap={pluginMap}
+									onClick={handleItemClick}
+									onToggleExpand={toggleExpand}
+									onToggleSelect={toggleItemSelect}
+									onToggleRemove={toggleItemRemove}
+									onPluginChange={setPluginMapping}
+								/>
+								<ItemSection
+									title="Autoruns"
+									items={filteredAutoruns}
+									showFile={showFile}
+									selectedIds={selectedIds}
+									expandedIds={expandedIds}
+									pluginMap={pluginMap}
+									onClick={handleItemClick}
+									onToggleExpand={toggleExpand}
+									onToggleSelect={toggleItemSelect}
+									onToggleRemove={toggleItemRemove}
+									onPluginChange={setPluginMapping}
+								/>
+							</>
 						)}
 					</div>
 				</ScrollArea>
@@ -618,94 +820,361 @@ export function ImportDialog({
 					)}
 				</div>
 			</DialogContent>
+
+			{/* Bulk-remove confirmation (2+ items) */}
+			<AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>
+							Remove {removableSelectedCount}{" "}
+							{removableSelectedCount === 1 ? "item" : "items"}?
+						</AlertDialogTitle>
+						<AlertDialogDescription>
+							These items will be excluded from the import. You can re-include
+							them later from the Removed filter.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							onClick={() => {
+								handleRemoveSelected();
+								setConfirmOpen(false);
+							}}
+						>
+							Remove
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</Dialog>
+	);
+}
+
+// ── Item Section (one per type) ───────────────────────────────
+
+function ItemSection({
+	title,
+	items,
+	showFile,
+	selectedIds,
+	expandedIds,
+	pluginMap,
+	onClick,
+	onToggleExpand,
+	onToggleSelect,
+	onToggleRemove,
+	onPluginChange,
+}: {
+	title: string;
+	items: BundleItem[];
+	showFile: boolean;
+	selectedIds: Set<string>;
+	expandedIds: Set<string>;
+	pluginMap: PluginMap;
+	onClick: (id: string, e: React.MouseEvent) => void;
+	onToggleExpand: (id: string) => void;
+	onToggleSelect: (id: string, checked: boolean) => void;
+	onToggleRemove: (id: string) => void;
+	onPluginChange: (hash: string, type: string, id: number) => void;
+}) {
+	if (items.length === 0) return null;
+	return (
+		<ItemSectionInner
+			title={title}
+			items={items}
+			showFile={showFile}
+			selectedIds={selectedIds}
+			expandedIds={expandedIds}
+			pluginMap={pluginMap}
+			onClick={onClick}
+			onToggleExpand={onToggleExpand}
+			onToggleSelect={onToggleSelect}
+			onToggleRemove={onToggleRemove}
+			onPluginChange={onPluginChange}
+		/>
+	);
+}
+
+function ItemSectionInner({
+	title,
+	items,
+	showFile,
+	selectedIds,
+	expandedIds,
+	pluginMap,
+	onClick,
+	onToggleExpand,
+	onToggleSelect,
+	onToggleRemove,
+	onPluginChange,
+}: {
+	title: string;
+	items: BundleItem[];
+	showFile: boolean;
+	selectedIds: Set<string>;
+	expandedIds: Set<string>;
+	pluginMap: PluginMap;
+	onClick: (id: string, e: React.MouseEvent) => void;
+	onToggleExpand: (id: string) => void;
+	onToggleSelect: (id: string, checked: boolean) => void;
+	onToggleRemove: (id: string) => void;
+	onPluginChange: (hash: string, type: string, id: number) => void;
+}) {
+	const isProfiles = title === "Profiles";
+
+	// Column definitions: id + label + default width/flex + resizable.
+	// Every data column is fixed + resizable; the trailing column flexes to
+	// absorb leftover width so each drag handle moves only its own boundary.
+	const columns = useMemo<ColumnDef[]>(() => {
+		const base: ColumnDef[] = [
+			{ id: "check", width: 28, resizable: false },
+			{ id: "status", width: 96 },
+			{ id: "name", width: 220, min: 80 },
+		];
+		if (isProfiles) {
+			base.push(
+				{ id: "engine", width: 120 },
+				{ id: "resolver", width: 120 },
+				// Trailing column flexes
+				{ id: "retry", flex: 1, resizable: false, min: 60 },
+			);
+		} else {
+			base.push(
+				{ id: "profile", width: 140 },
+				{ id: "start", width: 110 },
+				// Trailing column flexes
+				{ id: "end", flex: 1, resizable: false, min: 90 },
+			);
+		}
+		// File column, when present, becomes the flexing trailing column and the
+		// previous trailing column becomes fixed + resizable.
+		if (showFile) {
+			const last = base[base.length - 1];
+			base[base.length - 1] = {
+				...last,
+				flex: undefined,
+				width: 100,
+				resizable: true,
+			};
+			base.push({ id: "file", flex: 1, resizable: false, min: 90 });
+		}
+		return base;
+	}, [isProfiles, showFile]);
+
+	const { gridTemplateColumns, handleProps } = useResizableColumns({
+		storageKey: `import-dialog-cols-${isProfiles ? "profiles" : "autoruns"}-${showFile ? "multi" : "single"}`,
+		columns,
+	});
+
+	// Header cells with drag handles between columns
+	const headerCells: { id: string; label: string }[] = [
+		{ id: "check", label: "" },
+		{ id: "status", label: "Status" },
+		{ id: "name", label: "Name" },
+		...(isProfiles
+			? [
+					{ id: "engine", label: "Engine" },
+					{ id: "resolver", label: "Resolver" },
+					{ id: "retry", label: "Retry" },
+				]
+			: [
+					{ id: "profile", label: "Profile" },
+					{ id: "start", label: "Start" },
+					{ id: "end", label: "End" },
+				]),
+		...(showFile ? [{ id: "file", label: "File" }] : []),
+	];
+
+	return (
+		<section>
+			<h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-1">
+				{title}{" "}
+				<span className="text-foreground/70 font-medium">({items.length})</span>
+			</h3>
+			<div className="rounded-lg border overflow-hidden">
+				{/* Column header */}
+				<div
+					className={cn(
+						"grid items-stretch gap-x-3 px-3 border-b bg-muted/40",
+						"text-micro font-medium uppercase tracking-wider text-muted-foreground",
+					)}
+					style={{ gridTemplateColumns }}
+				>
+					{headerCells.map((cell, idx) => {
+						const handle = handleProps(cell.id);
+						const isLast = idx === headerCells.length - 1;
+						return (
+							<div
+								key={cell.id}
+								className="relative flex items-center py-2 min-w-0"
+							>
+								<span className="truncate">{cell.label}</span>
+								{handle && !isLast && (
+									<div
+										{...handle}
+										className="absolute top-0 -right-1.5 h-full w-3 cursor-col-resize group/handle flex items-center justify-center z-10"
+									>
+										<div className="w-px h-4 bg-border group-hover/handle:bg-foreground/40 transition-colors" />
+									</div>
+								)}
+							</div>
+						);
+					})}
+				</div>
+				{items.map((item) => (
+					<ImportItemRow
+						key={item.id}
+						item={item}
+						showFile={showFile}
+						gridTemplateColumns={gridTemplateColumns}
+						selected={selectedIds.has(item.id)}
+						expanded={expandedIds.has(item.id)}
+						pluginMap={pluginMap}
+						onClick={onClick}
+						onToggleExpand={onToggleExpand}
+						onToggleSelect={onToggleSelect}
+						onToggleRemove={onToggleRemove}
+						onPluginChange={onPluginChange}
+					/>
+				))}
+			</div>
+		</section>
 	);
 }
 
 // ── Summary Bar ──────────────────────────────────────────────
 
-function SummaryBar({ stats }: { stats: ReturnType<typeof computeStats> }) {
+function SummaryBar({
+	stats,
+	fileCount,
+}: {
+	stats: ReturnType<typeof computeStats>;
+	fileCount: number;
+}) {
 	const importable = stats.total - stats.removed;
 	return (
-		<div className="flex items-center gap-4 mt-2">
-			<div className="flex items-center gap-2 text-xs text-muted-foreground">
+		<div className="flex items-center gap-3 mt-2">
+			<span className="text-xs text-muted-foreground">
 				<span className="font-medium text-foreground">
 					{stats.total} {stats.total === 1 ? "item" : "items"}
 				</span>
-				{importable > 0 && (
-					<div className="flex items-center gap-1.5">
-						<div className="flex h-1.5 w-20 rounded-full overflow-hidden bg-muted">
-							<div
-								className="bg-blue-500 transition-all"
-								style={{
-									width: `${(stats.profiles / importable) * 100}%`,
-								}}
-							/>
-							<div
-								className="bg-amber-500 transition-all"
-								style={{
-									width: `${(stats.autoruns / importable) * 100}%`,
-								}}
-							/>
-						</div>
-						<span className="text-micro">
-							{stats.profiles}p · {stats.autoruns}a
-						</span>
+				{fileCount > 1 && (
+					<>
+						{" "}
+						from{" "}
+						<span className="font-medium text-foreground">{fileCount}</span>{" "}
+						files
+					</>
+				)}
+			</span>
+			{importable > 0 && (
+				<div className="flex items-center gap-2">
+					<div
+						className="flex h-1.5 w-32 rounded-full overflow-hidden bg-muted"
+						title={`${stats.profiles} profiles, ${stats.autoruns} autoruns`}
+					>
+						<div
+							className="bg-blue-500 transition-all"
+							style={{
+								width: `${(stats.profiles / importable) * 100}%`,
+							}}
+						/>
+						<div
+							className="bg-amber-500 transition-all"
+							style={{
+								width: `${(stats.autoruns / importable) * 100}%`,
+							}}
+						/>
 					</div>
-				)}
-				{stats.removed > 0 && (
-					<span className="text-destructive">· {stats.removed} removed</span>
-				)}
-			</div>
+					<span className="text-micro text-muted-foreground">
+						<span className="text-blue-500 font-medium">{stats.profiles}p</span>
+						{" · "}
+						<span className="text-amber-500 font-medium">
+							{stats.autoruns}a
+						</span>
+					</span>
+				</div>
+			)}
+			{stats.issues > 0 && (
+				<span className="text-micro text-amber-500 font-medium">
+					{stats.issues} {stats.issues === 1 ? "issue" : "issues"}
+				</span>
+			)}
+			{stats.removed > 0 && (
+				<span className="text-micro text-destructive font-medium">
+					{stats.removed} removed
+				</span>
+			)}
 		</div>
 	);
 }
 
-// ── Item Card ─────────────────────────────────────────────────
+// ── Item Row ──────────────────────────────────────────────────
 
-function ImportItemCard({
+const STATUS_DOT: Record<BundleItem["status"] | "removed", string> = {
+	ok: "bg-emerald-500",
+	skip: "bg-emerald-500/60",
+	rename: "bg-blue-500",
+	issue: "bg-amber-500",
+	removed: "bg-muted-foreground/40",
+};
+
+function ImportItemRow({
 	item,
+	showFile,
+	gridTemplateColumns,
 	selected,
 	expanded,
 	pluginMap,
 	onClick,
 	onToggleExpand,
+	onToggleSelect,
 	onToggleRemove,
 	onPluginChange,
 }: {
 	item: BundleItem;
+	showFile: boolean;
+	gridTemplateColumns: string;
 	selected: boolean;
 	expanded: boolean;
 	pluginMap: PluginMap;
 	onClick: (id: string, e: React.MouseEvent) => void;
 	onToggleExpand: (id: string) => void;
+	onToggleSelect: (id: string, checked: boolean) => void;
 	onToggleRemove: (id: string) => void;
 	onPluginChange: (hash: string, type: string, id: number) => void;
 }) {
-	const borderColor = statusBorderColor(item);
-	const badgeVariant = statusBadgeVariant(item);
-	const badgeLabel = statusLabel(item);
 	const isProfile = item.type === "profile";
+	const name =
+		(item.data.name as string) ??
+		(item.data.user_friendly_name as string) ??
+		"Untitled";
+	const dotClass = STATUS_DOT[item.removed ? "removed" : item.status];
 
-	const headerBgClass = item.removed
-		? "bg-muted/30"
-		: item.status === "ok" || item.status === "skip"
-			? "bg-emerald-500/5"
-			: item.status === "rename"
-				? "bg-blue-500/5"
-				: "bg-amber-500/5";
+	// Profile-specific cells
+	const engineName = (item.data.default_engine as PluginRef)?.name ?? "—";
+	const resolverName = (item.data.resolver as PluginRef)?.name ?? "—";
+	const retryMode = (item.data.retry_mode as string) ?? "none";
+
+	// Autorun-specific cells
+	const profileName = (item.data.profile_name as string) ?? "—";
+	const startTime = item.data.start_time as string | undefined;
+	const endTime = item.data.end_time as string | undefined;
 
 	return (
-		<Collapsible open={expanded} onOpenChange={() => onToggleExpand(item.id)}>
-			{/* biome-ignore lint/a11y/useSemanticElements: card needs div for click+select+expand interaction */}
+		<div className="border-b last:border-b-0">
+			{/* Main row */}
+			{/* biome-ignore lint/a11y/useSemanticElements: row needs div for click+select+expand interaction */}
 			<div
 				className={cn(
-					"rounded-lg border transition-all select-none cursor-pointer",
-					"hover:border-foreground/20 hover:shadow-sm",
-					borderColor,
+					"grid items-center gap-x-3 px-3 py-2 select-none cursor-pointer transition-colors",
+					"hover:bg-muted/40",
+					expanded && "bg-muted/30",
 					item.removed && "opacity-50",
-					selected && !item.removed && "ring-2 ring-primary/50",
+					selected && !item.removed && "bg-primary/5",
 				)}
+				style={{ gridTemplateColumns }}
 				onClick={(e) => onClick(item.id, e)}
 				onKeyDown={(e) => {
 					if (e.key === "Enter" || e.key === " ") {
@@ -716,40 +1185,107 @@ function ImportItemCard({
 				role="button"
 				tabIndex={0}
 			>
-				{/* Header */}
-				<div className={cn("px-4 py-3", headerBgClass)}>
-					{isProfile ? (
-						<ProfileHeader
-							item={item}
-							expanded={expanded}
-							badgeVariant={badgeVariant}
-							badgeLabel={badgeLabel}
-							onToggleExpand={onToggleExpand}
-						/>
-					) : (
-						<AutorunHeader
-							item={item}
-							expanded={expanded}
-							badgeVariant={badgeVariant}
-							badgeLabel={badgeLabel}
-							onToggleExpand={onToggleExpand}
-						/>
-					)}
-				</div>
-
-				{/* Expanded content */}
-				<CollapsibleContent>
-					{/* biome-ignore lint/a11y/noStaticElementInteractions: stops event bubbling to card wrapper */}
-					{/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation only, no click behavior */}
-					<div
-						className="px-4 pb-4 pt-2 space-y-3 border-t"
-						onClick={(e) => e.stopPropagation()}
+				{/* Checkbox */}
+				{/* biome-ignore lint/a11y/noStaticElementInteractions: event boundary — checkbox stops propagation; Checkbox itself is interactive */}
+				<span
+					onClick={(e) => e.stopPropagation()}
+					onKeyDown={(e) => e.stopPropagation()}
+					className="flex items-center justify-center"
+				>
+					<Checkbox
+						checked={selected}
+						onCheckedChange={() => onToggleSelect(item.id, selected)}
+						aria-label={`Select ${name}`}
+						className="size-4"
+					/>
+				</span>
+				{/* Status */}
+				<span className="flex items-center gap-1.5 min-w-0">
+					<span className={cn("size-1.5 rounded-full shrink-0", dotClass)} />
+					<span className="text-xs text-muted-foreground truncate">
+						{statusLabel(item)}
+					</span>
+				</span>
+				{/* Name */}
+				<span className="flex items-center gap-2 min-w-0">
+					<ChevronRight
+						className={cn(
+							"size-3.5 shrink-0 transition-transform text-muted-foreground",
+							expanded && "rotate-90",
+						)}
+					/>
+					<span
+						className={cn(
+							"text-sm font-medium truncate",
+							item.removed && "line-through",
+						)}
 					>
+						{name}
+					</span>
+				</span>
+
+				{isProfile ? (
+					<>
+						{/* Engine */}
+						<span className="flex items-center gap-1.5 text-xs text-muted-foreground min-w-0">
+							<Cpu className="size-3 shrink-0" />
+							<span className="truncate">{engineName}</span>
+						</span>
+						{/* Resolver */}
+						<span className="flex items-center gap-1.5 text-xs text-muted-foreground min-w-0">
+							<Zap className="size-3 shrink-0" />
+							<span className="truncate">{resolverName}</span>
+						</span>
+						{/* Retry */}
+						<span className="text-xs text-muted-foreground font-mono truncate">
+							{retryMode}
+						</span>
+					</>
+				) : (
+					<>
+						{/* Profile */}
+						<span className="flex items-center gap-1.5 text-xs text-muted-foreground min-w-0">
+							<User className="size-3 shrink-0" />
+							<span className="truncate">{profileName}</span>
+						</span>
+						{/* Start */}
+						<span className="text-xs text-muted-foreground font-mono truncate">
+							{formatShortTimestamp(startTime)}
+						</span>
+						{/* End */}
+						<span className="text-xs text-muted-foreground font-mono truncate">
+							{formatShortTimestamp(endTime)}
+						</span>
+					</>
+				)}
+
+				{/* File */}
+				{showFile && (
+					<span
+						className="text-micro text-muted-foreground/70 truncate font-mono"
+						title={item.sourceFile}
+					>
+						{item.sourceFile}
+					</span>
+				)}
+			</div>
+
+			{/* Inline accordion */}
+			{expanded && (
+				// biome-ignore lint/a11y/noStaticElementInteractions: stops event bubbling to row wrapper
+				// biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation only, no click behavior
+				<div
+					className="border-t bg-muted/20"
+					onClick={(e) => e.stopPropagation()}
+				>
+					<ExpandedShell>
 						{isProfile ? (
 							<ProfileExpanded
 								data={item.data}
 								issues={item.issues}
 								pluginMap={pluginMap}
+								removed={item.removed}
+								onToggleRemove={() => onToggleRemove(item.id)}
 								onPluginChange={onPluginChange}
 							/>
 						) : (
@@ -757,154 +1293,117 @@ function ImportItemCard({
 								data={item.data}
 								issues={item.issues}
 								pluginMap={pluginMap}
+								removed={item.removed}
+								onToggleRemove={() => onToggleRemove(item.id)}
 								onPluginChange={onPluginChange}
 							/>
 						)}
-						<Button
-							variant="ghost"
-							size="sm"
-							className="h-6 text-xs text-destructive hover:text-destructive"
-							onClick={() => onToggleRemove(item.id)}
-						>
-							<Trash2 className="size-3 mr-1" />
-							{item.removed ? "Re-include" : "Remove"}
-						</Button>
-					</div>
-				</CollapsibleContent>
-			</div>
-		</Collapsible>
+					</ExpandedShell>
+				</div>
+			)}
+		</div>
 	);
 }
 
-// ── Profile Header ───────────────────────────────────────────
+// ── Expanded Shell (shared by both types) ────────────────────
 
-function ProfileHeader({
-	item,
-	expanded,
-	badgeVariant,
-	badgeLabel,
-	onToggleExpand,
+function ExpandedShell({ children }: { children: React.ReactNode }) {
+	return <div className="px-6 py-4">{children}</div>;
+}
+
+// ── Remove / Re-include toggle (grid `actions` cell) ─────────
+
+function RemoveToggle({
+	removed,
+	onToggleRemove,
 }: {
-	item: BundleItem;
-	expanded: boolean;
-	badgeVariant: "secondary" | "outline" | "destructive" | "default";
-	badgeLabel: string;
-	onToggleExpand: (id: string) => void;
+	removed: boolean;
+	onToggleRemove: () => void;
 }) {
-	const data = item.data;
-	const engine = data.default_engine as PluginRef | undefined;
-	const resolver = data.resolver as PluginRef | undefined;
-	const retryMode = (data.retry_mode as string) ?? "none";
-
 	return (
-		<>
-			<div className="flex items-center gap-3">
-				<button
-					type="button"
-					tabIndex={-1}
-					className="shrink-0 p-0.5 rounded hover:bg-muted/50 transition-colors"
-					onMouseDown={(e) => e.preventDefault()}
-					onClick={(e) => {
-						e.stopPropagation();
-						onToggleExpand(item.id);
-					}}
-					aria-label={expanded ? "Collapse" : "Expand"}
-				>
-					<ChevronRight
-						className={cn(
-							"size-4 transition-transform text-muted-foreground",
-							expanded && "rotate-90",
-						)}
-					/>
-				</button>
-				<div className="flex-1 min-w-0 text-left">
-					<p
-						className={cn(
-							"text-sm font-medium truncate",
-							item.removed && "line-through",
-						)}
-					>
-						{(data.name as string) ?? "Untitled"}
-					</p>
-				</div>
-				<Badge variant={badgeVariant} className="text-micro shrink-0">
-					{badgeLabel}
-				</Badge>
-			</div>
-			<div className="flex items-center gap-x-4 gap-y-1 ml-7 mt-1.5 flex-wrap">
-				<div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-					<Cpu className="size-3" /> <span>{engine?.name ?? "?"}</span>
-				</div>
-				<div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-					<Zap className="size-3" /> <span>{resolver?.name ?? "?"}</span>
-				</div>
-				{retryMode !== "none" && (
-					<span className="text-xs text-muted-foreground shrink-0 whitespace-nowrap">
-						Retry: {retryMode}
-					</span>
+		<div className="flex items-center justify-end h-full">
+			<Button
+				variant="ghost"
+				size="sm"
+				className={cn(
+					"h-6 text-xs",
+					!removed && "text-destructive hover:text-destructive",
 				)}
-			</div>
-		</>
+				onClick={onToggleRemove}
+			>
+				{removed ? (
+					<>
+						<UserCheck className="size-3 mr-1" /> Re-include
+					</>
+				) : (
+					<>
+						<Trash2 className="size-3 mr-1" /> Remove
+					</>
+				)}
+			</Button>
+		</div>
 	);
 }
 
-// ── Autorun Header ───────────────────────────────────────────
+// ── Hash Card (click-to-copy content hash) ───────────────────
 
-function AutorunHeader({
-	item,
-	expanded,
-	badgeVariant,
-	badgeLabel,
-	onToggleExpand,
-}: {
-	item: BundleItem;
-	expanded: boolean;
-	badgeVariant: "secondary" | "outline" | "destructive" | "default";
-	badgeLabel: string;
-	onToggleExpand: (id: string) => void;
-}) {
-	const data = item.data;
-	const profileName = data.profile_name as string | undefined;
-	const recording = data.recording as boolean;
+function HashCard({ hash }: { hash?: string }) {
+	const [hovered, setHovered] = useState(false);
+	const [copied, copy] = useCopyToClipboard();
+
+	if (!hash) return null;
 
 	return (
-		<div className="flex items-center gap-3">
-			<button
-				type="button"
-				tabIndex={-1}
-				className="shrink-0 p-0.5 rounded hover:bg-muted/50 transition-colors"
-				onMouseDown={(e) => e.preventDefault()}
-				onClick={(e) => {
-					e.stopPropagation();
-					onToggleExpand(item.id);
-				}}
-				aria-label={expanded ? "Collapse" : "Expand"}
-			>
-				<ChevronRight
-					className={cn(
-						"size-4 transition-transform text-muted-foreground",
-						expanded && "rotate-90",
-					)}
-				/>
-			</button>
-			<CalendarClock className="size-4 shrink-0 text-muted-foreground" />
-			<div className="flex-1 min-w-0 text-left">
+		// biome-ignore lint/a11y/useSemanticElements: complex layout with hover/copy UX
+		<div
+			className="grid grid-cols-[auto_1fr] items-center gap-x-3 rounded-md border px-3 py-2.5 bg-muted/10 hover:bg-muted/20 transition-colors cursor-pointer select-none w-full h-full min-w-0"
+			onMouseEnter={() => setHovered(true)}
+			onMouseLeave={() => setHovered(false)}
+			onClick={() => copy(hash)}
+			onKeyDown={(e) => {
+				if (e.key === "Enter" || e.key === " ") {
+					e.preventDefault();
+					copy(hash);
+				}
+			}}
+			role="button"
+			tabIndex={0}
+			title="Click to copy content hash"
+		>
+			{/* Big icon, spans both rows */}
+			<Package className="size-6 text-muted-foreground row-span-2 shrink-0" />
+			{/* Row 1: thick header */}
+			<p className="text-micro font-semibold text-muted-foreground uppercase tracking-wider self-end">
+				Content Hash
+			</p>
+			{/* Row 2: hash value / hover-copy */}
+			<div className="relative h-4 min-w-0 self-start">
 				<p
 					className={cn(
-						"text-sm font-medium truncate",
-						item.removed && "line-through",
+						"absolute inset-0 flex items-center text-xs font-mono truncate transition-opacity duration-200",
+						hovered ? "opacity-0" : "opacity-100",
 					)}
 				>
-					{(data.user_friendly_name as string) ?? "Untitled"}
+					{hash}
 				</p>
-				<p className="text-xs text-muted-foreground truncate">
-					Profile: {profileName ?? "?"} ·{" "}
-					{recording ? "Recording" : "Stream only"}
+				<p
+					className={cn(
+						"absolute inset-0 flex items-center gap-1 text-micro font-medium transition-opacity duration-200",
+						hovered ? "opacity-100" : "opacity-0",
+						copied ? "text-emerald-500" : "text-muted-foreground",
+					)}
+				>
+					{copied ? (
+						<>
+							<Check className="size-3 shrink-0" /> Copied to clipboard
+						</>
+					) : (
+						<>
+							<Copy className="size-3 shrink-0" /> Copy full hash
+						</>
+					)}
 				</p>
 			</div>
-			<Badge variant={badgeVariant} className="text-micro shrink-0">
-				{badgeLabel}
-			</Badge>
 		</div>
 	);
 }
@@ -915,11 +1414,15 @@ function ProfileExpanded({
 	data,
 	issues,
 	pluginMap,
+	removed,
+	onToggleRemove,
 	onPluginChange,
 }: {
 	data: Record<string, unknown>;
 	issues: Issue[];
 	pluginMap: PluginMap;
+	removed: boolean;
+	onToggleRemove: () => void;
 	onPluginChange: (hash: string, type: string, id: number) => void;
 }) {
 	const engine = data.default_engine as PluginRef | undefined;
@@ -932,42 +1435,42 @@ function ProfileExpanded({
 	const contentHash = data.content_hash as string | undefined;
 
 	return (
-		<>
-			<div className="grid gap-3 w-full" style={PLUGIN_CELLS.style}>
-				<div style={{ gridArea: AREAS.engine }}>
-					<PluginCell icon={Cpu} label="Engine" plugin={engine} />
-				</div>
-				<div style={{ gridArea: AREAS.resolver }}>
-					<PluginCell icon={Zap} label="Resolver" plugin={resolver} />
-				</div>
+		<div className="grid gap-3 w-full" style={PROFILE_EXPANDED.style}>
+			<div style={{ gridArea: AREAS.hash }} className="min-w-0 h-full">
+				<HashCard hash={contentHash} />
 			</div>
-			{retryMode !== "none" && (
-				<p className="text-xs text-muted-foreground">
-					Retry: <span className="font-mono">{retryMode}</span>
-				</p>
-			)}
-			{resolverConfig && Object.keys(resolverConfig).length > 0 && (
-				<ConfigPreview title="Resolver config" config={resolverConfig} />
-			)}
-			{retryMode !== "none" &&
-				retryConfig &&
-				Object.keys(retryConfig).length > 0 && (
-					<ConfigPreview title="Retry config" config={retryConfig} />
+			<div style={{ gridArea: AREAS.engine }} className="h-full">
+				<PluginCell icon={Cpu} label="Engine" plugin={engine} />
+			</div>
+			<div style={{ gridArea: AREAS.resolver }} className="h-full">
+				<PluginCell icon={Zap} label="Resolver" plugin={resolver} />
+			</div>
+			<div style={{ gridArea: AREAS.actions }} className="h-full">
+				<RemoveToggle removed={removed} onToggleRemove={onToggleRemove} />
+			</div>
+			<div style={{ gridArea: AREAS.retry }} className="space-y-2">
+				{retryMode !== "none" && (
+					<p className="text-xs text-muted-foreground">
+						Retry mode: <span className="font-mono">{retryMode}</span>
+					</p>
 				)}
-			{contentHash && (
-				<p
-					className="text-micro text-muted-foreground/60 font-mono truncate"
-					title={contentHash}
-				>
-					{contentHash}
-				</p>
-			)}
-			<IssueList
-				issues={issues}
-				pluginMap={pluginMap}
-				onChange={onPluginChange}
-			/>
-		</>
+			</div>
+			<div style={{ gridArea: AREAS.configs }} className="space-y-3">
+				{resolverConfig && Object.keys(resolverConfig).length > 0 && (
+					<ConfigPreview title="Resolver config" config={resolverConfig} />
+				)}
+				{retryMode !== "none" &&
+					retryConfig &&
+					Object.keys(retryConfig).length > 0 && (
+						<ConfigPreview title="Retry config" config={retryConfig} />
+					)}
+				<IssueList
+					issues={issues}
+					pluginMap={pluginMap}
+					onChange={onPluginChange}
+				/>
+			</div>
+		</div>
 	);
 }
 
@@ -977,80 +1480,123 @@ function AutorunExpanded({
 	data,
 	issues,
 	pluginMap,
+	removed,
+	onToggleRemove,
 	onPluginChange,
 }: {
 	data: Record<string, unknown>;
 	issues: Issue[];
 	pluginMap: PluginMap;
+	removed: boolean;
+	onToggleRemove: () => void;
 	onPluginChange: (hash: string, type: string, id: number) => void;
 }) {
 	const [, copyHash] = useCopyToClipboard();
 	const engineOverride = data.engine_override as PluginRef | undefined;
+	const profileName = (data.profile_name as string) ?? "—";
+	const startTime = data.start_time as string | undefined;
+	const endTime = data.end_time as string | undefined;
 	const contentHash = data.content_hash as string | undefined;
-	const startTime = data.start_time as string;
-	const endTime = data.end_time as string;
 
 	return (
-		<>
-			<div className="grid gap-3" style={TIME_RANGE.style}>
-				<div className="space-y-1" style={{ gridArea: AREAS.start }}>
+		<div className="grid gap-3 w-full" style={AUTORUN_EXPANDED.style}>
+			{/* Content hash — first cell of the content row */}
+			<div style={{ gridArea: AREAS.hash }} className="min-w-0 h-full">
+				<HashCard hash={contentHash} />
+			</div>
+			{/* Remove/Re-include — trails row 1 */}
+			<div style={{ gridArea: AREAS.actions }} className="h-full">
+				<RemoveToggle removed={removed} onToggleRemove={onToggleRemove} />
+			</div>
+			{/* Schedule: full timestamps + live ETA */}
+			<div
+				style={{ gridArea: AREAS.schedule }}
+				className="rounded-md border bg-muted/10 px-3 py-2.5 space-y-2"
+			>
+				<div className="flex items-center justify-between gap-3">
 					<Label className="text-micro text-muted-foreground uppercase tracking-wider">
-						Start
+						Schedule
 					</Label>
-					<p className="text-xs">
-						{startTime
-							? new Date(startTime).toLocaleString(undefined, {
-									hour12: false,
-								})
-							: "—"}
-					</p>
+					<LiveEta start={startTime} end={endTime} />
 				</div>
-				<div className="space-y-1" style={{ gridArea: AREAS.end }}>
-					<Label className="text-micro text-muted-foreground uppercase tracking-wider">
-						End
-					</Label>
-					<p className="text-xs">
-						{endTime
-							? new Date(endTime).toLocaleString(undefined, {
-									hour12: false,
-								})
-							: "—"}
-					</p>
+				<div className="grid gap-2 sm:grid-cols-2">
+					<div className="space-y-0.5">
+						<p className="text-micro text-muted-foreground/70 uppercase tracking-wider">
+							Start
+						</p>
+						<p className="text-xs font-medium">
+							{formatFullTimestamp(startTime)}
+						</p>
+					</div>
+					<div className="space-y-0.5">
+						<p className="text-micro text-muted-foreground/70 uppercase tracking-wider">
+							End
+						</p>
+						<p className="text-xs font-medium">
+							{formatFullTimestamp(endTime)}
+						</p>
+					</div>
 				</div>
 			</div>
-			{engineOverride && (
-				<span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-					<Cpu className="size-3 shrink-0" />
-					<span className="font-medium text-foreground">
-						{engineOverride.name}
-					</span>
-					{engineOverride.origin_hash && (
-						<button
-							type="button"
-							tabIndex={-1}
-							onMouseDown={(e) => e.preventDefault()}
-							className="font-mono text-muted-foreground/60 hover:text-muted-foreground transition-colors cursor-pointer"
-							onClick={() => copyHash(engineOverride.origin_hash)}
-						>
-							{engineOverride.origin_hash.slice(0, 8)}
-						</button>
-					)}
-				</span>
-			)}
-			{contentHash && (
-				<p
-					className="text-micro text-muted-foreground/60 font-mono truncate"
-					title={contentHash}
-				>
-					{contentHash}
-				</p>
-			)}
-			<IssueList
-				issues={issues}
-				pluginMap={pluginMap}
-				onChange={onPluginChange}
-			/>
-		</>
+
+			{/* Profile */}
+			<div style={{ gridArea: AREAS.profile }}>
+				<div className="flex items-center gap-2 rounded-md border px-2.5 py-2 bg-muted/10 h-full">
+					<User className="size-3.5 text-muted-foreground shrink-0" />
+					<div className="min-w-0">
+						<p className="text-micro text-muted-foreground uppercase tracking-wider">
+							Profile
+						</p>
+						<p className="text-xs font-medium truncate">{profileName}</p>
+					</div>
+				</div>
+			</div>
+
+			{/* Engine override */}
+			<div style={{ gridArea: AREAS.engine }}>
+				{engineOverride ? (
+					<div className="flex items-center gap-2 rounded-md border px-2.5 py-2 bg-muted/10 h-full">
+						<Cpu className="size-3.5 text-muted-foreground shrink-0" />
+						<div className="min-w-0 flex-1">
+							<p className="text-micro text-muted-foreground uppercase tracking-wider">
+								Engine override
+							</p>
+							<p className="text-xs font-medium truncate">
+								{engineOverride.name}
+							</p>
+						</div>
+						{engineOverride.origin_hash && (
+							<button
+								type="button"
+								tabIndex={-1}
+								onMouseDown={(e) => e.preventDefault()}
+								className="font-mono text-micro text-muted-foreground/60 hover:text-muted-foreground transition-colors cursor-pointer shrink-0"
+								onClick={() => copyHash(engineOverride.origin_hash)}
+								title="Click to copy hash"
+							>
+								{engineOverride.origin_hash.slice(0, 8)}
+							</button>
+						)}
+					</div>
+				) : (
+					<div className="flex items-center gap-2 rounded-md border border-dashed px-2.5 py-2 h-full">
+						<Cpu className="size-3.5 text-muted-foreground/50 shrink-0" />
+						<p className="text-xs text-muted-foreground/70">
+							No engine override
+						</p>
+					</div>
+				)}
+			</div>
+
+			{/* Issues */}
+			<div style={{ gridArea: AREAS.configs }} className="space-y-3">
+				<IssueList
+					issues={issues}
+					pluginMap={pluginMap}
+					onChange={onPluginChange}
+				/>
+			</div>
+		</div>
 	);
 }
 
@@ -1103,7 +1649,7 @@ function PluginCell({
 	return (
 		// biome-ignore lint/a11y/useSemanticElements: complex layout with hover/copy UX
 		<div
-			className="flex items-center gap-2 rounded-md border px-2.5 py-2 bg-muted/10 hover:bg-muted/20 transition-colors cursor-pointer select-none"
+			className="flex items-center gap-2 rounded-md border px-2.5 py-2 bg-muted/10 hover:bg-muted/20 transition-colors cursor-pointer select-none h-full"
 			onMouseEnter={() => setHovered(true)}
 			onMouseLeave={() => setHovered(false)}
 			onClick={handleClick}
@@ -1317,9 +1863,12 @@ function IssueRow({
 					<Select
 						items={issueAlternatives}
 						value={currentSelection ? String(currentSelection.id) : ""}
-						onValueChange={(v: string) =>
-							onChange(currentHash, issue.field ?? "", parseInt(v, 10))
-						}
+						onValueChange={(v: string) => {
+							const id = Number(v);
+							if (v !== "" && !Number.isNaN(id)) {
+								onChange(currentHash, issue.field ?? "", id);
+							}
+						}}
 					>
 						<SelectTrigger className="h-7 text-xs w-full">
 							<SelectValue placeholder="Select plugin" />

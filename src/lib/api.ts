@@ -104,7 +104,13 @@ async function fetchList<T>(
 
 // ── Auth failure callback (set by auth-store to avoid circular dep) ─
 
-let _onAuthFailed: (() => void) | null = null;
+// `var` instead of `let` to avoid TDZ — auth-store.ts calls onAuthFailed()
+// at module evaluation time (line 61), which races with this module's
+// initialization due to the circular dependency: api.ts → auth-store → api.ts.
+// By the time onAuthFailed() runs, the hoisted function declaration is ready,
+// but a `let` binding at line ~107 would still be in the temporal dead zone.
+// `var` is hoisted + initialized to `undefined`, so the assignment succeeds.
+var _onAuthFailed: (() => void) | null = null;
 
 /** Called by auth-store to register a logout callback for refresh failures. */
 export function onAuthFailed(cb: () => void) {
