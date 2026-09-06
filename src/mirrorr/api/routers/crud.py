@@ -128,6 +128,24 @@ def _paginate_response(result: crud.PaginatedResult | dict) -> dict:
     return {"items": result.items, "next_cursor": result.next_cursor, "has_more": result.has_more}
 
 
+def _serialize_engine(engine: Engine) -> dict:
+    """Shape an Engine ORM row for the API, coercing the nested Pydantic
+    Capabilities model into the plain dict the response schema declares."""
+    return {
+        "id": engine.id,
+        "name": engine.name,
+        "description": engine.description,
+        "origin": engine.origin,
+        "origin_hash": engine.origin_hash,
+        "capabilities": (
+            engine.capabilities.model_dump()
+            if hasattr(engine.capabilities, "model_dump")
+            else engine.capabilities
+        ),
+        "retry_modes_schema": engine.retry_modes_schema,
+    }
+
+
 # ── Sessions ──────────────────────────────────────────────────────────
 
 sessions_router = APIRouter(prefix="/sessions")
@@ -537,7 +555,7 @@ async def get_all_engines(
 ):
     result = await crud.get_all_paginated(db, Engine, cursor=cursor, limit=limit)
     return {
-        "items": result.items,
+        "items": [_serialize_engine(i) for i in result.items],
         "next_cursor": result.next_cursor,
         "has_more": result.has_more,
     }
@@ -548,7 +566,7 @@ async def get_engine(id: int, db: AsyncSession = Depends(_get_db_session), _auth
     item = await crud.get_by_id(db, Engine, id)
     if not item:
         raise HTTPException(status_code=404, detail="Engine not found")
-    return item
+    return _serialize_engine(item)
 
 
 crud_routers.include_router(engines_router)

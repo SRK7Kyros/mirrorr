@@ -12,3 +12,18 @@ wheels/
 # Dev stuff
 dev_testing/
 dev_scripts/
+
+# Runtime state (base_dir defaults to CWD)
+binaries/
+content/
+plugins/
+nats-server/
+*.db
+*.db-shm
+*.db-wal
+.token-optimizer/
+
+# Secrets — never commit a real .env
+.env
+.env.*
+!.env.example
