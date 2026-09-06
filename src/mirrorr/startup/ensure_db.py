@@ -39,6 +39,13 @@ def _rebuild_table_sqlite(sync_conn, table_name: str, model_table, dialect) -> N
     _safe_identifier(table_name)
     temp_name = f"_old_{table_name}"
 
+    # 0. Clean up a stale _old_* table from a previous interrupted rebuild
+    if inspect(sync_conn).has_table(temp_name):
+        logger.warning(
+            f"Found stale {temp_name} from a previous interrupted rebuild — dropping it"
+        )
+        sync_conn.execute(text(f"DROP TABLE {_safe_identifier(temp_name)}"))
+
     # 1. Rename existing table aside
     sync_conn.execute(text(f"ALTER TABLE {_safe_identifier(table_name)} RENAME TO {_safe_identifier(temp_name)}"))
 
@@ -81,10 +88,11 @@ async def ensure_db(engine: AsyncEngine) -> None:
             inspector_obj = inspect(sync_conn)
             dialect = sync_conn.dialect
 
+            longest_column_length = max(len(f"Table {table_name}") for table_name in inspector_obj.get_table_names()) + 1
             # Log all tables and their columns
             for table_name in inspector_obj.get_table_names():
                 columns = [c["name"] for c in inspector_obj.get_columns(table_name)]
-                logger.debug(f"Table {table_name} columns: {columns}")
+                logger.debug(f"{f'Table {table_name}'.ljust(longest_column_length)} columns: {columns}")
 
             tables_to_rebuild: list[tuple[str, object]] = []
 
