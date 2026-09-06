@@ -110,6 +110,7 @@ async function fetchList<T>(
 // By the time onAuthFailed() runs, the hoisted function declaration is ready,
 // but a `let` binding at line ~107 would still be in the temporal dead zone.
 // `var` is hoisted + initialized to `undefined`, so the assignment succeeds.
+// eslint-disable-next-line no-var
 var _onAuthFailed: (() => void) | null = null;
 
 /** Called by auth-store to register a logout callback for refresh failures. */

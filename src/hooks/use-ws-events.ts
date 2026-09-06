@@ -1,5 +1,5 @@
 import { type QueryKey, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useRef } from "react";
+import { useCallback, useState } from "react";
 import { useWsConnection } from "@/hooks/use-ws-connection";
 import { getWsEventsUrl } from "@/lib/api";
 import {
@@ -193,19 +193,14 @@ class WsEventBatcher {
 export function useWsEvents() {
 	const queryClient = useQueryClient();
 	const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-	const batcherRef = useRef<WsEventBatcher | null>(null);
-
-	// Initialize batcher once
-	if (!batcherRef.current) {
-		batcherRef.current = new WsEventBatcher(queryClient);
-	}
+	const [batcher] = useState(() => new WsEventBatcher(queryClient));
 
 	const onMessage = useCallback((ev: MessageEvent) => {
 		try {
 			const parsed = JSON.parse(ev.data);
 			const result = wsEventSchema.safeParse(parsed);
 			if (result.success) {
-				batcherRef.current!.add(result.data);
+				batcher.add(result.data);
 				useRequestLogStore.getState().addEntry({
 					type: "ws-event",
 					timestamp: Date.now(),

@@ -288,7 +288,12 @@ function LiveEta({ start, end }: { start?: string; end?: string }) {
 		return () => clearInterval(id);
 	}, []);
 
-	const now = Date.now();
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		const id = setInterval(() => setNow(Date.now()), 30000);
+		return () => clearInterval(id);
+	}, []);
+
 	const startMs = start ? new Date(start).getTime() : Number.NaN;
 	const endMs = end ? new Date(end).getTime() : Number.NaN;
 
@@ -364,11 +369,13 @@ export function ImportDialog({
 
 	useEffect(() => {
 		if (!open || !bundles || bundles.length === 0) return;
-		resetState();
 
 		Promise.all(bundles.map((b) => importExportApi.validate(b.bundle)))
 			.then((reports) => {
 				const rs = reports as ValidationReport[];
+				// Reset state after the async validation resolves (not synchronously
+				// in the effect) to avoid cascading renders.
+				resetState();
 				const merged: PluginMap = {};
 				for (const r of rs) Object.assign(merged, buildInitialPluginMap(r));
 				setPluginMap(merged);
@@ -549,11 +556,11 @@ export function ImportDialog({
 		);
 	}, []);
 
-	const toggleItemSelect = useCallback((id: string, _checked: boolean) => {
+	const toggleItemSelect = useCallback((id: string, checked: boolean) => {
 		setSelectedIds((prev) => {
 			const next = new Set(prev);
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
+			if (checked) next.add(id);
+			else next.delete(id);
 			return next;
 		});
 		lastClickedId.current = id;

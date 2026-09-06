@@ -38,6 +38,7 @@ export function useWsConnection({
 		onMessageRef.current = onMessage;
 	}, [onMessage]);
 
+	const connectRef = useRef<() => void>(() => {});
 	const connect = useCallback(() => {
 		if (wsRef.current) {
 			wsRef.current.close();
@@ -67,7 +68,7 @@ export function useWsConnection({
 				) {
 					const delay = reconnectDelay(reconnectAttempts.current);
 					reconnectAttempts.current++;
-					reconnectTimeout.current = setTimeout(connect, delay);
+					reconnectTimeout.current = setTimeout(connectRef.current, delay);
 				}
 			};
 
@@ -79,10 +80,14 @@ export function useWsConnection({
 			) {
 				const delay = reconnectDelay(reconnectAttempts.current);
 				reconnectAttempts.current++;
-				reconnectTimeout.current = setTimeout(connect, delay);
+				reconnectTimeout.current = setTimeout(connectRef.current, delay);
 			}
 		}
 	}, [url]);
+
+	useEffect(() => {
+		connectRef.current = connect;
+	}, [connect]);
 	useEffect(() => {
 		if (isAuthenticated) connect();
 

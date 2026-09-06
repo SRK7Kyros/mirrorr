@@ -203,13 +203,16 @@ export function TimeInput({
 		slots.map(() => ""),
 	);
 
-	// Keep slotValues length in sync if format changes
-	React.useEffect(() => {
-		setSlotValues((prev) => {
-			if (prev.length === slots.length) return prev;
-			return slots.map((_, i) => prev[i] ?? "");
-		});
-	}, [slots.length, slots.map]);
+	// Keep slotValues length in sync if format changes. Adjusting state during
+	// render (instead of setState-in-effect) is the sanctioned pattern; the
+	// condition terminates because once lengths match we return the same ref.
+	if (slotValues.length !== slots.length) {
+		setSlotValues((prev) =>
+			prev.length === slots.length
+				? prev
+				: slots.map((_, i) => prev[i] ?? ""),
+		);
+	}
 
 	const lastSlotIdx = slots.length - 1;
 
