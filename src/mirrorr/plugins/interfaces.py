@@ -163,7 +163,7 @@ class EngineInterface(ABC):
             return False, 0.0
 
         delay = get_retry_delay(mode, params)
-        if config.get("mode") == "retry_always":
+        if mode == "always":
             delay = max(delay, 2.0)
 
         return True, delay

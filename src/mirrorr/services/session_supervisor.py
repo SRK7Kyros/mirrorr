@@ -565,10 +565,6 @@ class SessionSupervisor:
 
         logger.info(f"all processes terminated")
 
-        # Wait for internal reader/telemetry tasks to finish so pipe transports are clean
-        for proc in self.processes:
-            await proc.close()
-
     async def _reset_for_retry(self) -> None:
         """Tear down attempt-specific state before retrying.
 
