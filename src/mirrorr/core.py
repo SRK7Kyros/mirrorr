@@ -188,7 +188,7 @@ class MirrorrCore:
             # No origins configured — use localhost defaults for development
             setup_cors(_api_app)
             logger.warning(
-                "CORS_ALLOWED_ORIGINS is empty — using default localhost origins. "
+                "CORS_ALLOWED_ORIGINS is empty -- using default localhost origins. "
                 "Set CORS_ALLOWED_ORIGINS in your .env for production use."
             )
 
@@ -232,8 +232,16 @@ class MirrorrCore:
         # Log resolved configuration
         _sensitive_keys = {"jwt_secret_key"}
         logger.info("----- CONFIGURATION -----")
+
+        dirs_or_files_settings = [(key, value) for key, value in self.settings.model_dump().items() if (key.endswith("_dir") or key.endswith("_file"))]
+        longest_key_length = max(len(key) for key, _ in dirs_or_files_settings) if dirs_or_files_settings else 0
         for k, v in self.settings.model_dump().items():
-            logger.info(f"{k}=***" if k in _sensitive_keys else f"{k}={v}")
+            if k.endswith("_dir") or k.endswith("_file"):
+                logger.info(f"{k.ljust(longest_key_length)} = {v}")
+            elif k in _sensitive_keys:
+                logger.info(f"{k}=***")
+            else:
+                logger.info(f"{k}={v}")
         logger.info("------------------------")
 
     # ── dev helpers ────────────────────────────────────────────────────

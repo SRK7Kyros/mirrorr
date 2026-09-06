@@ -297,12 +297,21 @@ class NatsServerManager:
             **kwargs,
         )
 
-        # Assign the child to the Job Object so it's killed when we close the handle
+        # Assign the child to the Job Object so it's killed when we close the handle.
+        # CRITICAL: AssignProcessToJobObject expects a process HANDLE (kernel object),
+        # NOT a PID.  subprocess.Popen stores the handle in _handle; the PID is just
+        # a numeric identifier — passing it here silently fails and the job stays empty.
         if sys.platform == "win32" and self._job_handle is not None:
             import ctypes
-            ctypes.windll.kernel32.AssignProcessToJobObject(
-                self._job_handle, int(self._process.pid)
-            )
+            if not ctypes.windll.kernel32.AssignProcessToJobObject(
+                self._job_handle, self._process._handle
+            ):
+                logger.error(
+                    f"AssignProcessToJobObject failed for NATS PID {self._process.pid} "
+                    f"(error {ctypes.GetLastError()}). NATS may not be killed on shutdown."
+                )
+            else:
+                logger.debug(f"Assigned NATS PID {self._process.pid} to Job Object")
 
         self._log_thread = threading.Thread(target=self._consume_and_log, daemon=True)
         self._log_thread.start()
@@ -342,17 +351,20 @@ class NatsServerManager:
         self.stop()
 
     def stop(self) -> None:
-        if self._process and self._process.is_running():
-            logger.info(f"Terminating NATS process {self._process.pid}...")
-            self._process.terminate()
-            _gone, alive = psutil.wait_procs([self._process], timeout=3)
-            for p in alive:
-                p.kill()
+        try:
+            if self._process and self._process.is_running():
+                logger.info(f"Terminating NATS process {self._process.pid}...")
+                self._process.terminate()
+                _gone, alive = psutil.wait_procs([self._process], timeout=3)
+                for p in alive:
+                    p.kill()
+        finally:
             self._process = None
             self._log_thread = None
 
-        # Close the Windows Job Object handle so Windows kills any remaining children
-        if self._job_handle is not None:
-            import ctypes
-            ctypes.windll.kernel32.CloseHandle(self._job_handle)
-            self._job_handle = None
+            # Close the Windows Job Object handle — this triggers
+            # KILL_ON_JOB_CLOSE, killing any remaining children.
+            if self._job_handle is not None:
+                import ctypes
+                ctypes.windll.kernel32.CloseHandle(self._job_handle)
+                self._job_handle = None
