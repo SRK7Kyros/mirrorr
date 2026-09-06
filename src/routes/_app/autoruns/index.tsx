@@ -40,7 +40,11 @@ import { useState, useMemo } from "react";
 import { useInterval } from "@/hooks/use-interval";
 import { toast } from "sonner";
 import { ImportDialog } from "@/components/import-dialog";
-import { ImportButton, ExportButton } from "@/components/import-export-buttons";
+import {
+	ImportButton,
+	ExportButton,
+	type BundleFile,
+} from "@/components/import-export-buttons";
 import { FormField } from "@/components/form-field";
 import {
 	SidebarLayout,
@@ -76,10 +80,7 @@ function AutorunsPage() {
 	const [showCreate, setShowCreate] = useState(false);
 	const [selectedId, setSelectedId] = useState<number | null>(null);
 	const [importOpen, setImportOpen] = useState(false);
-	const [importBundle, setImportBundle] = useState<Record<
-		string,
-		unknown
-	> | null>(null);
+	const [importBundle, setImportBundle] = useState<BundleFile[] | null>(null);
 
 	const { data: autoruns = [], isLoading } = useAutoruns();
 
@@ -195,7 +196,7 @@ function AutorunsPage() {
 				onImported={() =>
 					queryClient.invalidateQueries({ queryKey: ["autoruns"] })
 				}
-				bundle={importBundle}
+				bundles={importBundle}
 			/>
 		</ResizableSidebar>
 	);

@@ -102,6 +102,28 @@ export const TIME_RANGE = {
 	style: gridStyle('"start end"', "1fr 1fr"),
 } as const;
 
+/**
+ * Profile expanded body: [hash | engine | resolver | actions] on row 1,
+ * retry + configs below. Hash leads the row, Remove button trails it.
+ */
+export const PROFILE_EXPANDED = {
+	style: gridStyle(
+		'"hash engine resolver actions" "retry retry retry retry" "configs configs configs configs"',
+		"1.3fr 1fr 1fr auto",
+	),
+} as const;
+
+/**
+ * Autorun expanded body: [hash | schedule | actions] on row 1,
+ * profile/engine + configs below.
+ */
+export const AUTORUN_EXPANDED = {
+	style: gridStyle(
+		'"hash schedule schedule actions" "profile engine engine engine" "configs configs configs configs"',
+		"1.3fr 1fr 1fr auto",
+	),
+} as const;
+
 // ── Network monitor ───────────────────────────────────────────────────
 
 /** Network request row: 6-column table layout */
@@ -147,6 +169,12 @@ export const AREAS = {
 	// resolver reuses the name above
 	start: "start" as const,
 	end: "end" as const,
+	hash: "hash" as const,
+	body: "body" as const,
+	retry: "retry" as const,
+	configs: "configs" as const,
+	schedule: "schedule" as const,
+	profile: "profile" as const,
 
 	// Network monitor
 	time: "time" as const,

@@ -10,7 +10,11 @@ import { Trash2, Settings, Cpu, Zap, Loader2, Download } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ImportDialog } from "@/components/import-dialog";
-import { ImportButton, ExportButton } from "@/components/import-export-buttons";
+import {
+	ImportButton,
+	ExportButton,
+	type BundleFile,
+} from "@/components/import-export-buttons";
 import { InfoGrid } from "@/components/info-grid";
 import { FormField } from "@/components/form-field";
 import {
@@ -41,10 +45,7 @@ function ProfilesPage() {
 	const [showCreate, setShowCreate] = useState(false);
 	const [selectedId, setSelectedId] = useState<number | null>(null);
 	const [importOpen, setImportOpen] = useState(false);
-	const [importBundle, setImportBundle] = useState<Record<
-		string,
-		unknown
-	> | null>(null);
+	const [importBundle, setImportBundle] = useState<BundleFile[] | null>(null);
 
 	const { data: profiles = [], isLoading } = useProfiles();
 
@@ -162,7 +163,7 @@ function ProfilesPage() {
 				onImported={() =>
 					queryClient.invalidateQueries({ queryKey: ["profiles"] })
 				}
-				bundle={importBundle}
+				bundles={importBundle}
 			/>
 		</ResizableSidebar>
 	);
