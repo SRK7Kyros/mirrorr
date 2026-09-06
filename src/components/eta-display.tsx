@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useInterval } from "@/hooks/use-interval";
 import { cn } from "@/lib/utils";
 
@@ -60,41 +60,22 @@ interface EtaDisplayProps {
 	className?: string;
 }
 
+const computeText = (value: string, mode: "relative" | "absolute") => {
+	if (!value) return "";
+	const target = new Date(value);
+	const now = new Date();
+	const diff = target.getTime() - now.getTime();
+	return mode === "absolute"
+		? formatAbsolute(target)
+		: formatRelative(diff);
+};
+
 export function EtaDisplay({ value, mode, className }: EtaDisplayProps) {
-	const [text, setText] = useState("");
-
-	useEffect(() => {
-		if (!value) {
-			setText("");
-			return;
-		}
-
-		const tick = () => {
-			const target = new Date(value);
-			const now = new Date();
-			const diff = target.getTime() - now.getTime();
-
-			if (mode === "absolute") {
-				setText(formatAbsolute(target));
-			} else {
-				setText(formatRelative(diff));
-			}
-		};
-
-		tick();
-	}, [value, mode]);
+	const [text, setText] = useState(() => computeText(value, mode));
 
 	useInterval(
 		() => {
-			if (!value) return;
-			const target = new Date(value);
-			const now = new Date();
-			const diff = target.getTime() - now.getTime();
-			if (mode === "absolute") {
-				setText(formatAbsolute(target));
-			} else {
-				setText(formatRelative(diff));
-			}
+			setText(computeText(value, mode));
 		},
 		value ? 1000 : null,
 	);

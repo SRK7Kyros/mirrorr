@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# Secrets — never commit a real .env (Vite uses .env.local by default)
+.env
+.env.*
+!.env.example
+
 # TanStack Router cache
 .tanstack
 
@@ -19,6 +24,7 @@ dist-ssr
 .vscode/*
 !.vscode/extensions.json
 .idea
+.serena
 .DS_Store
 *.suo
 *.ntvs*

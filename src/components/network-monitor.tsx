@@ -10,7 +10,7 @@ import {
 	Wifi,
 	X,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Rnd } from "react-rnd";
 import { EmptyState } from "@/components/empty-state";
@@ -154,31 +154,30 @@ export function NetworkMonitor({
 	const clear = useRequestLogStore((s) => s.clear);
 	const [expandedId, setExpandedId] = useState<number | null>(null);
 	const [minimized, setMinimized] = useState(false);
-	const [size, setSize] = useState({ width: 420, height: 500 });
+	const [, setSize] = useState({ width: 420, height: 500 });
 	const [pos, setPos] = useState({ x: 80, y: 80 });
-	const [hasPositioned, setHasPositioned] = useState(false);
 
-	// Position below the trigger when first opened
+	// When the panel opens with a default position on first display, apply it.
+	const appliedDefaultPos = useRef(false);
 	useEffect(() => {
-		if (open && defaultPos && !hasPositioned) {
+		if (open && defaultPos && !appliedDefaultPos.current) {
+			appliedDefaultPos.current = true;
 			setPos(defaultPos);
-			setHasPositioned(true);
 		}
 		if (!open) {
-			setHasPositioned(false);
+			appliedDefaultPos.current = false;
 		}
-	}, [open, defaultPos, hasPositioned]);
-	useEffect(() => {
-		setSize(
-			minimized ? { width: 420, height: 42 } : { width: 420, height: 500 },
-		);
-	}, [minimized]);
+	}, [open, defaultPos]);
+
+	const effectiveSize = minimized
+		? { width: 420, height: 42 }
+		: { width: 420, height: 500 };
 
 	if (!open) return null;
 
 	return (
 		<Rnd
-			size={size}
+			size={effectiveSize}
 			position={pos}
 			onDragStop={(_, d) => setPos({ x: d.x, y: d.y })}
 			onResizeStop={(_, __, ref, ___, position) => {

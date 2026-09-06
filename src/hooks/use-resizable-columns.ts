@@ -90,13 +90,18 @@ export function useResizableColumns({ storageKey, columns }: Options) {
 		[columns],
 	);
 
+	const onMouseUpRef = useRef<() => void>(() => {});
 	const onMouseUp = useCallback(() => {
 		dragState.current = null;
 		document.body.style.cursor = "";
 		document.body.style.userSelect = "";
 		window.removeEventListener("mousemove", onMouseMove);
-		window.removeEventListener("mouseup", onMouseUp);
+		window.removeEventListener("mouseup", onMouseUpRef.current);
 	}, [onMouseMove]);
+
+	useEffect(() => {
+		onMouseUpRef.current = onMouseUp;
+	}, [onMouseUp]);
 
 	// Clean up listeners if the component unmounts mid-drag
 	useEffect(() => {
@@ -138,7 +143,7 @@ export function useResizableColumns({ storageKey, columns }: Options) {
 					document.body.style.cursor = "col-resize";
 					document.body.style.userSelect = "none";
 					window.addEventListener("mousemove", onMouseMove);
-					window.addEventListener("mouseup", onMouseUp);
+					window.addEventListener("mouseup", onMouseUpRef.current);
 				},
 			};
 		},
