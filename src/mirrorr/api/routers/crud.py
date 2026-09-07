@@ -3,11 +3,14 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import selectinload
 from loguru import logger
 from mirrorr.event_bus.nats import bus, get_control_nc
 from mirrorr.event_bus.event import MirrorrEvent, BaseEvent
 from typing import Any, TypeVar
+from collections.abc import Sequence
 from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -32,9 +35,10 @@ from mirrorr.api.schemas import (
     ProfileListResponse,
     EngineListResponse,
     ResolverListResponse,
+    DeleteResultResponse,
 )
 from mirrorr.storage.models import Session, Autorun, Recording, Profile, Engine, Resolver
-from mirrorr.storage.enums import SessionStatus, ResourceType
+from mirrorr.storage.enums import SessionStatus, ResourceType, AutorunStatus
 from mirrorr.storage import crud
 from mirrorr.storage.models import EventSubscription, Notification
 
@@ -57,6 +61,97 @@ async def _cleanup_related_records(db: AsyncSession, resource_type: str, resourc
         )
     )
     await db.flush()
+
+
+async def _count_related_records(db: AsyncSession, resource_type: str, resource_id: int) -> dict[str, int]:
+    """Count (but do not mutate) subscriptions/notifications for a resource."""
+    subs = await db.exec(
+        select(EventSubscription).where(
+            EventSubscription.resource_type == resource_type,
+            EventSubscription.resource_id == resource_id,
+        )
+    )
+    notifs = await db.exec(
+        select(Notification).where(
+            Notification.resource_type == resource_type,
+            Notification.resource_id == resource_id,
+        )
+    )
+    return {"subscriptions": len(subs.all()), "notifications": len(notifs.all())}
+
+
+async def _cascade_delete_session(db: AsyncSession, session_id: int) -> dict[str, int]:
+    """Delete a session row plus its related records. Never touches recordings
+    on disk/DB — they remain, with ``session_id`` nulled (they outlive sessions).
+
+    Returns a dict of counts (``{"recordings": N, "subscriptions": N, ...}``).
+    Does NOT emit events — callers emit SESSION_DELETED themselves.
+    """
+    counts: dict[str, int] = {}
+
+    # Detach recordings (keep the artifacts)
+    recs = (await db.exec(select(Recording).where(Recording.session_id == session_id))).all()
+    if recs:
+        for r in recs:
+            r.session_id = None
+            db.add(r)
+        counts["recordings"] = len(recs)
+
+    counts.update(await _count_related_records(db, ResourceType.SESSION, session_id))
+    await _cleanup_related_records(db, ResourceType.SESSION, session_id)
+    await db.flush()
+    await _safe_delete(db, Session, session_id)
+    return counts
+
+
+async def _cascade_delete_autorun(db: AsyncSession, autorun_id: int) -> dict[str, int]:
+    """Delete an autorun and its sessions (each session's recordings are
+    detached, not deleted). Emits AUTORUN_DELETED. Returns cascade counts."""
+    counts: dict[str, int] = {"autoruns": 1}
+    sess = (await db.exec(select(Session).where(Session.autorun_id == autorun_id))).all()
+    for s in sess:
+        sub = await _cascade_delete_session(db, s.id)
+        for k, v in sub.items():
+            counts[k] = counts.get(k, 0) + v
+        await _safe_emit(MirrorrEvent.SESSION_DELETED(id=s.id))
+    counts["sessions"] = counts.get("sessions", 0) + len(sess)
+
+    counts.update(await _count_related_records(db, ResourceType.AUTORUN, autorun_id))
+    await _cleanup_related_records(db, ResourceType.AUTORUN, autorun_id)
+    await _safe_delete(db, Autorun, autorun_id)
+    await _safe_emit(MirrorrEvent.AUTORUN_DELETED(id=autorun_id))
+    return counts
+
+
+async def _cascade_delete_profile(db: AsyncSession, profile_id: int) -> dict[str, int]:
+    """Delete a profile, its autoruns (and their sessions), and its
+    standalone sessions. Recordings are detached, not deleted. Emits
+    PROFILE_DELETED. Returns cascade counts."""
+    counts: dict[str, int] = {"profiles": 1}
+
+    # Standalone sessions (not spawned by an autorun)
+    sess = (await db.exec(
+        select(Session).where(Session.profile_id == profile_id, Session.autorun_id.is_(None))
+    )).all()
+    for s in sess:
+        sub = await _cascade_delete_session(db, s.id)
+        for k, v in sub.items():
+            counts[k] = counts.get(k, 0) + v
+        await _safe_emit(MirrorrEvent.SESSION_DELETED(id=s.id))
+    counts["sessions"] = counts.get("sessions", 0) + len(sess)
+
+    # Autoruns referencing this profile (which cascade to their sessions)
+    autoruns = (await db.exec(select(Autorun).where(Autorun.profile_id == profile_id))).all()
+    for a in autoruns:
+        sub = await _cascade_delete_autorun(db, a.id)
+        for k, v in sub.items():
+            counts[k] = counts.get(k, 0) + v
+
+    counts.update(await _count_related_records(db, ResourceType.PROFILE, profile_id))
+    await _cleanup_related_records(db, ResourceType.PROFILE, profile_id)
+    await _safe_delete(db, Profile, profile_id)
+    await _safe_emit(MirrorrEvent.PROFILE_DELETED(id=profile_id))
+    return counts
 
 
 def _require_owner_or_admin(auth: AuthState, obj) -> bool:
@@ -101,6 +196,8 @@ async def _get_paginated_for_user(
     *,
     cursor: int | None = None,
     limit: int = 50,
+    options: Sequence = (),
+    include_total: bool = False,
 ) -> dict:
     """Cursor-based pagination filtered by requester_user_token.
 
@@ -109,15 +206,21 @@ async def _get_paginated_for_user(
     stmt = select(model).where(model.requester_user_token == user_token)
     if cursor is not None:
         stmt = stmt.where(model.id < cursor)
+    if options:
+        stmt = stmt.options(*options)
     stmt = stmt.order_by(model.id.desc()).limit(limit + 1)
     items = list((await db.exec(stmt)).all())
     has_more = len(items) > limit
     if has_more:
         items = items[:limit]
+    total = None
+    if include_total:
+        total = await crud.count(db, model, model.requester_user_token == user_token)
     return {
         "items": items,
         "next_cursor": items[-1].id if has_more and items else None,
         "has_more": has_more,
+        "total": total,
     }
 
 
@@ -146,6 +249,77 @@ def _serialize_engine(engine: Engine) -> dict:
     }
 
 
+def _name_of(obj) -> str | None:
+    """Best-effort name accessor on an eager-loaded relationship."""
+    if obj is None:
+        return None
+    return getattr(obj, "name", None)
+
+
+def _serialize_session(s: Session) -> dict:
+    return {
+        **s.model_dump(mode="json"),
+        "engine_name": _name_of(getattr(s, "engine", None)),
+        "resolver_name": _name_of(getattr(s, "resolver", None)),
+        "profile_name": _name_of(getattr(s, "profile", None)),
+    }
+
+
+def _serialize_autorun(a: Autorun) -> dict:
+    return {
+        **a.model_dump(mode="json"),
+        "engine_name": _name_of(getattr(a, "engine", None)),
+        "resolver_name": _name_of(getattr(a, "resolver", None)),
+        "profile_name": _name_of(getattr(a, "profile", None)),
+    }
+
+
+def _serialize_profile(p: Profile) -> dict:
+    return {
+        **p.model_dump(mode="json"),
+        "engine_name": _name_of(getattr(p, "default_engine", None)),
+        "resolver_name": _name_of(getattr(p, "resolver", None)),
+    }
+
+
+def _media_served() -> bool:
+    """Whether recording media files are statically served by this install.
+
+    Files are mounted (and auto-indexed) only when ``dev_serve_files`` is on;
+    ``web_url`` merely forms the public base for the ``content_url`` link. Safe
+    to call in any context — returns False if the DI container isn't booted.
+    """
+    try:
+        from mirrorr.di import container
+
+        return bool(container.settings.dev_serve_files)
+    except Exception:  # noqa: broad-except — not configured / subprocess
+        return False
+
+
+def _serialize_recording(r: Recording) -> dict:
+    return {
+        **r.model_dump(mode="json"),
+        "media_served": _media_served(),
+    }
+
+
+_SESSION_OPTIONS = (
+    selectinload(Session.engine),
+    selectinload(Session.resolver),
+    selectinload(Session.profile),
+)
+_AUTORUN_OPTIONS = (
+    selectinload(Autorun.engine),
+    selectinload(Autorun.resolver),
+    selectinload(Autorun.profile),
+)
+_PROFILE_OPTIONS = (
+    selectinload(Profile.default_engine),
+    selectinload(Profile.resolver),
+)
+
+
 # ── Sessions ──────────────────────────────────────────────────────────
 
 sessions_router = APIRouter(prefix="/sessions")
@@ -157,22 +331,33 @@ async def get_all_sessions(
     auth: AuthState = Depends(require_auth),
     cursor: int | None = Query(None, description="ID of last item from previous page"),
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
+    include_total: bool = Query(False, description="Include a total row count in the response"),
 ):
+    total = None
     if auth.is_admin:
-        result = await crud.get_all_paginated(db, Session, cursor=cursor, limit=limit)
+        result = await crud.get_all_paginated(db, Session, cursor=cursor, limit=limit, options=_SESSION_OPTIONS)
+        if include_total:
+            total = await crud.count(db, Session)
     else:
-        result = await _get_paginated_for_user(db, Session, auth.user.username, cursor=cursor, limit=limit)
-    return _paginate_response(result)
+        result = await _get_paginated_for_user(
+            db, Session, auth.user.username, cursor=cursor, limit=limit, options=_SESSION_OPTIONS,
+            include_total=include_total,
+        )
+        total = result.get("total") if isinstance(result, dict) else None
+    data = _paginate_response(result)
+    if isinstance(data.get("items"), list):
+        data["items"] = [_serialize_session(i) for i in data["items"]]
+    return {**data, "total": total}
 
 
 @sessions_router.get("/{id}", response_model=SessionResponse)
 async def get_session(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    item = await crud.get_by_id(db, Session, id)
+    item = await crud.get_by_id(db, Session, id, options=_SESSION_OPTIONS)
     if not item:
         raise HTTPException(status_code=404, detail="Session not found")
     if not _require_owner_or_admin(auth, item):
         raise HTTPException(status_code=403, detail="Not your session")
-    return item
+    return _serialize_session(item)
 
 
 @sessions_router.post("/", response_model=SessionResponse)
@@ -188,6 +373,8 @@ async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(
         profile = await crud.get_by_id(db, Profile, item.profile_id)
         if not profile:
             raise HTTPException(status_code=400, detail=f"Profile {item.profile_id} not found")
+    if not auth.user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     payload = Session(
         profile_id=item.profile_id,
         engine_id=item.engine_id,
@@ -196,7 +383,7 @@ async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(
         retry_mode=item.retry_mode,
         retry_config=item.retry_config,
         recording=item.recording,
-        requester_user_token=auth.user.username if auth.user else "",
+        requester_user_token=auth.user.username,
     )
     try:
         obj = await crud.create(db, payload)
@@ -204,10 +391,11 @@ async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(
         raise HTTPException(status_code=400, detail="A resource with that name already exists.")
     await subscribe_requester(db, payload.requester_user_token, ResourceType.SESSION, obj.id)
     await _safe_emit(MirrorrEvent.SESSION_CREATED(id=obj.id))
-    return obj
+    enriched = await crud.get_by_id(db, Session, obj.id, options=_SESSION_OPTIONS)
+    return _serialize_session(enriched) if enriched else obj
 
 
-@sessions_router.delete("/{id}", status_code=204)
+@sessions_router.delete("/{id}", response_model=DeleteResultResponse)
 async def delete_session(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     obj = await crud.get_by_id(db, Session, id)
     if not obj:
@@ -218,8 +406,7 @@ async def delete_session(id: int, db: AsyncSession = Depends(_get_db_session), a
         raise HTTPException(status_code=409, detail="Session is remuxing. Wait for it to complete or fail before deleting.")
     if obj.status in (SessionStatus.ACTIVE, SessionStatus.RECORDING):
         try:
-            # Send stop command to the supervisor. We don't return its reply
-            # body — the endpoint is 204 No Content. The supervisor's cleanup
+            # Send stop command to the supervisor. The supervisor's cleanup
             # (including folder removal) happens via the SESSION_DELETED event.
             await _send_control(id, "stop")
         except HTTPException as e:
@@ -228,14 +415,13 @@ async def delete_session(id: int, db: AsyncSession = Depends(_get_db_session), a
                 # orphaned processes (ffmpeg/yt-dlp) holding the folder open.
                 from mirrorr.event_bus.handlers.handlers import _kill_supervisor
                 await _kill_supervisor(id)
-                await _cleanup_related_records(db, ResourceType.SESSION, id)
-                await _safe_delete(db, Session, id)
+                counts = await _cascade_delete_session(db, id)
                 await _safe_emit(MirrorrEvent.SESSION_DELETED(id=id))
-                return None
+                return DeleteResultResponse(status="deleted", deleted=counts)
             raise
-    await _cleanup_related_records(db, ResourceType.SESSION, id)
-    await _safe_delete(db, Session, id)
+    counts = await _cascade_delete_session(db, id)
     await _safe_emit(MirrorrEvent.SESSION_DELETED(id=id))
+    return DeleteResultResponse(status="deleted", deleted=counts)
 
 
 crud_routers.include_router(sessions_router)
@@ -251,22 +437,33 @@ async def get_all_autoruns(
     auth: AuthState = Depends(require_auth),
     cursor: int | None = Query(None, description="ID of last item from previous page"),
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
+    include_total: bool = Query(False, description="Include a total row count in the response"),
 ):
+    total = None
     if auth.is_admin:
-        result = await crud.get_all_paginated(db, Autorun, cursor=cursor, limit=limit)
+        result = await crud.get_all_paginated(db, Autorun, cursor=cursor, limit=limit, options=_AUTORUN_OPTIONS)
+        if include_total:
+            total = await crud.count(db, Autorun)
     else:
-        result = await _get_paginated_for_user(db, Autorun, auth.user.username, cursor=cursor, limit=limit)
-    return _paginate_response(result)
+        result = await _get_paginated_for_user(
+            db, Autorun, auth.user.username, cursor=cursor, limit=limit, options=_AUTORUN_OPTIONS,
+            include_total=include_total,
+        )
+        total = result.get("total") if isinstance(result, dict) else None
+    data = _paginate_response(result)
+    if isinstance(data.get("items"), list):
+        data["items"] = [_serialize_autorun(i) for i in data["items"]]
+    return {**data, "total": total}
 
 
 @autoruns_router.get("/{id}", response_model=AutorunResponse)
 async def get_autorun(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    item = await crud.get_by_id(db, Autorun, id)
+    item = await crud.get_by_id(db, Autorun, id, options=_AUTORUN_OPTIONS)
     if not item:
         raise HTTPException(status_code=404, detail="Autorun not found")
     if not _require_owner_or_admin(auth, item):
         raise HTTPException(status_code=403, detail="Not your autorun")
-    return item
+    return _serialize_autorun(item)
 
 
 @autoruns_router.post("/", response_model=AutorunResponse)
@@ -282,6 +479,8 @@ async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(
         profile = await crud.get_by_id(db, Profile, item.profile_id)
         if not profile:
             raise HTTPException(status_code=400, detail=f"Profile {item.profile_id} not found")
+    if not auth.user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     payload = Autorun(
         user_friendly_name=item.user_friendly_name,
         snake_case_name=item.snake_case_name,
@@ -294,7 +493,8 @@ async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(
         start_time=item.start_time.replace(tzinfo=None) if item.start_time.tzinfo else item.start_time,
         end_time=item.end_time.replace(tzinfo=None) if item.end_time.tzinfo else item.end_time,
         recording=item.recording,
-        requester_user_token=auth.user.username if auth.user else "",
+        requester_user_token=auth.user.username,
+        next_run_at=item.start_time.replace(tzinfo=None) if item.start_time.tzinfo else item.start_time,
     )
     try:
         obj = await crud.create(db, payload)
@@ -302,7 +502,8 @@ async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(
         raise HTTPException(status_code=400, detail="A resource with that name already exists.")
     await subscribe_requester(db, payload.requester_user_token, ResourceType.AUTORUN, obj.id)
     await _safe_emit(MirrorrEvent.AUTORUN_CREATED(id=obj.id))
-    return obj
+    enriched = await crud.get_by_id(db, Autorun, obj.id, options=_AUTORUN_OPTIONS)
+    return _serialize_autorun(enriched) if enriched else obj
 
 
 @autoruns_router.put("/{id}", response_model=AutorunResponse)
@@ -317,6 +518,9 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
         payload_data["start_time"] = payload_data["start_time"].replace(tzinfo=None) if payload_data["start_time"].tzinfo else payload_data["start_time"]
     if "end_time" in payload_data and payload_data["end_time"] is not None:
         payload_data["end_time"] = payload_data["end_time"].replace(tzinfo=None) if payload_data["end_time"].tzinfo else payload_data["end_time"]
+    # Reflect the new start in next_run_at while the autorun is still pending.
+    if "start_time" in payload_data and existing.status == AutorunStatus.SCHEDULED:
+        payload_data["next_run_at"] = payload_data["start_time"]
     payload = Autorun.model_validate({**existing.model_dump(), **payload_data})
     if not payload.requester_user_token:
         if not auth.user:
@@ -330,19 +534,19 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
         raise HTTPException(status_code=400, detail="A resource with that name already exists.")
     await subscribe_requester(db, payload.requester_user_token, ResourceType.AUTORUN, id)
     await _safe_emit(MirrorrEvent.AUTORUN_UPDATED(id=id))
-    return obj
+    enriched = await crud.get_by_id(db, Autorun, id, options=_AUTORUN_OPTIONS)
+    return _serialize_autorun(enriched) if enriched else obj
 
 
-@autoruns_router.delete("/{id}", status_code=204)
+@autoruns_router.delete("/{id}", response_model=DeleteResultResponse)
 async def delete_autorun(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     obj = await crud.get_by_id(db, Autorun, id)
     if not obj:
         raise HTTPException(status_code=404, detail="Not found")
     if not _require_owner_or_admin(auth, obj):
         raise HTTPException(status_code=403, detail="Not your autorun")
-    await _cleanup_related_records(db, ResourceType.AUTORUN, id)
-    await _safe_delete(db, Autorun, id)
-    await _safe_emit(MirrorrEvent.AUTORUN_DELETED(id=id))
+    counts = await _cascade_delete_autorun(db, id)
+    return DeleteResultResponse(status="deleted", deleted=counts)
 
 async def _create_profile_from_entity(
     db: AsyncSession,
@@ -354,7 +558,15 @@ async def _create_profile_from_entity(
     retry_mode: str,
     retry_config: dict,
 ) -> Profile:
-    """Create a Profile from an existing entity's fields (session or autorun)."""
+    """Create a Profile from an existing entity's fields (session or autorun).
+
+    Regression note (API-key gotcha): all create paths require JWT
+    (require_auth). ``auth.user`` is never None here — the explicit 401
+    below turns a would-be empty ``requester_user_token`` (invisible
+    resource, no subscription/WS) into a loud failure.
+    """
+    if not auth.user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     profile = Profile(
         name=name,
         default_engine_id=engine_id,
@@ -362,7 +574,7 @@ async def _create_profile_from_entity(
         resolver_config=resolver_config,
         retry_mode=retry_mode,
         retry_config=retry_config,
-        requester_user_token=auth.user.username if auth.user else "",
+        requester_user_token=auth.user.username,
     )
     db.add(profile)
     await db.commit()
@@ -419,12 +631,22 @@ async def get_all_recordings(
     auth: AuthState = Depends(require_auth),
     cursor: int | None = Query(None, description="ID of last item from previous page"),
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
+    include_total: bool = Query(False, description="Include a total row count in the response"),
 ):
+    total = None
     if auth.is_admin:
         result = await crud.get_all_paginated(db, Recording, cursor=cursor, limit=limit)
+        if include_total:
+            total = await crud.count(db, Recording)
     else:
-        result = await _get_paginated_for_user(db, Recording, auth.user.username, cursor=cursor, limit=limit)
-    return _paginate_response(result)
+        result = await _get_paginated_for_user(
+            db, Recording, auth.user.username, cursor=cursor, limit=limit, include_total=include_total,
+        )
+        total = result.get("total") if isinstance(result, dict) else None
+    data = _paginate_response(result)
+    if isinstance(data.get("items"), list):
+        data["items"] = [_serialize_recording(i) for i in data["items"]]
+    return {**data, "total": total}
 
 
 @recordings_router.get("/{id}", response_model=RecordingResponse)
@@ -434,10 +656,10 @@ async def get_recording(id: int, db: AsyncSession = Depends(_get_db_session), au
         raise HTTPException(status_code=404, detail="Recording not found")
     if not _require_owner_or_admin(auth, item):
         raise HTTPException(status_code=403, detail="Not your recording")
-    return item
+    return _serialize_recording(item)
 
 
-@recordings_router.delete("/{id}", status_code=204)
+@recordings_router.delete("/{id}", response_model=DeleteResultResponse)
 async def delete_recording(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     obj = await crud.get_by_id(db, Recording, id)
     if not obj:
@@ -445,9 +667,11 @@ async def delete_recording(id: int, db: AsyncSession = Depends(_get_db_session),
     if not _require_owner_or_admin(auth, obj):
         raise HTTPException(status_code=403, detail="Not your recording")
 
+    counts = await _count_related_records(db, ResourceType.RECORDING, id)
     await _cleanup_related_records(db, ResourceType.RECORDING, id)
     await _safe_delete(db, Recording, id)
     await _safe_emit(MirrorrEvent.RECORDING_DELETED(id=id))
+    return DeleteResultResponse(status="deleted", deleted=counts)
 
 
 crud_routers.include_router(recordings_router)
@@ -463,22 +687,33 @@ async def get_all_profiles(
     auth: AuthState = Depends(require_auth),
     cursor: int | None = Query(None, description="ID of last item from previous page"),
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
+    include_total: bool = Query(False, description="Include a total row count in the response"),
 ):
+    total = None
     if auth.is_admin:
-        result = await crud.get_all_paginated(db, Profile, cursor=cursor, limit=limit)
+        result = await crud.get_all_paginated(db, Profile, cursor=cursor, limit=limit, options=_PROFILE_OPTIONS)
+        if include_total:
+            total = await crud.count(db, Profile)
     else:
-        result = await _get_paginated_for_user(db, Profile, auth.user.username, cursor=cursor, limit=limit)
-    return _paginate_response(result)
+        result = await _get_paginated_for_user(
+            db, Profile, auth.user.username, cursor=cursor, limit=limit, options=_PROFILE_OPTIONS,
+            include_total=include_total,
+        )
+        total = result.get("total") if isinstance(result, dict) else None
+    data = _paginate_response(result)
+    if isinstance(data.get("items"), list):
+        data["items"] = [_serialize_profile(i) for i in data["items"]]
+    return {**data, "total": total}
 
 
 @profiles_router.get("/{id}", response_model=ProfileResponse)
 async def get_profile(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    item = await crud.get_by_id(db, Profile, id)
+    item = await crud.get_by_id(db, Profile, id, options=_PROFILE_OPTIONS)
     if not item:
         raise HTTPException(status_code=404, detail="Profile not found")
     if not _require_owner_or_admin(auth, item):
         raise HTTPException(status_code=403, detail="Not your profile")
-    return item
+    return _serialize_profile(item)
 
 
 @profiles_router.post("/", response_model=ProfileResponse)
@@ -501,7 +736,8 @@ async def create_profile(item: CreateProfileRequest, db: AsyncSession = Depends(
         raise HTTPException(status_code=400, detail="A resource with that name already exists.")
     await subscribe_requester(db, payload.requester_user_token, ResourceType.PROFILE, obj.id)
     await _safe_emit(MirrorrEvent.PROFILE_CREATED(id=obj.id))
-    return obj
+    enriched = await crud.get_by_id(db, Profile, obj.id, options=_PROFILE_OPTIONS)
+    return _serialize_profile(enriched) if enriched else obj
 
 
 @profiles_router.put("/{id}", response_model=ProfileResponse)
@@ -524,19 +760,19 @@ async def update_profile(id: int, item: UpdateProfileRequest, db: AsyncSession =
         raise HTTPException(status_code=400, detail="A resource with that name already exists.")
     await subscribe_requester(db, payload.requester_user_token, ResourceType.PROFILE, id)
     await _safe_emit(MirrorrEvent.PROFILE_UPDATED(id=id))
-    return obj
+    enriched = await crud.get_by_id(db, Profile, id, options=_PROFILE_OPTIONS)
+    return _serialize_profile(enriched) if enriched else obj
 
 
-@profiles_router.delete("/{id}", status_code=204)
+@profiles_router.delete("/{id}", response_model=DeleteResultResponse)
 async def delete_profile(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     obj = await crud.get_by_id(db, Profile, id)
     if not obj:
         raise HTTPException(status_code=404, detail="Not found")
     if not _require_owner_or_admin(auth, obj):
         raise HTTPException(status_code=403, detail="Not your profile")
-    await _cleanup_related_records(db, ResourceType.PROFILE, id)
-    await _safe_delete(db, Profile, id)
-    await _safe_emit(MirrorrEvent.PROFILE_DELETED(id=id))
+    counts = await _cascade_delete_profile(db, id)
+    return DeleteResultResponse(status="deleted", deleted=counts)
 
 
 crud_routers.include_router(profiles_router)
