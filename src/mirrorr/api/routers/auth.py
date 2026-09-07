@@ -30,6 +30,7 @@ from mirrorr.storage.models import (
 )
 from mirrorr.storage.enums import ResourceType
 from mirrorr.storage import crud
+from mirrorr._version import __version__ as _MIRRORR_VERSION
 
 auth_router = APIRouter(prefix="/auth")
 notifications_router = APIRouter(prefix="/notifications")
@@ -142,13 +143,26 @@ async def auth_status(
     Rate-limited by IP to prevent user-existence enumeration. Returns a
     constant ``has_users: true`` after the first user exists (the only
     useful information for the bootstrap flow is "no users yet").
+
+    Also reports ``version`` (server package version) and ``ready`` (NATS
+    connected + DB reachable) so a client can collapse its boot-time
+    /health + /auth/status + NATS-check probes into a single call.
     """
     client_ip = _client_ip(request)
     if not _check_rate_limit(f"status:{client_ip}", max_attempts=_rate_limit_status):
         raise HTTPException(status_code=429, detail="Too many requests. Try again later.")
     result = await db.exec(select(User))
     has_users = len(list(result.all())) > 0
-    return {"has_users": has_users}
+
+    ready = False
+    try:
+        from mirrorr.event_bus.nats import bus
+
+        ready = bool(bus.nc and bus.nc.is_connected)
+    except Exception:  # noqa: broad-except — bus not booted yet
+        ready = False
+
+    return {"has_users": has_users, "version": _MIRRORR_VERSION, "ready": ready}
 
 
 # ── Registration & Login ────────────────────────────────────────────
