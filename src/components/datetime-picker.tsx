@@ -15,7 +15,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { MONTHS } from "@/lib/date-utils";
-import { cn } from "@/lib/utils";
+import { cn, tzLabel } from "@/lib/utils";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -136,7 +136,7 @@ export function DateTimePicker({
 	);
 
 	const displayText = parsed
-		? `${parsed.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })} at ${String(parsed.getHours()).padStart(2, "0")}:${String(parsed.getMinutes()).padStart(2, "0")}:${String(parsed.getSeconds()).padStart(2, "0")}`
+		? `${parsed.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })} at ${String(parsed.getHours()).padStart(2, "0")}:${String(parsed.getMinutes()).padStart(2, "0")}:${String(parsed.getSeconds()).padStart(2, "0")} (${tzLabel()})`
 		: placeholder;
 	const currentYear = today.getFullYear();
 
