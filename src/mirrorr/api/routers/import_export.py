@@ -500,10 +500,18 @@ async def apply_bundle(
     profiles_skipped = 0
     autoruns_created = 0
 
+    # Free-gain response enrichment: collect created ids/names + renames so
+    # the client can show an exact "Imported p2 → p2_2" summary and navigate
+    # straight to new items without re-listing.
+    created_profiles_list: list[dict[str, Any]] = []
+    created_autoruns_list: list[dict[str, Any]] = []
+    renamed: dict[str, str] = {}
+
     # ── Import profiles ────────────────────────────────────────────
 
     for p in raw_profiles:
         name = p.get("name", "untitled")
+        original_name = name
         eng_ref = p.get("default_engine", {})
         res_ref = p.get("resolver", {})
 
@@ -536,6 +544,8 @@ async def apply_bundle(
             # Actually the frontend doesn't modify the bundle name — it just shows
             # the rename info. We apply the rename ourselves.
             name = _unique_name(name, existing_by_name)
+            if name != original_name:
+                renamed[original_name] = name
 
         # Resolve engine
         engine = await _resolve_with_map(db, eng_ref, plugin_map, Engine, _plugin_cache)
@@ -560,7 +570,9 @@ async def apply_bundle(
         await db.flush()  # flush to get ID without committing
         profiles_created += 1
         created_profiles[p.get("name", "untitled")] = profile_obj
+        created_profiles[name] = profile_obj
         existing_by_name[name] = profile_obj
+        created_profiles_list.append({"id": profile_obj.id, "name": name})
 
     # ── Import autoruns ────────────────────────────────────────────
 
@@ -605,6 +617,7 @@ async def apply_bundle(
         db.add(autorun_obj)
         await db.flush()  # flush to get ID without committing
         autoruns_created += 1
+        created_autoruns_list.append({"id": autorun_obj.id, "name": a_name})
 
     # Single commit for all changes (atomic)
     await db.commit()
@@ -613,6 +626,11 @@ async def apply_bundle(
         "profiles_created": profiles_created,
         "profiles_skipped": profiles_skipped,
         "autoruns_created": autoruns_created,
+        "created": {
+            "profiles": created_profiles_list,
+            "autoruns": created_autoruns_list,
+        },
+        "renamed": renamed,
     }
 
 

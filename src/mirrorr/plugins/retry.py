@@ -40,13 +40,19 @@ class RetryOnExitCode(BaseModel):
 
 def build_retry_modes_schema(modes: dict[str, type[BaseModel]]) -> dict[str, Any]:
     """Generate the serializable schema dict for a set of retry modes."""
-    return {
-        key: {
+    result: dict[str, Any] = {}
+    for key, model in modes.items():
+        entry: dict[str, Any] = {
             "schema": model.model_json_schema(),
             "default_params": model().model_dump(),
         }
-        for key, model in modes.items()
-    }
+        # Free-gain enrichment: tell the form what `exit_code` mode will retry
+        # on, so the UI can render "retries on crash with exit code ∈ {1}"
+        # without shelling out to retry logic.
+        if key == "exit_code":
+            entry["retryable_exit_codes"] = get_retryable_exit_codes(key, model().model_dump())
+        result[key] = entry
+    return result
 
 
 def get_retry_delay(mode: str, config: dict[str, Any]) -> float:
