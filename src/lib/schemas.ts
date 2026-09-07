@@ -42,6 +42,8 @@ export type User = z.infer<typeof userSchema>;
 
 export const authStatusSchema = z.object({
 	has_users: z.boolean(),
+	version: z.string().optional(),
+	ready: z.boolean().optional(),
 });
 
 export const meSchema = z.object({
@@ -96,6 +98,8 @@ export const profileSchema = z.object({
 	retry_mode: z.string(),
 	retry_config: z.record(z.string(), z.any()),
 	requester_user_token: z.string().optional(),
+	engine_name: z.string().nullable().optional(),
+	resolver_name: z.string().nullable().optional(),
 });
 
 export type Profile = z.infer<typeof profileSchema>;
@@ -120,6 +124,16 @@ export const sessionStatusSchema = z.enum([
 	"completed",
 	"failed",
 ]);
+
+const recordingProgressSchema = z.object({
+	percent: z.number(),
+	frame: z.number().optional(),
+	current_time: z.number().optional(),
+	total_duration: z.number().optional(),
+	speed: z.number().optional(),
+	elapsed: z.number().optional(),
+	eta_seconds: z.number().nullable().optional(),
+});
 
 const attemptSchema = z.object({
 	index: z.number(),
@@ -147,6 +161,11 @@ export const sessionSchema = z.object({
 	requester_user_token: z.string().optional(),
 	session_urls: z.array(z.object({ label: z.string(), url: z.string() })),
 	attempts: z.array(attemptSchema).default([]),
+	engine_name: z.string().nullable().optional(),
+	resolver_name: z.string().nullable().optional(),
+	profile_name: z.string().nullable().optional(),
+	recording_progress: recordingProgressSchema.optional(),
+	session_folder: z.string().nullable().optional(),
 });
 
 export type Session = z.infer<typeof sessionSchema>;
@@ -189,6 +208,11 @@ export const autorunSchema = z.object({
 	end_time: z.string(),
 	recording: z.boolean(),
 	requester_user_token: z.string().optional(),
+	engine_name: z.string().nullable().optional(),
+	resolver_name: z.string().nullable().optional(),
+	profile_name: z.string().nullable().optional(),
+	next_run_at: z.string().nullable().optional(),
+	last_run_at: z.string().nullable().optional(),
 });
 
 export type Autorun = z.infer<typeof autorunSchema>;
@@ -224,6 +248,8 @@ export const recordingSchema = z.object({
 	size_bytes: z.number(),
 	created_at: z.string(),
 	requester_user_token: z.string().optional(),
+	session_id: z.number().nullable().optional(),
+	media_served: z.boolean().optional(),
 });
 
 export type Recording = z.infer<typeof recordingSchema>;
@@ -353,6 +379,45 @@ export const applyResponseSchema = z.object({
 	profiles_created: z.number(),
 	autoruns_created: z.number(),
 	profiles_skipped: z.number(),
+	created: z
+		.object({
+			profiles: z
+				.array(z.object({ id: z.number(), name: z.string() }))
+				.optional(),
+			autoruns: z
+				.array(z.object({ id: z.number(), name: z.string() }))
+				.optional(),
+		})
+		.optional(),
+	renamed: z.record(z.string(), z.string()).optional(),
 });
 
 export type ApplyResponse = z.infer<typeof applyResponseSchema>;
+
+// ── Logs / progress / delete result ───────────────────────────────
+
+export const deleteResultSchema = z.object({
+	status: z.string().default("deleted"),
+	deleted: z.record(z.string(), z.number()),
+});
+
+export type DeleteResult = z.infer<typeof deleteResultSchema>;
+
+export const sessionLogsSchema = z.object({
+	session_id: z.number(),
+	stream: z.string(),
+	name: z.string().default(""),
+	lines: z.array(z.string()).default([]),
+	next_offset: z.number().default(0),
+	eof: z.boolean().default(true),
+});
+
+export type SessionLogs = z.infer<typeof sessionLogsSchema>;
+
+export const recordingProgressResponseSchema = z.object({
+	session_id: z.number(),
+	progress: recordingProgressSchema.nullable().optional(),
+	status: z.string().default(""),
+});
+
+export type RecordingProgressResponse = z.infer<typeof recordingProgressResponseSchema>;
