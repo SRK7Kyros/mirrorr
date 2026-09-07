@@ -32,6 +32,12 @@ import {
 	validationReportSchema,
 	updateAutorunSchema,
 	applyResponseSchema,
+	deleteResultSchema,
+	sessionLogsSchema,
+	type DeleteResult,
+	type SessionLogs,
+	type RecordingProgressResponse,
+	recordingProgressResponseSchema,
 } from "@/lib/schemas";
 import { z } from "zod";
 import {
@@ -85,6 +91,7 @@ function paginatedSchema<T extends z.ZodType>(itemSchema: T) {
 		items: z.array(itemSchema),
 		next_cursor: z.number().nullable(),
 		has_more: z.boolean(),
+		total: z.number().nullable().optional(),
 	});
 }
 
@@ -155,14 +162,23 @@ async function _fetchJson<T = unknown>(
 		noAuth = false,
 	} = options;
 
-	const url = new URL(path, API_BASE);
+	// Build the URL by string concatenation (NOT `new URL(path, API_BASE)`).
+	// `new URL` treats `path` as absolute and silently drops any sub-path in
+	// API_BASE — so a `/api`-prefixed base (e.g. `https://host/api`) would
+	// lose its prefix and hit the wrong route. Concatenation preserves it.
+	const base = API_BASE.replace(/\/+$/, "");
+	const urlPath = path.startsWith("/") ? path : `/${path}`;
+	let urlStr = `${base}${urlPath}`;
 
 	if (params) {
+		const usp = new URLSearchParams();
 		for (const [key, value] of Object.entries(params)) {
 			if (value !== undefined && value !== null) {
-				url.searchParams.set(key, String(value));
+				usp.set(key, String(value));
 			}
 		}
+		const qs = usp.toString();
+		if (qs) urlStr += (urlStr.includes("?") ? "&" : "?") + qs;
 	}
 
 	const fetchHeaders: Record<string, string> = {
@@ -183,7 +199,7 @@ async function _fetchJson<T = unknown>(
 		type: "http" as const,
 		timestamp: Date.now(),
 		method,
-		url: url.toString(),
+		url: urlStr,
 		path,
 		status: null as number | null,
 		statusText: "pending",
@@ -199,7 +215,7 @@ async function _fetchJson<T = unknown>(
 	const startTime = Date.now();
 
 	try {
-		const res = await fetch(url.toString(), {
+		const res = await fetch(urlStr, {
 			method,
 			headers: fetchHeaders,
 			body: body ? JSON.stringify(body) : undefined,
@@ -392,22 +408,34 @@ export function tokenStatus(): "valid" | "expired" | "none" {
 
 let refreshInterval: ReturnType<typeof setInterval> | null = null;
 
+/** Verify the session is still valid; refresh on failure. */
+function verifySession() {
+	if (!useAuthStore.getState().isAuthenticated) return;
+	// Try to hit /auth/me to verify the cookie is still valid
+	_fetchJson("/auth/me", { noAuth: true }).catch(() => {
+		// Session expired — try refresh
+		refreshAccessToken().catch(() => {});
+	});
+}
+
+let visibilityBound = false;
+
 /** Start periodic token refresh. With cookies, the backend handles rotation
  *  transparently — we just need to verify the session is still valid. */
 export function startTokenRefresh() {
 	if (refreshInterval) return;
-	// Periodically verify the session is still valid
-	refreshInterval = setInterval(
-		() => {
-			if (!useAuthStore.getState().isAuthenticated) return;
-			// Try to hit /auth/me to verify the cookie is still valid
-			_fetchJson("/auth/me", { noAuth: true }).catch(() => {
-				// Session expired — try refresh
-				refreshAccessToken().catch(() => {});
-			});
-		},
-		15 * 60 * 1000,
-	); // Check every 15 minutes
+	refreshInterval = setInterval(verifySession, 15 * 60 * 1000);
+
+	// Also re-verify when the tab regains focus — the session may have
+	// expired or been revoked (e.g. from another tab) while hidden.
+	if (!visibilityBound) {
+		visibilityBound = true;
+		const refreshNow = () => {
+			if (document.visibilityState === "visible") verifySession();
+		};
+		document.addEventListener("visibilitychange", refreshNow);
+		window.addEventListener("focus", refreshNow);
+	}
 }
 
 export function stopTokenRefresh() {
@@ -493,7 +521,10 @@ export const sessionsApi = {
 			schema: sessionSchema,
 		}),
 	delete: (id: number) =>
-		apiRequest<void>(`/sessions/${id}`, { method: "DELETE" }),
+		apiRequest<DeleteResult>(`/sessions/${id}`, {
+			method: "DELETE",
+			schema: deleteResultSchema,
+		}),
 	stop: (id: number) =>
 		apiRequest<ControlResponse>(`/sessions/${id}/stop`, {
 			method: "POST",
@@ -514,6 +545,23 @@ export const sessionsApi = {
 			method: "POST",
 			body: { name },
 			schema: profileSchema,
+		}),
+	logs: (
+		id: number,
+		opts: { stream?: "stdout" | "stderr"; name?: string; offset?: number; limit?: number } = {},
+	) =>
+		apiRequest<SessionLogs>(`/sessions/${id}/logs`, {
+			params: {
+				...(opts.stream ? { stream: opts.stream } : {}),
+				...(opts.name ? { name: opts.name } : {}),
+				...(opts.offset ? { offset: String(opts.offset) } : {}),
+				...(opts.limit ? { limit: String(opts.limit) } : {}),
+			},
+			schema: sessionLogsSchema,
+		}),
+	recordingProgress: (id: number) =>
+		apiRequest<RecordingProgressResponse>(`/sessions/${id}/recording/progress`, {
+			schema: recordingProgressResponseSchema,
 		}),
 };
 
@@ -550,7 +598,7 @@ export const autorunsApi = {
 		});
 	},
 	delete: (id: number) =>
-		apiRequest<void>(`/autoruns/${id}`, { method: "DELETE" }),
+		apiRequest<DeleteResult>(`/autoruns/${id}`, { method: "DELETE", schema: deleteResultSchema }),
 	saveAsProfile: (autorunId: number, name: string) =>
 		apiRequest<Profile>(`/autoruns/${autorunId}/save-as-profile`, {
 			method: "POST",
@@ -566,7 +614,7 @@ export const recordingsApi = {
 	get: (id: number) =>
 		apiRequest<Recording>(`/recordings/${id}`, { schema: recordingSchema }),
 	delete: (id: number) =>
-		apiRequest<void>(`/recordings/${id}`, { method: "DELETE" }),
+		apiRequest<DeleteResult>(`/recordings/${id}`, { method: "DELETE", schema: deleteResultSchema }),
 };
 
 // ── Profiles API ───────────────────────────────────────────────────
@@ -605,7 +653,7 @@ export const profilesApi = {
 			schema: profileSchema,
 		}),
 	delete: (id: number) =>
-		apiRequest<void>(`/profiles/${id}`, { method: "DELETE" }),
+		apiRequest<DeleteResult>(`/profiles/${id}`, { method: "DELETE", schema: deleteResultSchema }),
 };
 
 // ── Plugins API ────────────────────────────────────────────────────

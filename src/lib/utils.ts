@@ -16,14 +16,58 @@ export function parseUtcDate(value: string | null | undefined): Date | null {
 	return new Date(`${value}Z`);
 }
 
-/** Format a naive UTC datetime string to a locale-aware local-time string. */
+/**
+ * Convert a local wall-time or any date input into a UTC-naive ISO string
+ * (`YYYY-MM-DDTHH:mm:ss`, no tz suffix) for POST/PUT writes.
+ * The server strips tz on write and rejects tz-suffixed values (422), so
+ * every datetime write must pass through here.
+ *
+ * - Naive `"2026-09-07T08:00:00"` → treated as LOCAL wall time, shifted to UTC.
+ * - Tz-suffixed (`...Z`, `+08:00`) → converted to UTC, suffix stripped.
+ * - Date → UTC parts formatted naive.
+ *
+ * Example: local `2026-09-07T08:00:00` at UTC+8 → `"2026-09-07T00:00:00"`.
+ */
+export function toUtcNaive(value: string | Date): string {
+	const d = value instanceof Date ? value : parseLocalOrZoned(value);
+	const pad = (n: number) => String(n).padStart(2, "0");
+	return (
+		`${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}` +
+		`T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`
+	);
+}
+
+/** Parse user input: tz-suffixed as zoned, naive as local wall time. */
+function parseLocalOrZoned(value: string): Date {
+	if (value.endsWith("Z") || /[+-]\d{2}:?\d{2}$/.test(value))
+		return new Date(value);
+	// Naive — interpret as local wall time (what DateTimePicker emits)
+	return new Date(value.length === 10 ? `${value}T00:00:00` : value);
+}
+
+/** Short local tz label for display hints, e.g. "GMT+8". */
+export function tzLabel(): string {
+	const mins = -new Date().getTimezoneOffset();
+	const sign = mins >= 0 ? "+" : "-";
+	const abs = Math.abs(mins);
+	const h = Math.floor(abs / 60);
+	const m = abs % 60;
+	return `GMT${sign}${h}${m ? `:${String(m).padStart(2, "0")}` : ""}`;
+}
+
+/** Format a naive UTC datetime string to a locale-aware local-time string,
+ *  always suffixed with the local tz hint (server stores naive UTC). */
 export function formatLocalDate(
 	value: string | null | undefined,
 	opts?: Intl.DateTimeFormatOptions,
 ): string {
 	const d = parseUtcDate(value);
-	if (!d) return "—";
-	return d.toLocaleString(undefined, opts ?? { hour12: false });
+	if (!d || Number.isNaN(d.getTime())) return "—";
+	return d.toLocaleString(undefined, {
+		hour12: false,
+		...opts,
+		timeZoneName: opts?.timeZoneName ?? "short",
+	});
 }
 
 export function formatBytes(bytes: number, decimals = 2): string {
@@ -50,6 +94,20 @@ export function formatDuration(seconds: number): string {
 	if (h > 0) return `${h}h ${m}m ${Math.floor(s)}s`;
 	if (m > 0) return `${m}m ${Math.floor(s)}s`;
 	return `${sFmt}s`;
+}
+
+/** Statuses during which a session must not be deleted (server 409s). */
+export const SESSION_DELETE_BLOCKED_STATUSES = ["remuxing", "finalizing"] as const;
+
+/** True when the delete button must render disabled with a tooltip. */
+export function isSessionDeleteBlocked(status: string | null | undefined): boolean {
+	return (
+		status === "remuxing" || status === "finalizing"
+	);
+}
+
+export function sessionDeleteBlockedReason(): string {
+	return "Cannot delete while remuxing — the recording is being finalized";
 }
 
 /** Clamp a number between min and max. */
@@ -101,4 +159,23 @@ export function downloadJson(filename: string, data: unknown) {
 	a.click();
 	// Defer revocation to avoid race with browser download start
 	setTimeout(() => URL.revokeObjectURL(url), 100);
+}
+
+/**
+ * Human-readable summary of a delete cascade result, e.g.
+ * "Also removed 2 sessions and 1 recording."
+ */
+export function describeCascade(result: {
+	deleted?: Record<string, number>;
+} | null): string | null {
+	if (!result?.deleted) return null;
+	const counts: string[] = [];
+	for (const [key, n] of Object.entries(result.deleted)) {
+		if (key === "sessions" && n) counts.push(`${n} session${n === 1 ? "" : "s"}`);
+		else if (key === "autoruns" && n) counts.push(`${n} autorun${n === 1 ? "" : "s"}`);
+		else if (key === "recordings" && n) counts.push(`${n} recording${n === 1 ? "" : "s"}`);
+		else if (key === "profiles" && n) counts.push(`${n} profile${n === 1 ? "" : "s"}`);
+	}
+	if (counts.length === 0) return null;
+	return counts.join(", ");
 }
