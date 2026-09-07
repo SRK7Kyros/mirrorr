@@ -148,6 +148,11 @@ class SessionResponse(BaseModel):
     requester_user_token: str = ""
     session_urls: list[dict[str, str]] = Field(default_factory=list)
     attempts: list[dict[str, Any]] = Field(default_factory=list)
+    engine_name: str | None = None
+    resolver_name: str | None = None
+    profile_name: str | None = None
+    recording_progress: dict[str, Any] | None = None
+    session_folder: str | None = None
 
 
 class AutorunResponse(BaseModel):
@@ -165,6 +170,11 @@ class AutorunResponse(BaseModel):
     end_time: datetime
     recording: bool = True
     requester_user_token: str = ""
+    engine_name: str | None = None
+    resolver_name: str | None = None
+    profile_name: str | None = None
+    next_run_at: datetime | None = None
+    last_run_at: datetime | None = None
 
 
 class RecordingResponse(BaseModel):
@@ -182,6 +192,8 @@ class RecordingResponse(BaseModel):
     size_bytes: int
     created_at: datetime
     requester_user_token: str = ""
+    session_id: int | None = None
+    media_served: bool = False
 
 
 class ProfileResponse(BaseModel):
@@ -193,6 +205,8 @@ class ProfileResponse(BaseModel):
     retry_mode: str = "none"
     retry_config: dict[str, Any] = Field(default_factory=dict)
     requester_user_token: str = ""
+    engine_name: str | None = None
+    resolver_name: str | None = None
 
 
 class EngineResponse(BaseModel):
@@ -218,6 +232,7 @@ class PaginatedResponse(BaseModel):
     items: list[Any]
     next_cursor: int | None = None
     has_more: bool = False
+    total: int | None = None
 
 
 # ── Typed list responses (for OpenAPI schema + runtime validation) ────
@@ -229,33 +244,70 @@ class SessionListResponse(BaseModel):
     items: list[SessionResponse]
     next_cursor: int | None = None
     has_more: bool = False
+    total: int | None = None
 
 
 class AutorunListResponse(BaseModel):
     items: list[AutorunResponse]
     next_cursor: int | None = None
     has_more: bool = False
+    total: int | None = None
 
 
 class RecordingListResponse(BaseModel):
     items: list[RecordingResponse]
     next_cursor: int | None = None
     has_more: bool = False
+    total: int | None = None
 
 
 class ProfileListResponse(BaseModel):
     items: list[ProfileResponse]
     next_cursor: int | None = None
     has_more: bool = False
+    total: int | None = None
 
 
 class EngineListResponse(BaseModel):
     items: list[EngineResponse]
     next_cursor: int | None = None
     has_more: bool = False
+    total: int | None = None
 
 
 class ResolverListResponse(BaseModel):
     items: list[ResolverResponse]
     next_cursor: int | None = None
     has_more: bool = False
+    total: int | None = None
+
+
+# ── Logs / progress / delete-result responses ─────────────────────────
+
+
+class SessionLogsResponse(BaseModel):
+    """Tail of a session's process output log."""
+
+    session_id: int
+    stream: str
+    name: str = ""
+    lines: list[str] = Field(default_factory=list)
+    next_offset: int = 0
+    eof: bool = True
+
+
+class RecordingProgressResponse(BaseModel):
+    """Latest remux progress (same shape as the NATS subject payload)."""
+
+    session_id: int
+    progress: dict[str, Any] | None = None
+    status: str = ""
+
+
+class DeleteResultResponse(BaseModel):
+    """Result of a resource deletion, including cascade counts."""
+
+    status: str = "deleted"
+    deleted: dict[str, int] = Field(default_factory=dict)
+
+
