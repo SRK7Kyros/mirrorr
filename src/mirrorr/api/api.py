@@ -16,6 +16,7 @@ from starlette.routing import Mount
 from mirrorr.api.routers.crud import crud_routers, session_control_router
 from mirrorr.api.routers.auth import auth_router, notifications_router
 from mirrorr.api.routers.import_export import import_export_router
+from mirrorr.api.routers.logs import logs_router
 from mirrorr.api.ws import ws_router
 
 
@@ -126,6 +127,7 @@ def setup_security_middleware(app: FastAPI) -> None:
 
 API.include_router(crud_routers)
 API.include_router(session_control_router)
+API.include_router(logs_router)
 API.include_router(auth_router)
 API.include_router(notifications_router)
 API.include_router(import_export_router)
