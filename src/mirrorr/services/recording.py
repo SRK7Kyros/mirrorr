@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import traceback
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -283,8 +284,6 @@ class RecordingManager:
         periodic summary logs with percentage, ETA, and speed."""
         stderr_q = self.bus.subscribe("proc.remux.stderr")
         exit_q = self.bus.subscribe("proc.remux.exit")
-
-        # Estimate total duration from segment count * segment_duration
         total_duration = len(segments) * self.settings.segment_duration
         start_time = datetime.now(timezone.utc)
         last_summary_time = start_time
@@ -292,9 +291,46 @@ class RecordingManager:
 
         last_progress: dict = {}
 
+        try:
+            await self._coordinator_loop(stderr_q, exit_q, total_duration, start_time, last_summary_time, summary_interval, last_progress)
+        except Exception as e:
+            logger.error(
+                f"Session {self.session_id}: remux coordinator crashed: {e!r}\n{traceback.format_exc()}"
+            )
+
+    async def _coordinator_loop(
+        self,
+        stderr_q,
+        exit_q,
+        total_duration,
+        start_time,
+        last_summary_time,
+        summary_interval,
+        last_progress,
+    ) -> None:
         while True:
             # Check if process exited
             if not exit_q.empty():
+                # Drain any remaining stderr lines so the final ffmpeg
+                # progress line (frame/time/speed) is captured before we
+                # break. On fast remuxes this line often arrives right at
+                # process exit — skipping it would lose the 100% summary.
+                while not stderr_q.empty():
+                    event: ProcessOutput = stderr_q.get_nowait()
+                    line = event.line or ""
+                    progress_match = self._FFMPEG_PROGRESS_RE.search(line)
+                    if progress_match:
+                        current_time = self._parse_ffmpeg_time(
+                            progress_match.group("time")
+                        )
+                        speed = float(progress_match.group("speed"))
+                        frame = int(progress_match.group("frame"))
+                        last_progress = {
+                            "time": current_time,
+                            "speed": speed,
+                            "frame": frame,
+                            "line": line,
+                        }
                 break
 
             try:
@@ -323,7 +359,7 @@ class RecordingManager:
                 }
 
                 # Check if it's time for a summary
-                now = datetime.now()
+                now = datetime.now(timezone.utc)
                 elapsed = (now - last_summary_time).total_seconds()
                 if elapsed >= summary_interval:
                     last_summary_time = now
@@ -335,6 +371,10 @@ class RecordingManager:
         if last_progress:
             await self._log_remux_summary(
                 last_progress, total_duration, start_time, final=True
+            )
+        else:
+            logger.warning(
+                f"Session {self.session_id}: remux coordinator saw NO progress lines"
             )
 
     async def _log_remux_summary(
@@ -356,7 +396,7 @@ class RecordingManager:
             pct = 0.0
 
         # Calculate ETA
-        elapsed = (datetime.now() - start_time).total_seconds()
+        elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
         eta_seconds: float | None = None
         if speed > 0 and total_duration > 0:
             remaining = total_duration - current_time
@@ -406,6 +446,34 @@ class RecordingManager:
                 )
             except Exception:
                 pass
+
+        # Persist the latest progress so the REST endpoint can serve it even
+        # after the supervisor process (and its NATS bridge) is gone.
+        await self._persist_recording_progress({
+            "percent": round(pct, 1),
+            "frame": frame,
+            "current_time": current_time,
+            "total_duration": total_duration,
+            "speed": speed,
+            "elapsed": elapsed,
+            "eta_seconds": eta_seconds if speed > 0 else None,
+        })
+
+    async def _persist_recording_progress(self, progress: dict) -> None:
+        """Best-effort write of the latest remux progress to the Session row."""
+        try:
+            from mirrorr.services.session_lifecycle import _get_session_factory
+            from mirrorr.storage.models import Session
+
+            async with _get_session_factory(self.settings) as session_factory:
+                async with session_factory() as db:
+                    session = await db.get(Session, self.session_id)
+                    if session is not None:
+                        session.recording_progress = progress
+                        db.add(session)
+                        await db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to persist recording progress for session {self.session_id}: {e}")
 
     def _parse_ffmpeg_time(self, time_str: str) -> float:
         """Parse ffmpeg time string (HH:MM:SS.ms) to seconds."""
@@ -475,6 +543,7 @@ class RecordingManager:
                     profile_name=self.session.profile.name if self.session.profile else "",
                     engine_name=self.session.engine.name if self.session.engine else "",
                     resolver_name=(self.session.profile.resolver.name if self.session.profile else self.session.resolver.name),
+                    session_id=self.session.id,
                     started_at=started_at,
                     ended_at=ended_at,
                     duration_seconds=duration_seconds,

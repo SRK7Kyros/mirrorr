@@ -244,6 +244,7 @@ class SessionSupervisor:
             self.settings, self.session_id,
             status=SessionStatus.RECORDING if self.session.recording else SessionStatus.ACTIVE,
             session_urls=build_session_urls(self.session_folder, self.segments_folder, self.settings),
+            session_folder=str(self.session_folder),
             nc=self._nc,
         )
 

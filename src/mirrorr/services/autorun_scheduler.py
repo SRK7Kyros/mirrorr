@@ -80,6 +80,8 @@ async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) 
             try:
                 async with db.begin_nested():
                     autorun.status = AutorunStatus.ACTIVE
+                    autorun.next_run_at = None
+                    autorun.last_run_at = now
                     db.add(autorun)
 
                     session = Session(
