@@ -10,9 +10,24 @@ subscription filter matches.
 
 This drops the NATS subscription count from O(clients) to O(1) and removes
 the per-event DB query that previously fetched the full `Notification` row
-(H4): the relay now forwards the NATS payload directly, falling back to a
-synthetic notification shape when no DB row exists (which is the common
-case today — no code path creates `Notification` rows yet).
+(H4): the relay forwards the NATS payload directly, falling back to a
+synthetic notification shape when no DB row is embedded.
+
+Unified notification contract (live relay + unread flush + REST rows share
+one shape): ``{id|None, resource_type, resource_id, event_type, title,
+body, read, created_at}``. Example live frame (no DB row embedded)::
+
+    {"type": "notification", "data": {"id": None, "resource_type": "session",
+     "resource_id": 7, "event_type": "session.started",
+     "title": "session 7: session.started", "body": "", "read": False,
+     "created_at": "2026-09-07T00:00:00"}}
+
+Example flush/REST row (DB-backed, same keys, real id)::
+
+    {"type": "notification", "data": {"id": 12, "resource_type": "session",
+     "resource_id": 7, "event_type": "session.started",
+     "title": "Session 7 started", "body": "", "read": False,
+     "created_at": "2026-09-07T00:00:01"}}
 
 Trade-off: a single relay subscription means one slow client can delay
 fan-out to others. We mitigate by isolating each `send_text` in its own
@@ -168,16 +183,19 @@ class _NotificationsRelay(_RelayRegistry):
             return
         event_type = subject
         # H4 fix: forward the NATS payload directly instead of opening a DB
-        # session per event. No code path currently creates Notification rows,
-        # so the synthetic shape below is the common case. When Notification
-        # rows are created in future, the emitter should include the full row
-        # in the NATS payload (e.g. data["notification"] = {...}) and we can
-        # prefer that here without re-introducing a per-event DB query.
+        # session per event. Unified shape (matches flush + REST rows):
+        # {id|None, resource_type, resource_id, event_type, title, body,
+        #  read, created_at}. Handlers write real Notification rows via
+        #  notify_subscribers; the emitter may embed the row as
+        #  data["notification"] and we prefer it here.
         notif_payload: dict[str, Any] = {
+            "id": None,
             "resource_type": resource_type,
             "resource_id": resource_id,
             "event_type": event_type,
             "title": f"{resource_type} {resource_id}: {event_type}",
+            "body": "",
+            "read": False,
             "created_at": data.get("timestamp", ""),
         }
         # If the emitter included a full notification row, prefer it.
@@ -308,6 +326,7 @@ async def notifications_endpoint(websocket: WebSocket):
                         "event_type": notif.event_type,
                         "title": notif.title,
                         "body": notif.body,
+                        "read": False,
                         "created_at": notif.created_at.isoformat(),
                     },
                 }))
