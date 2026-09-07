@@ -52,6 +52,7 @@ class Recording(SQLModel, table=True):
     profile_name: str
     engine_name: str
     resolver_name: str
+    session_id: int | None = Field(default=None, index=True)
 
     started_at: datetime
     ended_at: datetime
@@ -94,6 +95,11 @@ class Autorun(SQLModel, table=True):
     recording: bool = Field(default=True)
     requester_user_token: str = Field(default="")
 
+    # One-shot schedule — the "next run" is simply start_time until it fires.
+    # last_run_at is set when the autorun transitions out of SCHEDULED.
+    next_run_at: datetime | None = Field(default=None)
+    last_run_at: datetime | None = Field(default=None)
+
     session: "Session" = Relationship(back_populates="autorun")
     profile: "Profile" = Relationship(back_populates="autoruns")
     engine: "Engine" = Relationship(back_populates="autoruns")
@@ -123,6 +129,11 @@ class Session(SQLModel, table=True):
     requester_user_token: str
     session_urls: list[dict[str, str]] = Field(default_factory=list, sa_column=Column(SAJSON))
     attempts: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(SAJSON))
+    # Absolute path to the session folder; lets API read logs/progress even
+    # after the supervisor process exits. Set by the supervisor on start.
+    session_folder: str | None = Field(default=None)
+    # Latest remux progress as published on session.<id>.remux.progress.
+    recording_progress: dict[str, Any] | None = Field(default=None, sa_column=Column(SAJSON))
 
     profile: "Profile" = Relationship(back_populates="sessions")
     autorun: "Autorun" = Relationship(back_populates="session")
