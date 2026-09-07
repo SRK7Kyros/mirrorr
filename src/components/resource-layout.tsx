@@ -347,10 +347,12 @@ export function DetailLayout({ header, children }: DetailLayoutProps) {
 interface EmptyDetailProps {
 	icon: React.ComponentType<{ className?: string }>;
 	text: string;
+	/** Optional actions below the message. */
+	actions?: React.ReactNode;
 }
 
-export function EmptyDetail({ icon, text }: EmptyDetailProps) {
-	return <EmptyState icon={icon} text={text} />;
+export function EmptyDetail({ icon, text, actions }: EmptyDetailProps) {
+	return <EmptyState icon={icon} text={text} actions={actions} />;
 }
 
 // ── Create panel layout ────────────────────────────────────────
