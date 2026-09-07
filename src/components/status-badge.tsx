@@ -61,10 +61,14 @@ export function StatusBadge({
 	status: string;
 	className?: string;
 }) {
-	const style = statusStyle[status] ?? {
+	const known = statusStyle[status];
+	if (!known) {
+		console.warn(`[status-badge] unknown status "${status}" — rendering fallback`);
+	}
+	const style = known ?? {
 		bg: "bg-muted",
 		text: "text-muted-foreground",
-		label: status,
+		label: "unknown",
 	};
 	const dot = getStatusDotColor(status);
 	return (

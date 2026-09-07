@@ -56,7 +56,7 @@ import {
 import { importExportApi } from "@/lib/api";
 import { AREAS, AUTORUN_EXPANDED, PROFILE_EXPANDED } from "@/lib/layouts";
 import type { ValidationReport } from "@/lib/schemas";
-import { cn } from "@/lib/utils";
+import { cn, parseUtcDate } from "@/lib/utils";
 import type { BundleFile } from "@/components/import-export-buttons";
 
 // ── Types ─────────────────────────────────────────────────────
@@ -240,11 +240,11 @@ function filterItems(
 
 // ── Date / duration formatting ────────────────────────────────
 
-/** "Monday 17, March 2026 at 13:43" */
+/** "Monday 17, March 2026 at 13:43" — naive input treated as UTC, shown local */
 function formatFullTimestamp(iso: string | undefined): string {
 	if (!iso) return "—";
-	const d = new Date(iso);
-	if (Number.isNaN(d.getTime())) return "—";
+	const d = parseUtcDate(iso);
+	if (!d || Number.isNaN(d.getTime())) return "—";
 	const weekday = d.toLocaleDateString(undefined, { weekday: "long" });
 	const day = d.getDate();
 	const month = d.toLocaleDateString(undefined, { month: "long" });
@@ -257,11 +257,11 @@ function formatFullTimestamp(iso: string | undefined): string {
 	return `${weekday} ${day}, ${month} ${year} at ${time}`;
 }
 
-/** Compact "07/18 18:00" for table cells */
+/** Compact "07/18 18:00" for table cells — naive input treated as UTC, shown local */
 function formatShortTimestamp(iso: string | undefined): string {
 	if (!iso) return "—";
-	const d = new Date(iso);
-	if (Number.isNaN(d.getTime())) return "—";
+	const d = parseUtcDate(iso);
+	if (!d || Number.isNaN(d.getTime())) return "—";
 	const mm = String(d.getMonth() + 1).padStart(2, "0");
 	const dd = String(d.getDate()).padStart(2, "0");
 	const hh = String(d.getHours()).padStart(2, "0");
@@ -294,8 +294,8 @@ function LiveEta({ start, end }: { start?: string; end?: string }) {
 		return () => clearInterval(id);
 	}, []);
 
-	const startMs = start ? new Date(start).getTime() : Number.NaN;
-	const endMs = end ? new Date(end).getTime() : Number.NaN;
+	const startMs = start ? (parseUtcDate(start)?.getTime() ?? Number.NaN) : Number.NaN;
+	const endMs = end ? (parseUtcDate(end)?.getTime() ?? Number.NaN) : Number.NaN;
 
 	let label: string;
 	if (!Number.isNaN(startMs) && now < startMs) {
@@ -604,6 +604,12 @@ export function ImportDialog({
 				msgs.push(`${result.autoruns_created} autorun(s) created`);
 			if (result.profiles_skipped)
 				msgs.push(`${result.profiles_skipped} profile(s) skipped (identical)`);
+			if (result.renamed && Object.keys(result.renamed).length) {
+				const renames = Object.entries(result.renamed)
+					.map(([oldName, newName]) => `${oldName} → ${newName}`)
+					.join(", ");
+				msgs.push(`Renamed: ${renames}`);
+			}
 			toast.success(msgs.length ? msgs.join(", ") : "Import complete");
 			queryClient.invalidateQueries({ queryKey: ["profiles"] });
 			queryClient.invalidateQueries({ queryKey: ["autoruns"] });
