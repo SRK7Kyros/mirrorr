@@ -27,6 +27,8 @@ import {
 	ChevronDown,
 	ChevronRight,
 } from "lucide-react";
+import { SessionLogsViewer } from "@/components/session-logs-viewer";
+import { RecordingProgressBar } from "@/components/recording-progress-bar";
 import {
 	Table,
 	TableBody,
@@ -50,7 +52,7 @@ import {
 } from "@/components/resource-layout";
 import { FormField } from "@/components/form-field";
 import { ResizableSidebar } from "@/components/resizable-sidebar";
-import { formatDuration, formatLocalDate, parseUtcDate } from "@/lib/utils";
+import { formatDuration, formatLocalDate, parseUtcDate, describeCascade, isSessionDeleteBlocked, sessionDeleteBlockedReason } from "@/lib/utils";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { MultiSelectProvider } from "@/hooks/use-multi-select";
 import { usePluginConfig } from "@/hooks/use-plugin-config";
@@ -87,8 +89,11 @@ function SessionsPage() {
 
 	const deleteMutation = useMutation({
 		mutationFn: (id: number) => sessionsApi.delete(id),
-		onSuccess: () => {
-			toast.success("Session deletion requested");
+		onSuccess: (res) => {
+			const cascade = describeCascade(res);
+			toast.success(
+				cascade ? `Session deleted — also removed ${cascade}` : "Session deletion requested",
+			);
 		},
 		onError: (err: Error) => {
 			toast.error(`Failed to delete session: ${err.message}`);
@@ -143,6 +148,12 @@ function SessionsPage() {
 							deleteFn={sessionsApi.delete}
 							entityLabel="session"
 							entityLabelPlural="Sessions"
+							isBlocked={(id) =>
+								isSessionDeleteBlocked(
+									sessions.find((s) => s.id === id)?.status,
+								)
+							}
+							blockedReason={sessionDeleteBlockedReason()}
 						/>
 					}
 				/>
@@ -164,7 +175,20 @@ function SessionsPage() {
 					deleting={effectiveDeletingId === selectedId}
 				/>
 			) : (
-				<EmptyDetail icon={Radio} text="Select a session or create one" />
+				<EmptyDetail
+					icon={Radio}
+					text="Select a session or create one"
+					actions={
+						<Button
+							variant="outline"
+							size="sm"
+							className="h-7 text-xs"
+							onClick={() => setShowCreate(true)}
+						>
+							New Session
+						</Button>
+					}
+				/>
 			)}
 		</ResizableSidebar>
 	);
@@ -328,6 +352,8 @@ function SessionDetail({
 								entityName="Session"
 								isPending={deleting}
 								onConfirm={onDelete}
+								disabled={isSessionDeleteBlocked(session?.status)}
+								disabledReason={sessionDeleteBlockedReason()}
 							>
 								<Button
 									variant="ghost"
@@ -367,15 +393,16 @@ function SessionDetail({
 						label: "Profile",
 						value:
 							profile?.name ??
+							session.profile_name ??
 							(session.profile_id ? `#${session.profile_id}` : "None (manual)"),
 					},
 					{
 						label: "Engine",
-						value: engine?.name ?? `#${session.engine_id}`,
+						value: engine?.name ?? session.engine_name ?? `#${session.engine_id}`,
 					},
 					{
 						label: "Resolver",
-						value: resolver?.name ?? `#${session.resolver_id}`,
+						value: resolver?.name ?? session.resolver_name ?? `#${session.resolver_id}`,
 					},
 				]}
 			/>
@@ -393,7 +420,8 @@ function SessionDetail({
 					</div>
 				)}
 			</div>
-			{session.session_urls?.length > 0 && (
+			<RecordingProgressBar sessionId={session.id} status={session.status} />
+			{session.session_urls?.length > 0 ? (
 				<KeyValueTable
 					title="Public URLs"
 					leftAlignValues
@@ -412,7 +440,19 @@ function SessionDetail({
 						],
 					)}
 				/>
+			) : (
+				<p className="text-xs text-muted-foreground/70">
+					Live URLs unavailable — the session has no public URLs yet.
+				</p>
 			)}
+			<SessionLogsViewer
+				sessionId={session.id}
+				active={
+					session.status === "active" ||
+					session.status === "recording" ||
+					session.status === "terminating"
+				}
+			/>
 			{session.attempts?.length > 0 && (
 				<div className="space-y-1.5">
 					<Label className="text-xs text-muted-foreground">

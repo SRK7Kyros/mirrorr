@@ -60,6 +60,18 @@ const telemetryEventSchema = z.object({
 	process_count: z.number(),
 });
 
+export const remuxProgressSchema = z.object({
+	event: z.string(), // e.g. "session.5.remux.progress"
+	session_id: z.number(),
+	percent: z.number(),
+	eta_seconds: z.number().nullable().optional(),
+	speed: z.number().nullable().optional(),
+	time: z.number().nullable().optional(),
+	frame: z.number().nullable().optional(),
+});
+
+export type WsRemuxProgress = z.infer<typeof remuxProgressSchema>;
+
 /** Discriminated union of all WS event types. */
 export const wsEventSchema = z.discriminatedUnion("event", [
 	sessionEventSchema,
@@ -101,6 +113,17 @@ export const EVENT_TO_QUERY_KEY: Record<string, readonly string[]> = {
 /** Check if a WS event name is a known telemetry event. */
 export function isTelemetryEvent(event: string): boolean {
 	return event.includes(".telemetry");
+}
+
+/** Check if a WS event name is a remux progress event (`session.{id}.remux.progress`). */
+export function isRemuxProgressEvent(event: string): boolean {
+	return event.endsWith(".remux.progress");
+}
+
+/** Validate a raw WS message against the remux-progress schema. */
+export function validateRemuxProgress(data: unknown): WsRemuxProgress | null {
+	const result = remuxProgressSchema.safeParse(data);
+	return result.success ? result.data : null;
 }
 
 /** Validate a raw WS message against the telemetry schema. */
