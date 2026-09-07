@@ -16,12 +16,14 @@ import {
 	Menu,
 	Plug,
 	Radio,
+	Search,
 	Settings,
 	User,
 	X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Logo } from "@/components/logo";
+import { CommandPalette } from "@/components/command-palette";
 import {
 	NetworkMonitor,
 	NetworkStatusDot,
@@ -125,6 +127,7 @@ function AppLayout() {
 	const logout = useAuthStore((s) => s.logout);
 	const [mobileOpen, setMobileOpen] = useState(false);
 	const [netOpen, setNetOpen] = useState(false);
+	const [cmdOpen, setCmdOpen] = useState(false);
 	const [netPos, setNetPos] = useState<{ x: number; y: number }>({
 		x: 80,
 		y: 80,
@@ -139,6 +142,30 @@ function AppLayout() {
 	useEffect(() => {
 		startTokenRefresh();
 		return () => stopTokenRefresh();
+	}, []);
+
+	// Open command palette with "/" or Ctrl/Cmd+K
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			const isCmdK = e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey);
+			if (isCmdK) {
+				e.preventDefault();
+				setCmdOpen((o) => !o);
+				return;
+			}
+			if (e.key !== "/") return;
+			const el = e.target as HTMLElement | null;
+			const typing =
+				el?.tagName === "INPUT" ||
+				el?.tagName === "TEXTAREA" ||
+				el?.tagName === "SELECT" ||
+				el?.isContentEditable;
+			if (typing) return;
+			e.preventDefault();
+			setCmdOpen(true);
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
 	}, []);
 
 	// Redirect to login if auth is cleared while on this page
@@ -199,6 +226,18 @@ function AppLayout() {
 
 				{/* Right actions */}
 				<div className="flex items-center gap-0.5 pr-3">
+					{/* Command palette trigger */}
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						className="relative"
+						onClick={() => setCmdOpen(true)}
+						title="Search (/)"
+					>
+						<Search className="size-4" />
+						<span className="sr-only">Search</span>
+					</Button>
+
 					{/* Network status + monitor trigger */}
 					<Button
 						variant="outline"
@@ -403,6 +442,7 @@ function AppLayout() {
 				onClose={() => setNetOpen(false)}
 				defaultPos={netPos}
 			/>
+			<CommandPalette open={cmdOpen} onOpenChange={setCmdOpen} />
 		</div>
 	);
 }
