@@ -10,6 +10,11 @@ import {
 } from "@/lib/schemas";
 import type { WsEventType } from "@/lib/ws-events";
 import { EVENT_TO_QUERY_KEY, wsEventSchema } from "@/lib/ws-events";
+import {
+	isRemuxProgressEvent,
+	validateRemuxProgress,
+} from "@/lib/ws-events";
+import { useRemuxProgressStore } from "@/stores/remux-progress-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { useRequestLogStore } from "@/stores/request-log-store";
 
@@ -198,9 +203,37 @@ export function useWsEvents() {
 	const onMessage = useCallback((ev: MessageEvent) => {
 		try {
 			const parsed = JSON.parse(ev.data);
+			if (
+				typeof parsed?.event === "string" &&
+				isRemuxProgressEvent(parsed.event)
+			) {
+				const prog = validateRemuxProgress(parsed);
+				if (prog) {
+					useRemuxProgressStore.getState().setProgress(prog.session_id, {
+						percent: prog.percent,
+						eta_seconds: prog.eta_seconds ?? null,
+						speed: prog.speed ?? null,
+						time: prog.time ?? null,
+						frame: prog.frame ?? null,
+					});
+				} else {
+					console.debug("Invalid remux.progress ignored:", parsed);
+				}
+				return;
+			}
 			const result = wsEventSchema.safeParse(parsed);
 			if (result.success) {
 				batcher.add(result.data);
+				const status =
+					(parsed as Record<string, unknown>)?.status ??
+					(result.data.data as Record<string, unknown> | undefined)?.status;
+				const id = result.data.id;
+				if (
+					id !== undefined &&
+					(status === "completed" || status === "failed")
+				) {
+					useRemuxProgressStore.getState().clearProgress(id);
+				}
 				useRequestLogStore.getState().addEntry({
 					type: "ws-event",
 					timestamp: Date.now(),
