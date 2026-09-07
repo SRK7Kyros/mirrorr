@@ -15,6 +15,8 @@ interface EmptyStateProps {
 	height?: "full" | "sm" | "md";
 	className?: string;
 	children?: ReactNode;
+	/** Optional actions below the message (e.g. a "New" or navigation link). */
+	actions?: ReactNode;
 }
 
 const heightClass = {
@@ -29,6 +31,7 @@ export function EmptyState({
 	height = "full",
 	className,
 	children,
+	actions,
 }: EmptyStateProps) {
 	return (
 		<div
@@ -40,6 +43,7 @@ export function EmptyState({
 		>
 			{Icon && <Icon className="size-8 mb-2 opacity-15" />}
 			<p className="text-xs">{text}</p>
+			{actions && <div className="mt-2">{actions}</div>}
 			{children}
 		</div>
 	);
