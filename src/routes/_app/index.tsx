@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { CalendarClock, Film, Plug, Radio, Settings } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { StatusBadge } from "@/components/status-badge";
 import { useProfiles, useRecordings, useSessions } from "@/hooks/use-queries";
 import { AREAS, DASHBOARD_MAIN } from "@/lib/layouts";
 import { cn, getStatusDotColor } from "@/lib/utils";
@@ -119,6 +120,35 @@ function DashboardPage() {
 							);
 						})}
 					</div>
+
+					{/* Running now */}
+					{active.length > 0 && (
+						<div className="mt-3 pt-3 border-t shrink-0">
+							<p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-2">
+								Running Now
+							</p>
+							<div className="space-y-1">
+								{active.map((session) => (
+									<Link
+										key={session.id}
+										to="/sessions"
+										className="flex items-center gap-2 px-2 py-1 rounded-lg text-xs hover:bg-muted/30 transition-colors"
+									>
+										<div
+											className={cn(
+												"size-1.5 rounded-full shrink-0 animate-pulse",
+												getStatusDotColor(session.status),
+											)}
+										/>
+										<span className="font-medium truncate">
+											{session.autorun_id ? `Autorun ${session.id}` : `Session #${session.id}`}
+										</span>
+										<StatusBadge status={session.status} className="ml-auto shrink-0" />
+									</Link>
+								))}
+							</div>
+						</div>
+					)}
 				</Card>
 
 				{/* Recent sessions */}
