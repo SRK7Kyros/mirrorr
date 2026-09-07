@@ -35,7 +35,7 @@ import {
 	ChevronRight,
 	Download,
 } from "lucide-react";
-import { formatLocalDate } from "@/lib/utils";
+import { formatLocalDate, describeCascade, toUtcNaive } from "@/lib/utils";
 import { useState, useMemo } from "react";
 import { useInterval } from "@/hooks/use-interval";
 import { toast } from "sonner";
@@ -98,8 +98,11 @@ function AutorunsPage() {
 
 	const deleteMutation = useMutation({
 		mutationFn: (id: number) => autorunsApi.delete(id),
-		onSuccess: () => {
-			toast.success("Autorun deleted");
+		onSuccess: (res) => {
+			const cascade = describeCascade(res);
+			toast.success(
+				cascade ? `Autorun deleted — also removed ${cascade}` : "Autorun deleted",
+			);
 		},
 		onError: (err: Error) =>
 			toast.error(`Failed to delete autorun: ${err.message}`),
@@ -113,7 +116,7 @@ function AutorunsPage() {
 				<SidebarLayout
 					title="Autoruns"
 					count={autoruns.length}
-					countLabel="scheduled"
+					countLabel="scheduled recordings"
 					onNew={() => setShowCreate(true)}
 					isLoading={isLoading}
 					emptyText="No autoruns"
@@ -316,15 +319,23 @@ function AutorunDetail({
 						value:
 							(autorun.profile_id != null
 								? profileMap[autorun.profile_id]
-								: null) ?? `#${autorun.profile_id}`,
+								: null) ??
+							autorun.profile_name ??
+							`#${autorun.profile_id}`,
 					},
 					{
 						label: "Engine",
-						value: engineMap[autorun.engine_id] ?? `#${autorun.engine_id}`,
+						value:
+							engineMap[autorun.engine_id] ??
+							autorun.engine_name ??
+							`#${autorun.engine_id}`,
 					},
 					{
 						label: "Resolver",
-						value: resolver?.name ?? `#${autorun.resolver_id ?? "?"}`,
+						value:
+							resolver?.name ??
+							autorun.resolver_name ??
+							`#${autorun.resolver_id ?? "?"}`,
 					},
 					{
 						label: "Retry Mode",
@@ -333,6 +344,24 @@ function AutorunDetail({
 				]}
 			/>
 			<div className="flex gap-4">
+				{(autorun.status === "scheduled" &&
+					(autorun.next_run_at ?? autorun.start_time)) && (
+					<div className="space-y-1 shrink-0">
+						<Label className="text-xs text-muted-foreground">Next Run</Label>
+						<p className="text-xs">{formatLocalDate(autorun.next_run_at ?? autorun.start_time!)}</p>
+						<EtaDisplay
+							value={autorun.next_run_at ?? autorun.start_time!}
+							mode="relative"
+							className="text-micro text-muted-foreground/70 italic"
+						/>
+					</div>
+				)}
+				{autorun.last_run_at && (
+					<div className="space-y-1 shrink-0">
+						<Label className="text-xs text-muted-foreground">Last Run</Label>
+						<p className="text-xs">{formatLocalDate(autorun.last_run_at)}</p>
+					</div>
+				)}
 				{autorun.start_time && (
 					<div className="space-y-1 shrink-0">
 						<Label className="text-xs text-muted-foreground">Start Time</Label>
@@ -346,6 +375,11 @@ function AutorunDetail({
 					</div>
 				)}
 			</div>
+			<p className="text-micro text-muted-foreground/70">
+				Autoruns run once at the start time, then stay{" "}
+				{autorun.status === "scheduled" ? "pending" : "finished"} — they
+				do not repeat.
+			</p>
 		</DetailLayout>
 	);
 }
@@ -378,12 +412,12 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
 
 	const getStartTime = () =>
 		timeMode === "relative"
-			? new Date(now + relativeStartOffset).toISOString()
-			: startTime;
+			? toUtcNaive(new Date(now + relativeStartOffset))
+			: startTime ? toUtcNaive(startTime) : "";
 	const getEndTime = () =>
 		timeMode === "relative"
-			? new Date(now + relativeEndOffset).toISOString()
-			: endTime;
+			? toUtcNaive(new Date(now + relativeEndOffset))
+			: endTime ? toUtcNaive(endTime) : "";
 
 	const canSubmit = config.showConfigFields
 		? !!(
@@ -562,7 +596,7 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
 								<DateTimePicker value={startTime} onChange={setStartTime} />
 								{startTime && (
 									<EtaDisplay
-										value={startTime}
+										value={toUtcNaive(startTime)}
 										mode="relative"
 										className="text-micro text-muted-foreground/70 italic"
 									/>
@@ -572,7 +606,7 @@ function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
 								<DateTimePicker value={endTime} onChange={setEndTime} />
 								{endTime && (
 									<EtaDisplay
-										value={endTime}
+										value={toUtcNaive(endTime)}
 										mode="relative"
 										className="text-micro text-muted-foreground/70 italic"
 									/>

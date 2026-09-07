@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useInterval } from "@/hooks/use-interval";
-import { cn } from "@/lib/utils";
+import { cn, parseUtcDate } from "@/lib/utils";
 
 // ── Time formatting ──────────────────────────────────────────────────
 
@@ -62,7 +62,8 @@ interface EtaDisplayProps {
 
 const computeText = (value: string, mode: "relative" | "absolute") => {
 	if (!value) return "";
-	const target = new Date(value);
+	const target = parseUtcDate(value);
+	if (!target || Number.isNaN(target.getTime())) return "";
 	const now = new Date();
 	const diff = target.getTime() - now.getTime();
 	return mode === "absolute"
