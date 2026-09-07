@@ -13,8 +13,13 @@ import {
 	AlertDialogTitle,
 	AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { useState } from "react";
+import { cloneElement, isValidElement, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Trash2, Loader2 } from "lucide-react";
 
 interface DeleteConfirmProps {
@@ -32,6 +37,10 @@ interface DeleteConfirmProps {
 	size?: "default" | "sm" | "icon" | "icon-xs";
 	/** Optional: additional className for the trigger button */
 	className?: string;
+	/** When true the trigger renders disabled (e.g. server 409s while remuxing). */
+	disabled?: boolean;
+	/** Tooltip shown when disabled. */
+	disabledReason?: string;
 }
 
 export function DeleteConfirm({
@@ -42,15 +51,18 @@ export function DeleteConfirm({
 	variant = "ghost",
 	size = "icon-xs",
 	className,
+	disabled = false,
+	disabledReason,
 }: DeleteConfirmProps) {
 	const [open, setOpen] = useState(false);
+	const blocked = disabled || isPending;
 
 	const defaultButton = (
 		<Button
 			variant={variant}
 			size={size}
 			className={className}
-			disabled={isPending}
+			disabled={blocked}
 		>
 			{isPending ? (
 				<Loader2 className="size-3 animate-spin" />
@@ -60,16 +72,38 @@ export function DeleteConfirm({
 		</Button>
 	);
 
+	const childTrigger =
+		children &&
+		typeof children !== "string" &&
+		typeof children !== "number" &&
+		isValidElement<{ disabled?: boolean }>(children)
+			? cloneElement(children, {
+					disabled: blocked || children.props.disabled,
+				})
+			: null;
+
+	const trigger = childTrigger ? (
+		<AlertDialogTrigger render={childTrigger} />
+	) : (
+		<AlertDialogTrigger render={defaultButton} />
+	);
+
+	const blockedTrigger = (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<span className="inline-flex cursor-not-allowed">
+						{childTrigger ?? defaultButton}
+					</span>
+				}
+			/>
+			<TooltipContent side="top">{disabledReason}</TooltipContent>
+		</Tooltip>
+	);
+
 	return (
 		<AlertDialog open={open} onOpenChange={setOpen}>
-			{/* If children is a single ReactElement, use render prop; otherwise wrap in a span */}
-			{children &&
-			typeof children !== "string" &&
-			typeof children !== "number" ? (
-				<AlertDialogTrigger render={children as React.ReactElement} />
-			) : (
-				<AlertDialogTrigger render={defaultButton} />
-			)}
+			{disabled && disabledReason ? blockedTrigger : trigger}
 			<AlertDialogContent>
 				<AlertDialogHeader>
 					<AlertDialogTitle>Delete {entityName}</AlertDialogTitle>

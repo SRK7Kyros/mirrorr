@@ -5,6 +5,7 @@ import type { Profile } from "@/lib/schemas";
 import { KeyValueTable } from "@/components/key-value-table";
 import { Button } from "@/components/ui/button";
 import { DeleteConfirm } from "@/components/delete-confirm";
+import { describeCascade } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Trash2, Settings, Cpu, Zap, Loader2, Download } from "lucide-react";
 import { useState } from "react";
@@ -55,8 +56,13 @@ function ProfilesPage() {
 
 	const deleteMutation = useMutation({
 		mutationFn: (id: number) => profilesApi.delete(id),
-		onSuccess: () => {
-			toast.success("Profile deleted");
+		onSuccess: (res) => {
+			const cascade = describeCascade(res);
+			toast.success(
+				cascade
+					? `Profile deleted — also removed ${cascade}`
+					: "Profile deleted",
+			);
 		},
 		onError: (err: Error) =>
 			toast.error(`Failed to delete profile: ${err.message}`),

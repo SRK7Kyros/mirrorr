@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { recordingsApi } from "@/lib/api";
 import type { Recording } from "@/lib/schemas";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { Trash2, Film, Clock, HardDrive, Loader2 } from "lucide-react";
 import { InfoGrid } from "@/components/info-grid";
 import { DeleteConfirm } from "@/components/delete-confirm";
@@ -20,7 +21,7 @@ import { BulkDeleteButton } from "@/components/bulk-delete-button";
 import { MultiSelectProvider } from "@/hooks/use-multi-select";
 import { useRecordings } from "@/hooks/use-queries";
 
-import { formatDuration, formatBytes, formatLocalDate } from "@/lib/utils";
+import { formatDuration, formatBytes, formatLocalDate, describeCascade } from "@/lib/utils";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -36,9 +37,12 @@ function RecordingsPage() {
 
 	const deleteMutation = useMutation({
 		mutationFn: (id: number) => recordingsApi.delete(id),
-		onSuccess: () => {
+		onSuccess: (res) => {
 			queryClient.invalidateQueries({ queryKey: ["recordings"] });
-			toast.success("Recording deleted");
+			const cascade = describeCascade(res);
+			toast.success(
+				cascade ? `Recording deleted — also removed ${cascade}` : "Recording deleted",
+			);
 		},
 		onError: (err: Error) =>
 			toast.error(`Failed to delete recording: ${err.message}`),
@@ -174,8 +178,38 @@ function RecordingDetail({
 						label: "Created",
 						value: formatLocalDate(recording.created_at),
 					},
+					{
+						label: "Engine",
+						value: recording.engine_name || "—",
+					},
+					{
+						label: "Resolver",
+						value: recording.resolver_name || "—",
+					},
+					{
+						label: "Session",
+						value: recording.session_id != null ? `#${recording.session_id}` : "—",
+					},
 				]}
 			/>
+			<div className="space-y-1">
+				<Label className="text-xs text-muted-foreground">Media</Label>
+				{recording.media_served ? (
+					<a
+						href={recording.content_url}
+						target="_blank"
+						rel="noreferrer"
+						className="text-xs text-primary underline-offset-2 hover:underline"
+					>
+						Open recording ↗
+					</a>
+				) : (
+					<p className="text-xs text-muted-foreground/70">
+						Media is not served on this install — download/open link
+						unavailable.
+					</p>
+				)}
+			</div>
 		</DetailLayout>
 	);
 }
