@@ -29,6 +29,7 @@ async def get_all_paginated(
     cursor: int | None = None,
     limit: int = 50,
     order_desc: bool = True,
+    options: Sequence = (),
 ) -> PaginatedResult:
     """Fetch entities with cursor-based pagination.
 
@@ -38,11 +39,16 @@ async def get_all_paginated(
         cursor: ID of the last item from previous page (None for first page)
         limit: Maximum items per page (default 50)
         order_desc: If True, order by ID descending (newest first)
+        options: SQLAlchemy loader options (e.g. selectinload) to eager-load
+            relationships so the caller can serialize related names without N+1.
 
     Returns:
         PaginatedResult with items, next_cursor, and has_more flag
     """
     stmt = select(model)
+
+    if options:
+        stmt = stmt.options(*options)
 
     if cursor is not None:
         if order_desc:
@@ -69,8 +75,23 @@ async def get_all_paginated(
 
     return PaginatedResult(items=items, next_cursor=next_cursor, has_more=has_more)
 
-async def get_by_id(db: AsyncSession, model: type[T], id: int) -> T | None:
-    return await db.get(model, id)
+
+async def count(db: AsyncSession, model: type[T], where_expr=None) -> int:
+    """Row count for a model, optionally filtered. Used for `?include_total=1`."""
+    from sqlalchemy import func
+
+    stmt = select(func.count()).select_from(model)
+    if where_expr is not None:
+        stmt = stmt.where(where_expr)
+    return int((await db.exec(stmt)).one())
+
+
+async def get_by_id(db: AsyncSession, model: type[T], id: int, options: Sequence = ()) -> T | None:
+    stmt = select(model).where(model.id == id)
+    if options:
+        stmt = stmt.options(*options)
+    result = await db.exec(stmt)
+    return result.first()
 
 async def create(db: AsyncSession, obj: T) -> T:
     try:
@@ -83,17 +104,21 @@ async def create(db: AsyncSession, obj: T) -> T:
     return obj
 
 async def update(db: AsyncSession, model: type[T], id: int, data: T) -> T:
-    """Update an entity. If data already has the correct id, skip the extra fetch."""
-    # If the caller already fetched the object, use it directly
-    if data.id == id:
-        obj = data
-    else:
-        obj = await db.get(model, id)
-        if not obj:
-            raise ValueError(f"{model.__name__} with id {id} not found")
+    """Update an entity in place.
+
+    Always resolves the persistent instance from the session (identity-map hit
+    when the caller already loaded it, so no extra query) and applies the
+    incoming object's fields onto it via ``sqlmodel_update``. We deliberately
+    do NOT shortcut on ``data.id == id``: that branch re-``add``s a fresh
+    object carrying an existing PK, which collides with the already-loaded
+    persistent instance in SQLAlchemy's identity map and turns the UPDATE into
+    an INSERT (UNIQUE-constraint failure).
+    """
+    obj = await db.get(model, id)
+    if not obj:
+        raise ValueError(f"{model.__name__} with id {id} not found")
 
     try:
-        data.id = id
         obj.sqlmodel_update(data)
         db.add(obj)
         await db.commit()
