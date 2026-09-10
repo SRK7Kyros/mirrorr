@@ -47,7 +47,7 @@ function LoginPage() {
 	});
 
 	return (
-		<Card className="w-full max-w-sm border-border/70 shadow-[0_24px_60px_-24px_rgb(0,0,0,0.3)] dark:border-white/15 dark:bg-white/[0.05] dark:shadow-[inset_0_1px_0_rgb(255,255,255,0.12),0_24px_70px_-20px_rgb(0,0,0,0.85)] dark:ring-1 dark:ring-white/10 dark:backdrop-blur-xl">
+		<Card className="w-full max-w-sm border border-border/70 shadow-[0_24px_60px_-24px_rgb(0,0,0,0.3)] dark:border-white/25 dark:bg-white/[0.09] dark:shadow-[inset_0_1px_0_rgb(255,255,255,0.2),0_24px_70px_-20px_rgb(0,0,0,0.85)] dark:ring-0 dark:ring-white/10 dark:backdrop-blur-xl">
 			<CardHeader className="text-center">
 				<CardTitle className="text-xl">Welcome back</CardTitle>
 				<CardDescription>Sign in to your Mirrorr instance</CardDescription>
