@@ -8,6 +8,7 @@ User=opc
 Group=opc
 WorkingDirectory=/home/opc/everything/kyros/code/mirrorr/mirrorr-web
 Environment=HOME=/home/opc
+Environment=MIRRORR_BASE=/dev/
 ExecStart=/bin/bash -c 'exec /home/opc/.local/share/mise/installs/bun/latest/bin/bun run dev -- --host 127.0.0.1 --port 5174'
 Restart=on-failure
 RestartSec=3
