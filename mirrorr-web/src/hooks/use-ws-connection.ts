@@ -1,0 +1,102 @@
+/**
+ * Shared WebSocket connection hook.
+ * Encapsulates the connect/reconnect/cleanup/auth logic duplicated
+ * between use-ws-events.ts and use-ws-notifications.ts.
+ */
+import { useCallback, useEffect, useRef } from "react";
+import { useAuthStore } from "@/stores/auth-store";
+
+interface UseWsConnectionOptions {
+	/** URL builder function (e.g. getWsEventsUrl) */
+	url: string;
+	/** Called when a message is received */
+	onMessage: (ev: MessageEvent) => void;
+	/** Whether the user is authenticated (gates connection lifecycle) */
+	isAuthenticated: boolean;
+}
+
+/** Max reconnect attempts before giving up (requires page reload). */
+const MAX_RECONNECT_ATTEMPTS = 12;
+
+/** Compute a reconnect delay with exponential backoff + ±20% jitter. */
+function reconnectDelay(attempts: number): number {
+	const base = Math.min(1000 * 2 ** attempts, 30000);
+	return Math.round(base * (0.8 + Math.random() * 0.4));
+}
+
+export function useWsConnection({
+	url,
+	onMessage,
+	isAuthenticated,
+}: UseWsConnectionOptions) {
+	const wsRef = useRef<WebSocket | null>(null);
+	const reconnectTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
+	const onMessageRef = useRef(onMessage);
+	const reconnectAttempts = useRef(0);
+
+	useEffect(() => {
+		onMessageRef.current = onMessage;
+	}, [onMessage]);
+
+	const connectRef = useRef<() => void>(() => {});
+	const connect = useCallback(() => {
+		if (wsRef.current) {
+			wsRef.current.close();
+			wsRef.current = null;
+		}
+
+		try {
+			const ws = new WebSocket(url);
+			wsRef.current = ws;
+
+			ws.onmessage = (ev) => onMessageRef.current(ev);
+
+			ws.onopen = () => {
+				reconnectAttempts.current = 0;
+			};
+
+			ws.onclose = (ev) => {
+				// 4001 = Authentication required — don't reconnect, trigger logout
+				if (ev.code === 4001) {
+					useAuthStore.getState().logout();
+					return;
+				}
+				if (
+					wsRef.current === ws &&
+					useAuthStore.getState().isAuthenticated &&
+					reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS
+				) {
+					const delay = reconnectDelay(reconnectAttempts.current);
+					reconnectAttempts.current++;
+					reconnectTimeout.current = setTimeout(connectRef.current, delay);
+				}
+			};
+
+			ws.onerror = () => ws.close();
+		} catch {
+			if (
+				useAuthStore.getState().isAuthenticated &&
+				reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS
+			) {
+				const delay = reconnectDelay(reconnectAttempts.current);
+				reconnectAttempts.current++;
+				reconnectTimeout.current = setTimeout(connectRef.current, delay);
+			}
+		}
+	}, [url]);
+
+	useEffect(() => {
+		connectRef.current = connect;
+	}, [connect]);
+	useEffect(() => {
+		if (isAuthenticated) connect();
+
+		return () => {
+			clearTimeout(reconnectTimeout.current);
+			if (wsRef.current) {
+				wsRef.current.close();
+				wsRef.current = null;
+			}
+		};
+	}, [isAuthenticated, connect]);
+}
