@@ -1,0 +1,480 @@
+{
+  "version": 1,
+  "exported_at": "2026-07-17T12:00:00Z",
+  "profiles": [
+    {
+      "name": "Twitch Highlights",
+      "default_engine": {
+        "name": "yt_dlp_piped",
+        "origin_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+      },
+      "resolver": {
+        "name": "static",
+        "origin_hash": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2"
+      },
+      "resolver_config": {
+        "url": "https://example.com/twitch/highlights",
+        "headers": {}
+      },
+      "retry_mode": "none",
+      "retry_config": {},
+      "content_hash": "aa11bb22cc33dd44ee55ff66aa77bb88cc99dd00ee11ff22aa33bb44cc55dd66"
+    },
+    {
+      "name": "YouTube Subscriptions",
+      "default_engine": {
+        "name": "yt_dlp_piped",
+        "origin_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+      },
+      "resolver": {
+        "name": "static",
+        "origin_hash": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2"
+      },
+      "resolver_config": {
+        "url": "https://example.com/youtube/subs",
+        "headers": {
+          "Authorization": "Bearer test-token-123"
+        }
+      },
+      "retry_mode": "none",
+      "retry_config": {},
+      "content_hash": "bb22cc33dd44ee55ff66aa77bb88cc99dd00ee11ff22aa33bb44cc55dd66aa77"
+    },
+    {
+      "name": "Kick Streams",
+      "default_engine": {
+        "name": "yt_dlp_piped",
+        "origin_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+      },
+      "resolver": {
+        "name": "static",
+        "origin_hash": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2"
+      },
+      "resolver_config": {
+        "url": "https://example.com/kick/live",
+        "headers": {}
+      },
+      "retry_mode": "segment",
+      "retry_config": {
+        "max_retries": 3,
+        "delay_seconds": 5
+      },
+      "content_hash": "cc33dd44ee55ff66aa77bb88cc99dd00ee11ff22aa33bb44cc55dd66aa77bb88"
+    },
+    {
+      "name": "Rust Streams Archive",
+      "default_engine": {
+        "name": "yt_dlp_piped",
+        "origin_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+      },
+      "resolver": {
+        "name": "static",
+        "origin_hash": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2"
+      },
+      "resolver_config": {
+        "url": "https://example.com/rust/archive",
+        "headers": {}
+      },
+      "retry_mode": "none",
+      "retry_config": {},
+      "content_hash": "dd44ee55ff66aa77bb88cc99dd00ee11ff22aa33bb44cc55dd66aa77bb88cc99"
+    },
+    {
+      "name": "Music Stream Recorder",
+      "default_engine": {
+        "name": "yt_dlp_piped",
+        "origin_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+      },
+      "resolver": {
+        "name": "static",
+        "origin_hash": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2"
+      },
+      "resolver_config": {
+        "url": "https://example.com/music/live",
+        "headers": {}
+      },
+      "retry_mode": "segment",
+      "retry_config": {
+        "max_retries": 5,
+        "delay_seconds": 10
+      },
+      "content_hash": "ee55ff66aa77bb88cc99dd00ee11ff22aa33bb44cc55dd66aa77bb88cc99dd00"
+    },
+    {
+      "name": "Gaming Marathon",
+      "default_engine": {
+        "name": "yt_dlp_piped",
+        "origin_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+      },
+      "resolver": {
+        "name": "static",
+        "origin_hash": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2"
+      },
+      "resolver_config": {
+        "url": "https://example.com/gaming/marathon",
+        "headers": {}
+      },
+      "retry_mode": "none",
+      "retry_config": {},
+      "content_hash": "ff66aa77bb88cc99dd00ee11ff22aa33bb44cc55dd66aa77bb88cc99dd00ee11"
+    }
+  ],
+  "autoruns": [
+    {
+      "user_friendly_name": "Daily Twitch Highlights",
+      "profile_name": "Twitch Highlights",
+      "profile": {
+        "name": "Twitch Highlights",
+        "default_engine": {
+          "name": "yt_dlp_piped",
+          "origin_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+        },
+        "resolver": {
+          "name": "static",
+          "origin_hash": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2"
+        },
+        "resolver_config": {
+          "url": "https://example.com/twitch/highlights",
+          "headers": {}
+        },
+        "retry_mode": "none",
+        "retry_config": {},
+        "content_hash": "aa11bb22cc33dd44ee55ff66aa77bb88cc99dd00ee11ff22aa33bb44cc55dd66"
+      },
+      "start_time": "2026-07-17T18:00:00Z",
+      "end_time": "2026-07-17T22:00:00Z",
+      "recording": true,
+      "content_hash": "110022003300440055006600770088009900aa00bb00cc00dd00ee00ff001100"
+    },
+    {
+      "user_friendly_name": "Evening Twitch Session",
+      "profile_name": "Twitch Highlights",
+      "profile": {
+        "name": "Twitch Highlights",
+        "default_engine": {
+          "name": "yt_dlp_piped",
+          "origin_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+        },
+        "resolver": {
+          "name": "static",
+          "origin_hash": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2"
+        },
+        "resolver_config": {
+          "url": "https://example.com/twitch/highlights",
+          "headers": {}
+        },
+        "retry_mode": "none",
+        "retry_config": {},
+        "content_hash": "aa11bb22cc33dd44ee55ff66aa77bb88cc99dd00ee11ff22aa33bb44cc55dd66"
+      },
+      "start_time": "2026-07-17T23:00:00Z",
+      "end_time": "2026-07-18T03:00:00Z",
+      "recording": true,
+      "content_hash": "22003300440055006600770088009900aa00bb00cc00dd00ee00ff0011002200"
+    },
+    {
+      "user_friendly_name": "Morning YouTube Catchup",
+      "profile_name": "YouTube Subscriptions",
+      "profile": {
+        "name": "YouTube Subscriptions",
+        "default_engine": {
+          "name": "yt_dlp_piped",
+          "origin_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+        },
+        "resolver": {
+          "name": "static",
+          "origin_hash": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2"
+        },
+        "resolver_config": {
+          "url": "https://example.com/youtube/subs",
+          "headers": {
+            "Authorization": "Bearer test-token-123"
+          }
+        },
+        "retry_mode": "none",
+        "retry_config": {},
+        "content_hash": "bb22cc33dd44ee55ff66aa77bb88cc99dd00ee11ff22aa33bb44cc55dd66aa77"
+      },
+      "start_time": "2026-07-17T06:00:00Z",
+      "end_time": "2026-07-17T08:00:00Z",
+      "recording": false,
+      "content_hash": "3300440055006600770088009900aa00bb00cc00dd00ee00ff00110022003300"
+    },
+    {
+      "user_friendly_name": "Lunchtime YouTube",
+      "profile_name": "YouTube Subscriptions",
+      "profile": {
+        "name": "YouTube Subscriptions",
+        "default_engine": {
+          "name": "yt_dlp_piped",
+          "origin_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+        },
+        "resolver": {
+          "name": "static",
+          "origin_hash": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2"
+        },
+        "resolver_config": {
+          "url": "https://example.com/youtube/subs",
+          "headers": {
+            "Authorization": "Bearer test-token-123"
+          }
+        },
+        "retry_mode": "none",
+        "retry_config": {},
+        "content_hash": "bb22cc33dd44ee55ff66aa77bb88cc99dd00ee11ff22aa33bb44cc55dd66aa77"
+      },
+      "start_time": "2026-07-17T12:00:00Z",
+      "end_time": "2026-07-17T13:00:00Z",
+      "recording": false,
+      "content_hash": "440055006600770088009900aa00bb00cc00dd00ee00ff001100220033004400"
+    },
+    {
+      "user_friendly_name": "Evening YouTube",
+      "profile_name": "YouTube Subscriptions",
+      "profile": {
+        "name": "YouTube Subscriptions",
+        "default_engine": {
+          "name": "yt_dlp_piped",
+          "origin_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+        },
+        "resolver": {
+          "name": "static",
+          "origin_hash": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2"
+        },
+        "resolver_config": {
+          "url": "https://example.com/youtube/subs",
+          "headers": {
+            "Authorization": "Bearer test-token-123"
+          }
+        },
+        "retry_mode": "none",
+        "retry_config": {},
+        "content_hash": "bb22cc33dd44ee55ff66aa77bb88cc99dd00ee11ff22aa33bb44cc55dd66aa77"
+      },
+      "start_time": "2026-07-17T19:00:00Z",
+      "end_time": "2026-07-17T21:00:00Z",
+      "recording": true,
+      "content_hash": "55006600770088009900aa00bb00cc00dd00ee00ff0011002200330044005500"
+    },
+    {
+      "user_friendly_name": "Weekend Kick Marathon",
+      "profile_name": "Kick Streams",
+      "profile": {
+        "name": "Kick Streams",
+        "default_engine": {
+          "name": "yt_dlp_piped",
+          "origin_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+        },
+        "resolver": {
+          "name": "static",
+          "origin_hash": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2"
+        },
+        "resolver_config": {
+          "url": "https://example.com/kick/live",
+          "headers": {}
+        },
+        "retry_mode": "segment",
+        "retry_config": {
+          "max_retries": 3,
+          "delay_seconds": 5
+        },
+        "content_hash": "cc33dd44ee55ff66aa77bb88cc99dd00ee11ff22aa33bb44cc55dd66aa77bb88"
+      },
+      "start_time": "2026-07-18T14:00:00Z",
+      "end_time": "2026-07-18T20:00:00Z",
+      "recording": true,
+      "content_hash": "6600770088009900aa00bb00cc00dd00ee00ff00110022003300440055006600"
+    },
+    {
+      "user_friendly_name": "Late Night Kick",
+      "profile_name": "Kick Streams",
+      "profile": {
+        "name": "Kick Streams",
+        "default_engine": {
+          "name": "yt_dlp_piped",
+          "origin_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+        },
+        "resolver": {
+          "name": "static",
+          "origin_hash": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2"
+        },
+        "resolver_config": {
+          "url": "https://example.com/kick/live",
+          "headers": {}
+        },
+        "retry_mode": "segment",
+        "retry_config": {
+          "max_retries": 3,
+          "delay_seconds": 5
+        },
+        "content_hash": "cc33dd44ee55ff66aa77bb88cc99dd00ee11ff22aa33bb44cc55dd66aa77bb88"
+      },
+      "start_time": "2026-07-17T22:00:00Z",
+      "end_time": "2026-07-18T02:00:00Z",
+      "recording": true,
+      "content_hash": "770088009900aa00bb00cc00dd00ee00ff001100220033004400550066007700"
+    },
+    {
+      "user_friendly_name": "Rust Dev Stream Archive",
+      "profile_name": "Rust Streams Archive",
+      "profile": {
+        "name": "Rust Streams Archive",
+        "default_engine": {
+          "name": "yt_dlp_piped",
+          "origin_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+        },
+        "resolver": {
+          "name": "static",
+          "origin_hash": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2"
+        },
+        "resolver_config": {
+          "url": "https://example.com/rust/archive",
+          "headers": {}
+        },
+        "retry_mode": "none",
+        "retry_config": {},
+        "content_hash": "dd44ee55ff66aa77bb88cc99dd00ee11ff22aa33bb44cc55dd66aa77bb88cc99"
+      },
+      "start_time": "2026-07-17T17:00:00Z",
+      "end_time": "2026-07-17T21:00:00Z",
+      "recording": true,
+      "content_hash": "88009900aa00bb00cc00dd00ee00ff0011002200330044005500660077008800"
+    },
+    {
+      "user_friendly_name": "Rust Conference Recording",
+      "profile_name": "Rust Streams Archive",
+      "profile": {
+        "name": "Rust Streams Archive",
+        "default_engine": {
+          "name": "yt_dlp_piped",
+          "origin_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+        },
+        "resolver": {
+          "name": "static",
+          "origin_hash": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2"
+        },
+        "resolver_config": {
+          "url": "https://example.com/rust/archive",
+          "headers": {}
+        },
+        "retry_mode": "none",
+        "retry_config": {},
+        "content_hash": "dd44ee55ff66aa77bb88cc99dd00ee11ff22aa33bb44cc55dd66aa77bb88cc99"
+      },
+      "start_time": "2026-07-19T09:00:00Z",
+      "end_time": "2026-07-19T17:00:00Z",
+      "recording": true,
+      "content_hash": "9900aa00bb00cc00dd00ee00ff00110022003300440055006600770088009900"
+    },
+    {
+      "user_friendly_name": "Late Night Music",
+      "profile_name": "Music Stream Recorder",
+      "profile": {
+        "name": "Music Stream Recorder",
+        "default_engine": {
+          "name": "yt_dlp_piped",
+          "origin_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+        },
+        "resolver": {
+          "name": "static",
+          "origin_hash": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2"
+        },
+        "resolver_config": {
+          "url": "https://example.com/music/live",
+          "headers": {}
+        },
+        "retry_mode": "segment",
+        "retry_config": {
+          "max_retries": 5,
+          "delay_seconds": 10
+        },
+        "content_hash": "ee55ff66aa77bb88cc99dd00ee11ff22aa33bb44cc55dd66aa77bb88cc99dd00"
+      },
+      "start_time": "2026-07-17T23:30:00Z",
+      "end_time": "2026-07-18T04:00:00Z",
+      "recording": true,
+      "content_hash": "aa00bb00cc00dd00ee00ff00110022003300440055006600770088009900aa00"
+    },
+    {
+      "user_friendly_name": "Weekend Music Session",
+      "profile_name": "Music Stream Recorder",
+      "profile": {
+        "name": "Music Stream Recorder",
+        "default_engine": {
+          "name": "yt_dlp_piped",
+          "origin_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+        },
+        "resolver": {
+          "name": "static",
+          "origin_hash": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2"
+        },
+        "resolver_config": {
+          "url": "https://example.com/music/live",
+          "headers": {}
+        },
+        "retry_mode": "segment",
+        "retry_config": {
+          "max_retries": 5,
+          "delay_seconds": 10
+        },
+        "content_hash": "ee55ff66aa77bb88cc99dd00ee11ff22aa33bb44cc55dd66aa77bb88cc99dd00"
+      },
+      "start_time": "2026-07-18T20:00:00Z",
+      "end_time": "2026-07-19T01:00:00Z",
+      "recording": true,
+      "content_hash": "bb00cc00dd00ee00ff00110022003300440055006600770088009900aa00bb00"
+    },
+    {
+      "user_friendly_name": "Friday Gaming Night",
+      "profile_name": "Gaming Marathon",
+      "profile": {
+        "name": "Gaming Marathon",
+        "default_engine": {
+          "name": "yt_dlp_piped",
+          "origin_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+        },
+        "resolver": {
+          "name": "static",
+          "origin_hash": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2"
+        },
+        "resolver_config": {
+          "url": "https://example.com/gaming/marathon",
+          "headers": {}
+        },
+        "retry_mode": "none",
+        "retry_config": {},
+        "content_hash": "ff66aa77bb88cc99dd00ee11ff22aa33bb44cc55dd66aa77bb88cc99dd00ee11"
+      },
+      "start_time": "2026-07-17T20:00:00Z",
+      "end_time": "2026-07-18T01:00:00Z",
+      "recording": true,
+      "content_hash": "cc00dd00ee00ff00110022003300440055006600770088009900aa00bb00cc00"
+    },
+    {
+      "user_friendly_name": "Saturday Gaming Marathon",
+      "profile_name": "Gaming Marathon",
+      "profile": {
+        "name": "Gaming Marathon",
+        "default_engine": {
+          "name": "yt_dlp_piped",
+          "origin_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+        },
+        "resolver": {
+          "name": "static",
+          "origin_hash": "f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2"
+        },
+        "resolver_config": {
+          "url": "https://example.com/gaming/marathon",
+          "headers": {}
+        },
+        "retry_mode": "none",
+        "retry_config": {},
+        "content_hash": "ff66aa77bb88cc99dd00ee11ff22aa33bb44cc55dd66aa77bb88cc99dd00ee11"
+      },
+      "start_time": "2026-07-18T14:00:00Z",
+      "end_time": "2026-07-18T22:00:00Z",
+      "recording": true,
+      "content_hash": "dd00ee00ff00110022003300440055006600770088009900aa00bb00cc00dd00"
+    }
+  ]
+}
