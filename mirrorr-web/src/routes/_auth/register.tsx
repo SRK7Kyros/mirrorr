@@ -63,7 +63,7 @@ function RegisterPage() {
 
 	if (statusLoading) {
 		return (
-			<Card className="w-full max-w-sm">
+			<Card className="w-full max-w-sm border-border/60 shadow-lg dark:border-white/10 dark:bg-gradient-to-b dark:from-white/[0.08] dark:to-white/[0.02] dark:ring-1 dark:ring-white/10 dark:backdrop-blur-xl">
 				<CardContent className="flex items-center justify-center py-8">
 					<Loader2 className="size-6 animate-spin text-muted-foreground" />
 				</CardContent>
@@ -72,7 +72,7 @@ function RegisterPage() {
 	}
 
 	return (
-		<Card className="w-full max-w-sm">
+		<Card className="w-full max-w-sm border-border/60 shadow-[0_8px_30px_rgb(0,0,0,0.06),0_20px_60px_-20px_rgb(0,0,0,0.25)] ring-1 ring-black/[0.04] dark:border-white/10 dark:bg-gradient-to-b dark:from-white/[0.08] dark:to-white/[0.02] dark:shadow-[0_8px_40px_rgb(0,0,0,0.45),0_24px_80px_-20px_rgb(0,0,0,0.9)] dark:ring-white/10 dark:backdrop-blur-xl">
 			<CardHeader className="text-center">
 				<CardTitle className="text-xl">
 					{isFirstUser ? "Create Admin Account" : "Create Account"}
