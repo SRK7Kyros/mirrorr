@@ -5,8 +5,10 @@ import { useAuthStore } from "@/stores/auth-store";
 import { routeTree } from "./routeTree.gen";
 import "./index.css";
 
+const routerBasepath = import.meta.env.BASE_URL.replace(/\/$/, "");
 const router = createRouter({
 	routeTree,
+	...(routerBasepath ? { basepath: routerBasepath } : {}),
 	context: {
 		auth: {
 			isAuthenticated: false,

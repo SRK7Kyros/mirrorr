@@ -8,6 +8,7 @@ User=opc
 Group=opc
 WorkingDirectory=__REPO_ROOT__/mirrorr-web
 Environment=HOME=__RUN_HOME__
+Environment=MIRRORR_BASE=/dev/
 ExecStart=/bin/bash -c 'exec bun run dev -- --host 127.0.0.1 --port 5174'
 Restart=on-failure
 RestartSec=3
