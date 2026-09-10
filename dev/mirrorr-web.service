@@ -1,0 +1,20 @@
+[Unit]
+Description=Mirrorr Web UI (static frontend for Mirrorr Core)
+After=network.target
+
+[Service]
+Type=simple
+User=opc
+Group=opc
+WorkingDirectory=/home/opc/everything/kyros/code/mirrorr/dev
+Environment=HOME=/home/opc
+Environment=PORT=5173
+Environment=HOST=127.0.0.1
+Environment=ROOT=/home/opc/everything/kyros/code/mirrorr/dev/web
+ExecStart=/bin/bash -c 'exec /home/opc/.local/share/mise/installs/bun/latest/bin/bun /home/opc/everything/kyros/code/mirrorr/dev/serve-web.js'
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

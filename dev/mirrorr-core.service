@@ -1,0 +1,19 @@
+[Unit]
+Description=Mirrorr Core API (live stream management backend)
+After=network.target
+
+[Service]
+Type=simple
+User=opc
+Group=opc
+WorkingDirectory=/home/opc/everything/kyros/code/mirrorr/mirrorr-core
+Environment=HOME=/home/opc
+Environment=BASE_DIR=/home/opc/everything/kyros/code/mirrorr/dev/core
+Environment=MIRRORR_ENV=development
+ExecStart=/bin/bash /home/opc/everything/kyros/code/mirrorr/dev/run-core.sh --host 127.0.0.1 --port 8000 --dev-seed-admin
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
