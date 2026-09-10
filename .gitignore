@@ -1,0 +1,8 @@
+# wrapper-local (machine state, never commit)
+.codegraph
+.omo/
+.tmp-*
+
+# dev runtime state + deployed web build output (rebuilt from mirrorr-web/dist)
+dev/core/
+dev/web/
