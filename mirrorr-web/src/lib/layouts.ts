@@ -23,6 +23,7 @@ function gridStyle(
 	rows?: string,
 ): React.CSSProperties {
 	const style: React.CSSProperties = {
+		display: "grid",
 		gridTemplateAreas: area,
 		gridTemplateColumns: columns,
 	};
