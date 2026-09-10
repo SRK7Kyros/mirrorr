@@ -1,0 +1,20 @@
+[Unit]
+Description=Mirrorr Web UI (static frontend for Mirrorr Core)
+After=network.target
+
+[Service]
+Type=simple
+User=opc
+Group=opc
+WorkingDirectory=__REPO_ROOT__/dev
+Environment=HOME=__RUN_HOME__
+Environment=PORT=5173
+Environment=HOST=127.0.0.1
+Environment=ROOT=__REPO_ROOT__/dev/web
+ExecStart=/bin/bash -c 'exec bun __REPO_ROOT__/dev/serve-web.js'
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
