@@ -1,0 +1,58 @@
+[project]
+name = "mirrorr-core"
+version = "0.1.0"
+description = "Mirrorr's server module. Basically a FastAPI server that talks to a process manager and a database gateway."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "aiosqlite>=0.22.1",
+    "fastapi>=0.136.3",
+    "httpx>=0.28.1",
+    "local-ffmpeg>=0.1.4",
+    "loguru>=0.7.3",
+    "nats-py>=2.15.0",
+    "pendulum>=3.2.0",
+    "psutil>=7.2.2",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.1",
+    "pytest>=9.0.3",
+    "setproctitle>=1.3.7",
+    "sqlmodel>=0.0.38",
+    "uvicorn[standard]>=0.49.0",
+    "yt-dlp>=2026.3.17",
+    "pyjwt>=2.10.0",
+    "bcrypt>=4.2.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ty.environment]
+python-version = "3.14"
+root = ["src"]
+
+[tool.ty.src]
+include = ["src"]
+
+[tool.ty.rules]
+# Critical: catches missing imports (NameError at edit time — the asyncio bug class)
+possibly-missing-import = "error"
+# Suppress SQLModel/SQLAlchemy type-stub false positives
+invalid-argument-type = "ignore"
+unresolved-attribute = "ignore"
+# Catch unresolved references (missing imports, undefined names)
+unresolved-reference = "error"
+# Suppress stale pyright ignore comments that ty doesn't recognize
+unused-ignore-comment = "ignore"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mirrorr"]  
+
+[dependency-groups]
+dev = [
+    "ty>=0.0.60",
+]
+
+[project.scripts]
+mirrorr = "mirrorr.main:main"
