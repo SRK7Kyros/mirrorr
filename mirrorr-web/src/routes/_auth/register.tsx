@@ -63,7 +63,7 @@ function RegisterPage() {
 
 	if (statusLoading) {
 		return (
-			<Card className="w-full max-w-sm border-border/60 shadow-lg dark:border-white/10 dark:bg-gradient-to-b dark:from-white/[0.08] dark:to-white/[0.02] dark:ring-1 dark:ring-white/10 dark:backdrop-blur-xl">
+			<Card className="w-full max-w-sm border border-border/70 shadow-[0_24px_60px_-24px_rgb(0,0,0,0.3)] dark:border-white/25 dark:bg-white/[0.09] dark:shadow-[inset_0_1px_0_rgb(255,255,255,0.2),0_24px_70px_-20px_rgb(0,0,0,0.85)] dark:ring-0 dark:ring-white/10 dark:backdrop-blur-xl">
 				<CardContent className="flex items-center justify-center py-8">
 					<Loader2 className="size-6 animate-spin text-muted-foreground" />
 				</CardContent>
@@ -72,7 +72,7 @@ function RegisterPage() {
 	}
 
 	return (
-		<Card className="w-full max-w-sm border-border/70 shadow-[0_24px_60px_-24px_rgb(0,0,0,0.3)] dark:border-white/15 dark:bg-white/[0.05] dark:shadow-[inset_0_1px_0_rgb(255,255,255,0.12),0_24px_70px_-20px_rgb(0,0,0,0.85)] dark:ring-1 dark:ring-white/10 dark:backdrop-blur-xl">
+		<Card className="w-full max-w-sm border border-border/70 shadow-[0_24px_60px_-24px_rgb(0,0,0,0.3)] dark:border-white/25 dark:bg-white/[0.09] dark:shadow-[inset_0_1px_0_rgb(255,255,255,0.2),0_24px_70px_-20px_rgb(0,0,0,0.85)] dark:ring-0 dark:ring-white/10 dark:backdrop-blur-xl">
 			<CardHeader className="text-center">
 				<CardTitle className="text-xl">
 					{isFirstUser ? "Create Admin Account" : "Create Account"}
