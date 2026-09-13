@@ -457,8 +457,7 @@ function EditSheet({
 		},
 		onError: (err: Error) => {
 			const api = err as ApiError;
-			const rule = (api as unknown as { rule?: string }).rule;
-			toast.error(rule ? `${api.message} [${rule}]` : api.message);
+			toast.error(api.rule ? `${api.message} [${api.rule}]` : api.message);
 		},
 	});
 

@@ -15,7 +15,7 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { authApi } from "@/lib/api";
+import { authApi, ApiError } from "@/lib/api";
 import { setActiveTokens } from "@/lib/token-store";
 import { registerSchema } from "@/lib/schemas";
 import { useAuthStore } from "@/stores/auth-store";
@@ -68,11 +68,11 @@ function RegisterPage() {
 		},
 		onError: (err: Error) => {
 			const msg = err.message || "Registration failed";
-			if (msg.toLowerCase().includes("already pending")) {
+			if (err instanceof ApiError && err.rule === "registration-dedupe") {
 				setError("Request already pending — an admin will approve you");
 			} else if (
-				msg.toLowerCase().includes("already exists") ||
-				msg.toLowerCase().includes("already registered")
+				(err instanceof ApiError && err.rule === "registration-collision") ||
+				msg.toLowerCase().includes("already exists")
 			) {
 				setError("Username already exists — try signing in");
 			} else {

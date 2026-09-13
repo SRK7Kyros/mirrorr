@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { useWsConnection } from "@/hooks/use-ws-connection";
-import { getWsNotificationsUrl } from "@/lib/api";
+import { getWsNotificationsUrl, notificationsApi } from "@/lib/api";
 import { notificationSchema, type Notification } from "@/lib/schemas";
 import { useAuthStore } from "@/stores/auth-store";
 import { useRequestLogStore } from "@/stores/request-log-store";
@@ -52,12 +52,22 @@ export function useWsNotifications() {
 
 	useWsConnection({ url: getWsNotificationsUrl(), onMessage, isAuthenticated });
 
-	const markRead = useCallback((id: number) => {
+	const markRead = useCallback(async (id: number) => {
 		setNotifications((prev) => prev.filter((n) => n.id !== id));
+		try {
+			await notificationsApi.markRead(id);
+		} catch {
+			// Best-effort persistence: the local dismissal already applied.
+		}
 	}, []);
 
-	const clearAll = useCallback(() => {
+	const clearAll = useCallback(async () => {
 		setNotifications([]);
+		try {
+			await notificationsApi.markAllRead();
+		} catch {
+			// Best-effort persistence: the local dismissal already applied.
+		}
 	}, []);
 
 	return { notifications, markRead, clearAll };
