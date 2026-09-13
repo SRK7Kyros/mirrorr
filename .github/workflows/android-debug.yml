@@ -27,21 +27,17 @@ jobs:
         run: bun install
         working-directory: mirrorr-web
 
-      - name: Install mobile dependencies
-        run: bun install
-        working-directory: mirrorr-mobile
-
       - name: Type-check web
         run: bun run typecheck
         working-directory: mirrorr-web
 
       - name: Build Android debug APK
-        run: bun run build:android:debug
-        working-directory: mirrorr-mobile
+        run: bun run mobile:build:android:debug
+        working-directory: mirrorr-web
 
       - name: Upload Android debug APK
         uses: actions/upload-artifact@v4
         with:
           name: mirrorr-android-debug-apk
-          path: mirrorr-mobile/android/app/build/outputs/apk/debug/*.apk
+          path: mirrorr-web/mobile/android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error

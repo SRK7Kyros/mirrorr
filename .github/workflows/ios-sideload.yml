@@ -24,51 +24,47 @@ jobs:
         run: bun install
         working-directory: mirrorr-web
 
-      - name: Install mobile dependencies
-        run: bun install
-        working-directory: mirrorr-mobile
-
       - name: Build web + prepare wrapper assets
-        run: bun run build
-        working-directory: mirrorr-mobile
+        run: bun run mobile:build
+        working-directory: mirrorr-web
 
       - name: Add iOS platform
         run: bunx cap add ios
-        working-directory: mirrorr-mobile
+        working-directory: mirrorr-web
 
       - name: Sync web assets to native project
         run: bunx cap sync ios
-        working-directory: mirrorr-mobile
+        working-directory: mirrorr-web
 
       - name: Build unsigned app (sideload)
         run: |
-          xcodebuild -quiet -project ios/App/App.xcodeproj \
+          xcodebuild -quiet -project mobile/ios/App/App.xcodeproj \
             -scheme App \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -configuration Release \
             CODE_SIGNING_ALLOWED=NO build \
             -derivedDataPath build
-        working-directory: mirrorr-mobile
+        working-directory: mirrorr-web
 
       - name: Package IPA
         run: |
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/*.app Payload/
           zip -qr Mirrorr.ipa Payload
-        working-directory: mirrorr-mobile
+        working-directory: mirrorr-web
 
       - uses: actions/upload-artifact@v4
         with:
           name: mirrorr-ipa
-          path: mirrorr-mobile/Mirrorr.ipa
+          path: mirrorr-web/Mirrorr.ipa
 
       - name: Publish nightly release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete nightly --yes --repo "$GITHUB_REPOSITORY" || true
-          gh release create nightly mirrorr-mobile/Mirrorr.ipa \
+          gh release create nightly mirrorr-web/Mirrorr.ipa \
             --repo "$GITHUB_REPOSITORY" \
             --title "Mirrorr nightly IPA" \
             --notes "Unsigned Mirrorr build for sideloading (Feather/Sideloadly/AltStore)." \
