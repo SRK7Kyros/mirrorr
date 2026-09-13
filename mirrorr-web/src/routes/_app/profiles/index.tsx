@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { DeleteConfirm } from "@/components/delete-confirm";
 import { describeCascade } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
-import { Trash2, Settings, Cpu, Zap, Loader2, Download } from "lucide-react";
-import { useState } from "react";
+import { Trash2, Settings, Cpu, Zap, Loader2, Download, Pencil } from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ImportDialog } from "@/components/import-dialog";
 import {
@@ -45,6 +45,7 @@ function ProfilesPage() {
 	const queryClient = useQueryClient();
 	const [showCreate, setShowCreate] = useState(false);
 	const [selectedId, setSelectedId] = useState<number | null>(null);
+	const [editingId, setEditingId] = useState<number | null>(null);
 	const [importOpen, setImportOpen] = useState(false);
 	const [importBundle, setImportBundle] = useState<BundleFile[] | null>(null);
 
@@ -150,10 +151,19 @@ function ProfilesPage() {
 			</MultiSelectProvider>
 			{showCreate ? (
 				<CreateProfilePanel onClose={() => setShowCreate(false)} />
+			) : editingId ? (
+				<EditProfilePanel
+					profile={profiles.find((p) => p.id === editingId)}
+					onClose={() => setEditingId(null)}
+				/>
 			) : selectedId ? (
 				<ProfileDetail
 					profile={profiles.find((p) => p.id === selectedId)}
 					onBack={() => setSelectedId(null)}
+					onEdit={(p) => {
+						setEditingId(p.id);
+						setSelectedId(null);
+					}}
 					onDelete={() => {
 						deleteMutation.mutate(selectedId);
 						setSelectedId(null);
@@ -204,11 +214,13 @@ function BulkActions() {
 function ProfileDetail({
 	profile,
 	onBack,
+	onEdit,
 	onDelete,
 	deleting,
 }: {
 	profile: Profile | undefined;
 	onBack: () => void;
+	onEdit: (profile: Profile) => void;
 	onDelete: () => void;
 	deleting: boolean;
 }) {
@@ -226,6 +238,15 @@ function ProfileDetail({
 					title={profile.name}
 					actions={
 						<div className="flex items-center gap-1">
+							<Button
+								variant="ghost"
+								size="sm"
+								className="h-7 text-xs"
+								onClick={() => onEdit(profile)}
+							>
+								<Pencil className="size-3 mr-1" />
+								Edit
+							</Button>
 							<ExportButton
 								onExport={() => importExportApi.exportProfile(profile.id)}
 								filename={profile.name}
@@ -320,6 +341,88 @@ function CreateProfilePanel({ onClose }: { onClose: () => void }) {
 				})
 			}
 			isPending={createMutation.isPending}
+			canSubmit={!!name && !!config.engineId && !!config.resolverId}
+		>
+			<FormField label="Name">
+				<Input
+					value={name}
+					onChange={(e) => setName(e.target.value)}
+					className="h-8 text-xs"
+					placeholder="My Profile"
+				/>
+			</FormField>
+			<PluginConfigFields
+				engineId={config.engineId}
+				resolverId={config.resolverId}
+				retryMode={config.retryMode}
+				retryConfig={config.retryConfig}
+				resolverConfig={config.resolverConfig}
+				availableRetryModes={config.availableRetryModes}
+				retryModeSchema={config.retryModeSchema}
+				resolverConfigSchema={config.resolverConfigSchema}
+				engines={config.engines}
+				resolvers={config.resolvers}
+				onEngineChange={config.handleEngineChange}
+				onResolverChange={config.handleResolverChange}
+				onRetryModeChange={config.handleRetryModeChange}
+				onRetryConfigChange={config.setRetryConfig}
+				onResolverConfigChange={config.setResolverConfig}
+			/>
+		</CreatePanel>
+	);
+}
+
+function EditProfilePanel({
+	profile,
+	onClose,
+}: {
+	profile: Profile | undefined;
+	onClose: () => void;
+}) {
+	const queryClient = useQueryClient();
+	const config = usePluginConfig();
+	const [name, setName] = useState("");
+
+	useEffect(() => {
+		if (!profile) return;
+		setName(profile.name);
+		config.handleEngineChange(String(profile.default_engine_id));
+		config.handleResolverChange(String(profile.resolver_id));
+		config.setRetryMode(profile.retry_mode ?? "none");
+		config.setRetryConfig(profile.retry_config ?? {});
+		config.setResolverConfig(profile.resolver_config ?? {});
+	}, [profile?.id]);
+
+	const updateMutation = useMutation({
+		mutationFn: (data: Parameters<typeof profilesApi.create>[0]) =>
+			profilesApi.update(profile?.id ?? 0, data),
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: ["profiles"] });
+			onClose();
+			toast.success("Profile updated");
+		},
+		onError: (err: Error) =>
+			toast.error(`Failed to update profile: ${err.message}`),
+	});
+
+	if (!profile) return null;
+
+	return (
+		<CreatePanel
+			title={`Edit ${profile.name}`}
+			onClose={onClose}
+			submitLabel="Save Changes"
+			onSubmit={() =>
+				updateMutation.mutate({
+					name,
+					default_engine_id: parseInt(config.engineId, 10),
+					resolver_id: parseInt(config.resolverId, 10),
+					retry_mode: config.retryMode,
+					resolver_config: config.resolverConfig,
+					retry_config: config.retryConfig,
+				})
+			}
+			isPending={updateMutation.isPending}
 			canSubmit={!!name && !!config.engineId && !!config.resolverId}
 		>
 			<FormField label="Name">
