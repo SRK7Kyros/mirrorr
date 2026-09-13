@@ -126,6 +126,7 @@ export function usePluginConfig() {
 		engineId,
 		resolverId,
 		retryMode,
+		setRetryMode,
 		retryConfig,
 		setRetryConfig,
 		resolverConfig,
