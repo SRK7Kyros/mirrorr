@@ -1,33 +1,36 @@
-# mirrorr-mobile — Capacitor wrapper (iOS + Android)
+# mobile — Capacitor wrapper (iOS + Android)
 
 Wraps the `mirrorr-web` production build as installable mobile apps.
 Same web codebase, no second UI: `mobile.html` (viewport-locked) becomes
 the wrapper `index.html`; the browser build keeps page-zoom.
 
+All commands run from `mirrorr-web/` (single package, single lockfile);
+`capacitor.config.ts` at the web root points `webDir` at `mobile/dist`
+and the native projects at `mobile/ios` + `mobile/android`.
+
 ## Setup
 
 ```sh
-cd mirrorr-mobile
+cd mirrorr-web
 bun install
 
-# Build web + copy assets (mobile.html -> dist/index.html, locked viewport)
-bun run build
+# Build web + copy assets (dist/mobile.html -> mobile/dist/index.html, locked viewport)
+bun run mobile:build
 
 # Generate native projects (first time only; dirs are gitignored)
-bunx cap add ios
-bunx cap add android
+bun run mobile:add:ios
+bun run mobile:add:android
 
 # Re-apply the iOS ATS exception below, then:
-bunx cap sync
+bun run mobile:sync
 ```
 
-`scripts/with-mobile-env.mjs` wraps toolchain env
-(`DEVELOPER_DIR` via `xcode-select -p`, `JAVA_HOME`, `ANDROID_HOME`):
-`node scripts/with-mobile-env.mjs "bun run sync"`.
+`mobile/scripts/with-mobile-env.mjs` wraps toolchain env
+(`DEVELOPER_DIR` via `xcode-select -p`, `JAVA_HOME`, `ANDROID_HOME`).
 
 ## iOS ATS exception (required for plain-http LAN)
 
-After every fresh `cap add ios`, re-add to `ios/App/App/Info.plist`
+After every fresh `mobile:add:ios`, re-add to `mobile/ios/App/App/Info.plist`
 (inside `<dict>`). Without it an Instance like
 `http://192.168.1.20:8000` fails closed on iOS with
 `NSURLErrorDomain -1022` while Android works via `allowMixedContent`:
@@ -71,12 +74,13 @@ packaged-client CORS allowlist first.
 
 Two workflows build the wrapper without signatures or store uploads:
 
-- `.github/workflows/ios-sideload.yml` — macos-15 runner builds the
-  web bundle, copies `mobile.html` → `dist/index.html`, runs `cap sync`,
-  then `xcodebuild CODE_SIGNING_ALLOWED=NO` and zips the unsigned
+- `.github/workflows/ios-sideload.yml` — macos-15 runner installs the
+  single `mirrorr-web` package, runs `mobile:build`, `cap add ios`,
+  `cap sync`, then `xcodebuild CODE_SIGNING_ALLOWED=NO` on
+  `mobile/ios/App/App.xcodeproj` and zips the unsigned
   `Mirrorr.ipa`. Publishes a `nightly` release + `mirrorr-ipa` artifact.
 - `.github/workflows/android-debug.yml` — ubuntu-latest + Temurin JDK 21
-  builds via `bun run build:android:debug` and uploads the
+  runs `mobile:build:android:debug` and uploads the
   `mirrorr-android-debug-apk` artifact.
 
 Run either from Actions → workflow → Run workflow. Both trigger only on
