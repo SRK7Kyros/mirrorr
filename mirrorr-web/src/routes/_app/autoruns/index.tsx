@@ -4,6 +4,8 @@ import { autorunsApi, importExportApi } from "@/lib/api";
 import { createAutorunSchema } from "@/lib/schemas";
 import type { Autorun } from "@/lib/schemas";
 import { Button } from "@/components/ui/button";
+import { ZoomableAutorunGrid } from "@/components/zoomable-autorun-grid";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { DeleteConfirm } from "@/components/delete-confirm";
 import { StatusBadge } from "@/components/status-badge";
 import { InfoGrid } from "@/components/info-grid";
@@ -109,6 +111,32 @@ function AutorunsPage() {
 	});
 
 	const autorunIds = autoruns.map((a) => a.id);
+	const isMobile = useIsMobile();
+
+	if (isMobile) {
+		return (
+			<div className="flex flex-col h-full min-h-0">
+				<ZoomableAutorunGrid
+					autoruns={autoruns}
+					selectedId={selectedId}
+					onSelect={(id) => {
+						setSelectedId(id);
+						setShowCreate(false);
+					}}
+				/>
+				<div className="shrink-0 p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
+					<Button className="w-full h-11" onClick={() => setShowCreate(true)}>
+						New Autorun
+					</Button>
+					{showCreate && (
+						<div className="mt-3">
+							<CreateAutorunPanel onClose={() => setShowCreate(false)} />
+						</div>
+					)}
+				</div>
+			</div>
+		);
+	}
 
 	return (
 		<ResizableSidebar>
