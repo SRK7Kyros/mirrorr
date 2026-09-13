@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { autorunsApi, importExportApi } from "@/lib/api";
+import { autorunsApi, importExportApi, ApiError } from "@/lib/api";
 import { createAutorunSchema } from "@/lib/schemas";
 import type { Autorun } from "@/lib/schemas";
 import { Button } from "@/components/ui/button";
@@ -37,6 +37,7 @@ import {
 	ChevronDown,
 	ChevronRight,
 	Download,
+	Copy,
 } from "lucide-react";
 import { formatLocalDate, describeCascade, toUtcNaive } from "@/lib/utils";
 import { useState, useMemo, useEffect } from "react";
@@ -119,10 +120,18 @@ function AutorunsPage() {
 			"agenda",
 	);
 	const [slot, setSlot] = useState<{ start: string; end: string } | null>(null);
+	const [duplicateSource, setDuplicateSource] = useState<Autorun | null>(null);
 
 	const switchView = (v: "agenda" | "calendar") => {
 		setView(v);
 		localStorage.setItem(VIEW_KEY, v);
+	};
+
+	const handleDuplicate = (a: Autorun) => {
+		setDuplicateSource(structuredClone(a) as Autorun);
+		setSlot(null);
+		setSelectedId(null);
+		setShowCreate(true);
 	};
 
 	const openDetail = (id: number) => {
@@ -173,9 +182,11 @@ function AutorunsPage() {
 								onClose={() => {
 									setShowCreate(false);
 									setSlot(null);
+									setDuplicateSource(null);
 								}}
 								initialStart={slot?.start}
 								initialEnd={slot?.end}
+								duplicateSource={duplicateSource}
 							/>
 						) : (
 							<AutorunDetail
@@ -185,6 +196,7 @@ function AutorunsPage() {
 									if (selectedId != null) deleteMutation.mutate(selectedId);
 									setSelectedId(null);
 								}}
+								onDuplicate={handleDuplicate}
 								deleting={deleteMutation.isPending}
 								profileMap={profileMap}
 								engineMap={engineMap}
@@ -211,6 +223,7 @@ function AutorunsPage() {
 						setSelectedId(id);
 						setShowCreate(false);
 					}}
+					onDuplicate={handleDuplicate}
 				/>
 				<div className="shrink-0 p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
 					<Button className="w-full h-11" onClick={() => setShowCreate(true)}>
@@ -218,7 +231,13 @@ function AutorunsPage() {
 					</Button>
 					{showCreate && (
 						<div className="mt-3">
-							<CreateAutorunPanel onClose={() => setShowCreate(false)} />
+							<CreateAutorunPanel
+								onClose={() => {
+									setShowCreate(false);
+									setDuplicateSource(null);
+								}}
+								duplicateSource={duplicateSource}
+							/>
 						</div>
 					)}
 				</div>
@@ -299,7 +318,13 @@ function AutorunsPage() {
 				<BulkActionBar actions={<BulkActions />} />
 			</MultiSelectProvider>
 			{showCreate ? (
-				<CreateAutorunPanel onClose={() => setShowCreate(false)} />
+				<CreateAutorunPanel
+					onClose={() => {
+						setShowCreate(false);
+						setDuplicateSource(null);
+					}}
+					duplicateSource={duplicateSource}
+				/>
 			) : selectedId ? (
 				<AutorunDetail
 					autorun={autoruns.find((a) => a.id === selectedId)}
@@ -308,6 +333,7 @@ function AutorunsPage() {
 						deleteMutation.mutate(selectedId);
 						setSelectedId(null);
 					}}
+					onDuplicate={handleDuplicate}
 					deleting={deleteMutation.isPending}
 					profileMap={profileMap}
 					engineMap={engineMap}
@@ -357,6 +383,7 @@ function AutorunDetail({
 	autorun,
 	onBack,
 	onDelete,
+	onDuplicate,
 	deleting,
 	profileMap,
 	engineMap,
@@ -364,10 +391,12 @@ function AutorunDetail({
 	autorun: Autorun | undefined;
 	onBack: () => void;
 	onDelete: () => void;
+	onDuplicate: (a: Autorun) => void;
 	deleting: boolean;
 	profileMap: Record<number, string>;
 	engineMap: Record<number, string>;
 }) {
+	const queryClient = useQueryClient();
 	const { data: resolvers = [] } = useResolvers();
 
 	const saveAsProfile = useSaveAsProfile(
@@ -378,7 +407,77 @@ function AutorunDetail({
 
 	const resolver = resolvers.find((r) => r.id === autorun?.resolver_id);
 
+	const status = autorun?.status ?? "scheduled";
+	const live = status === "active" || status === "recording";
+	const teardown =
+		status === "terminating" ||
+		status === "remuxing" ||
+		status === "finalizing";
+	const spent = status === "completed" || status === "failed";
+	const overdue =
+		status === "scheduled" &&
+		(autorun?.start_time != null
+			? new Date(autorun.start_time).getTime() < Date.now()
+			: false);
+	const timeDisabled = live || teardown || spent;
+
+	const [editName, setEditName] = useState(autorun?.user_friendly_name ?? "");
+	const [editStart, setEditStart] = useState(
+		autorun?.start_time?.slice(0, 19) ?? "",
+	);
+	const [editEnd, setEditEnd] = useState(autorun?.end_time?.slice(0, 19) ?? "");
+
+	useEffect(() => {
+		setEditName(autorun?.user_friendly_name ?? "");
+		setEditStart(autorun?.start_time?.slice(0, 19) ?? "");
+		setEditEnd(autorun?.end_time?.slice(0, 19) ?? "");
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [autorun?.id]);
+
+	const updateMutation = useMutation({
+		mutationFn: (payload: {
+			start_time?: string;
+			end_time?: string;
+			user_friendly_name?: string;
+		}) => autorunsApi.update(autorun?.id ?? 0, payload),
+		onSuccess: () => {
+			toast.success("Autorun updated");
+			queryClient.invalidateQueries({ queryKey: ["autoruns"] });
+		},
+		onError: (err: Error) => {
+			const api = err as ApiError;
+			toast.error(api.rule ? `${api.message} [${api.rule}]` : api.message);
+		},
+	});
+
+	const saveName = () => {
+		const next = editName.trim();
+		if (!next || next === autorun?.user_friendly_name) return;
+		updateMutation.mutate({ user_friendly_name: next });
+	};
+
+	const saveTimes = (start: string, end: string) => {
+		const payload: { start_time?: string; end_time?: string } = {};
+		if (!timeDisabled && start) payload.start_time = toUtcNaive(start);
+		if (live || (!timeDisabled && end)) {
+			const endMs = new Date(end).getTime();
+			if (!live && (Number.isNaN(endMs) || endMs <= Date.now())) {
+				toast.error("End must be in the future [end-must-be-future]");
+				return;
+			}
+			if (live && !Number.isNaN(endMs) && endMs <= Date.now()) {
+				const ok = window.confirm(
+					`End ${end.slice(11, 16)} → session stops within ~2× check interval (default 10s). Confirm?`,
+				);
+				if (!ok) return;
+			}
+			payload.end_time = toUtcNaive(end);
+		}
+		updateMutation.mutate(payload);
+	};
+
 	if (!autorun) return null;
+
 	return (
 		<DetailLayout
 			header={
@@ -405,6 +504,18 @@ function AutorunDetail({
 								onExport={() => importExportApi.exportAutorun(autorun.id)}
 								filename={autorun.user_friendly_name}
 							/>
+							{spent && (
+								<Button
+									variant="outline"
+									size="sm"
+									className="h-7 text-xs"
+									onClick={() => onDuplicate(autorun)}
+									title="Duplicate — new run with copied engine and resolver config"
+								>
+									<Copy className="size-3 mr-1" />
+									Duplicate
+								</Button>
+							)}
 							<DeleteConfirm
 								entityName="Autorun"
 								isPending={deleting}
@@ -465,6 +576,94 @@ function AutorunDetail({
 					},
 				]}
 			/>
+			<FormField label="Name">
+				<Input
+					value={editName}
+					onChange={(e) => setEditName(e.target.value)}
+					onBlur={saveName}
+					onKeyDown={(e) => {
+						if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+					}}
+					className="h-7 text-xs max-w-55"
+					title="Rename — always allowed"
+				/>
+			</FormField>
+			<div className="grid grid-cols-2 gap-3">
+				<FormField
+					label={
+						live
+							? "Start (frozen while live)"
+							: teardown
+								? "Start (frozen while tearing down)"
+								: spent
+									? "Start (history is immutable)"
+									: overdue
+										? "Start (overdue — move to future)"
+										: "Start"
+					}
+				>
+					<div
+						className={
+							timeDisabled ? "pointer-events-none opacity-50" : undefined
+						}
+						aria-disabled={timeDisabled}
+						title={
+							live
+								? "Start is frozen while live [live-start-frozen]"
+								: teardown
+									? "Schedule is frozen while tearing down [teardown-race]"
+									: spent
+										? "Completed history is immutable [history-immutable]"
+										: undefined
+						}
+					>
+						<DateTimePicker value={editStart} onChange={setEditStart} />
+					</div>
+				</FormField>
+				<FormField
+					label={
+						live
+							? "End (live — editable)"
+							: teardown
+								? "End (frozen while tearing down)"
+								: spent
+									? "End (history is immutable)"
+									: "End"
+					}
+				>
+					<div
+						className={
+							!live && timeDisabled ? "pointer-events-none opacity-50" : undefined
+						}
+						aria-disabled={!live && timeDisabled}
+						title={
+							teardown
+								? "Schedule is frozen while tearing down [teardown-race]"
+								: spent
+									? "Completed history is immutable [history-immutable]"
+									: undefined
+						}
+					>
+						<DateTimePicker value={editEnd} onChange={setEditEnd} />
+					</div>
+				</FormField>
+			</div>
+			<div className="flex gap-2">
+				<Button
+					variant="outline"
+					size="sm"
+					className="h-7 text-xs"
+					disabled={teardown || spent || updateMutation.isPending}
+					title={
+						live
+							? "End is editable while live; start is frozen [live-start-frozen]"
+							: undefined
+					}
+					onClick={() => saveTimes(editStart, editEnd)}
+				>
+					{updateMutation.isPending ? "Saving…" : "Save schedule"}
+				</Button>
+			</div>
 			<div className="flex gap-4">
 				{(autorun.status === "scheduled" &&
 					(autorun.next_run_at ?? autorun.start_time)) && (
@@ -510,14 +709,18 @@ function CreateAutorunPanel({
 	onClose,
 	initialStart,
 	initialEnd,
+	duplicateSource,
 }: {
 	onClose: () => void;
 	initialStart?: string;
 	initialEnd?: string;
+	duplicateSource?: Autorun | null;
 }) {
 	const queryClient = useQueryClient();
 	const config = usePluginConfig();
-	const [name, setName] = useState("");
+	const [name, setName] = useState(
+		duplicateSource ? `${duplicateSource.user_friendly_name} (copy)` : "",
+	);
 	const [recording, setRecording] = useState(true);
 	const [timeMode, setTimeMode] = useState<"pick" | "relative">("pick");
 	const [startTime, setStartTime] = useState(initialStart ?? "");
@@ -532,6 +735,24 @@ function CreateAutorunPanel({
 	useEffect(() => {
 		if (initialEnd) setEndTime(initialEnd);
 	}, [initialEnd]);
+
+	useEffect(() => {
+		if (duplicateSource) {
+			config.handleProfileChange(
+				duplicateSource.profile_id != null
+					? String(duplicateSource.profile_id)
+					: "__none__",
+			);
+			config.handleEngineChange(String(duplicateSource.engine_id ?? ""));
+			config.handleResolverChange(String(duplicateSource.resolver_id ?? ""));
+			config.handleRetryModeChange(duplicateSource.retry_mode ?? "none");
+			config.setRetryConfig(structuredClone(duplicateSource.retry_config ?? {}));
+			config.setResolverConfig(
+				structuredClone(duplicateSource.resolver_config ?? {}),
+			);
+		}
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [duplicateSource?.id]);
 
 	useInterval(() => setNow(Date.now()), 1000);
 
