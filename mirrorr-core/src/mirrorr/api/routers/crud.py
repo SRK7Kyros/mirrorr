@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -187,6 +187,84 @@ async def _safe_delete(db: AsyncSession, model: type, id: int) -> None:
 
 
 T = TypeVar("T", bound=SQLModel)
+
+
+_LIVE_CONFIG_FIELDS = ("engine_id", "resolver_id", "resolver_config", "profile_id", "retry_mode", "retry_config")
+_TEARDOWN_STATUSES = (AutorunStatus.TERMINATING, AutorunStatus.REMUXING, AutorunStatus.FINALIZING)
+_SPENT_STATUSES = (AutorunStatus.COMPLETED, AutorunStatus.FAILED)
+
+
+def _naive_utc(value) -> datetime:
+    """Normalize an incoming datetime to naive UTC for comparison/storage.
+
+    Aware values are converted to UTC then dropped to naive; naive values
+    are compared as-is (server clock, matching the DB convention).
+    """
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
+def _guard_denied(status_code: int, detail: str, rule: str) -> HTTPException:
+    return HTTPException(status_code=status_code, detail={"detail": detail, "rule": rule})
+
+
+def _enforce_autorun_update_guard(existing: Autorun, payload_data: dict) -> None:
+    """Field-level guard for ``PUT /autoruns/{id}`` (mirrorr-ui-remake Todo 1).
+
+    Status families mirror ``storage.enums.AutorunStatus``; ``overdue`` is
+    derived (``SCHEDULED`` with ``start_time`` in the past), never stored.
+
+    Re-checks status right before write so a scheduler tick that flips
+    SCHEDULED→ACTIVE between draft and submit lands 409, never 200.
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    status = existing.status
+    config_fields = [f for f in _LIVE_CONFIG_FIELDS if f in payload_data]
+
+    new_start = payload_data.get("start_time", existing.start_time)
+    new_start = _naive_utc(new_start) if new_start is not None else None
+    new_end = payload_data.get("end_time", existing.end_time)
+    new_end = _naive_utc(new_end) if new_end is not None else None
+    wants_start = "start_time" in payload_data
+    wants_end = "end_time" in payload_data
+
+    if wants_start or wants_end:
+        if new_start is not None and new_end is not None and new_end <= new_start:
+            raise _guard_denied(422, "End must be after start", "end-before-start")
+
+    if status == AutorunStatus.SCHEDULED:
+        overdue = existing.start_time is not None and _naive_utc(existing.start_time) < now
+        if wants_start and new_start is not None and new_start < now:
+            if overdue:
+                raise _guard_denied(422, "Overdue autorun can only be re-armed to the future", "time-travel")
+            raise _guard_denied(422, "Start must be in the future", "time-travel")
+        if wants_end and new_end is not None and new_end <= now:
+            raise _guard_denied(422, "End must be in the future", "end-must-be-future")
+        return
+
+    if status in (AutorunStatus.ACTIVE, AutorunStatus.RECORDING):
+        if wants_start:
+            raise _guard_denied(409, "Start is frozen while live", "live-start-frozen")
+        if config_fields:
+            raise _guard_denied(
+                409,
+                "Engine and resolver config are frozen while live",
+                "live-config-frozen",
+            )
+        # Live end edits stay free even when shortened to the past: the
+        # scheduler stops the session on the next tick (~2x check interval).
+        return
+
+    if status in _TEARDOWN_STATUSES:
+        if wants_start or wants_end:
+            raise _guard_denied(409, "Schedule is frozen while tearing down", "teardown-race")
+        return
+
+    if status in _SPENT_STATUSES:
+        if wants_start or wants_end or config_fields:
+            raise _guard_denied(409, "Completed history is immutable", "history-immutable")
+        return
 
 
 async def _get_paginated_for_user(
@@ -514,6 +592,7 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
     if not _require_owner_or_admin(auth, existing):
         raise HTTPException(status_code=403, detail="Not your autorun")
     payload_data = item.model_dump(exclude_unset=True)
+    _enforce_autorun_update_guard(existing, payload_data)
     if "start_time" in payload_data and payload_data["start_time"] is not None:
         payload_data["start_time"] = payload_data["start_time"].replace(tzinfo=None) if payload_data["start_time"].tzinfo else payload_data["start_time"]
     if "end_time" in payload_data and payload_data["end_time"] is not None:
