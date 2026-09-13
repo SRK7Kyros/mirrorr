@@ -229,7 +229,10 @@ async def register(
                 else:
                     live = await _find_live_user()
                     if live:
-                        raise HTTPException(status_code=409, detail="username already exists")
+                        raise HTTPException(
+                            status_code=409,
+                            detail={"detail": "username already exists", "rule": "registration-collision"},
+                        )
                     pend_stmt = select(RegistrationRequest).where(
                         RegistrationRequest.username_normalized == normalized
                     )
