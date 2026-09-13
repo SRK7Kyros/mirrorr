@@ -270,6 +270,23 @@ class User(SQLModel, table=True):
     notifications: list["Notification"] = Relationship(back_populates="user")
 
 
+class RegistrationRequest(SQLModel, table=True):
+    """A pending public registration request awaiting admin approval.
+
+    Created by POST /auth/register when users already exist and the
+    caller is not an admin. Approved requests mint a real User row;
+    denied requests are deleted (name freed for reuse).
+    """
+    __tablename__ = "registration_requests"
+
+    id: int = Field(default=None, primary_key=True)
+    username: str = Field(index=True)
+    username_normalized: str = Field(unique=True, index=True)
+    password_hash: str = Field(default="")
+    display_name: str = Field(default="")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class EventSubscription(SQLModel, table=True):
     """Tracks which users have interest in which resources.
 
