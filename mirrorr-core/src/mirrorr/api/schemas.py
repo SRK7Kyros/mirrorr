@@ -129,6 +129,24 @@ class ClientResponse(BaseModel):
 class AuthResponse(BaseModel):
     user: UserResponse
     client: ClientResponse | None = None
+    access_token: str | None = None
+    refresh_token: str | None = None
+
+
+class RegistrationPendingResponse(BaseModel):
+    status: str = "pending"
+    username: str
+
+
+class RegistrationRequestResponse(BaseModel):
+    id: int
+    username: str
+    display_name: str = ""
+    created_at: datetime | None = None
+
+
+class DenyRequest(BaseModel):
+    reason: str = Field(default="", max_length=512)
 
 
 class SessionResponse(BaseModel):
