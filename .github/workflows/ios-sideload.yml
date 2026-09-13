@@ -1,0 +1,75 @@
+name: iOS Sideload IPA
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ios-sideload-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios-sideload:
+    name: Unsigned sideload IPA
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install web dependencies
+        run: bun install
+        working-directory: mirrorr-web
+
+      - name: Install mobile dependencies
+        run: bun install
+        working-directory: mirrorr-mobile
+
+      - name: Build web + prepare wrapper assets
+        run: bun run build
+        working-directory: mirrorr-mobile
+
+      - name: Add iOS platform
+        run: bunx cap add ios
+        working-directory: mirrorr-mobile
+
+      - name: Sync web assets to native project
+        run: bunx cap sync ios
+        working-directory: mirrorr-mobile
+
+      - name: Build unsigned app (sideload)
+        run: |
+          xcodebuild -quiet -project ios/App/App.xcodeproj \
+            -scheme App \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO build \
+            -derivedDataPath build
+        working-directory: mirrorr-mobile
+
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/*.app Payload/
+          zip -qr Mirrorr.ipa Payload
+        working-directory: mirrorr-mobile
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mirrorr-ipa
+          path: mirrorr-mobile/Mirrorr.ipa
+
+      - name: Publish nightly release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete nightly --yes --repo "$GITHUB_REPOSITORY" || true
+          gh release create nightly mirrorr-mobile/Mirrorr.ipa \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Mirrorr nightly IPA" \
+            --notes "Unsigned Mirrorr build for sideloading (Feather/Sideloadly/AltStore)." \
+            --target "$GITHUB_SHA"

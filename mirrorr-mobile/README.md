@@ -66,3 +66,18 @@ packaged-client CORS allowlist first.
   `platforms;android-35`, `build-tools;35.0.0`, then accept licenses.
 - CocoaPods cannot find Capacitor pods after reinstalling deps →
   `bun install`, then rerun `bun run sync`.
+
+## CI (manual dispatch, sideload builds)
+
+Two workflows build the wrapper without signatures or store uploads:
+
+- `.github/workflows/ios-sideload.yml` — macos-15 runner builds the
+  web bundle, copies `mobile.html` → `dist/index.html`, runs `cap sync`,
+  then `xcodebuild CODE_SIGNING_ALLOWED=NO` and zips the unsigned
+  `Mirrorr.ipa`. Publishes a `nightly` release + `mirrorr-ipa` artifact.
+- `.github/workflows/android-debug.yml` — ubuntu-latest + Temurin JDK 21
+  builds via `bun run build:android:debug` and uploads the
+  `mirrorr-android-debug-apk` artifact.
+
+Run either from Actions → workflow → Run workflow. Both trigger only on
+`workflow_dispatch` so normal pushes stay green with no runner cost.
