@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card";
 import { StatusBadge } from "@/components/status-badge";
 import { useProfiles, useRecordings, useSessions } from "@/hooks/use-queries";
 import { AREAS, DASHBOARD_MAIN } from "@/lib/layouts";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { cn, getStatusDotColor } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/")({
@@ -11,6 +12,7 @@ export const Route = createFileRoute("/_app/")({
 });
 
 function DashboardPage() {
+	const isMobile = useIsMobile();
 	const { data: sessions = [] } = useSessions();
 	const { data: recordings = [] } = useRecordings();
 	const { data: profiles = [] } = useProfiles();
@@ -60,7 +62,7 @@ function DashboardPage() {
 	return (
 		<div className="h-full p-2 flex flex-col gap-2">
 			{/* Stats row */}
-			<div className="grid grid-cols-4 gap-2 shrink-0">
+			<div className="grid grid-cols-2 md:grid-cols-4 gap-2 shrink-0">
 				{[
 					{
 						label: "Active Sessions",
@@ -94,13 +96,16 @@ function DashboardPage() {
 			</div>
 
 			{/* Main area */}
-			<div className="flex-1 min-h-0 grid gap-2" style={DASHBOARD_MAIN.style}>
+			<div
+				className="flex-1 min-h-0 grid gap-2"
+				style={isMobile ? DASHBOARD_MAIN.styleStacked() : DASHBOARD_MAIN.style}
+			>
 				{/* Quick actions */}
 				<Card className="p-3 flex flex-col" style={{ gridArea: AREAS.actions }}>
 					<p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-3 shrink-0">
 						Quick Actions
 					</p>
-					<div className="flex-1 grid grid-cols-5 gap-2">
+					<div className="flex-1 grid grid-cols-2 md:grid-cols-5 gap-2 auto-rows-[88px] md:auto-rows-auto">
 						{quickActions.map((action) => {
 							const Icon = action.icon;
 							return (

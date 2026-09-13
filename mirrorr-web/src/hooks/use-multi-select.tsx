@@ -29,6 +29,10 @@ interface MultiSelectContextValue {
 	handlePlainClick: (id: number) => void;
 	/** Clear all selection */
 	clear: () => void;
+	/** Touch toggle — toggles single item without ctrl/meta (long-press / active-mode taps).
+	 * Example: on a phone, long-press session #7 calls toggle(7) to select it
+	 * with no keyboard modifiers, then tapping #9 calls toggle(9) to add it. */
+	toggle: (id: number) => void;
 }
 
 const MultiSelectContext = createContext<MultiSelectContextValue | null>(null);
@@ -109,6 +113,16 @@ export function MultiSelectProvider({
 		[allIds, idToIndex],
 	);
 
+	const toggle = useCallback((id: number) => {
+		setSelectedIds((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+		lastFocusedRef.current = id;
+	}, []);
+
 	const isSelected = useCallback(
 		(id: number) => selectedIds.has(id),
 		[selectedIds],
@@ -122,6 +136,7 @@ export function MultiSelectProvider({
 		handleModifierClick,
 		handlePlainClick,
 		clear,
+		toggle,
 	};
 
 	return (

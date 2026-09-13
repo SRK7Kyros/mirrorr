@@ -14,6 +14,7 @@
  */
 import { type ReactNode, useState } from "react";
 import { DragHandle } from "@/components/drag-handle";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { AREAS, SIDEBAR_DETAIL } from "@/lib/layouts";
 import { cn } from "@/lib/utils";
 
@@ -35,23 +36,26 @@ export function ResizableSidebar({
 	detailClassName,
 }: ResizableSidebarProps) {
 	const [width, setWidth] = useState(defaultWidth);
+	const isMobile = useIsMobile();
 	const childArray = Array.isArray(children) ? children : [children];
 	const [sidebar, detail, ...rest] = childArray;
 
 	return (
 		<>
 			<div
-				className="h-full grid gap-2 p-2"
-				style={SIDEBAR_DETAIL.style(width)}
+				className="h-full flex flex-col min-h-0 gap-2 p-2 md:grid"
+				style={isMobile ? SIDEBAR_DETAIL.styleStacked() : SIDEBAR_DETAIL.style(width)}
 			>
-				<div className="relative group" style={{ gridArea: AREAS.sidebar }}>
-					<DragHandle
-						direction="vertical"
-						value={width}
-						min={min}
-						max={max}
-						onChange={setWidth}
-					/>
+				<div className="relative group contents md:block">
+					<div className="hidden md:block">
+						<DragHandle
+							direction="vertical"
+							value={width}
+							min={min}
+							max={max}
+							onChange={setWidth}
+						/>
+					</div>
 					{sidebar}
 				</div>
 				<div
