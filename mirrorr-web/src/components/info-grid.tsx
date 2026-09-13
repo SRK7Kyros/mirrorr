@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
 interface InfoField {
@@ -12,17 +13,23 @@ interface InfoGridProps {
 }
 
 export function InfoGrid({ fields, className }: InfoGridProps) {
+	const isMobile = useIsMobile();
 	return (
 		<div
 			className={cn(
-				"grid gap-x-4 gap-y-1 justify-items-start w-fit",
+				"info-grid grid gap-x-4 gap-y-1 justify-items-start w-fit max-w-full",
+				isMobile && "w-full",
 				className,
 			)}
-			style={{
-				gridTemplateRows: "auto auto",
-				gridAutoFlow: "column",
-				gridAutoColumns: "auto",
-			}}
+			style={
+				isMobile
+					? { gridTemplateColumns: "1fr 1fr" }
+					: {
+							gridTemplateRows: "auto auto",
+							gridAutoFlow: "column",
+							gridAutoColumns: "auto",
+						}
+			}
 		>
 			{fields.map((f) => (
 				<div

@@ -100,7 +100,7 @@ export function SidebarLayout({
 
 // ── Sidebar group container ──────────────────────────────────
 
-import React from "react";
+import React, { useRef } from "react";
 import { useMultiSelectOrNull } from "@/hooks/use-multi-select";
 
 /**
@@ -204,15 +204,45 @@ export function SidebarEntry({
 	const isSelected =
 		multi && id != null ? multi.isSelected(id) : (manualSelected ?? false);
 
+	// Touch multi-select without ctrl/meta. Example: on a phone, long-press
+	// session #7 selects it (toggle with no modifiers); once any item is
+	// selected (`multi.active`), plain taps toggle instead of just moving
+	// the anchor, so tapping #9 adds it to the selection.
+	const longPressTimer = useRef<number | null>(null);
+	const longPressedRef = useRef(false);
+
 	const handleClick = (e: React.MouseEvent | React.KeyboardEvent) => {
+		if (longPressedRef.current) {
+			longPressedRef.current = false;
+			return;
+		}
 		if (multi && id != null) {
 			if (e.ctrlKey || e.metaKey || e.shiftKey) {
 				multi.handleModifierClick(id, e);
+			} else if (multi.active) {
+				multi.toggle(id);
 			} else {
 				multi.handlePlainClick(id);
 			}
 		}
 		manualOnClick?.(e);
+	};
+
+	const handleTouchStart = () => {
+		if (!multi || id == null) return;
+		longPressedRef.current = false;
+		if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
+		longPressTimer.current = window.setTimeout(() => {
+			longPressedRef.current = true;
+			multi.toggle(id);
+		}, 450);
+	};
+
+	const cancelLongPress = () => {
+		if (longPressTimer.current) {
+			window.clearTimeout(longPressTimer.current);
+			longPressTimer.current = null;
+		}
 	};
 
 	const handleMouseDown = (e: React.MouseEvent) => {
@@ -225,12 +255,15 @@ export function SidebarEntry({
 		// biome-ignore lint/a11y/useSemanticElements: selectable list item with multi-select UX
 		<div
 			className={cn(
-				"relative group px-2.5 py-2.5 transition-colors cursor-pointer select-none",
+				"relative group px-2.5 py-2.5 transition-colors cursor-pointer select-none w-full",
 				!isSelected && "rounded-md hover:bg-muted/40",
 				className,
 			)}
 			onClick={handleClick}
 			onMouseDown={handleMouseDown}
+			onTouchStart={handleTouchStart}
+			onTouchEnd={cancelLongPress}
+			onTouchMove={cancelLongPress}
 			onKeyDown={(e) => {
 				if (e.key === "Enter" || e.key === " ") {
 					e.preventDefault();
@@ -272,7 +305,7 @@ export function BulkActionBar({
 	const onClear = multi ? multi.clear : manualClear;
 	if (count < 1) return null;
 	return (
-		<div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-background/95 backdrop-blur border rounded-full px-4 py-2 shadow-lg animate-in slide-in-from-bottom-2 fade-in duration-150">
+		<div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-background/95 backdrop-blur border rounded-full px-4 py-2 shadow-lg animate-in slide-in-from-bottom-2 fade-in duration-150 mb-[calc(env(safe-area-inset-bottom)+44px)] md:mb-0">
 			<span className="text-xs font-medium text-muted-foreground tabular-nums pl-1">
 				{count} selected
 			</span>

@@ -14,6 +14,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { AREAS, CONFIG_PANELS, CONFIG_SELECTORS } from "@/lib/layouts";
+import { useIsMobile } from "@/hooks/use-mobile";
 import type { Engine, Resolver } from "@/lib/schemas";
 
 export interface PluginConfigFieldsProps {
@@ -51,9 +52,13 @@ export function PluginConfigFields({
 	onRetryConfigChange,
 	onResolverConfigChange,
 }: PluginConfigFieldsProps) {
+	const isMobile = useIsMobile();
 	return (
 		<>
-			<div className="grid gap-3 items-end" style={CONFIG_SELECTORS.style}>
+			<div
+				className="grid gap-3 items-end"
+				style={isMobile ? CONFIG_SELECTORS.styleStacked() : CONFIG_SELECTORS.style}
+			>
 				<div className="grid gap-2" style={{ gridArea: AREAS.selects }}>
 					<FormField label="Engine">
 						<Select
@@ -123,7 +128,10 @@ export function PluginConfigFields({
 					</FormField>
 				</div>
 			</div>
-			<div className="grid gap-3" style={CONFIG_PANELS.style}>
+			<div
+				className="grid gap-3"
+				style={isMobile ? CONFIG_PANELS.styleStacked() : CONFIG_PANELS.style}
+			>
 				{retryModeSchema && (
 					<ConfigPanel
 						title="Retry Config"

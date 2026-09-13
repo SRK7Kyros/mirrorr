@@ -26,6 +26,7 @@ import {
 	Loader2,
 	ChevronDown,
 	ChevronRight,
+	Square,
 } from "lucide-react";
 import { SessionLogsViewer } from "@/components/session-logs-viewer";
 import { RecordingProgressBar } from "@/components/recording-progress-bar";
@@ -80,6 +81,8 @@ function SessionsPage() {
 
 	const { data: autoruns = [] } = useAutoruns();
 
+	const queryClient = useQueryClient();
+
 	const autorunMap = useMemo(
 		() => Object.fromEntries(autoruns.map((a) => [a.id, a])),
 		[autoruns],
@@ -107,6 +110,14 @@ function SessionsPage() {
 				: sessionsApi.enableRecording(session.id),
 		onError: (err: Error) =>
 			toast.error(`Failed to toggle recording: ${err.message}`),
+	});
+	const stopMutation = useMutation({
+		mutationFn: (id: number) => sessionsApi.stop(id),
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: ["sessions"] });
+			toast.success("Session stop requested");
+		},
+		onError: (err: Error) => toast.error(`Failed to stop session: ${err.message}`),
 	});
 
 	const sessionIds = sessions.map((s) => s.id);
@@ -172,6 +183,8 @@ function SessionsPage() {
 						const session = sessions.find((s) => s.id === selectedId);
 						if (session) toggleRecMutation.mutate(session);
 					}}
+					onStop={() => stopMutation.mutate(selectedId)}
+					stopping={stopMutation.isPending}
 					deleting={effectiveDeletingId === selectedId}
 				/>
 			) : (
@@ -214,6 +227,7 @@ function SessionEntry({
 	onClick: () => void;
 }) {
 	const displayName = autorun?.user_friendly_name ?? `Session #${session.id}`;
+	const { completedDuration, runningAttempt } = getSessionTiming(session);
 
 	return (
 		<SidebarEntry
@@ -225,7 +239,12 @@ function SessionEntry({
 				{displayName}
 			</span>
 			<StatusBadge status={session.status} className="mt-px" />
-			<div className="mt-1 h-[14px] col-span-2" />
+			<div className="col-span-2 mt-1 flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
+				<LiveCountup
+					startedAt={runningAttempt?.started_at ?? null}
+					offset={completedDuration}
+				/>
+			</div>
 		</SidebarEntry>
 	);
 }
@@ -272,12 +291,16 @@ function SessionDetail({
 	onBack,
 	onDelete,
 	onToggleRec,
+	onStop,
+	stopping,
 	deleting,
 }: {
 	session: Session | undefined;
 	onBack: () => void;
 	onDelete: () => void;
 	onToggleRec: () => void;
+	onStop: () => void;
+	stopping: boolean;
 	deleting: boolean;
 }) {
 	const saveAsProfile = useSaveAsProfile(
@@ -334,7 +357,23 @@ function SessionDetail({
 								/>
 							)}
 
-							<div className="flex items-center gap-2">
+								{(session.status === "active" || session.status === "recording") && (
+								<Button
+									variant="outline"
+									size="sm"
+									className="h-11 min-h-[44px] text-xs"
+									disabled={stopping}
+									onClick={onStop}
+								>
+									{stopping ? (
+										<Loader2 className="size-3 mr-1 animate-spin" />
+									) : (
+										<Square className="size-3 mr-1" />
+									)}
+									Stop
+								</Button>
+							)}
+							<div className="flex items-center gap-2 min-h-[44px]">
 								<Label className="text-xs text-muted-foreground">
 									Recording
 								</Label>
