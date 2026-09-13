@@ -56,6 +56,8 @@ def setup_cors(app: FastAPI, allowed_origins: list[str] | None = None) -> None:
             "http://127.0.0.1:5173",
             "http://127.0.0.1:3000",
             "http://127.0.0.1:8000",
+            "capacitor://localhost",  # Capacitor wrapper (iOS + Android)
+            "ionic://localhost",  # Ionic/Capacitor dev origin
         ]
 
     app.add_middleware(

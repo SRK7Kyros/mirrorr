@@ -7,8 +7,9 @@ import threading
 import time
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, Request
+from fastapi.responses import JSONResponse
 from loguru import logger
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy import text as sa_text
 from sqlmodel import col as sa_col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -23,10 +24,11 @@ from mirrorr.api.jwt import (
 from mirrorr.api.schemas import (
     AuthResponse, ClientResponse, RegisterRequest, LoginRequest, RefreshRequest,
     ChangePasswordRequest, CreateClientRequest, UserResponse,
+    RegistrationPendingResponse, RegistrationRequestResponse, DenyRequest,
 )
 from mirrorr.storage.models import (
     Client, User, ClientUser, EventSubscription, Notification,
-    RefreshTokenRecord,
+    RefreshTokenRecord, RegistrationRequest,
 )
 from mirrorr.storage.enums import ResourceType
 from mirrorr.storage import crud
@@ -168,7 +170,7 @@ async def auth_status(
 # ── Registration & Login ────────────────────────────────────────────
 
 
-@auth_router.post("/register", response_model=AuthResponse)
+@auth_router.post("/register", response_model=AuthResponse | RegistrationPendingResponse)
 async def register(
     item: RegisterRequest,
     request: Request,
@@ -189,6 +191,7 @@ async def register(
         raise HTTPException(status_code=429, detail="Too many registration attempts. Try again later.")
 
     username = item.username.strip()
+    normalized = username.casefold()
     password = item.password
 
     if not username or not password:
@@ -197,37 +200,124 @@ async def register(
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
     from mirrorr.storage.enums import UserRole
+    from sqlalchemy import func as sa_func
+
+    # Normalized live-user collision check (trim+casefold) on both paths.
+    async def _find_live_user():
+        stmt = select(User).where(sa_func.lower(User.username) == normalized)
+        result = await db.exec(stmt)
+        return result.first()
 
     # Atomic first-user check: use a nested transaction (savepoint) to
     # serialize concurrent registrations without raw BEGIN IMMEDIATE which
     # conflicts with SQLAlchemy's transaction management.
     is_first_user = False
-    try:
-        async with db.begin_nested():
-            count_result = await db.exec(select(User))
-            existing_users = list(count_result.all())
-            is_first_user = len(existing_users) == 0
+    import asyncio as _asyncio
 
-            if not is_first_user and not auth.is_admin:
-                raise HTTPException(status_code=403, detail="Admin access required to create users")
+    user = None
+    for _attempt in range(4):
+        try:
+            async with db.begin_nested():
+                count_result = await db.exec(select(User))
+                existing_users = list(count_result.all())
+                is_first_user = len(existing_users) == 0
 
-            user = User(
-                username=username,
-                password_hash=await hash_password_async(password),
-                role=UserRole.ADMIN if is_first_user else UserRole.USER,
-                display_name=item.display_name or username,
+                if is_first_user:
+                    pass  # bootstrap below
+                elif auth.is_admin:
+                    pass  # admin-created users stay immediate-active below
+                else:
+                    live = await _find_live_user()
+                    if live:
+                        raise HTTPException(status_code=409, detail="username already exists")
+                    pend_stmt = select(RegistrationRequest).where(
+                        RegistrationRequest.username_normalized == normalized
+                    )
+                    pend_result = await db.exec(pend_stmt)
+                    if pend_result.first():
+                        raise HTTPException(
+                            status_code=409,
+                            detail={"detail": "request already pending", "rule": "registration-dedupe"},
+                        )
+                    new_req = RegistrationRequest(
+                        username=username,
+                        username_normalized=normalized,
+                        password_hash=await hash_password_async(password),
+                        display_name=item.display_name or username,
+                    )
+                    db.add(new_req)
+                    await db.flush()
+                    admin_stmt = select(User).where(User.role == UserRole.ADMIN)
+                    admin_result = await db.exec(admin_stmt)
+                    for admin_user in list(admin_result.all()):
+                        db.add(
+                            Notification(
+                                user_id=admin_user.id,
+                                resource_type=ResourceType.USER.value,
+                                resource_id=new_req.id,
+                                event_type="registration.requested",
+                                title=f"Registration request: {username}",
+                                body=f"{username} requested access",
+                            )
+                        )
+                    await db.commit()
+                    return JSONResponse(
+                        status_code=202, content={"status": "pending", "username": username}
+                    )
+
+                user = User(
+                    username=username,
+                    password_hash=await hash_password_async(password),
+                    role=UserRole.ADMIN if is_first_user else UserRole.USER,
+                    display_name=item.display_name or username,
+                )
+                db.add(user)
+                await db.flush()
+
+            await db.refresh(user)
+            break
+        except HTTPException:
+            raise
+        except IntegrityError:
+            await db.rollback()
+            pend_stmt = select(RegistrationRequest).where(
+                RegistrationRequest.username_normalized == normalized
             )
-            db.add(user)
-            await db.flush()
-
-        await db.refresh(user)
-    except IntegrityError:
-        raise HTTPException(status_code=400, detail="Username already exists")
-    except HTTPException:
-        raise
-    except Exception:
-        await db.rollback()
-        raise
+            pend_result = await db.exec(pend_stmt)
+            if pend_result.first():
+                raise HTTPException(
+                    status_code=409,
+                    detail={"detail": "request already pending", "rule": "registration-dedupe"},
+                )
+            raise HTTPException(status_code=409, detail="username already exists")
+        except OperationalError as _op_exc:
+            await db.rollback()
+            if "locked" not in str(_op_exc).lower():
+                raise
+            pend_stmt = select(RegistrationRequest).where(
+                RegistrationRequest.username_normalized == normalized
+            )
+            try:
+                pend_result = await db.exec(pend_stmt)
+                if pend_result.first():
+                    raise HTTPException(
+                        status_code=409,
+                        detail={"detail": "request already pending", "rule": "registration-dedupe"},
+                    )
+            except HTTPException:
+                raise
+            except Exception:
+                pass
+            if _attempt < 3:
+                await _asyncio.sleep(0.05 * (_attempt + 1))
+                continue
+            raise HTTPException(
+                status_code=409,
+                detail={"detail": "request already pending", "rule": "registration-dedupe"},
+            )
+        except Exception:
+            await db.rollback()
+            raise
 
     # Link to the current client
     if auth.client:
@@ -264,6 +354,8 @@ async def register(
             role=user.role,
             display_name=user.display_name,
         ),
+        access_token=access_token,
+        refresh_token=refresh_token,
     )
 
 
@@ -319,6 +411,8 @@ async def login(
             role=user.role,
             display_name=user.display_name,
         ),
+        access_token=access_token,
+        refresh_token=refresh_token,
     )
 
 
@@ -470,6 +564,8 @@ async def refresh(
             role=user.role,
             display_name=user.display_name,
         ),
+        access_token=new_access,
+        refresh_token=new_refresh,
     )
 
 
@@ -567,6 +663,82 @@ async def delete_user(
         await db.rollback()
         raise HTTPException(status_code=500, detail="Failed to delete user and related records")
     return {"status": "deleted", "username": username}
+
+
+# ── Registration Requests (Admin) ───────────────────────────────────
+
+
+@auth_router.get("/registration-requests", response_model=list[RegistrationRequestResponse])
+async def list_registration_requests(
+    db: AsyncSession = Depends(_get_db_session),
+    auth: AuthState = Depends(require_admin),
+):
+    """List pending registration requests. Admin only."""
+    stmt = select(RegistrationRequest).order_by(sa_col(RegistrationRequest.id))
+    result = await db.exec(stmt)
+    return [
+        RegistrationRequestResponse(
+            id=r.id,
+            username=r.username,
+            display_name=r.display_name,
+            created_at=r.created_at,
+        )
+        for r in list(result.all())
+    ]
+
+
+@auth_router.post("/registration-requests/{request_id}/approve", response_model=UserResponse)
+async def approve_registration_request(
+    request_id: int,
+    db: AsyncSession = Depends(_get_db_session),
+    auth: AuthState = Depends(require_admin),
+):
+    """Approve a pending request: mint a live user, delete the request. Admin only."""
+    from mirrorr.storage.enums import UserRole
+    from sqlalchemy import func as sa_func
+
+    req_obj = await crud.get_by_id(db, RegistrationRequest, request_id)
+    if not req_obj:
+        raise HTTPException(status_code=404, detail="Registration request not found")
+    live_stmt = select(User).where(sa_func.lower(User.username) == req_obj.username_normalized)
+    live_result = await db.exec(live_stmt)
+    if live_result.first():
+        raise HTTPException(status_code=409, detail="username already exists")
+    try:
+        user = User(
+            username=req_obj.username,
+            password_hash=req_obj.password_hash,
+            role=UserRole.USER,
+            display_name=req_obj.display_name or req_obj.username,
+        )
+        db.add(user)
+        await db.flush()
+        await db.refresh(user)
+        await db.delete(req_obj)
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="username already exists")
+    return UserResponse(
+        id=user.id, username=user.username, role=user.role, display_name=user.display_name
+    )
+
+
+@auth_router.post("/registration-requests/{request_id}/deny")
+async def deny_registration_request(
+    request_id: int,
+    item: DenyRequest,
+    db: AsyncSession = Depends(_get_db_session),
+    auth: AuthState = Depends(require_admin),
+):
+    """Deny a pending request: delete the row, freeing the name. Admin only."""
+    req_obj = await crud.get_by_id(db, RegistrationRequest, request_id)
+    if not req_obj:
+        raise HTTPException(status_code=404, detail="Registration request not found")
+    if item.reason:
+        logger.info(f"Denied registration request {req_obj.username}: {item.reason}")
+    await crud.delete(db, RegistrationRequest, req_obj.id)
+    return {"status": "denied"}
 
 
 # ── Client Management ───────────────────────────────────────────────
