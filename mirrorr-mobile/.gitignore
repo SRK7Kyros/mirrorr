@@ -1,0 +1,10 @@
+# Build outputs + generated native projects (regenerated via `cap add` + `cap sync`)
+dist/
+ios/
+android/
+
+# Dependencies
+node_modules/
+
+# Logs
+*.log
