@@ -93,6 +93,39 @@ function truncateForLog(value: string | null): string | null {
 	return `${value.slice(0, MAX_LOG_BODY_BYTES)}…truncated (${value.length} chars)`;
 }
 
+// ── Rate-limit backoff state ─────────────────────────────────────
+
+// Fixed-window backoff: the core sends plain 429 `detail` with NO
+// `Retry-After` header (auth.py), so the client uses a fixed window.
+const RATE_LIMIT_WINDOW_MS = 60_000;
+
+let rateLimitedUntil = 0;
+let rateLimitToastShown = false;
+let notifyRateLimited: (() => void) | null = null;
+
+/** Register the single-shot rate-limit toast (wired once from app code). */
+export function onRateLimited(cb: () => void) {
+	notifyRateLimited = cb;
+}
+
+/** True while the client is pausing outbound calls after a 429. */
+export function isRateLimited(): boolean {
+	if (Date.now() >= rateLimitedUntil) {
+		rateLimitToastShown = false;
+		return false;
+	}
+	return true;
+}
+
+/** Mark the client rate-limited and fire the single backoff toast. */
+function noteRateLimited() {
+	rateLimitedUntil = Date.now() + RATE_LIMIT_WINDOW_MS;
+	if (!rateLimitToastShown) {
+		rateLimitToastShown = true;
+		notifyRateLimited?.();
+	}
+}
+
 // ── Paginated response helpers ──────────────────────────────────
 
 /**
@@ -143,12 +176,16 @@ export function onAuthFailed(cb: () => void) {
 export class ApiError extends Error {
 	status: number;
 	detail: string;
+	rule?: string;
+	errors?: unknown;
 
-	constructor(status: number, detail: string) {
+	constructor(status: number, detail: string, opts?: { rule?: string; errors?: unknown }) {
 		super(detail);
 		this.name = "ApiError";
 		this.status = status;
 		this.detail = detail;
+		if (opts?.rule) this.rule = opts.rule;
+		if (opts?.errors !== undefined) this.errors = opts.errors;
 	}
 }
 
@@ -246,9 +283,33 @@ async function _fetchJson<T = unknown>(
 		let responseBody: string | null = null;
 
 		if (!res.ok) {
+			let rule: string | undefined;
+			let errors: unknown;
 			try {
 				const errBody = await res.json();
-				detail = errBody.detail ?? errBody.message ?? detail;
+				const rawDetail = errBody.detail ?? errBody.message;
+				if (Array.isArray(rawDetail)) {
+					errors = rawDetail;
+					const msgs = rawDetail.map((item: unknown) =>
+						typeof item === "string"
+							? item
+							: typeof item === "object" && item !== null && "msg" in item
+								? String((item as { msg: unknown }).msg)
+								: JSON.stringify(item),
+					);
+					detail = msgs.join("; ") || detail;
+				} else if (
+					typeof rawDetail === "object" &&
+					rawDetail !== null
+				) {
+					const nested = rawDetail as { detail?: unknown; rule?: unknown };
+					if (typeof nested.detail === "string") detail = nested.detail;
+					if (typeof nested.rule === "string") rule = nested.rule;
+				} else if (typeof rawDetail === "string") {
+					detail = rawDetail;
+				}
+				if (typeof errBody.rule === "string") rule = errBody.rule;
+				if (errBody.errors !== undefined) errors = errBody.errors;
 				responseBody = JSON.stringify(errBody);
 			} catch {
 				// Fall back to raw text if JSON parsing fails
@@ -270,7 +331,8 @@ async function _fetchJson<T = unknown>(
 				error: detail,
 				responseBody,
 			});
-			throw new ApiError(res.status, detail);
+			if (res.status === 429) noteRateLimited();
+			throw new ApiError(res.status, detail, { rule, errors });
 		}
 
 		// 204 No Content
@@ -750,6 +812,15 @@ export const notificationsApi = {
 	list: () =>
 		apiRequest<Notification[]>("/notifications/", {
 			schema: z.array(notificationSchema),
+		}),
+	markRead: (id: number) =>
+		apiRequest<Notification>(`/notifications/${id}/read`, {
+			method: "POST",
+			schema: notificationSchema,
+		}),
+	markAllRead: () =>
+		apiRequest<{ status: string }>("/notifications/read-all", {
+			method: "POST",
 		}),
 };
 

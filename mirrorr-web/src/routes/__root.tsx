@@ -1,9 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRootRouteWithContext, Outlet } from "@tanstack/react-router";
 import { ThemeProvider } from "next-themes";
+import { useEffect } from "react";
+import { toast } from "sonner";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { onRateLimited } from "@/lib/api";
 
 const queryClient = new QueryClient({
 	defaultOptions: {
@@ -26,6 +29,11 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 });
 
 function RootComponent() {
+	useEffect(() => {
+		onRateLimited(() =>
+			toast.warning("Too many requests — pausing for 60s"),
+		);
+	}, []);
 	return (
 		<ThemeProvider
 			attribute="class"
