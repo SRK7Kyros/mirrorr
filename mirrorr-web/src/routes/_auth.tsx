@@ -22,18 +22,32 @@ export const Route = createFileRoute("/_auth")({
 		if (isAuthenticated) {
 			throw redirect({ to: "/" });
 		}
+		const { useServerStore: _ss, isServerLocked: _lock } = await import("@/lib/server");
+		await new Promise<void>((resolve) => {
+			const unsub = _ss.persist.onFinishHydration(() => {
+				unsub();
+			resolve();
+			});
+			if (_ss.persist.hasHydrated()) {
+				unsub();
+			resolve();
+			}
+		});
+		if (!_lock() && _ss.getState().instances.length === 0 && window.location.pathname !== "/server") {
+			throw redirect({ to: "/server" });
+		}
 	},
 	component: AuthLayout,
 });
 
 function AuthLayout() {
 	return (
-		<div className="min-h-screen bg-background" style={AUTH_LAYOUT.style}>
+		<div className="min-h-svh bg-background" style={AUTH_LAYOUT.style}>
 			<header
-				className="flex items-center justify-between px-6 py-4"
+				className="flex items-center justify-between px-8 py-5"
 				style={{ gridArea: AREAS.header }}
 			>
-				<Logo className="text-lg" />
+				<Logo className="text-xl" />
 				<ThemeToggle />
 			</header>
 			<main

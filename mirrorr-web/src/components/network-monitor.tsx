@@ -16,9 +16,12 @@ import { Rnd } from "react-rnd";
 import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useInterval } from "@/hooks/use-interval";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { tokenStatus } from "@/lib/api";
+import { getApiBase } from "@/lib/server";
 import { AREAS, NETWORK_MONITOR_SHELL, NETWORK_ROW } from "@/lib/layouts";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth-store";
@@ -109,7 +112,7 @@ export function NetworkStatusTracker() {
 
 	// Periodic health ping — the single source of truth for backend status
 	const check = useCallback(async () => {
-		const base = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+		const base = getApiBase().replace(/\/+$/, "") || "/api";
 		try {
 			const res = await fetch(`${base}/auth/status`, { method: "GET" });
 			if (res.ok) {
@@ -152,6 +155,7 @@ export function NetworkMonitor({
 	const entries = useRequestLogStore((s) => s.entries);
 	const backendStatus = useRequestLogStore((s) => s.backendStatus);
 	const clear = useRequestLogStore((s) => s.clear);
+	const isMobile = useIsMobile();
 	const [expandedId, setExpandedId] = useState<number | null>(null);
 	const [minimized, setMinimized] = useState(false);
 	const [, setSize] = useState({ width: 420, height: 500 });
@@ -174,6 +178,74 @@ export function NetworkMonitor({
 		: { width: 420, height: 500 };
 
 	if (!open) return null;
+
+	if (isMobile) {
+		return (
+			<Sheet open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+				<SheetContent
+					side="bottom"
+					className="max-h-[80dvh] flex flex-col p-0 gap-0 pb-[env(safe-area-inset-bottom)]"
+				>
+					<SheetTitle className="sr-only">Network monitor</SheetTitle>
+					<div
+						className="bg-card border-t rounded-t-2xl overflow-hidden grid"
+						style={NETWORK_MONITOR_SHELL.style}
+					>
+						{/* Header */}
+						<div
+							className="h-11 shrink-0 flex items-center gap-2 px-4 border-b bg-muted/30"
+							style={{ gridArea: AREAS.header }}
+						>
+							<Wifi className="size-3.5 text-muted-foreground" />
+							<span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+								Network
+							</span>
+							<div
+								className={cn(
+									"size-1.5 rounded-full ml-0.5",
+									getBackendStatusColor(backendStatus),
+								)}
+							/>
+							<div className="flex-1" />
+							<span className="text-micro text-muted-foreground font-mono mr-1">
+								{entries.length} reqs
+							</span>
+							<Button
+								variant="ghost"
+								size="icon-xs"
+								className="size-5"
+								onClick={clear}
+								title="Clear log"
+								aria-label="Clear log"
+							>
+								<Trash2 className="size-3" />
+							</Button>
+						</div>
+
+						{/* Body */}
+						<ScrollArea className="min-h-0" style={{ gridArea: AREAS.content }}>
+							{entries.length === 0 ? (
+								<EmptyState text="No requests yet" height="sm" icon={RefreshCw} />
+							) : (
+								<div className="pb-2">
+									{entries.map((entry) => (
+										<RequestRow
+											key={entry.id}
+											entry={entry}
+											expanded={expandedId === entry.id}
+											onToggle={() =>
+												setExpandedId(expandedId === entry.id ? null : entry.id)
+											}
+										/>
+									))}
+								</div>
+							)}
+						</ScrollArea>
+					</div>
+				</SheetContent>
+			</Sheet>
+		);
+	}
 
 	return (
 		<Rnd
