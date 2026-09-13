@@ -66,7 +66,19 @@ function RegisterPage() {
 				setSuccess("Request sent — an admin will approve you");
 			}
 		},
-		onError: (err: Error) => setError(err.message || "Registration failed"),
+		onError: (err: Error) => {
+			const msg = err.message || "Registration failed";
+			if (msg.toLowerCase().includes("already pending")) {
+				setError("Request already pending — an admin will approve you");
+			} else if (
+				msg.toLowerCase().includes("already exists") ||
+				msg.toLowerCase().includes("already registered")
+			) {
+				setError("Username already exists — try signing in");
+			} else {
+				setError(msg);
+			}
+		},
 	});
 
 	if (statusLoading) {

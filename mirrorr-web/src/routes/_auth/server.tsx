@@ -12,6 +12,8 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { authApi } from "@/lib/api";
+import { setActiveTokens } from "@/lib/token-store";
 import {
 	autoLabel,
 	ensureEnvSeeded,
@@ -42,12 +44,17 @@ function ServerLinkPage() {
 	const setActiveServer = useServerStore((s) => s.setActiveServer);
 	const logout = useAuthStore((s) => s.logout);
 
+	const setAuth = useAuthStore((s) => s.setAuth);
+
 	const locked = isServerLocked();
 	const envPreset = getEnvServerUrl();
 
 	const [url, setUrl] = useState(envPreset && envPreset !== "/" ? envPreset : "");
 	const [label, setLabel] = useState("");
+	const [username, setUsername] = useState("");
+	const [password, setPassword] = useState("");
 	const [error, setError] = useState<string | null>(null);
+	const [connecting, setConnecting] = useState(false);
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [editUrl, setEditUrl] = useState("");
 	const [editLabel, setEditLabel] = useState("");
@@ -60,7 +67,7 @@ function ServerLinkPage() {
 
 	const ordered = getOrderedInstances();
 
-	const handleConnect = () => {
+	const handleConnect = async () => {
 		setError(null);
 		const trimmed = url.trim();
 		if (!trimmed) {
@@ -77,6 +84,30 @@ function ServerLinkPage() {
 		}
 		addServer(trimmed, label || undefined);
 		queryClient.clear();
+		const credUser = username.trim();
+		if (credUser && password) {
+			setConnecting(true);
+			try {
+				const data = await authApi.login({
+					username: credUser,
+					password,
+				});
+				if (data.access_token) {
+					await setActiveTokens({
+						access: data.access_token,
+						refresh: data.refresh_token ?? "",
+					});
+				}
+				setAuth(data.user);
+				queryClient.clear();
+				navigate({ to: "/" });
+			} catch (err) {
+				setError(err instanceof Error ? err.message : "Sign in failed");
+			} finally {
+				setConnecting(false);
+			}
+			return;
+		}
 		navigate({ to: "/login" });
 	};
 
@@ -144,12 +175,34 @@ function ServerLinkPage() {
 							onChange={(e) => setLabel(e.target.value)}
 						/>
 					</FormField>
+					<FormField label="Username (optional)" className="[&_label]:text-sm">
+						<Input
+							id="server-username"
+							placeholder="Sign in right after connect"
+							autoComplete="username"
+							className="h-11 text-base md:text-base"
+							value={username}
+							onChange={(e) => setUsername(e.target.value)}
+						/>
+					</FormField>
+					<FormField label="Password (optional)" className="[&_label]:text-sm">
+						<Input
+							id="server-password"
+							type="password"
+							placeholder="••••••••"
+							autoComplete="current-password"
+							className="h-11 text-base md:text-base"
+							value={password}
+							onChange={(e) => setPassword(e.target.value)}
+						/>
+					</FormField>
 					<Button
 						type="button"
 						className="h-11 w-full text-base"
+						disabled={connecting}
 						onClick={handleConnect}
 					>
-						Connect
+						{username.trim() && password ? "Connect & sign in" : "Connect"}
 					</Button>
 				</div>
 				{ordered.length > 0 && (
