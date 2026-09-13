@@ -67,6 +67,17 @@ export type AuthResponse = z.infer<typeof authResponseSchema>;
 export const registerResponseSchema = z.union([meSchema, registrationPendingSchema]);
 export type RegisterResponse = z.infer<typeof registerResponseSchema>;
 
+// ── Registration Requests (admin queue) ────────────────────────────
+
+export const registrationRequestSchema = z.object({
+	id: z.number(),
+	username: z.string(),
+	display_name: z.string(),
+	created_at: z.string().nullable(),
+});
+
+export type RegistrationRequest = z.infer<typeof registrationRequestSchema>;
+
 // ── Engine ─────────────────────────────────────────────────────────
 
 export const engineCapabilitiesSchema = z.object({

@@ -6,6 +6,7 @@
 import {
 	type AuthResponse,
 	type RegisterResponse,
+	type RegistrationRequest,
 	type Autorun,
 	type ControlResponse,
 	type Engine,
@@ -20,6 +21,7 @@ import {
 	type ApplyResponse,
 	authResponseSchema,
 	registerResponseSchema,
+	registrationRequestSchema,
 	authStatusSchema,
 	autorunSchema,
 	controlResponseSchema,
@@ -521,14 +523,9 @@ export const authApi = {
 		}),
 
 	registrationRequests: () =>
-		apiRequest<
-			Array<{
-				id: number;
-				username: string;
-				display_name: string;
-				created_at: string | null;
-			}>
-		>("/auth/registration-requests"),
+		apiRequest<RegistrationRequest[]>("/auth/registration-requests", {
+			schema: z.array(registrationRequestSchema),
+		}),
 
 	approveRegistration: (id: number) =>
 		apiRequest<{
