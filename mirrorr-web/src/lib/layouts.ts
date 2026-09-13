@@ -33,11 +33,9 @@ function gridStyle(
 
 // ── App shell ─────────────────────────────────────────────────────────
 
-/** Full-screen app: top navbar + page content */
+/** Full-screen app: top navbar + page content + bottom tab bar (mobile) */
 export const APP_SHELL = {
-	style: gridStyle('"navbar" "content"', "1fr", "auto 1fr"),
-	/** Navbar is implicitly the first child */
-	/** Content is implicitly the second child */
+	style: gridStyle('"navbar" "content" "tabbar"', "1fr", "auto 1fr auto"),
 } as const;
 
 // ── Two-panel layouts ─────────────────────────────────────────────────
@@ -143,6 +141,7 @@ export const AREAS = {
 	// App shell
 	navbar: "navbar" as const,
 	content: "content" as const,
+	tabbar: "tabbar" as const,
 
 	// Two-panel layouts
 	sidebar: "sidebar" as const,
