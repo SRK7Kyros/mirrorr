@@ -8,6 +8,7 @@ import {
 } from "@/lib/api";
 import type { User } from "@/lib/schemas";
 import { getApiBase } from "@/lib/server";
+import { clearActiveTokens } from "@/lib/token-store";
 
 interface AuthState {
 	user: User | null;
@@ -28,6 +29,8 @@ export const useAuthStore = create<AuthState>()(
 					isAuthenticated: true,
 				}),
 			logout: () => {
+				// Clear ONLY the active server token entry (no cross-server leak)
+				clearActiveTokens().catch(() => {});
 				// Clear any legacy localStorage tokens
 				clearStoredToken();
 				clearStoredRefreshToken();

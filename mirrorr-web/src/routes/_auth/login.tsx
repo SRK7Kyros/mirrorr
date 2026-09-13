@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { authApi } from "@/lib/api";
+import { setActiveTokens } from "@/lib/token-store";
 import { loginSchema } from "@/lib/schemas";
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -37,8 +38,13 @@ function LoginPage() {
 	const loginMutation = useMutation({
 		mutationFn: (data: { username: string; password: string }) =>
 			authApi.login(data),
-		onSuccess: (data) => {
-			// Tokens are now in httpOnly cookies — just store user info
+		onSuccess: async (data) => {
+			if (data.access_token) {
+				await setActiveTokens({
+					access: data.access_token,
+					refresh: data.refresh_token ?? "",
+				});
+			}
 			setAuth(data.user);
 			queryClient.clear();
 			navigate({ to: "/" });
@@ -47,10 +53,10 @@ function LoginPage() {
 	});
 
 	return (
-		<Card className="w-full max-w-sm border border-border/70 shadow-[0_24px_60px_-24px_rgb(0,0,0,0.3)] dark:border-white/25 dark:bg-white/[0.09] dark:shadow-[inset_0_1px_0_rgb(255,255,255,0.2),0_24px_70px_-20px_rgb(0,0,0,0.85)] dark:ring-0 dark:ring-white/10 dark:backdrop-blur-xl">
+		<Card className="w-full max-w-md border border-border/70 shadow-[0_24px_60px_-24px_rgb(0,0,0,0.3)] dark:border-white/10 dark:bg-white/[0.03] dark:shadow-[inset_0_1px_0_rgb(255,255,255,0.08),0_24px_70px_-20px_rgb(0,0,0,0.85)] dark:ring-0 dark:ring-white/10 dark:backdrop-blur-xl">
 			<CardHeader className="text-center">
-				<CardTitle className="text-xl">Welcome back</CardTitle>
-				<CardDescription>Sign in to your Mirrorr instance</CardDescription>
+				<CardTitle className="text-2xl font-semibold">Welcome back</CardTitle>
+				<CardDescription className="text-base">Sign in to your Mirrorr instance</CardDescription>
 			</CardHeader>
 			<CardContent>
 				<form
@@ -58,35 +64,39 @@ function LoginPage() {
 						setError(null);
 						loginMutation.mutate(data);
 					})}
-					className="space-y-4"
+					className="space-y-5"
 				>
 					{error && <ErrorBanner message={error} />}
 					<FormField
 						label="Username"
 						error={form.formState.errors.username?.message}
+						className="[&_label]:text-sm"
 					>
 						<Input
 							id="username"
 							placeholder="username"
 							autoComplete="username"
+							className="h-11 text-base md:text-base"
 							{...form.register("username")}
 						/>
 					</FormField>
 					<FormField
 						label="Password"
 						error={form.formState.errors.password?.message}
+						className="[&_label]:text-sm"
 					>
 						<Input
 							id="password"
 							type="password"
 							placeholder="••••••••"
 							autoComplete="current-password"
+							className="h-11 text-base md:text-base"
 							{...form.register("password")}
 						/>
 					</FormField>
 					<Button
 						type="submit"
-						className="w-full"
+						className="h-11 w-full text-base"
 						disabled={loginMutation.isPending}
 					>
 						{loginMutation.isPending && (
@@ -94,7 +104,7 @@ function LoginPage() {
 						)}
 						Sign In
 					</Button>
-					<p className="text-center text-sm text-muted-foreground">
+					<p className="text-center text-base text-muted-foreground">
 						Don&apos;t have an account?{" "}
 						<Link
 							to="/register"
