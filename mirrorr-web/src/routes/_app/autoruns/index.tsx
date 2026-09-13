@@ -4,6 +4,7 @@ import { autorunsApi, importExportApi } from "@/lib/api";
 import { createAutorunSchema } from "@/lib/schemas";
 import type { Autorun } from "@/lib/schemas";
 import { Button } from "@/components/ui/button";
+import { AutorunCalendar, VIEW_KEY } from "@/components/autorun-calendar";
 import { ZoomableAutorunGrid } from "@/components/zoomable-autorun-grid";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { DeleteConfirm } from "@/components/delete-confirm";
@@ -38,7 +39,7 @@ import {
 	Download,
 } from "lucide-react";
 import { formatLocalDate, describeCascade, toUtcNaive } from "@/lib/utils";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useInterval } from "@/hooks/use-interval";
 import { toast } from "sonner";
 import { ImportDialog } from "@/components/import-dialog";
@@ -112,10 +113,97 @@ function AutorunsPage() {
 
 	const autorunIds = autoruns.map((a) => a.id);
 	const isMobile = useIsMobile();
+	const [view, setView] = useState<"agenda" | "calendar">(
+		() =>
+			(localStorage.getItem(VIEW_KEY) as "agenda" | "calendar" | null) ??
+			"agenda",
+	);
+	const [slot, setSlot] = useState<{ start: string; end: string } | null>(null);
+
+	const switchView = (v: "agenda" | "calendar") => {
+		setView(v);
+		localStorage.setItem(VIEW_KEY, v);
+	};
+
+	const openDetail = (id: number) => {
+		setSelectedId(id);
+		setShowCreate(false);
+	};
+
+	const viewToggle = (
+		<div className="flex gap-1 text-xs shrink-0">
+			{(["agenda", "calendar"] as const).map((v) => (
+				<button
+					key={v}
+					type="button"
+					onClick={() => switchView(v)}
+					className={`h-7 px-2.5 rounded-md border capitalize ${view === v ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+				>
+					{v}
+				</button>
+			))}
+		</div>
+	);
+
+	if (view === "calendar") {
+		return (
+			<div className="flex flex-col h-full min-h-0">
+				<div className="flex items-center gap-2 px-2 pt-2 shrink-0">
+					<p className="text-sm font-semibold">Autoruns</p>
+					<span className="text-xs text-muted-foreground tabular-nums">
+						{autoruns.length}
+					</span>
+					<div className="flex-1" />
+					{viewToggle}
+				</div>
+				<div className="flex-1 min-h-0 flex flex-col">
+					<AutorunCalendar
+						autoruns={autoruns}
+						onSelect={openDetail}
+						onCreateSlot={(start, end) => {
+							setSlot({ start, end });
+							setShowCreate(true);
+						}}
+					/>
+				</div>
+				{(showCreate || selectedId != null) && (
+					<div className="shrink-0 max-h-[45%] overflow-y-auto border-t p-3">
+						{showCreate ? (
+							<CreateAutorunPanel
+								onClose={() => {
+									setShowCreate(false);
+									setSlot(null);
+								}}
+								initialStart={slot?.start}
+								initialEnd={slot?.end}
+							/>
+						) : (
+							<AutorunDetail
+								autorun={autoruns.find((a) => a.id === selectedId)}
+								onBack={() => setSelectedId(null)}
+								onDelete={() => {
+									if (selectedId != null) deleteMutation.mutate(selectedId);
+									setSelectedId(null);
+								}}
+								deleting={deleteMutation.isPending}
+								profileMap={profileMap}
+								engineMap={engineMap}
+							/>
+						)}
+					</div>
+				)}
+			</div>
+		);
+	}
 
 	if (isMobile) {
 		return (
 			<div className="flex flex-col h-full min-h-0">
+				<div className="flex items-center gap-2 px-3 pt-2 shrink-0">
+					<p className="text-sm font-semibold">Autoruns</p>
+					<div className="flex-1" />
+					{viewToggle}
+				</div>
 				<ZoomableAutorunGrid
 					autoruns={autoruns}
 					selectedId={selectedId}
@@ -148,6 +236,12 @@ function AutorunsPage() {
 					onNew={() => setShowCreate(true)}
 					isLoading={isLoading}
 					emptyText="No autoruns"
+					headerExtra={
+						<div className="shrink-0 px-3.5 pb-2 flex items-center">
+							<div className="flex-1" />
+							{viewToggle}
+						</div>
+					}
 					sidebarActions={
 						<ImportButton
 							onBundle={(bundle) => {
@@ -412,17 +506,32 @@ function AutorunDetail({
 	);
 }
 
-function CreateAutorunPanel({ onClose }: { onClose: () => void }) {
+function CreateAutorunPanel({
+	onClose,
+	initialStart,
+	initialEnd,
+}: {
+	onClose: () => void;
+	initialStart?: string;
+	initialEnd?: string;
+}) {
 	const queryClient = useQueryClient();
 	const config = usePluginConfig();
 	const [name, setName] = useState("");
 	const [recording, setRecording] = useState(true);
 	const [timeMode, setTimeMode] = useState<"pick" | "relative">("pick");
-	const [startTime, setStartTime] = useState("");
-	const [endTime, setEndTime] = useState("");
+	const [startTime, setStartTime] = useState(initialStart ?? "");
+	const [endTime, setEndTime] = useState(initialEnd ?? "");
 	const [relativeStartOffset, setRelativeStartOffset] = useState<number>(0);
 	const [relativeEndOffset, setRelativeEndOffset] = useState<number>(0);
 	const [now, setNow] = useState(() => Date.now());
+
+	useEffect(() => {
+		if (initialStart) setStartTime(initialStart);
+	}, [initialStart]);
+	useEffect(() => {
+		if (initialEnd) setEndTime(initialEnd);
+	}, [initialEnd]);
 
 	useInterval(() => setNow(Date.now()), 1000);
 

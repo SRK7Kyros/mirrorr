@@ -192,3 +192,44 @@ kbd,
 samp {
 	font-family: var(--font-mono);
 }
+
+/* FullCalendar autorun event model: scheduled solid, live pulsing,
+   spent 40% faded, teardown hatched + not-allowed, collision ring. */
+.fc-mirrorr .fc-autorun {
+	border-radius: 0.375rem;
+	border-width: 1px;
+}
+.fc-mirrorr .fc-live {
+	animation: fc-pulse 1.6s ease-in-out infinite;
+}
+@keyframes fc-pulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.55;
+	}
+}
+.fc-mirrorr .fc-spent {
+	opacity: 0.4;
+}
+.fc-mirrorr .fc-teardown {
+	cursor: not-allowed;
+	background-image: repeating-linear-gradient(
+		-45deg,
+		transparent 0 6px,
+		rgb(0 0 0 / 0.08) 6px 8px
+	);
+}
+.fc-mirrorr .fc-collide {
+	box-shadow: 0 0 0 2px var(--color-destructive, #ef4444);
+}
+@media (prefers-reduced-motion: reduce) {
+	.fc-mirrorr .fc-live {
+		animation: none;
+	}
+	.fc-mirrorr .fc-autorun {
+		transition: none;
+	}
+}
