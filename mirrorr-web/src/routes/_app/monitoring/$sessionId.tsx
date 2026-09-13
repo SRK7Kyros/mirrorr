@@ -12,8 +12,9 @@ import { ArrowLeft } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { RecordingProgressBar } from "@/components/recording-progress-bar";
+import { SessionLogsViewer } from "@/components/session-logs-viewer";
 import { sessionsApi } from "@/lib/api";
-import { AREAS, MONITORING_SESSION } from "@/lib/layouts";
 import { formatDuration, parseUtcDate } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/monitoring/$sessionId")({
@@ -80,13 +81,14 @@ function SessionTelemetryPage() {
 	}
 
 	const sessionData = session;
+	const logsActive =
+		sessionData.status === "active" ||
+		sessionData.status === "recording" ||
+		sessionData.status === "terminating";
 
 	return (
-		<div className="h-full grid" style={MONITORING_SESSION.style}>
-			<div
-				className="shrink-0 px-5 pt-5 pb-3 border-b"
-				style={{ gridArea: AREAS.header }}
-			>
+		<div className="h-full flex flex-col overflow-x-hidden">
+			<div className="shrink-0 px-5 pt-5 pb-3 border-b">
 				<div className="flex items-center justify-between">
 					<div className="flex items-center gap-3">
 						<Link to="/monitoring">
@@ -110,20 +112,18 @@ function SessionTelemetryPage() {
 				</div>
 			</div>
 
-			<div
-				className="flex-1 min-h-0 overflow-y-auto px-5 py-4"
-				style={{ gridArea: AREAS.charts }}
-			>
-				{sessionLoading ? (
-					<div className="flex items-center justify-center h-full">
-						<Spinner className="size-5 text-muted-foreground" />
-					</div>
-				) : (
-					<div className="flex flex-col items-center justify-center h-full text-xs text-muted-foreground gap-2">
+			<div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-5 py-4">
+				<div className="flex flex-col gap-4 min-w-0">
+					<div className="flex flex-col items-center justify-center text-xs text-muted-foreground gap-2">
 						<p>Session detail</p>
 						<p className="text-muted-foreground/60">Telemetry coming soon</p>
 					</div>
-				)}
+					<RecordingProgressBar
+						sessionId={sessionData.id}
+						status={sessionData.status}
+					/>
+					<SessionLogsViewer sessionId={sessionData.id} active={logsActive} />
+				</div>
 			</div>
 		</div>
 	);

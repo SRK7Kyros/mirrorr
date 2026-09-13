@@ -50,7 +50,7 @@ export function KeyValueTable({
 					{emptyText ?? "No properties"}
 				</p>
 			) : (
-				<table className="w-full text-sm">
+			<table className="w-full text-sm kv-table">
 					<tbody className="divide-y">
 						{entries.map(([key, value]) => (
 							<tr key={key} className="transition-colors">

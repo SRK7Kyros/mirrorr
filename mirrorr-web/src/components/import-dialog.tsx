@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
 	type ColumnDef,
 	useResizableColumns,
@@ -1372,6 +1373,8 @@ function HashCard({ hash }: { hash?: string }) {
 			className="grid grid-cols-[auto_1fr] items-center gap-x-3 rounded-md border px-3 py-2.5 bg-muted/10 hover:bg-muted/20 transition-colors cursor-pointer select-none w-full h-full min-w-0"
 			onMouseEnter={() => setHovered(true)}
 			onMouseLeave={() => setHovered(false)}
+			onFocus={() => setHovered(true)}
+			onBlur={() => setHovered(false)}
 			onClick={() => copy(hash)}
 			onKeyDown={(e) => {
 				if (e.key === "Enter" || e.key === " ") {
@@ -1446,9 +1449,10 @@ function ProfileExpanded({
 	const retryMode = (data.retry_mode as string) ?? "none";
 	const retryConfig = data.retry_config as Record<string, unknown> | undefined;
 	const contentHash = data.content_hash as string | undefined;
+	const isMobile = useIsMobile();
 
 	return (
-		<div className="grid gap-3 w-full" style={PROFILE_EXPANDED.style}>
+		<div className="grid gap-3 w-full" style={isMobile ? PROFILE_EXPANDED.styleStacked() : PROFILE_EXPANDED.style}>
 			<div style={{ gridArea: AREAS.hash }} className="min-w-0 h-full">
 				<HashCard hash={contentHash} />
 			</div>
@@ -1510,9 +1514,10 @@ function AutorunExpanded({
 	const startTime = data.start_time as string | undefined;
 	const endTime = data.end_time as string | undefined;
 	const contentHash = data.content_hash as string | undefined;
+	const isMobile = useIsMobile();
 
 	return (
-		<div className="grid gap-3 w-full" style={AUTORUN_EXPANDED.style}>
+		<div className="grid gap-3 w-full" style={isMobile ? AUTORUN_EXPANDED.styleStacked() : AUTORUN_EXPANDED.style}>
 			{/* Content hash — first cell of the content row */}
 			<div style={{ gridArea: AREAS.hash }} className="min-w-0 h-full">
 				<HashCard hash={contentHash} />

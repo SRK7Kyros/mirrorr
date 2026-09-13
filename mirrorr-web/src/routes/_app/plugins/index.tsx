@@ -181,7 +181,7 @@ function EngineDetail({ engine }: { engine: Engine }) {
 				</MetadataItem>
 				<MetadataSeparator />
 				<MetadataItem label="Hash" className="min-w-0">
-					<code className="text-foreground/70 truncate shrink-0">
+					<code className="text-foreground/70 truncate min-w-0 max-w-36">
 						{engine.origin_hash}
 					</code>
 					<CopyButton text={engine.origin_hash ?? ""} />
@@ -237,7 +237,7 @@ function ResolverDetail({ resolver }: { resolver: Resolver }) {
 				</MetadataItem>
 				<MetadataSeparator />
 				<MetadataItem label="Hash" className="min-w-0">
-					<code className="text-foreground/70 truncate shrink-0">
+					<code className="text-foreground/70 truncate min-w-0 max-w-36">
 						{resolver.origin_hash}
 					</code>
 					<CopyButton text={resolver.origin_hash ?? ""} />
@@ -352,7 +352,7 @@ function RetryModeRow({
 					{mode}
 				</code>
 				{hasDefaults && !expanded && (
-					<span className="text-xs text-muted-foreground font-mono truncate">
+					<span className="text-xs text-muted-foreground font-mono truncate min-w-0 flex-1">
 						{JSON.stringify(data.default_params)}
 					</span>
 				)}
@@ -374,7 +374,7 @@ function RetryModeRow({
 			{expanded && (
 				<div className="px-4 pb-3 space-y-2">
 					{hasDefaults && (
-						<pre className="text-xs font-mono text-muted-foreground bg-muted/30 rounded-md px-3 py-2">
+						<pre className="text-xs font-mono text-muted-foreground bg-muted/30 rounded-md px-3 py-2 max-w-full overflow-x-auto whitespace-pre-wrap break-all">
 							{JSON.stringify(data.default_params, null, 2)}
 						</pre>
 					)}

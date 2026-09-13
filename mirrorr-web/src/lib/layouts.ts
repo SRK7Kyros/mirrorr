@@ -43,18 +43,22 @@ export const APP_SHELL = {
 /** Sidebar + detail panel (used by ResizableSidebar — dynamic width via columns override) */
 export const SIDEBAR_DETAIL = {
 	areas: '"sidebar detail"',
+	areasStacked: '"sidebar" "detail"',
 	style: (sidebarWidth: number) =>
 		gridStyle('"sidebar detail"', `${sidebarWidth}px 1fr`, "1fr"),
+	styleStacked: () => gridStyle('"sidebar" "detail"', "1fr", "auto 1fr"),
 } as const;
 
 /** Profile page: fixed sidebar + scrollable content */
 export const PROFILE_LAYOUT = {
 	style: gridStyle('"sidebar content"', "260px 1fr", "1fr"),
+	styleStacked: () => gridStyle('"sidebar" "content"', "1fr", "auto 1fr"),
 } as const;
 
 /** Dashboard main area: actions + sessions sidebar */
 export const DASHBOARD_MAIN = {
 	style: gridStyle('"actions sessions"', "1fr 360px", "1fr"),
+	styleStacked: () => gridStyle('"actions" "sessions"', "1fr", "auto auto"),
 } as const;
 
 /** Monitoring session detail: header + charts */
@@ -82,23 +86,26 @@ export const NETWORK_MONITOR_SHELL = {
 /** Config selectors row: [engine+retryMode | resolver] */
 export const CONFIG_SELECTORS = {
 	style: gridStyle('"selects resolver"', "1fr 1fr"),
+	styleStacked: () => gridStyle('"selects" "resolver"', "1fr", "auto auto"),
 } as const;
 
 /** Config panels row: [retry-config | resolver-config] */
 export const CONFIG_PANELS = {
 	style: gridStyle('"retry-config resolver-config"', "1fr 1fr"),
+	styleStacked: () =>
+		gridStyle('"retry-config" "resolver-config"', "1fr", "auto auto"),
 } as const;
-
-// ── Import dialog ─────────────────────────────────────────────────────
 
 /** Plugin cells: [engine | resolver] */
 export const PLUGIN_CELLS = {
 	style: gridStyle('"engine resolver"', "1fr 1fr"),
+	styleStacked: () => gridStyle('"engine" "resolver"', "1fr", "auto auto"),
 } as const;
 
 /** Time range: [start | end] */
 export const TIME_RANGE = {
 	style: gridStyle('"start end"', "1fr 1fr"),
+	styleStacked: () => gridStyle('"start" "end"', "1fr", "auto auto"),
 } as const;
 
 /**
@@ -110,6 +117,12 @@ export const PROFILE_EXPANDED = {
 		'"hash engine resolver actions" "retry retry retry retry" "configs configs configs configs"',
 		"1.3fr 1fr 1fr auto",
 	),
+	styleStacked: () =>
+		gridStyle(
+			'"hash" "engine" "resolver" "actions" "retry" "configs"',
+			"1fr",
+			"auto auto auto auto auto auto",
+		),
 } as const;
 
 /**
@@ -121,6 +134,12 @@ export const AUTORUN_EXPANDED = {
 		'"hash schedule schedule actions" "profile engine engine engine" "configs configs configs configs"',
 		"1.3fr 1fr 1fr auto",
 	),
+	styleStacked: () =>
+		gridStyle(
+			'"hash" "schedule" "actions" "profile" "engine" "configs"',
+			"1fr",
+			"auto auto auto auto auto auto",
+		),
 } as const;
 
 // ── Network monitor ───────────────────────────────────────────────────
