@@ -7,6 +7,7 @@ import {
 	stopTokenRefresh,
 } from "@/lib/api";
 import type { User } from "@/lib/schemas";
+import { getApiBase } from "@/lib/server";
 
 interface AuthState {
 	user: User | null;
@@ -32,9 +33,7 @@ export const useAuthStore = create<AuthState>()(
 				clearStoredRefreshToken();
 				stopTokenRefresh();
 				// Clear httpOnly cookie by calling the backend logout endpoint
-				const API_BASE =
-					import.meta.env.VITE_API_URL ?? "http://localhost:8000";
-				fetch(`${API_BASE}/auth/logout`, {
+				fetch(`${getApiBase()}/auth/logout`, {
 					method: "POST",
 					credentials: "include",
 				}).catch(() => {}); // Best-effort — don't block logout

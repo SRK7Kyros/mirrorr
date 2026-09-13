@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AuthServerRouteImport } from './routes/_auth/server'
 import { Route as AuthRegisterRouteImport } from './routes/_auth/register'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
 import { Route as AppProfileRouteImport } from './routes/_app/profile'
@@ -35,6 +36,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AppRoute,
+} as any)
+const AuthServerRoute = AuthServerRouteImport.update({
+  id: '/server',
+  path: '/server',
+  getParentRoute: () => AuthRoute,
 } as any)
 const AuthRegisterRoute = AuthRegisterRouteImport.update({
   id: '/register',
@@ -92,6 +98,7 @@ export interface FileRoutesByFullPath {
   '/profile': typeof AppProfileRoute
   '/login': typeof AuthLoginRoute
   '/register': typeof AuthRegisterRoute
+  '/server': typeof AuthServerRoute
   '/monitoring/$sessionId': typeof AppMonitoringSessionIdRoute
   '/autoruns/': typeof AppAutorunsIndexRoute
   '/monitoring/': typeof AppMonitoringIndexRoute
@@ -105,6 +112,7 @@ export interface FileRoutesByTo {
   '/profile': typeof AppProfileRoute
   '/login': typeof AuthLoginRoute
   '/register': typeof AuthRegisterRoute
+  '/server': typeof AuthServerRoute
   '/monitoring/$sessionId': typeof AppMonitoringSessionIdRoute
   '/autoruns': typeof AppAutorunsIndexRoute
   '/monitoring': typeof AppMonitoringIndexRoute
@@ -120,6 +128,7 @@ export interface FileRoutesById {
   '/_app/profile': typeof AppProfileRoute
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/register': typeof AuthRegisterRoute
+  '/_auth/server': typeof AuthServerRoute
   '/_app/': typeof AppIndexRoute
   '/_app/monitoring/$sessionId': typeof AppMonitoringSessionIdRoute
   '/_app/autoruns/': typeof AppAutorunsIndexRoute
@@ -136,6 +145,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/login'
     | '/register'
+    | '/server'
     | '/monitoring/$sessionId'
     | '/autoruns/'
     | '/monitoring/'
@@ -149,6 +159,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/login'
     | '/register'
+    | '/server'
     | '/monitoring/$sessionId'
     | '/autoruns'
     | '/monitoring'
@@ -163,6 +174,7 @@ export interface FileRouteTypes {
     | '/_app/profile'
     | '/_auth/login'
     | '/_auth/register'
+    | '/_auth/server'
     | '/_app/'
     | '/_app/monitoring/$sessionId'
     | '/_app/autoruns/'
@@ -200,6 +212,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/_auth/server': {
+      id: '/_auth/server'
+      path: '/server'
+      fullPath: '/server'
+      preLoaderRoute: typeof AuthServerRouteImport
+      parentRoute: typeof AuthRoute
     }
     '/_auth/register': {
       id: '/_auth/register'
@@ -303,11 +322,13 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 interface AuthRouteChildren {
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
+  AuthServerRoute: typeof AuthServerRoute
 }
 
 const AuthRouteChildren: AuthRouteChildren = {
   AuthLoginRoute: AuthLoginRoute,
   AuthRegisterRoute: AuthRegisterRoute,
+  AuthServerRoute: AuthServerRoute,
 }
 
 const AuthRouteWithChildren = AuthRoute._addFileChildren(AuthRouteChildren)

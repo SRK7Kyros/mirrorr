@@ -5,6 +5,7 @@
 
 import {
 	type AuthResponse,
+	type RegisterResponse,
 	type Autorun,
 	type ControlResponse,
 	type Engine,
@@ -18,6 +19,7 @@ import {
 	type UpdateAutorunPayload,
 	type ApplyResponse,
 	authResponseSchema,
+	registerResponseSchema,
 	authStatusSchema,
 	autorunSchema,
 	controlResponseSchema,
@@ -52,6 +54,7 @@ import {
 } from "@/lib/storage";
 import { useAuthStore } from "@/stores/auth-store";
 import { useRequestLogStore } from "@/stores/request-log-store";
+import { buildServerWsUrl, getApiBase } from "@/lib/server";
 
 // Re-export storage helpers for backward compatibility
 export {
@@ -65,7 +68,10 @@ export {
 	setStoredToken,
 };
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+// Resolved per request (NOT a module constant): locked build -> env fixated,
+// unlocked with saved Instances -> active instance, else env fallback.
+// Example: active `http://192.168.1.20:8000` -> `http://192.168.1.20:8000/auth/me`;
+// same-origin fallback -> `/api/auth/me`.
 
 // ── Request log body truncation ───────────────────────────────────
 
@@ -162,11 +168,11 @@ async function _fetchJson<T = unknown>(
 		noAuth = false,
 	} = options;
 
-	// Build the URL by string concatenation (NOT `new URL(path, API_BASE)`).
+	// Build the URL by string concatenation (NOT `new URL(path, base)`).
 	// `new URL` treats `path` as absolute and silently drops any sub-path in
-	// API_BASE — so a `/api`-prefixed base (e.g. `https://host/api`) would
+	// the base — so a `/api`-prefixed base (e.g. `https://host/api`) would
 	// lose its prefix and hit the wrong route. Concatenation preserves it.
-	const base = API_BASE.replace(/\/+$/, "");
+	const base = getApiBase().replace(/\/+$/, "") || "/api";
 	const urlPath = path.startsWith("/") ? path : `/${path}`;
 	let urlStr = `${base}${urlPath}`;
 
@@ -355,7 +361,7 @@ async function refreshAccessToken(): Promise<string> {
 			body.refresh_token = refreshToken;
 		}
 
-		const res = await fetch(`${API_BASE}/auth/refresh`, {
+		const res = await fetch(`${getApiBase()}/auth/refresh`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(body),
@@ -459,11 +465,11 @@ export const authApi = {
 		password: string;
 		display_name?: string;
 	}) =>
-		apiRequest<AuthResponse>("/auth/register", {
+		apiRequest<RegisterResponse>("/auth/register", {
 			method: "POST",
 			body: data,
 			noAuth: true,
-			schema: authResponseSchema,
+			schema: registerResponseSchema,
 		}),
 
 	login: (data: { username: string; password: string }) =>
@@ -498,6 +504,30 @@ export const authApi = {
 		apiRequest<{ status: string }>(`/auth/users/${username}`, {
 			method: "DELETE",
 		}),
+
+	registrationRequests: () =>
+		apiRequest<
+			Array<{
+				id: number;
+				username: string;
+				display_name: string;
+				created_at: string | null;
+			}>
+		>("/auth/registration-requests"),
+
+	approveRegistration: (id: number) =>
+		apiRequest<{
+			id: number;
+			username: string;
+			role: string;
+			display_name: string;
+		}>(`/auth/registration-requests/${id}/approve`, { method: "POST" }),
+
+	denyRegistration: (id: number, reason?: string) =>
+		apiRequest<{ status: string }>(
+			`/auth/registration-requests/${id}/deny`,
+			{ method: "POST", body: { reason: reason ?? "" } },
+		),
 };
 
 // ── Sessions API ───────────────────────────────────────────────────
@@ -714,11 +744,7 @@ export const notificationsApi = {
 // ── WebSocket URLs ─────────────────────────────────────────────────
 
 function buildWsUrl(path: string): string {
-	const base = API_BASE.replace(/^http/, "ws");
-	// Cookie-based auth: the browser sends httpOnly cookies with the WS upgrade
-	// request when SameSite=Lax and same-origin. For cross-origin, the backend
-	// also accepts ?token= as a fallback (set in use-ws-connection if needed).
-	return `${base}${path}`;
+	return buildServerWsUrl(path);
 }
 
 export const getWsEventsUrl = () => buildWsUrl("/ws/events");
