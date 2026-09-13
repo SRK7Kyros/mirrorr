@@ -25,9 +25,16 @@ interface Item {
 	label: string;
 	sub?: string;
 	to: string;
-	kind: "nav" | "session" | "autorun" | "recording";
+	kind: "action" | "nav" | "session" | "autorun" | "recording";
 	icon: React.ComponentType<{ className?: string }>;
 }
+
+const ACTION_ITEMS: Item[] = [
+	{ id: "new-session", label: "New session", sub: "Go to Sessions", to: "/sessions", kind: "action", icon: Radio },
+	{ id: "new-autorun", label: "New autorun", sub: "Go to Autoruns", to: "/autoruns", kind: "action", icon: CalendarClock },
+	{ id: "new-profile", label: "New profile", sub: "Go to Profiles", to: "/profiles", kind: "action", icon: Settings },
+	{ id: "go-live", label: "Go live", sub: "Go to Sessions", to: "/sessions", kind: "action", icon: Radio },
+];
 
 const NAV_ITEMS: Item[] = [
 	{ id: "/", label: "Dashboard", to: "/", kind: "nav", icon: LayoutDashboard },
@@ -92,7 +99,7 @@ export function CommandPalette({ open, onOpenChange }: {
 				icon: Film,
 			})),
 		];
-		return [...NAV_ITEMS, ...derived];
+		return [...ACTION_ITEMS, ...NAV_ITEMS, ...derived];
 	}, [sessions, autoruns, recordings]);
 
 	const filtered = useMemo(() => {
