@@ -53,7 +53,7 @@ import {
 } from "@/components/resource-layout";
 import { FormField } from "@/components/form-field";
 import { ResizableSidebar } from "@/components/resizable-sidebar";
-import { formatDuration, formatLocalDate, parseUtcDate, describeCascade, isSessionDeleteBlocked, sessionDeleteBlockedReason } from "@/lib/utils";
+import { formatDuration, formatLocalDate, parseUtcDate, describeCascade, isSessionDeleteBlocked, sessionDeleteBlockedReason, getStatusDotColor } from "@/lib/utils";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { MultiSelectProvider } from "@/hooks/use-multi-select";
 import { usePluginConfig } from "@/hooks/use-plugin-config";
@@ -122,6 +122,10 @@ function SessionsPage() {
 
 	const sessionIds = sessions.map((s) => s.id);
 
+	const live = sessions
+		.filter((s) => s.status === "active" || s.status === "recording")
+		.slice(0, 20);
+
 	// Derive effective deletingId: clear automatically when session disappears from list
 	const effectiveDeletingId =
 		deletingId !== null && sessions.some((s) => s.id === deletingId)
@@ -138,6 +142,63 @@ function SessionsPage() {
 					onNew={() => setShowCreate(true)}
 					isLoading={isLoading}
 					emptyText="No sessions"
+					headerExtra={
+						live.length > 0 ? (
+							<div className="px-3 pb-2 flex gap-2 overflow-x-auto">
+								{live.map((s) => {
+									const { completedDuration, runningAttempt } =
+										getSessionTiming(s);
+									return (
+										<div
+											key={s.id}
+											className="shrink-0 flex items-center gap-2 rounded-lg border bg-card px-2.5 py-1.5"
+										>
+											<span
+												className={`size-2 rounded-full shrink-0 ${getStatusDotColor(s.status)}`}
+											/>
+											<button
+												type="button"
+												className="text-xs font-medium truncate max-w-[120px] hover:underline"
+												onClick={() => {
+													setSelectedId(s.id);
+													setShowCreate(false);
+												}}
+											>
+												{s.autorun_id
+													? (autorunMap[s.autorun_id]?.user_friendly_name ??
+														`Session #${s.id}`)
+													: `Session #${s.id}`}
+											</button>
+											<span className="text-micro text-muted-foreground tabular-nums">
+												<LiveCountup
+													startedAt={runningAttempt?.started_at ?? null}
+													offset={completedDuration}
+												/>
+											</span>
+											<button
+												type="button"
+												className="text-micro text-muted-foreground hover:text-foreground"
+												title="Stop session"
+												onClick={() => stopMutation.mutate(s.id)}
+											>
+												<Square className="size-3" />
+											</button>
+											<button
+												type="button"
+												className={`text-micro hover:text-foreground ${s.recording ? "text-red-500" : "text-muted-foreground"}`}
+												title={s.recording ? "Recording on" : "Recording off"}
+												onClick={() => toggleRecMutation.mutate(s)}
+											>
+												<span
+													className={`size-2 rounded-full inline-block ${s.recording ? "bg-red-500" : "bg-muted-foreground/30"}`}
+												/>
+											</button>
+										</div>
+									);
+								})}
+							</div>
+						) : undefined
+					}
 				>
 					<SidebarGroupContainer>
 						{sessions.map((s) => (
