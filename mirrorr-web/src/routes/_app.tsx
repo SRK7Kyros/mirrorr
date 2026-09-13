@@ -428,6 +428,18 @@ function AppLayout() {
 				className="min-h-0 overflow-auto"
 				style={{ gridArea: AREAS.content }}
 			>
+				{backendStatus === "disconnected" && (
+					<div
+						role="status"
+						className="h-8 flex items-center gap-1.5 px-3 sticky top-0 z-40 bg-destructive/10 border-b border-destructive/40 text-destructive text-xs font-medium"
+					>
+						<Radio className="size-3.5 shrink-0" />
+						<span className="truncate">
+							Server unreachable — reconnecting… You'll be signed out if
+							this lasts more than a minute.
+						</span>
+					</div>
+				)}
 				<Outlet />
 			</main>
 
