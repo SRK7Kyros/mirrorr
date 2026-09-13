@@ -55,6 +55,11 @@ import {
 import { useAuthStore } from "@/stores/auth-store";
 import { useRequestLogStore } from "@/stores/request-log-store";
 import { buildServerWsUrl, getApiBase } from "@/lib/server";
+import {
+	getActiveTokens,
+	getBearerForActive,
+	setActiveTokens,
+} from "@/lib/token-store";
 
 // Re-export storage helpers for backward compatibility
 export {
@@ -198,6 +203,12 @@ async function _fetchJson<T = unknown>(
 		if (apiKey) {
 			fetchHeaders["X-API-Key"] = apiKey;
 		}
+		if (!fetchHeaders["Authorization"]) {
+			const bearer = await getBearerForActive();
+			if (bearer) {
+				fetchHeaders["Authorization"] = `Bearer ${bearer}`;
+			}
+		}
 	}
 
 	// Log the request
@@ -326,17 +337,15 @@ export async function apiRequest<T = unknown>(
 		return await _fetchJson<T>(path, options);
 	} catch (err) {
 		if (err instanceof ApiError && err.status === 401 && !options.noAuth) {
-			// Cookie-based refresh: backend sets new cookies via Set-Cookie headers.
-			// After refresh, retry without Authorization header — cookies handle auth.
 			await refreshAccessToken();
+			const retryHeaders: Record<string, string> = { ...(options.headers ?? {}) };
+			const bearer = await getBearerForActive();
+			if (bearer) {
+				retryHeaders["Authorization"] = `Bearer ${bearer}`;
+			}
 			return await _fetchJson<T>(path, {
 				...options,
-				// Remove any Authorization header — cookies handle auth after refresh
-				headers: Object.fromEntries(
-					Object.entries(options.headers ?? {}).filter(
-						([k]) => k.toLowerCase() !== "authorization",
-					),
-				),
+				headers: retryHeaders,
 			});
 		}
 		throw err;
@@ -352,10 +361,9 @@ async function refreshAccessToken(): Promise<string> {
 	if (refreshPromise) return refreshPromise;
 
 	refreshPromise = (async () => {
-		const refreshToken = getStoredRefreshToken();
+		const activePair = await getActiveTokens();
+		const refreshToken = activePair?.refresh || getStoredRefreshToken();
 
-		// Try cookie-based refresh first (no body needed)
-		// Falls back to sending refresh token in body if cookie is empty
 		const body: Record<string, string> = {};
 		if (refreshToken) {
 			body.refresh_token = refreshToken;
@@ -373,6 +381,13 @@ async function refreshAccessToken(): Promise<string> {
 		// Cookie-based auth: backend sets new cookies via Set-Cookie headers
 		// We no longer receive tokens in the response body
 		const data = (await res.json()) as AuthResponse;
+
+		if (data.access_token) {
+			await setActiveTokens({
+				access: data.access_token,
+				refresh: data.refresh_token ?? activePair?.refresh ?? "",
+			});
+		}
 
 		// Update the zustand store with user info (cookies handle auth)
 		const authStore = useAuthStore.getState();

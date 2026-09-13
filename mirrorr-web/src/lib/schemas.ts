@@ -49,11 +49,23 @@ export const authStatusSchema = z.object({
 export const meSchema = z.object({
 	user: userSchema,
 	client: z.object({ id: z.number(), name: z.string() }).nullable(),
+	access_token: z.string().nullable().optional(),
+	refresh_token: z.string().nullable().optional(),
 });
 
-/** Auth response shape returned by /auth/login, /auth/register, /auth/refresh, /auth/me */
+export const registrationPendingSchema = z.object({
+	status: z.literal("pending"),
+	username: z.string(),
+});
+export type RegistrationPending = z.infer<typeof registrationPendingSchema>;
+
+/** Auth response shape returned by /auth/login, /auth/refresh, /auth/me */
 export const authResponseSchema = meSchema;
 export type AuthResponse = z.infer<typeof authResponseSchema>;
+
+/** Register may return pending instead of a live user (non-first-user path → 202). */
+export const registerResponseSchema = z.union([meSchema, registrationPendingSchema]);
+export type RegisterResponse = z.infer<typeof registerResponseSchema>;
 
 // ── Engine ─────────────────────────────────────────────────────────
 

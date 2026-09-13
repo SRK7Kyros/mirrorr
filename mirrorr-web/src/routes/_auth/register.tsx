@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { authApi } from "@/lib/api";
+import { setActiveTokens } from "@/lib/token-store";
 import { registerSchema } from "@/lib/schemas";
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -48,14 +49,21 @@ function RegisterPage() {
 			password: string;
 			display_name?: string;
 		}) => authApi.register(data),
-		onSuccess: (data) => {
-			if (data.user) {
-				// Tokens are now in httpOnly cookies — just store user info
+		onSuccess: async (data) => {
+			if ("user" in data) {
+				if (data.access_token) {
+					await setActiveTokens({
+						access: data.access_token,
+						refresh: data.refresh_token ?? "",
+					});
+				}
 				setAuth(data.user);
 				// Clear the auth-status cache so the register page doesn't
 				// show a stale "first user" state on next visit.
 				queryClient.clear();
 				navigate({ to: "/" });
+			} else {
+				setSuccess("Request sent — an admin will approve you");
 			}
 		},
 		onError: (err: Error) => setError(err.message || "Registration failed"),
@@ -63,7 +71,7 @@ function RegisterPage() {
 
 	if (statusLoading) {
 		return (
-			<Card className="w-full max-w-sm border border-border/70 shadow-[0_24px_60px_-24px_rgb(0,0,0,0.3)] dark:border-white/25 dark:bg-white/[0.09] dark:shadow-[inset_0_1px_0_rgb(255,255,255,0.2),0_24px_70px_-20px_rgb(0,0,0,0.85)] dark:ring-0 dark:ring-white/10 dark:backdrop-blur-xl">
+			<Card className="w-full max-w-sm border border-border/70 shadow-[0_24px_60px_-24px_rgb(0,0,0,0.3)] dark:border-white/10 dark:bg-white/[0.03] dark:shadow-[inset_0_1px_0_rgb(255,255,255,0.08),0_24px_70px_-20px_rgb(0,0,0,0.85)] dark:ring-0 dark:ring-white/10 dark:backdrop-blur-xl">
 				<CardContent className="flex items-center justify-center py-8">
 					<Loader2 className="size-6 animate-spin text-muted-foreground" />
 				</CardContent>
@@ -72,12 +80,12 @@ function RegisterPage() {
 	}
 
 	return (
-		<Card className="w-full max-w-sm border border-border/70 shadow-[0_24px_60px_-24px_rgb(0,0,0,0.3)] dark:border-white/25 dark:bg-white/[0.09] dark:shadow-[inset_0_1px_0_rgb(255,255,255,0.2),0_24px_70px_-20px_rgb(0,0,0,0.85)] dark:ring-0 dark:ring-white/10 dark:backdrop-blur-xl">
+		<Card className="w-full max-w-md border border-border/70 shadow-[0_24px_60px_-24px_rgb(0,0,0,0.3)] dark:border-white/10 dark:bg-white/[0.03] dark:shadow-[inset_0_1px_0_rgb(255,255,255,0.08),0_24px_70px_-20px_rgb(0,0,0,0.85)] dark:ring-0 dark:ring-white/10 dark:backdrop-blur-xl">
 			<CardHeader className="text-center">
-				<CardTitle className="text-xl">
+				<CardTitle className="text-2xl font-semibold">
 					{isFirstUser ? "Create Admin Account" : "Create Account"}
 				</CardTitle>
-				<CardDescription>
+				<CardDescription className="text-base">
 					{isFirstUser ? "Set up the admin account" : "Request a new account"}
 				</CardDescription>
 			</CardHeader>
@@ -98,43 +106,48 @@ function RegisterPage() {
 							setSuccess(null);
 							registerMutation.mutate(data);
 						})}
-						className="space-y-4"
+						className="space-y-5"
 					>
 						{error && <ErrorBanner message={error} />}
 						<FormField
 							label="Username"
 							error={form.formState.errors.username?.message}
+							className="[&_label]:text-sm"
 						>
 							<Input
 								id="username"
 								placeholder="username"
 								autoComplete="username"
+								className="h-11 text-base md:text-base"
 								{...form.register("username")}
 							/>
 						</FormField>
-						<FormField label="Display Name">
+						<FormField label="Display Name" className="[&_label]:text-sm">
 							<Input
 								id="display_name"
 								placeholder="Optional display name"
 								autoComplete="name"
+								className="h-11 text-base md:text-base"
 								{...form.register("display_name")}
 							/>
 						</FormField>
 						<FormField
 							label="Password"
 							error={form.formState.errors.password?.message}
+							className="[&_label]:text-sm"
 						>
 							<Input
 								id="password"
 								type="password"
 								placeholder="••••••••"
 								autoComplete="new-password"
+								className="h-11 text-base md:text-base"
 								{...form.register("password")}
 							/>
 						</FormField>
 						<Button
 							type="submit"
-							className="w-full"
+							className="h-11 w-full text-base"
 							disabled={registerMutation.isPending}
 						>
 							{registerMutation.isPending && (
@@ -142,7 +155,7 @@ function RegisterPage() {
 							)}
 							{isFirstUser ? "Create Admin Account" : "Request Access"}
 						</Button>
-						<p className="text-center text-sm text-muted-foreground">
+						<p className="text-center text-base text-muted-foreground">
 							Already have an account?{" "}
 							<Link
 								to="/login"
