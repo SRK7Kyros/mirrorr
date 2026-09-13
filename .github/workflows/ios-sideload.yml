@@ -59,12 +59,53 @@ jobs:
           name: mirrorr-ipa
           path: mirrorr-web/Mirrorr.ipa
 
+      - name: Build Feather source file
+        run: |
+          IPA_SIZE=$(stat -f%z mirrorr-web/Mirrorr.ipa)
+          TODAY=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 - "$IPA_SIZE" "$TODAY" <<'EOF'
+          import json, sys
+          size, today = int(sys.argv[1]), sys.argv[2]
+          repo = "https://raw.githubusercontent.com/SRK7Kyros/mirrorr/main/mirrorr-web/public"
+          source = {
+            "name": "Mirrorr IPA",
+            "identifier": "com.mirrorr.app-repo",
+            "iconURL": f"{repo}/icon-180.png",
+            "website": "https://github.com/SRK7Kyros/mirrorr",
+            "apps": [
+              {
+                "name": "Mirrorr",
+                "bundleIdentifier": "com.mirrorr.app",
+                "developerName": "SRK7Kyros",
+                "iconURL": f"{repo}/icon-180.png",
+                "localizedDescription": "Mirrorr is a self-hosted event-driven media ingest console. Connect to your server, run sessions, schedule autoruns, browse recordings, and manage profiles from your phone.",
+                "subtitle": "Self-hosted media ingest console",
+                "tintColor": "863bff",
+                "versions": [
+                  {
+                    "version": "1.0.0",
+                    "date": today,
+                    "size": size,
+                    "downloadURL": "https://github.com/SRK7Kyros/mirrorr/releases/download/nightly/Mirrorr.ipa",
+                  }
+                ],
+                "appPermissions": {},
+                "screenshotURLs": [],
+              }
+            ],
+            "news": [],
+          }
+          with open("mirrorr-web/app-repo.json", "w") as f:
+            json.dump(source, f, indent=2)
+          EOF
+        working-directory: .
+
       - name: Publish nightly release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete nightly --yes --repo "$GITHUB_REPOSITORY" || true
-          gh release create nightly mirrorr-web/Mirrorr.ipa \
+          gh release create nightly mirrorr-web/Mirrorr.ipa mirrorr-web/app-repo.json \
             --repo "$GITHUB_REPOSITORY" \
             --title "Mirrorr nightly IPA" \
             --notes "Unsigned Mirrorr build for sideloading (Feather/Sideloadly/AltStore)." \
