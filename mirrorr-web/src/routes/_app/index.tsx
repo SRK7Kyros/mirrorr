@@ -1,197 +1,204 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { CalendarClock, Film, Plug, Radio, Settings } from "lucide-react";
+import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { StatusBadge } from "@/components/status-badge";
-import { useProfiles, useRecordings, useSessions } from "@/hooks/use-queries";
+import { useAutoruns, useRecordings, useSessions } from "@/hooks/use-queries";
+import { useInterval } from "@/hooks/use-interval";
+import { useRequestLogStore } from "@/stores/request-log-store";
 import { AREAS, DASHBOARD_MAIN } from "@/lib/layouts";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { cn, getStatusDotColor } from "@/lib/utils";
+import { cn, formatLocalDate, getStatusDotColor } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/")({
 	component: DashboardPage,
 });
 
+const DAY_MS = 86_400_000;
+
 function DashboardPage() {
 	const isMobile = useIsMobile();
 	const { data: sessions = [] } = useSessions();
+	const { data: autoruns = [] } = useAutoruns();
 	const { data: recordings = [] } = useRecordings();
-	const { data: profiles = [] } = useProfiles();
+	const lastWsTs = useRequestLogStore((s) =>
+		s.entries.find((e) => e.type === "ws-event"),
+	)?.timestamp;
+	const [now, setNow] = useState(() => Date.now());
+	useInterval(() => setNow(Date.now()), 1000);
 
 	const active = sessions.filter(
 		(s) => s.status === "active" || s.status === "recording",
 	);
-
-	const quickActions = [
-		{
-			label: "Sessions",
-			href: "/sessions",
-			icon: Radio,
-			bg: "bg-blue-600",
-			text: "text-blue-100",
-		},
-		{
-			label: "Autoruns",
-			href: "/autoruns",
-			icon: CalendarClock,
-			bg: "bg-emerald-600",
-			text: "text-emerald-100",
-		},
-		{
-			label: "Recordings",
-			href: "/recordings",
-			icon: Film,
-			bg: "bg-amber-600",
-			text: "text-amber-100",
-		},
-		{
-			label: "Profiles",
-			href: "/profiles",
-			icon: Settings,
-			bg: "bg-violet-600",
-			text: "text-violet-100",
-		},
-		{
-			label: "Plugins",
-			href: "/plugins",
-			icon: Plug,
-			bg: "bg-rose-600",
-			text: "text-rose-100",
-		},
-	];
+	const nextAutoruns = autoruns
+		.filter((a) => {
+			if (a.status !== "scheduled" || !a.start_time) return false;
+			const ms = new Date(a.start_time).getTime();
+			return !Number.isNaN(ms) && ms < now + DAY_MS;
+		})
+		.sort((a, b) =>
+			String(a.start_time).localeCompare(String(b.start_time)),
+		)
+		.slice(0, 8);
+	const failedSessions = sessions.filter((s) => s.status === "failed");
+	const failedAutoruns = autoruns.filter((a) => a.status === "failed");
+	const failedCount = failedSessions.length + failedAutoruns.length;
+	const recentRecordings = recordings.slice(0, 8);
+	const updatedLabel =
+		lastWsTs == null
+			? "no events yet"
+			: `${Math.max(0, Math.round((now - lastWsTs) / 1000))}s ago`;
 
 	return (
 		<div className="h-full p-2 flex flex-col gap-2">
-			{/* Stats row */}
-			<div className="grid grid-cols-2 md:grid-cols-4 gap-2 shrink-0">
-				{[
-					{
-						label: "Active Sessions",
-						value: active.length,
-						color: "bg-emerald-500",
-					},
-					{
-						label: "Recordings",
-						value: recordings.length,
-						color: "bg-orange-500",
-					},
-					{
-						label: "Profiles",
-						value: profiles.length,
-						color: "bg-cyan-500",
-					},
-					{
-						label: "Total Sessions",
-						value: sessions.length,
-						color: "bg-purple-500",
-					},
-				].map((stat) => (
-					<Card key={stat.label} className="p-3 flex items-center gap-3">
-						<div className={cn("size-2 rounded-full shrink-0", stat.color)} />
-						<div>
-							<p className="text-xs text-muted-foreground">{stat.label}</p>
-							<p className="text-lg font-bold tabular-nums">{stat.value}</p>
-						</div>
-					</Card>
-				))}
-			</div>
+			<Card className="px-4 py-3 flex items-center gap-4 shrink-0 flex-wrap tabular-nums">
+				<span className="text-sm font-semibold">
+					<span className="text-emerald-500">●</span> {active.length} LIVE
+				</span>
+				<span className="text-sm text-muted-foreground">
+					○ {nextAutoruns.length} scheduled next 24h
+				</span>
+				<span className="text-sm text-muted-foreground">
+					⚠ {failedCount} failed
+				</span>
+				<span className="text-micro text-muted-foreground ml-auto">
+					Updated {updatedLabel}
+				</span>
+			</Card>
 
-			{/* Main area */}
 			<div
 				className="flex-1 min-h-0 grid gap-2"
 				style={isMobile ? DASHBOARD_MAIN.styleStacked() : DASHBOARD_MAIN.style}
 			>
-				{/* Quick actions */}
-				<Card className="p-3 flex flex-col" style={{ gridArea: AREAS.actions }}>
-					<p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-3 shrink-0">
-						Quick Actions
+				<Card className="p-3 flex flex-col min-h-0 overflow-auto" style={{ gridArea: AREAS.actions }}>
+					<p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-2 shrink-0">
+						Live now
 					</p>
-					<div className="flex-1 grid grid-cols-2 md:grid-cols-5 gap-2 auto-rows-[88px] md:auto-rows-auto">
-						{quickActions.map((action) => {
-							const Icon = action.icon;
-							return (
+					{active.length === 0 ? (
+						<p className="text-xs text-muted-foreground/70 py-2">
+							0 LIVE —{" "}
+							<Link to="/sessions" className="underline underline-offset-2">
+								Go to Sessions
+							</Link>
+						</p>
+					) : (
+						<div className="divide-y rounded-lg overflow-hidden border mb-4">
+							{active.map((session) => (
 								<Link
-									key={action.href}
-									to={action.href}
-									className={cn(
-										"group rounded-xl flex flex-col items-center justify-center gap-3 transition-all hover:scale-[1.03] hover:shadow-lg",
-										action.bg,
-									)}
+									key={session.id}
+									to="/sessions"
+									className="flex items-center gap-2 px-3 py-2 hover:bg-muted/30 transition-colors text-xs"
 								>
-									<Icon className="size-6 text-white" />
-									<span className={cn("text-xs font-medium", action.text)}>
-										{action.label}
+									<div
+										className={cn(
+											"size-1.5 rounded-full shrink-0 animate-pulse",
+											getStatusDotColor(session.status),
+										)}
+									/>
+									<span className="font-medium truncate">
+										{session.autorun_id ? `Autorun ${session.id}` : `Session #${session.id}`}
+									</span>
+									<StatusBadge status={session.status} className="ml-auto shrink-0" />
+								</Link>
+							))}
+						</div>
+					)}
+
+					<p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-2 shrink-0">
+						Next 24h
+					</p>
+					{nextAutoruns.length === 0 ? (
+						<p className="text-xs text-muted-foreground/70 py-2">
+							0 scheduled —{" "}
+							<Link to="/autoruns" className="underline underline-offset-2">
+								New autorun
+							</Link>
+						</p>
+					) : (
+						<div className="divide-y rounded-lg overflow-hidden border">
+							{nextAutoruns.map((a) => (
+								<Link
+									key={a.id}
+									to="/autoruns"
+									className="flex items-center gap-2 px-3 py-2 hover:bg-muted/30 transition-colors text-xs"
+								>
+									<div
+										className={cn(
+											"size-1.5 rounded-full shrink-0",
+											getStatusDotColor(a.status ?? "scheduled"),
+										)}
+									/>
+									<span className="font-medium truncate">{a.user_friendly_name}</span>
+									<span className="text-muted-foreground ml-auto shrink-0 tabular-nums">
+										{a.start_time ? formatLocalDate(a.start_time) : "—"}
 									</span>
 								</Link>
-							);
-						})}
-					</div>
-
-					{/* Running now */}
-					{active.length > 0 && (
-						<div className="mt-3 pt-3 border-t shrink-0">
-							<p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-2">
-								Running Now
-							</p>
-							<div className="space-y-1">
-								{active.map((session) => (
-									<Link
-										key={session.id}
-										to="/sessions"
-										className="flex items-center gap-2 px-2 py-1 rounded-lg text-xs hover:bg-muted/30 transition-colors"
-									>
-										<div
-											className={cn(
-												"size-1.5 rounded-full shrink-0 animate-pulse",
-												getStatusDotColor(session.status),
-											)}
-										/>
-										<span className="font-medium truncate">
-											{session.autorun_id ? `Autorun ${session.id}` : `Session #${session.id}`}
-										</span>
-										<StatusBadge status={session.status} className="ml-auto shrink-0" />
-									</Link>
-								))}
-							</div>
+							))}
 						</div>
 					)}
 				</Card>
 
-				{/* Recent sessions */}
 				<Card
-					className="p-3 flex flex-col min-h-0"
+					className="p-3 flex flex-col min-h-0 overflow-auto"
 					style={{ gridArea: AREAS.sessions }}
 				>
 					<p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-2 shrink-0">
-						Recent Sessions
+						Recent recordings
 					</p>
-					<div className="flex-1 min-h-0 overflow-auto">
-						{sessions.length === 0 ? (
-							<p className="text-xs text-muted-foreground/50 py-4 text-center">
-								No sessions yet
-							</p>
-						) : (
-							<div className="divide-y rounded-lg overflow-hidden border">
-								{sessions.slice(0, 8).map((session) => (
-									<Link
-										key={session.id}
-										to="/sessions"
-										className="flex items-center gap-2 px-3 py-2 hover:bg-muted/30 transition-colors text-xs"
-									>
-										<div
-											className={cn(
-												"size-1.5 rounded-full shrink-0",
-												getStatusDotColor(session.status),
-											)}
-										/>
-										<span className="font-medium">#{session.id}</span>
-										<span className="text-muted-foreground ml-auto">
-											{session.status}
-										</span>
-									</Link>
-								))}
-							</div>
-						)}
-					</div>
+					{recentRecordings.length === 0 ? (
+						<p className="text-xs text-muted-foreground/70 py-2">
+							0 recordings —{" "}
+							<Link to="/sessions" className="underline underline-offset-2">
+								Start a session
+							</Link>
+						</p>
+					) : (
+						<div className="divide-y rounded-lg overflow-hidden border mb-4">
+							{recentRecordings.map((r) => (
+								<Link
+									key={r.id}
+									to="/recordings"
+									className="flex items-center gap-2 px-3 py-2 hover:bg-muted/30 transition-colors text-xs"
+								>
+									<span className="font-medium truncate">{r.user_friendly_name}</span>
+									<span className="text-muted-foreground ml-auto shrink-0">
+										#{r.id}
+									</span>
+								</Link>
+							))}
+						</div>
+					)}
+
+					<p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-2 shrink-0">
+						Failed
+					</p>
+					{failedCount === 0 ? (
+						<p className="text-xs text-muted-foreground/70 py-2">
+							0 failed — nothing needs attention
+						</p>
+					) : (
+						<div className="divide-y rounded-lg overflow-hidden border">
+							{failedSessions.map((s) => (
+								<Link
+									key={`s-${s.id}`}
+									to="/sessions"
+									className="flex items-center gap-2 px-3 py-2 hover:bg-muted/30 transition-colors text-xs"
+								>
+									<span className="font-medium truncate">Session #{s.id}</span>
+									<StatusBadge status={s.status} className="ml-auto shrink-0" />
+								</Link>
+							))}
+							{failedAutoruns.map((a) => (
+								<Link
+									key={`a-${a.id}`}
+									to="/autoruns"
+									className="flex items-center gap-2 px-3 py-2 hover:bg-muted/30 transition-colors text-xs"
+								>
+									<span className="font-medium truncate">{a.user_friendly_name}</span>
+									<StatusBadge status={a.status ?? "failed"} className="ml-auto shrink-0" />
+								</Link>
+							))}
+						</div>
+					)}
 				</Card>
 			</div>
 		</div>
