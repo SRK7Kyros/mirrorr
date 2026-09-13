@@ -1,27 +1,32 @@
-/**
- * Shared WebSocket connection hook.
- * Encapsulates the connect/reconnect/cleanup/auth logic duplicated
- * between use-ws-events.ts and use-ws-notifications.ts.
- */
 import { useCallback, useEffect, useRef } from "react";
 import { useAuthStore } from "@/stores/auth-store";
+import { useRequestLogStore } from "@/stores/request-log-store";
 
 interface UseWsConnectionOptions {
-	/** URL builder function (e.g. getWsEventsUrl) */
 	url: string;
-	/** Called when a message is received */
 	onMessage: (ev: MessageEvent) => void;
-	/** Whether the user is authenticated (gates connection lifecycle) */
 	isAuthenticated: boolean;
 }
 
-/** Max reconnect attempts before giving up (requires page reload). */
 const MAX_RECONNECT_ATTEMPTS = 12;
+const KEEPALIVE_MS = 1500;
+const STALE_MS = 30_000;
 
-/** Compute a reconnect delay with exponential backoff + ±20% jitter. */
 function reconnectDelay(attempts: number): number {
 	const base = Math.min(1000 * 2 ** attempts, 30000);
 	return Math.round(base * (0.8 + Math.random() * 0.4));
+}
+
+async function healthOk(): Promise<boolean> {
+	try {
+		const ctl = new AbortController();
+		const t = setTimeout(() => ctl.abort(), 5000);
+		const res = await fetch("/health", { cache: "no-store", signal: ctl.signal });
+		clearTimeout(t);
+		return res.ok;
+	} catch {
+		return false;
+	}
 }
 
 export function useWsConnection({
@@ -33,15 +38,33 @@ export function useWsConnection({
 	const reconnectTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
 	const onMessageRef = useRef(onMessage);
 	const reconnectAttempts = useRef(0);
+	const lastEventAt = useRef<number>(Date.now());
+	const keepaliveTimer = useRef<ReturnType<typeof setInterval>>(undefined);
 
 	useEffect(() => {
 		onMessageRef.current = onMessage;
 	}, [onMessage]);
 
+	const scheduleReconnect = useCallback(() => {
+		if (document.hidden) return;
+		if (!useAuthStore.getState().isAuthenticated) return;
+		if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) return;
+		clearTimeout(reconnectTimeout.current);
+		const delay = reconnectDelay(reconnectAttempts.current);
+		reconnectAttempts.current++;
+		reconnectTimeout.current = setTimeout(() => {
+			connectRef.current();
+		}, delay);
+	}, []);
+
 	const connectRef = useRef<() => void>(() => {});
 	const connect = useCallback(() => {
 		if (wsRef.current) {
-			wsRef.current.close();
+			try {
+				wsRef.current.close();
+			} catch {
+				// ignore
+			}
 			wsRef.current = null;
 		}
 
@@ -49,54 +72,113 @@ export function useWsConnection({
 			const ws = new WebSocket(url);
 			wsRef.current = ws;
 
-			ws.onmessage = (ev) => onMessageRef.current(ev);
+			ws.onmessage = (ev) => {
+				lastEventAt.current = Date.now();
+				onMessageRef.current(ev);
+			};
 
 			ws.onopen = () => {
 				reconnectAttempts.current = 0;
+				lastEventAt.current = Date.now();
 			};
 
 			ws.onclose = (ev) => {
-				// 4001 = Authentication required — don't reconnect, trigger logout
 				if (ev.code === 4001) {
 					useAuthStore.getState().logout();
 					return;
 				}
-				if (
-					wsRef.current === ws &&
-					useAuthStore.getState().isAuthenticated &&
-					reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS
-				) {
-					const delay = reconnectDelay(reconnectAttempts.current);
-					reconnectAttempts.current++;
-					reconnectTimeout.current = setTimeout(connectRef.current, delay);
+				if (ev.code === 1006) {
+					useRequestLogStore.getState().addEntry({
+						type: "ws-event",
+						timestamp: Date.now(),
+						method: "WS",
+						url,
+						path: "close/1006",
+						status: 1006,
+						statusText: "Abnormal closure",
+						duration: null,
+						ok: false,
+						error: "WebSocket closed abnormally (1006)",
+						requestBody: null,
+						responseBody: null,
+					});
 				}
+				if (wsRef.current !== ws) return;
+				if (document.hidden) return;
+				if (!useAuthStore.getState().isAuthenticated) return;
+				if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) return;
+				scheduleReconnect();
 			};
 
-			ws.onerror = () => ws.close();
+			ws.onerror = () => {
+				try {
+					ws.close();
+				} catch {
+					// ignore
+				}
+			};
 		} catch {
-			if (
-				useAuthStore.getState().isAuthenticated &&
-				reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS
-			) {
-				const delay = reconnectDelay(reconnectAttempts.current);
-				reconnectAttempts.current++;
-				reconnectTimeout.current = setTimeout(connectRef.current, delay);
-			}
+			scheduleReconnect();
 		}
-	}, [url]);
+	}, [url, scheduleReconnect]);
 
 	useEffect(() => {
 		connectRef.current = connect;
 	}, [connect]);
+
 	useEffect(() => {
-		if (isAuthenticated) connect();
+		if (!isAuthenticated) return;
+		connect();
+
+		keepaliveTimer.current = setInterval(() => {
+			if (document.hidden) return;
+			const ws = wsRef.current;
+			if (!ws || ws.readyState !== WebSocket.OPEN) return;
+			try {
+				ws.send(JSON.stringify({ type: "ping", at: Date.now() }));
+			} catch {
+				// fire-and-forget: backend discards inbound, no pong expected
+			}
+		}, KEEPALIVE_MS);
+
+		const verifyThenForce = async () => {
+			if (document.hidden) return;
+			if (!useAuthStore.getState().isAuthenticated) return;
+			const ws = wsRef.current;
+			const socketDead = !ws || ws.readyState !== WebSocket.OPEN;
+			const stale = Date.now() - lastEventAt.current > STALE_MS;
+			if (!socketDead && !stale) return;
+			if (!socketDead && stale) {
+				const ok = await healthOk();
+				if (ok) return;
+			}
+			clearTimeout(reconnectTimeout.current);
+			connectRef.current();
+		};
+
+		const onVisibility = () => {
+			if (!document.hidden) void verifyThenForce();
+		};
+		const onPageShow = (e: PageTransitionEvent) => {
+			if (e.persisted) void verifyThenForce();
+			else void verifyThenForce();
+		};
+		document.addEventListener("visibilitychange", onVisibility);
+		window.addEventListener("pageshow", onPageShow);
 
 		return () => {
+			clearInterval(keepaliveTimer.current);
 			clearTimeout(reconnectTimeout.current);
+			document.removeEventListener("visibilitychange", onVisibility);
+			window.removeEventListener("pageshow", onPageShow);
 			if (wsRef.current) {
-				wsRef.current.close();
+				try {
+					wsRef.current.close();
+				} catch {
+					// ignore
+				}
 				wsRef.current = null;
 			}
 		};
-	}, [isAuthenticated, connect]);
+	}, [isAuthenticated, connect, scheduleReconnect]);
 }
