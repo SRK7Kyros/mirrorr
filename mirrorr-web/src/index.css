@@ -109,6 +109,83 @@
 	}
 }
 
+/* Todo 4: stacked mobile views + touch + hover-free. Hover-only actions
+   such as InlineDeleteButton (opacity-0 group-hover:opacity-100) are
+   unreachable on touch, so force them visible when hover is unavailable.
+   Example: the recordings row delete button hidden on desktop until row
+   hover becomes permanently visible on phones and tablets. */
+@media (hover: none) {
+	.group-hover\:opacity-100 {
+		opacity: 1 !important;
+	}
+	.group\/drag-handle {
+		display: none !important;
+	}
+}
+
+/* 44pt touch targets on coarse pointers without changing desktop density.
+   Example: size-6 (24px) icon-xs delete buttons get 44px hit areas on
+   phones while desktop keeps the dense 24px rendering. */
+@media (hover: none) and (pointer: coarse) {
+	button[data-size="icon-xs"],
+	button[data-size="icon-sm"],
+	button[data-size="xs"],
+	button[data-size="sm"] {
+		min-width: 44px;
+		min-height: 44px;
+	}
+	[role="button"][aria-pressed] {
+		min-height: 44px;
+	}
+}
+
+/* KeyValueTable stacks key above value below 768px so the two-column
+   table never causes horizontal scroll on phones. Example: the sessions
+   Public URLs table renders each key above its value. */
+@media (max-width: 767px) {
+	.kv-table tr {
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: 2px;
+	}
+	.kv-table td {
+		padding-left: 1rem;
+		padding-right: 1rem;
+	}
+	.kv-table td:last-child {
+		text-align: left !important;
+		padding-top: 0;
+		overflow-wrap: anywhere;
+	}
+}
+
+/* Todo 12: archive/config phones. InfoGrid drops its desktop column-flow
+   (inline style switches to 1fr 1fr via useIsMobile); this guard keeps it
+   full-width if classed elsewhere. Pre blocks wrap instead of pushing
+   390px viewports wider. */
+@media (max-width: 767px) {
+	.info-grid {
+		width: 100%;
+		max-width: 100%;
+	}
+	.info-grid pre,
+	.p-5 pre {
+		max-width: 100%;
+		overflow-x: auto;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+}
+
+/* Select triggers render at text-sm (14px) which triggers iOS auto-zoom on
+   focus. Example: the engine/resolver dropdowns in config-fields stay dense
+   on desktop but render at 16px on phones to suppress the zoom. */
+@media (max-width: 767px) {
+	[data-slot="select-trigger"] {
+		font-size: 1rem;
+	}
+}
+
 code,
 pre,
 kbd,
