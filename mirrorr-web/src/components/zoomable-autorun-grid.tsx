@@ -75,10 +75,12 @@ export function ZoomableAutorunGrid({
 	autoruns,
 	selectedId,
 	onSelect,
+	onDuplicate,
 }: {
 	autoruns: Autorun[];
 	selectedId?: number | null;
 	onSelect?: (id: number) => void;
+	onDuplicate?: (a: Autorun) => void;
 }) {
 	const isMobile = useIsMobile();
 	const queryClient = useQueryClient();
@@ -349,6 +351,7 @@ export function ZoomableAutorunGrid({
 					setEditId(null);
 					queryClient.invalidateQueries({ queryKey: ["autoruns"] });
 				}}
+				onDuplicate={onDuplicate}
 			/>
 		</div>
 	);
@@ -418,13 +421,15 @@ function DayFocus({
 	);
 }
 
-function EditSheet({
-	autorun,
-	onClose,
-}: {
-	autorun: Autorun | null;
-	onClose: () => void;
-}) {
+	function EditSheet({
+		autorun,
+		onClose,
+		onDuplicate,
+	}: {
+		autorun: Autorun | null;
+		onClose: () => void;
+		onDuplicate?: (a: Autorun) => void;
+	}) {
 	const queryClient = useQueryClient();
 	const [start, setStart] = useState<string>("");
 	const [end, setEnd] = useState<string>("");
@@ -501,10 +506,13 @@ function EditSheet({
 	}
 
 	function duplicate() {
-		const clone = structuredClone(autorun);
-		const { id: _drop, ...rest } = clone as Record<string, unknown>;
-		void _drop;
-		toast.success(`Duplicated ${(rest["user_friendly_name"] as string) ?? "autorun"} — adjust times then create`);
+		if (!autorun) return;
+		if (!onDuplicate) {
+			toast.success(`Duplicated ${autorun.user_friendly_name ?? "autorun"} — adjust times then create`);
+			return;
+		}
+		onDuplicate(autorun);
+		onClose();
 	}
 
 	return (
