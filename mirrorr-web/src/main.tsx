@@ -2,6 +2,7 @@ import { createRouter, RouterProvider } from "@tanstack/react-router";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { useAuthStore } from "@/stores/auth-store";
+import { ensureEnvSeeded } from "@/lib/server";
 import { routeTree } from "./routeTree.gen";
 import "./index.css";
 
@@ -40,9 +41,22 @@ function App() {
 	);
 }
 
+try {
+	ensureEnvSeeded();
+} catch {
+	// storage unavailable — server-link still works for this session
+}
+
 const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("Root element #root not found");
-ReactDOM.createRoot(rootElement).render(
+
+type RootHolder = HTMLElement & {
+	_reactRoot?: ReturnType<typeof ReactDOM.createRoot>;
+};
+
+const holder = rootElement as RootHolder;
+holder._reactRoot ??= ReactDOM.createRoot(rootElement);
+holder._reactRoot.render(
 	<React.StrictMode>
 		<App />
 	</React.StrictMode>,

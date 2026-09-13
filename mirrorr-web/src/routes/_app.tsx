@@ -13,13 +13,11 @@ import {
 	Film,
 	LayoutDashboard,
 	LogOut,
-	Menu,
 	Plug,
 	Radio,
 	Search,
 	Settings,
 	User,
-	X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Logo } from "@/components/logo";
@@ -74,6 +72,20 @@ export const Route = createFileRoute("/_app")({
 		if (!isAuthenticated) {
 			throw redirect({ to: "/login" });
 		}
+		const { useServerStore: _ss2, isServerLocked: _lock2 } = await import("@/lib/server");
+		await new Promise<void>((resolve) => {
+			const unsub = _ss2.persist.onFinishHydration(() => {
+				unsub();
+			resolve();
+			});
+			if (_ss2.persist.hasHydrated()) {
+				unsub();
+			resolve();
+			}
+		});
+		if (!_lock2() && _ss2.getState().instances.length === 0) {
+			throw redirect({ to: "/server" });
+		}
 	},
 	component: AppLayout,
 });
@@ -91,6 +103,39 @@ const navItems: NavItem[] = [
 	{ label: "Recordings", to: "/recordings", icon: Film },
 	{ label: "Profiles", to: "/profiles", icon: Settings },
 	{ label: "Plugins", to: "/plugins", icon: Plug },
+];
+
+const mobileTabs: { label: string; to: string; icon: React.ComponentType<{ className?: string }>; match: (pathname: string) => boolean }[] = [
+	{
+		label: "Live",
+		to: "/sessions",
+		icon: Radio,
+		match: (p) => p.startsWith("/sessions") || p.startsWith("/monitoring"),
+	},
+	{
+		label: "Schedule",
+		to: "/autoruns",
+		icon: CalendarClock,
+		match: (p) => p.startsWith("/autoruns"),
+	},
+	{
+		label: "Archive",
+		to: "/recordings",
+		icon: Film,
+		match: (p) => p.startsWith("/recordings"),
+	},
+	{
+		label: "Config",
+		to: "/profiles",
+		icon: Settings,
+		match: (p) => p.startsWith("/profiles") || p.startsWith("/plugins"),
+	},
+	{
+		label: "More",
+		to: "/",
+		icon: LayoutDashboard,
+		match: (p) => p === "/" || p.startsWith("/profile"),
+	},
 ];
 
 function NavItemComponent({
@@ -125,7 +170,6 @@ function AppLayout() {
 	const navigate = useNavigate();
 	const user = useAuthStore((s) => s.user);
 	const logout = useAuthStore((s) => s.logout);
-	const [mobileOpen, setMobileOpen] = useState(false);
 	const [netOpen, setNetOpen] = useState(false);
 	const [cmdOpen, setCmdOpen] = useState(false);
 	const [netPos, setNetPos] = useState<{ x: number; y: number }>({
@@ -191,12 +235,12 @@ function AppLayout() {
 
 	return (
 		<div
-			className="h-screen grid bg-background overflow-hidden"
+			className="h-dvh grid bg-background overflow-hidden supports-[height:100dvh]:h-dvh"
 			style={APP_SHELL.style}
 		>
 			{/* ── Top Navbar ────────────────────────────────────────── */}
 			<header
-				className="h-12 flex items-center border-b bg-background/80 backdrop-blur-xl"
+				className="h-12 flex items-center border-b bg-background/80 backdrop-blur-xl pt-[env(safe-area-inset-top)]"
 				style={{ gridArea: AREAS.navbar }}
 			>
 				{/* Logo */}
@@ -376,56 +420,8 @@ function AppLayout() {
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
-
-					{/* Mobile menu button */}
-					<Button
-						variant="ghost"
-						size="icon-sm"
-						className="md:hidden ml-1"
-						onClick={() => setMobileOpen(!mobileOpen)}
-					>
-						{mobileOpen ? (
-							<X className="size-4" />
-						) : (
-							<Menu className="size-4" />
-						)}
-					</Button>
 				</div>
 			</header>
-
-			{/* ── Mobile nav ───────────────────────────────────────── */}
-			{mobileOpen && (
-				<>
-					<button
-						type="button"
-						tabIndex={-1}
-						aria-label="Close navigation menu"
-						className="fixed inset-0 top-14 z-40 bg-black/50 md:hidden border-0 p-0 cursor-default"
-						onClick={() => setMobileOpen(false)}
-						onKeyDown={(e) => {
-							if (e.key === "Escape") setMobileOpen(false);
-						}}
-					/>
-					<nav className="fixed top-14 inset-x-0 z-50 bg-background border-b p-3 md:hidden">
-						<div className="space-y-1">
-							{filteredNav.map((item) => {
-								const isActive =
-									item.to === "/"
-										? location.pathname === "/"
-										: location.pathname.startsWith(item.to);
-								return (
-									<NavItemComponent
-										key={item.to}
-										item={item}
-										isActive={isActive}
-										className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm"
-									/>
-								);
-							})}
-						</div>
-					</nav>
-				</>
-			)}
 
 			{/* ── Page content ─────────────────────────────────────── */}
 			<main
@@ -434,6 +430,32 @@ function AppLayout() {
 			>
 				<Outlet />
 			</main>
+
+			<nav
+				aria-label="Primary"
+				data-testid="bottom-tab-bar"
+				className="md:hidden flex items-stretch border-t bg-background/95 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]"
+				style={{ gridArea: AREAS.tabbar }}
+			>
+				{mobileTabs.map((tab) => {
+					const active = tab.match(location.pathname);
+					const Icon = tab.icon;
+					return (
+						<Link
+							key={tab.label}
+							to={tab.to}
+							data-testid={`bottom-tab-${tab.label.toLowerCase()}`}
+							aria-current={active ? "page" : undefined}
+							className="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-11 py-1 text-micro font-medium"
+						>
+							<Icon className={active ? "size-5 text-foreground" : "size-5 text-muted-foreground"} />
+							<span className={active ? "text-foreground" : "text-muted-foreground"}>
+								{tab.label}
+							</span>
+						</Link>
+					);
+				})}
+			</nav>
 
 			{/* ── Floating network monitor ─────────────────────────── */}
 			<NetworkStatusTracker />
