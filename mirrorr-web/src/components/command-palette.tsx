@@ -10,7 +10,13 @@ import {
 	Settings,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+	Sheet,
+	SheetContent,
+	SheetTitle,
+} from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useAutoruns, useRecordings, useSessions } from "@/hooks/use-queries";
 import { cn } from "@/lib/utils";
 
@@ -50,6 +56,7 @@ export function CommandPalette({ open, onOpenChange }: {
 	onOpenChange: (open: boolean) => void;
 }) {
 	const navigate = useNavigate();
+	const isMobile = useIsMobile();
 	const { data: sessions = [] } = useSessions();
 	const { data: autoruns = [] } = useAutoruns();
 	const { data: recordings = [] } = useRecordings();
@@ -118,66 +125,89 @@ export function CommandPalette({ open, onOpenChange }: {
 		navigate({ to: item.to });
 	};
 
+	const searchBody = (
+		<>
+			<div className="flex items-center gap-2 px-3 border-b">
+				<Search className="size-4 text-muted-foreground shrink-0" />
+				<Input
+					ref={inputRef}
+					value={q}
+					onChange={(e) => setQ(e.target.value)}
+					placeholder="Search sessions, autoruns, recordings, pages…"
+					enterKeyHint="search"
+					autoComplete="off"
+					className="border-0 bg-transparent px-0 h-11 focus-visible:ring-0 focus-visible:ring-offset-0"
+					onKeyDown={(e) => {
+						if (e.key === "ArrowDown") {
+							e.preventDefault();
+							setIdx((i) => Math.min(i + 1, filtered.length - 1));
+						} else if (e.key === "ArrowUp") {
+							e.preventDefault();
+							setIdx((i) => Math.max(i - 1, 0));
+						} else if (e.key === "Enter" && filtered[idx]) {
+							e.preventDefault();
+							run(filtered[idx]);
+						}
+					}}
+				/>
+			</div>
+			<div ref={listRef} className="max-h-80 overflow-auto p-2 space-y-0.5">
+				{filtered.length === 0 ? (
+					<p className="px-2 py-6 text-center text-xs text-muted-foreground">
+						No matches
+					</p>
+				) : (
+					filtered.map((item, i) => {
+						const Icon = item.icon;
+						return (
+							<button
+								key={item.id}
+								type="button"
+								data-idx={i}
+								onClick={() => run(item)}
+								onMouseEnter={() => setIdx(i)}
+								className={cn(
+									"w-full flex items-center gap-2.5 rounded-md text-left text-sm transition-colors min-h-12 px-2.5 py-3",
+									i === idx
+										? "bg-accent text-accent-foreground"
+										: "hover:bg-muted/50",
+								)}
+							>
+								<Icon className="size-4 text-muted-foreground shrink-0" />
+								<span className="truncate font-medium">{item.label}</span>
+								{item.sub && (
+									<span className="ml-auto text-xs text-muted-foreground truncate max-w-[160px]">
+										{item.sub}
+									</span>
+								)}
+							</button>
+						);
+					})
+				)}
+			</div>
+		</>
+	);
+
+	if (isMobile) {
+		return (
+			<Sheet open={open} onOpenChange={onOpenChange}>
+				<SheetContent
+					side="bottom"
+					data-testid="palette-sheet"
+					className="rounded-t-2xl pb-[env(safe-area-inset-bottom)]"
+				>
+					<SheetTitle className="sr-only">Command palette</SheetTitle>
+					{searchBody}
+				</SheetContent>
+			</Sheet>
+		);
+	}
+
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent showCloseButton={false} className="sm:max-w-lg p-0 gap-0">
 				<DialogTitle className="sr-only">Command palette</DialogTitle>
-				<div className="flex items-center gap-2 px-3 border-b">
-					<Search className="size-4 text-muted-foreground shrink-0" />
-					<Input
-						ref={inputRef}
-						value={q}
-						onChange={(e) => setQ(e.target.value)}
-						placeholder="Search sessions, autoruns, recordings, pages…"
-						className="border-0 bg-transparent px-0 h-11 focus-visible:ring-0 focus-visible:ring-offset-0"
-						onKeyDown={(e) => {
-							if (e.key === "ArrowDown") {
-								e.preventDefault();
-								setIdx((i) => Math.min(i + 1, filtered.length - 1));
-							} else if (e.key === "ArrowUp") {
-								e.preventDefault();
-								setIdx((i) => Math.max(i - 1, 0));
-							} else if (e.key === "Enter" && filtered[idx]) {
-								e.preventDefault();
-								run(filtered[idx]);
-							}
-						}}
-					/>
-				</div>
-				<div ref={listRef} className="max-h-80 overflow-auto p-2 space-y-0.5">
-					{filtered.length === 0 ? (
-						<p className="px-2 py-6 text-center text-xs text-muted-foreground">
-							No matches
-						</p>
-					) : (
-						filtered.map((item, i) => {
-							const Icon = item.icon;
-							return (
-								<button
-									key={item.id}
-									type="button"
-									data-idx={i}
-									onClick={() => run(item)}
-									onMouseEnter={() => setIdx(i)}
-									className={cn(
-										"w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-left text-sm transition-colors",
-										i === idx
-											? "bg-accent text-accent-foreground"
-											: "hover:bg-muted/50",
-									)}
-								>
-									<Icon className="size-4 text-muted-foreground shrink-0" />
-									<span className="truncate font-medium">{item.label}</span>
-									{item.sub && (
-										<span className="ml-auto text-xs text-muted-foreground truncate max-w-[160px]">
-											{item.sub}
-										</span>
-									)}
-								</button>
-							);
-						})
-					)}
-				</div>
+				{searchBody}
 			</DialogContent>
 		</Dialog>
 	);
