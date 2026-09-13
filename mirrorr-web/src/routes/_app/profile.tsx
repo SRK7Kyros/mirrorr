@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { Key, Loader2, Shield, User, UserX } from "lucide-react";
+import { Check, Key, Loader2, Shield, User, UserX, X } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -250,8 +250,101 @@ function AdminSection() {
 			toast.error(`Failed to delete user: ${err.message}`),
 	});
 
+	const { data: requests = [], isLoading: requestsLoading } = useQuery({
+		queryKey: ["admin-registration-requests"],
+		queryFn: () => authApi.registrationRequests(),
+	});
+
+	const approveMutation = useMutation({
+		mutationFn: (id: number) => authApi.approveRegistration(id),
+		onSuccess: () => {
+			queryClient.invalidateQueries({
+				queryKey: ["admin-registration-requests"],
+			});
+			queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+			toast.success("Request approved");
+		},
+		onError: (err: Error) =>
+			toast.error(`Failed to approve request: ${err.message}`),
+	});
+
+	const [denyReason, setDenyReason] = useState("");
+	const denyMutation = useMutation({
+		mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
+			authApi.denyRegistration(id, reason),
+		onSuccess: () => {
+			queryClient.invalidateQueries({
+				queryKey: ["admin-registration-requests"],
+			});
+			setDenyReason("");
+			toast.success("Request denied");
+		},
+		onError: (err: Error) =>
+			toast.error(`Failed to deny request: ${err.message}`),
+	});
+
 	return (
 		<div className="space-y-4">
+			<SectionCard title={`Pending (${requests.length})`}>
+				{requestsLoading ? (
+					<div className="flex items-center justify-center py-8">
+						<Loader2 className="size-5 animate-spin text-muted-foreground" />
+					</div>
+				) : requests.length === 0 ? (
+					<p className="px-4 py-6 text-center text-xs text-muted-foreground">
+						No pending requests
+					</p>
+				) : (
+					<div className="divide-y">
+						{requests.map((r) => (
+							<div
+								key={r.id}
+								className="flex items-center justify-between gap-2 px-4 py-2.5 text-xs"
+							>
+								<div className="min-w-0">
+									<span className="font-medium">{r.username}</span>
+									{r.display_name && (
+										<span className="text-muted-foreground ml-2 truncate">
+											{r.display_name}
+										</span>
+									)}
+								</div>
+								<div className="flex shrink-0 items-center gap-1.5">
+									<Button
+										size="sm"
+										variant="outline"
+										disabled={approveMutation.isPending}
+										onClick={() => approveMutation.mutate(r.id)}
+									>
+										<Check className="mr-1 size-3" />
+										Approve
+									</Button>
+									<Input
+										placeholder="Deny reason (optional)"
+										className="h-8 w-40 text-xs"
+										value={denyReason}
+										onChange={(e) => setDenyReason(e.target.value)}
+									/>
+									<Button
+										size="sm"
+										variant="ghost"
+										disabled={denyMutation.isPending}
+										onClick={() =>
+											denyMutation.mutate({
+												id: r.id,
+												reason: denyReason || undefined,
+											})
+										}
+									>
+										<X className="mr-1 size-3" />
+										Deny
+									</Button>
+								</div>
+							</div>
+						))}
+					</div>
+				)}
+			</SectionCard>
 			<SectionCard title="Users">
 				{usersLoading ? (
 					<div className="flex items-center justify-center py-8">
