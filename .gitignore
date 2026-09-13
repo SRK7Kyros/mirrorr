@@ -2,6 +2,7 @@
 .codegraph
 .omo/
 .tmp-*
+.token-optimizer/
 
 # dev runtime state + deployed web build output (rebuilt from mirrorr-web/dist)
 dev/core/
