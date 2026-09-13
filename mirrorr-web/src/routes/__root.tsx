@@ -38,7 +38,12 @@ function RootComponent() {
 					<ErrorBoundary>
 						<Outlet />
 					</ErrorBoundary>
-					<Toaster richColors position="bottom-right" />
+					<Toaster
+						richColors
+						position="bottom-right"
+						mobileOffset={{ bottom: "calc(env(safe-area-inset-bottom) + 56px)" }}
+						offset={{ bottom: 24, right: 24 }}
+					/>
 				</TooltipProvider>
 			</QueryClientProvider>
 		</ThemeProvider>
