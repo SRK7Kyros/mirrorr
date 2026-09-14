@@ -160,6 +160,7 @@ function ServerLinkPage() {
 							id="server-url"
 							placeholder="http://192.168.1.20:8000"
 							autoComplete="url"
+							enterKeyHint="next"
 							className="h-11 text-base md:text-base"
 							value={url}
 							onChange={(e) => setUrl(e.target.value)}
@@ -170,6 +171,7 @@ function ServerLinkPage() {
 							id="server-label"
 							placeholder={autoLabel(url.trim() || "http://192.168.1.20:8000")}
 							autoComplete="off"
+							enterKeyHint="next"
 							className="h-11 text-base md:text-base"
 							value={label}
 							onChange={(e) => setLabel(e.target.value)}
@@ -180,6 +182,7 @@ function ServerLinkPage() {
 							id="server-username"
 							placeholder="Sign in right after connect"
 							autoComplete="username"
+							enterKeyHint="next"
 							className="h-11 text-base md:text-base"
 							value={username}
 							onChange={(e) => setUsername(e.target.value)}
@@ -191,6 +194,10 @@ function ServerLinkPage() {
 							type="password"
 							placeholder="••••••••"
 							autoComplete="current-password"
+							enterKeyHint="go"
+							onKeyDown={(e) => {
+								if (e.key === "Enter") void handleConnect();
+							}}
 							className="h-11 text-base md:text-base"
 							value={password}
 							onChange={(e) => setPassword(e.target.value)}

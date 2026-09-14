@@ -130,6 +130,7 @@ function RegisterPage() {
 								id="username"
 								placeholder="username"
 								autoComplete="username"
+								enterKeyHint="next"
 								className="h-11 text-base md:text-base"
 								{...form.register("username")}
 							/>
@@ -139,6 +140,7 @@ function RegisterPage() {
 								id="display_name"
 								placeholder="Optional display name"
 								autoComplete="name"
+								enterKeyHint="next"
 								className="h-11 text-base md:text-base"
 								{...form.register("display_name")}
 							/>
@@ -153,6 +155,7 @@ function RegisterPage() {
 								type="password"
 								placeholder="••••••••"
 								autoComplete="new-password"
+								enterKeyHint="go"
 								className="h-11 text-base md:text-base"
 								{...form.register("password")}
 							/>
