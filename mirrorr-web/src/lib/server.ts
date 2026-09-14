@@ -4,8 +4,9 @@
  *
  * Entry: { id, url, label?, lastUsedAt }
  * - blank label auto-generates from host:
- *   `https://mirrorr.bigbro-itzamekyros.duckdns.org` -> `mirrorr.bigbro-itzamekyros.duckdns.org (prod)`
- *   `http://192.168.1.20:8000` -> `192.168.1.20 (lan)`
+ *   `https://mirrorr.bigbro-itzamekyros.duckdns.org/api` -> `mirrorr.bigbro-itzamekyros.duckdns.org (prod)`
+ *   `http://192.168.1.20:8000/api` -> `192.168.1.20 (lan)`
+ * - the URL is used exactly as entered: it must already include `/api`.
  * - active instance marked; list ordered by lastUsedAt desc.
  * - web `.env` VITE_MIRRORR_SERVER_URL pre-fills / seeds; VITE_MIRRORR_SERVER_LOCKED=true
  *   hides the screen + fixates. Native ignores `.env` after first save (instances win).
@@ -30,7 +31,7 @@ interface ServerState {
 	setActiveServer: (id: string) => void;
 }
 
-/** Normalize a server root URL: trim + strip trailing slashes. */
+/** Normalize a server URL: trim + strip trailing slashes. */
 export function normalizeServerUrl(url: string): string {
 	return url.trim().replace(/\/+$/, "") || "/";
 }
@@ -83,7 +84,9 @@ function getLegacyApiBase(): string | undefined {
 	return undefined;
 }
 
-/** Env-derived API base: SERVER_URL wins, then legacy API_URL, then `/api`. */
+/** Env-derived API base: SERVER_URL wins, then legacy API_URL, then `/api`.
+ * The value is used exactly as entered — include the `/api` suffix yourself
+ * (e.g. `https://host/api`), no prefix is appended automatically. */
 export function getEnvApiBase(): string {
 	const env = getEnvServerUrl();
 	if (env !== undefined) {
@@ -91,14 +94,6 @@ export function getEnvApiBase(): string {
 		return normalizeServerUrl(env);
 	}
 	return getLegacyApiBase() ?? "/api";
-}
-
-/** Append `/api` to an absolute server root (idempotent; leaves `/api` bases alone). */
-function withApiPrefix(root: string): string {
-	if (/^https?:\/\//.test(root)) {
-		return root.endsWith("/api") ? root : `${root}/api`;
-	}
-	return root;
 }
 
 export const useServerStore = create<ServerState>()(
@@ -185,23 +180,14 @@ export function getOrderedInstances(): ServerInstance[] {
 }
 
 /**
- * Resolve the API base for fetch calls.
- * Locked -> env fixated. Unlocked with saved instances -> active instance
- * (server root; `_fetchJson` appends paths, nginx strips `/api`).
- * Otherwise env (SERVER_URL > API_URL > `/api`).
+ * Resolve the API base for fetch calls. Used exactly as entered — no prefix
+ * is appended, so instances and env values must include `/api` themselves.
  */
 export function getApiBase(): string {
-	if (isServerLocked()) return withApiPrefix(getEnvApiBase());
+	if (isServerLocked()) return getEnvApiBase();
 	const active = getActiveInstance();
-	if (active) return withApiPrefix(normalizeServerUrl(active.url));
-	return withApiPrefix(getEnvApiBase());
-}
-
-/** Resolve the server root for display (API base minus a trailing `/api`). */
-export function getServerRoot(): string {
-	const base = getApiBase();
-	if (base === "/api") return "/";
-	return base.replace(/\/api$/, "");
+	if (active) return normalizeServerUrl(active.url);
+	return getEnvApiBase();
 }
 
 /** Build a WS URL from the resolved API base (SERVER_URL-derived host). */
