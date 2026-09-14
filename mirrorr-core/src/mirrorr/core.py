@@ -177,7 +177,12 @@ class MirrorrCore:
         await self._nats_manager.start()
 
         # 7. CORS — wire configured origins into the API
-        from mirrorr.api.api import API as _api_app, setup_cors, setup_security_middleware
+        from mirrorr.api.api import (
+            API as _api_app,
+            setup_cors,
+            setup_http_debug_logging,
+            setup_security_middleware,
+        )
 
         if self.settings.cors_allowed_origins:
             setup_cors(_api_app, self.settings.cors_allowed_origins)
@@ -195,6 +200,11 @@ class MirrorrCore:
         # 7b. Security headers + request body size limit
         setup_security_middleware(_api_app)
         logger.info("Security headers and request body size limit middleware installed")
+
+        # 7c. Optional HTTP request/response debug logging
+        if self.settings.log_http_requests:
+            setup_http_debug_logging(_api_app)
+            logger.info("HTTP request/response debug logging enabled")
 
         # 7a. Wire settings into auth router
         from mirrorr.api.routers import auth as _auth_module
