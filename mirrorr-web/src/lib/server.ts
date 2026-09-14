@@ -98,11 +98,33 @@ export function getEnvApiBase(): string {
 
 export const useServerStore = create<ServerState>()(
 	persist(
-		(set) => ({
+		(set, get) => ({
 			instances: [],
 			activeId: null,
 			addServer: (url, label) => {
 				const normalized = normalizeServerUrl(url);
+				const key = normalized.toLowerCase();
+				const existing = get().instances.find(
+					(i: ServerInstance) => i.url.toLowerCase() === key,
+				);
+				if (existing) {
+					set((s) => ({
+						activeId: existing.id,
+						instances: s.instances.map((i) =>
+							i.id === existing.id
+								? {
+										...i,
+										label: label?.trim() || i.label,
+										lastUsedAt: Date.now(),
+									}
+								: i,
+						),
+					}));
+					return (
+						get().instances.find((i: ServerInstance) => i.id === existing.id) ??
+						existing
+					);
+				}
 				const entry: ServerInstance = {
 					id: newId(),
 					url: normalized,

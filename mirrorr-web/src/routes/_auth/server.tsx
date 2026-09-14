@@ -102,7 +102,10 @@ function ServerLinkPage() {
 				queryClient.clear();
 				navigate({ to: "/" });
 			} catch (err) {
-				setError(err instanceof Error ? err.message : "Sign in failed");
+				const loginUrl = `${trimmed.replace(/\/+$/, "")}/auth/login`;
+				setError(
+					`${err instanceof Error ? err.message : "Sign in failed"} — ${loginUrl}`,
+				);
 			} finally {
 				setConnecting(false);
 			}
