@@ -22,7 +22,7 @@ def main():
     parser.add_argument("--segment-duration", type=int, default=None, help="segment duration in seconds")
     parser.add_argument("--web-url", default=None, help="public base URL (e.g. https://domain.duckdns.org)")
     parser.add_argument("--dev-serve-files", action="store_true", default=None, help="mount content_dir as static files (dev only)")
-    parser.add_argument("--dev-seed-admin", action="store_true", default=None, help="auto-create admin user (admin/admin) on boot (dev only)")
+    parser.add_argument("--dev-seed-admin", action="store_true", default=None, help="auto-create admin user (admin/admin123) on boot (dev only)")
     args = parser.parse_args()
 
     overrides = {}
