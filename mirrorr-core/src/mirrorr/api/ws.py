@@ -47,7 +47,7 @@ from loguru import logger
 from sqlmodel import col, select
 
 from mirrorr.event_bus.nats import bus
-from mirrorr.api.dependencies import ws_auth
+from mirrorr.api.dependencies import pick_ws_subprotocol, ws_auth
 from mirrorr.storage.database import get_session_factory
 from mirrorr.storage.models import EventSubscription, Notification
 
@@ -235,7 +235,11 @@ async def websocket_endpoint(websocket: WebSocket):
     If authenticated, events are filtered to only those matching the user's
     subscriptions. Unauthenticated connections receive all events.
     """
-    await websocket.accept()
+    subprotocol = pick_ws_subprotocol(websocket)
+    if subprotocol:
+        await websocket.accept(subprotocol=subprotocol)
+    else:
+        await websocket.accept()
     connected_at = time.monotonic()
 
     auth, _ = await ws_auth(websocket)
@@ -279,7 +283,11 @@ async def notifications_endpoint(websocket: WebSocket):
     On connect, sends all unread notifications, then pushes new ones via the
     shared NATS relay.
     """
-    await websocket.accept()
+    subprotocol = pick_ws_subprotocol(websocket)
+    if subprotocol:
+        await websocket.accept(subprotocol=subprotocol)
+    else:
+        await websocket.accept()
     connected_at = time.monotonic()
 
     auth, _ = await ws_auth(websocket)

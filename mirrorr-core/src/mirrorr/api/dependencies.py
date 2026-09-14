@@ -120,6 +120,28 @@ async def require_admin(
 # ── WebSocket auth ───────────────────────────────────────────────────
 
 
+def _token_from_ws_protocols(header_value: str) -> str:
+    for part in header_value.split(","):
+        cand = part.strip().strip('"')
+        if len(cand) > 20 and cand.count(".") == 2:
+            return cand
+    return ""
+
+
+def pick_ws_subprotocol(websocket: WebSocket) -> str | None:
+    try:
+        offered = websocket.scope.get("subprotocols", [])
+    except Exception:
+        return None
+    if not offered:
+        header = websocket.headers.get("sec-websocket-protocol", "")
+        offered = [p.strip() for p in header.split(",") if p.strip()]
+    if not offered:
+        return None
+    token = _token_from_ws_protocols(", ".join(offered))
+    return token or None
+
+
 async def ws_auth(
     websocket: WebSocket,
 ) -> tuple[AuthState | None, str | None]:
@@ -129,6 +151,8 @@ async def ws_auth(
     1. ``mirrorr_access_token`` cookie (same-origin or lax-SameSite)
     2. ``X-API-Key`` header / ``?api_key=`` query param
     3. ``Authorization: Bearer <jwt>`` header
+    4. JWT offered as a ``Sec-WebSocket-Protocol`` (browser/WS clients
+       cannot set headers — the token rides the handshake instead)
 
     Note: ``?token=`` query parameter is intentionally NOT accepted —
     query strings are logged by proxies and leak via ``Referer``. Use
@@ -142,6 +166,19 @@ async def ws_auth(
     # Also check Authorization header (for non-browser clients)
     if not token:
         token = websocket.headers.get("authorization", "").removeprefix("Bearer ")
+
+    # Native wrapper (Capacitor): browsers cannot set headers on the WS
+    # handshake, so the client offers the JWT as a subprotocol instead.
+    if not token:
+        proto_header = websocket.headers.get("sec-websocket-protocol", "")
+        token = _token_from_ws_protocols(proto_header)
+    if not token:
+        try:
+            offered = websocket.scope.get("subprotocols", [])
+            if offered:
+                token = _token_from_ws_protocols(", ".join(offered))
+        except Exception:
+            pass
 
     async with get_session_factory()() as db:
         auth = await _resolve_auth(db, api_key, token)
