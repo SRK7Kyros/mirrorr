@@ -1,6 +1,7 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { AREAS, AUTH_LAYOUT } from "@/lib/layouts";
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -40,18 +41,19 @@ export const Route = createFileRoute("/_auth")({
 	component: AuthLayout,
 });
 
-function AuthLayout() {
+	function AuthLayout() {
+	useKeyboardInset();
 	return (
-		<div className="min-h-svh bg-background" style={AUTH_LAYOUT.style}>
+		<div className="h-svh overflow-hidden bg-background" style={AUTH_LAYOUT.style}>
 			<header
-				className="flex items-center justify-between px-8 py-5"
+				className="flex items-center justify-between px-8 py-5 pt-[calc(1.25rem+env(safe-area-inset-top))]"
 				style={{ gridArea: AREAS.header }}
 			>
 				<Logo className="text-xl" />
 				<ThemeToggle />
 			</header>
 			<main
-				className="flex items-center justify-center px-4"
+				className="flex min-h-0 items-start md:items-center justify-center overflow-y-auto px-4 pb-[var(--kb-inset,0px)] pt-2 md:pt-0"
 				style={{ gridArea: AREAS.content }}
 			>
 				<Outlet />

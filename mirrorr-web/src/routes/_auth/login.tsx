@@ -76,6 +76,7 @@ function LoginPage() {
 							id="username"
 							placeholder="username"
 							autoComplete="username"
+							enterKeyHint="next"
 							className="h-11 text-base md:text-base"
 							{...form.register("username")}
 						/>
@@ -90,6 +91,7 @@ function LoginPage() {
 							type="password"
 							placeholder="••••••••"
 							autoComplete="current-password"
+							enterKeyHint="go"
 							className="h-11 text-base md:text-base"
 							{...form.register("password")}
 						/>
