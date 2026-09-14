@@ -154,6 +154,7 @@ class MirrorrSettings(BaseModel):
     rate_limit_register: int = 5  # max register attempts per minute per IP
     cookie_secure: bool = True  # set Secure flag on auth cookies (disable for local dev)
     cookie_domain: str = ""  # leave empty to use request host
+    log_http_requests: bool = False  # log method/path/status + redacted bodies at DEBUG
 
     # ── validators / computed ──────────────────────────────────────────
 
@@ -273,6 +274,7 @@ class MirrorrSettings(BaseModel):
             RATE_LIMIT_REGISTER: int = 5
             COOKIE_SECURE: bool = True
             COOKIE_DOMAIN: str = ""
+            LOG_HTTP_REQUESTS: bool = False
 
             @model_validator(mode="after")
             def _derive_paths(self) -> Self:
@@ -326,7 +328,7 @@ class MirrorrSettings(BaseModel):
             "dev_reset_database", "dev_seed_admin", "jwt_secret_key",
             "hls_window", "segment_duration", "autorun_check_interval",
             "web_url", "rate_limit_login", "rate_limit_register",
-            "cookie_secure", "cookie_domain",
+            "cookie_secure", "cookie_domain", "log_http_requests",
         ):
             env_key = field_name.upper()
             val = getattr(env, env_key, None)

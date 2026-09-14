@@ -1,5 +1,7 @@
 import asyncio
 import html
+import json
+import time
 from pathlib import Path
 from mirrorr.event_bus.nats import bus
 from loguru import logger
@@ -121,6 +123,107 @@ def setup_security_middleware(app: FastAPI) -> None:
     """
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestBodySizeLimitMiddleware)
+
+
+# ── HTTP request/response debug logging ─────────────────────────────
+
+# Max body bytes captured per request/response line (truncation marker appended).
+LOG_BODY_MAX_BYTES = 4 * 1024
+
+# JSON keys whose values are replaced with "***" before logging.
+_SENSITIVE_KEYS = frozenset({
+    "password", "old_password", "new_password", "password_hash",
+    "access_token", "refresh_token", "refresh-token", "token",
+    "api_key", "api-key", "secret", "jwt_secret_key",
+})
+
+# Header names (lowercased) redacted from the log line.
+_SENSITIVE_HEADERS = frozenset({"authorization", "x-api-key", "cookie", "set-cookie"})
+
+# Singletons to avoid re-allocating the redacted body bytes every call.
+_REDACTED = b"***"
+_TRUNCATED_SUFFIX = b"...[truncated]"
+
+
+def _redact_headers(headers) -> dict[str, str]:
+    redacted: dict[str, str] = {}
+    for key, value in headers.items():
+        redacted[key] = "***" if key.lower() in _SENSITIVE_HEADERS else value
+    return redacted
+
+
+def _redact_body(raw: bytes) -> bytes:
+    if not raw:
+        return raw
+    try:
+        data = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        return raw[:LOG_BODY_MAX_BYTES] + (
+            _TRUNCATED_SUFFIX if len(raw) > LOG_BODY_MAX_BYTES else b""
+        )
+    if isinstance(data, dict):
+        data = {
+            k: "***" if k.lower() in _SENSITIVE_KEYS else v
+            for k, v in data.items()
+        }
+    encoded = json.dumps(data, default=str).encode()
+    return encoded[:LOG_BODY_MAX_BYTES] + (
+        _TRUNCATED_SUFFIX if len(encoded) > LOG_BODY_MAX_BYTES else b""
+    )
+
+
+class HttpDebugLoggingMiddleware(BaseHTTPMiddleware):
+    """Log one line per request/response at DEBUG with redacted bodies.
+
+    Installed only when ``LOG_HTTP_REQUESTS`` is enabled — never log bodies
+    in production by default. Passwords, tokens, API keys and auth headers
+    are replaced with ``***`` before anything reaches the log.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        start = time.perf_counter()
+        raw_request_body = await request.body()
+        response = await call_next(request)
+        elapsed_ms = (time.perf_counter() - start) * 1000
+
+        media_type = (response.headers.get("content-type", "").split(";")[0].strip() or "").lower()
+        loggable = "json" in media_type or media_type.startswith("text/")
+        if loggable:
+            chunks: list[bytes] = []
+            async for chunk in response.body_iterator:
+                chunks.append(chunk)
+            body = b"".join(chunks)
+            res_body = _redact_body(body).decode(errors="replace")
+            logged_response = Response(
+                content=body,
+                status_code=response.status_code,
+                headers=dict(response.headers),
+                media_type=response.media_type,
+                background=response.background,
+            )
+        else:
+            size = response.headers.get("content-length", "?")
+            res_body = f"<{media_type or 'binary'} {size} bytes>"
+            logged_response = response
+
+        logger.debug(
+            "{} {} -> {} ({:.1f}ms) req_headers={} req_body={} "
+            "res_headers={} res_body={}".format(
+                request.method,
+                request.url.path,
+                response.status_code,
+                elapsed_ms,
+                _redact_headers(request.headers),
+                _redact_body(raw_request_body).decode(errors="replace"),
+                _redact_headers(response.headers),
+                res_body,
+            )
+        )
+        return logged_response
+
+
+def setup_http_debug_logging(app: FastAPI) -> None:
+    app.add_middleware(HttpDebugLoggingMiddleware)
 
 
 # CORS defaults are applied during _boot() in core.py.
