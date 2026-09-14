@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { getBearerForActive } from "@/lib/token-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { useRequestLogStore } from "@/stores/request-log-store";
 
@@ -68,8 +69,10 @@ export function useWsConnection({
 			wsRef.current = null;
 		}
 
-		try {
-			const ws = new WebSocket(url);
+		const openSocket = (socketUrl: string, protocols?: string | string[]) => {
+			const ws = protocols
+				? new WebSocket(socketUrl, protocols)
+				: new WebSocket(socketUrl);
 			wsRef.current = ws;
 
 			ws.onmessage = (ev) => {
@@ -84,7 +87,20 @@ export function useWsConnection({
 
 			ws.onclose = (ev) => {
 				if (ev.code === 4001) {
-					useAuthStore.getState().logout();
+					useRequestLogStore.getState().addEntry({
+						type: "ws-event",
+						timestamp: Date.now(),
+						method: "WS",
+						url,
+						path: "close/4001",
+						status: 4001,
+						statusText: "Unauthorized",
+						duration: null,
+						ok: false,
+						error: "WebSocket unauthorized (4001) — live updates off, REST still works",
+						requestBody: null,
+						responseBody: null,
+					});
 					return;
 				}
 				if (ev.code === 1006) {
@@ -117,9 +133,20 @@ export function useWsConnection({
 					// ignore
 				}
 			};
-		} catch {
-			scheduleReconnect();
-		}
+		};
+
+		void (async () => {
+			try {
+				const bearer = await getBearerForActive();
+				openSocket(url, bearer ? [bearer] : undefined);
+			} catch {
+				try {
+					openSocket(url);
+				} catch {
+					scheduleReconnect();
+				}
+			}
+		})();
 	}, [url, scheduleReconnect]);
 
 	useEffect(() => {
