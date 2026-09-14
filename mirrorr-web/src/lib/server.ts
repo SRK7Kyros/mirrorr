@@ -93,6 +93,14 @@ export function getEnvApiBase(): string {
 	return getLegacyApiBase() ?? "/api";
 }
 
+/** Append `/api` to an absolute server root (idempotent; leaves `/api` bases alone). */
+function withApiPrefix(root: string): string {
+	if (/^https?:\/\//.test(root)) {
+		return root.endsWith("/api") ? root : `${root}/api`;
+	}
+	return root;
+}
+
 export const useServerStore = create<ServerState>()(
 	persist(
 		(set) => ({
@@ -178,21 +186,22 @@ export function getOrderedInstances(): ServerInstance[] {
 
 /**
  * Resolve the API base for fetch calls.
- * Locked -> env fixated. Unlocked with saved instances -> active instance.
+ * Locked -> env fixated. Unlocked with saved instances -> active instance
+ * (server root; `_fetchJson` appends paths, nginx strips `/api`).
  * Otherwise env (SERVER_URL > API_URL > `/api`).
  */
 export function getApiBase(): string {
-	if (isServerLocked()) return getEnvApiBase();
+	if (isServerLocked()) return withApiPrefix(getEnvApiBase());
 	const active = getActiveInstance();
-	if (active) return normalizeServerUrl(active.url);
-	return getEnvApiBase();
+	if (active) return withApiPrefix(normalizeServerUrl(active.url));
+	return withApiPrefix(getEnvApiBase());
 }
 
-/** Resolve the server root for display (same mapping as getApiBase). */
+/** Resolve the server root for display (API base minus a trailing `/api`). */
 export function getServerRoot(): string {
 	const base = getApiBase();
 	if (base === "/api") return "/";
-	return base;
+	return base.replace(/\/api$/, "");
 }
 
 /** Build a WS URL from the resolved API base (SERVER_URL-derived host). */
