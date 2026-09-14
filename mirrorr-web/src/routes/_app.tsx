@@ -242,7 +242,7 @@ function AppLayout() {
 		>
 			{/* ── Top Navbar ────────────────────────────────────────── */}
 			<header
-				className="h-12 flex items-center border-b bg-background/80 backdrop-blur-xl pt-[env(safe-area-inset-top)]"
+				className="flex min-h-[calc(3rem+max(env(safe-area-inset-top),12px))] items-center border-b bg-background/80 backdrop-blur-xl pt-[max(env(safe-area-inset-top),12px)]"
 				style={{ gridArea: AREAS.navbar }}
 			>
 				{/* Logo */}
