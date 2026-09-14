@@ -46,6 +46,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useWsEvents } from "@/hooks/use-ws-events";
+import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { useWsNotifications } from "@/hooks/use-ws-notifications";
 import { startTokenRefresh, stopTokenRefresh } from "@/lib/api";
 import type { Notification } from "@/lib/schemas";
@@ -181,6 +182,7 @@ function AppLayout() {
 
 	useWsEvents();
 	const { notifications, markRead, clearAll } = useWsNotifications();
+	useKeyboardInset();
 
 	// Start periodic token refresh when app loads
 	useEffect(() => {
@@ -425,7 +427,7 @@ function AppLayout() {
 
 			{/* ── Page content ─────────────────────────────────────── */}
 			<main
-				className="min-h-0 overflow-auto"
+				className="min-h-0 overflow-auto pb-[var(--kb-inset,0px)]"
 				style={{ gridArea: AREAS.content }}
 			>
 				{backendStatus === "disconnected" && (
