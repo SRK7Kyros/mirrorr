@@ -145,7 +145,7 @@ class MirrorrSettings(BaseModel):
     api_port: int = 8000
     dev_serve_files: bool = False  # mount content_dir as static files in uvicorn (dev only)
     dev_reset_database: bool = False  # truncate all DB tables on boot (dev only)
-    dev_seed_admin: bool = False  # auto-create admin user (admin/admin) on boot (dev only)
+    dev_seed_admin: bool = False  # auto-create admin user (admin/admin123) on boot (dev only)
     jwt_secret_key: str = ""  # JWT signing key. If empty, auto-generated on first use.
     cors_allowed_origins: list[str] = Field(default_factory=list)
 

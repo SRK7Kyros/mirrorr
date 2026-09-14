@@ -555,6 +555,7 @@ export const authApi = {
 		apiRequest<AuthResponse>("/auth/login", {
 			method: "POST",
 			body: data,
+			noAuth: true,
 			schema: authResponseSchema,
 		}),
 

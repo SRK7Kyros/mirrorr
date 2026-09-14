@@ -14,7 +14,7 @@ cp .env.example .env       # edit BASE_DIR, API_PORT, JWT_SECRET_KEY, ...
 uv run mirrorr             # boot: DB → ffmpeg → plugins → NATS → API → scheduler
 ```
 
-Dev helpers: `uv run mirrorr --base-dir ./dev-data --dev-serve-files --dev-seed-admin` (dev-only static mount + `admin/admin` seed), `uvx ty check src` (typecheck).
+Dev helpers: `uv run mirrorr --base-dir ./dev-data --dev-serve-files --dev-seed-admin` (dev-only static mount + `admin/admin123` seed), `uvx ty check src` (typecheck).
 
 ## Config essentials
 
