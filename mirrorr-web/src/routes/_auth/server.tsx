@@ -78,7 +78,7 @@ function ServerLinkPage() {
 			try {
 				new URL(trimmed);
 			} catch {
-				setError("Invalid URL — e.g. http://192.168.1.20:8000");
+				setError("Invalid URL — e.g. http://192.168.1.20:8000/api");
 				return;
 			}
 		}
@@ -158,7 +158,7 @@ function ServerLinkPage() {
 					<FormField label="Server URL" className="[&_label]:text-sm">
 						<Input
 							id="server-url"
-							placeholder="http://192.168.1.20:8000"
+							placeholder="http://192.168.1.20:8000/api"
 							autoComplete="url"
 							enterKeyHint="next"
 							className="h-11 text-base md:text-base"
@@ -169,7 +169,7 @@ function ServerLinkPage() {
 					<FormField label="Label (optional)" className="[&_label]:text-sm">
 						<Input
 							id="server-label"
-							placeholder={autoLabel(url.trim() || "http://192.168.1.20:8000")}
+							placeholder={autoLabel(url.trim() || "http://192.168.1.20:8000/api")}
 							autoComplete="off"
 							enterKeyHint="next"
 							className="h-11 text-base md:text-base"
