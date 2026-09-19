@@ -1,63 +1,21 @@
-import { createRouter, RouterProvider } from "@tanstack/react-router";
-import React from "react";
-import ReactDOM from "react-dom/client";
-import { useAuthStore } from "@/stores/auth-store";
-import { ensureEnvSeeded } from "@/lib/server";
-import { routeTree } from "./routeTree.gen";
-import "./index.css";
+import { QueryClientProvider } from "@tanstack/react-query"
+import { RouterProvider } from "@tanstack/react-router"
+import { StrictMode } from "react"
+import { createRoot } from "react-dom/client"
+import { queryClient } from "@/query-client"
+import { router } from "@/router"
+import "@/styles.css"
 
-const routerBasepath = import.meta.env.BASE_URL.replace(/\/$/, "");
-const router = createRouter({
-	routeTree,
-	...(routerBasepath ? { basepath: routerBasepath } : {}),
-	context: {
-		auth: {
-			isAuthenticated: false,
-			userRole: null,
-		},
-	},
-});
+const container = document.getElementById("root")
 
-declare module "@tanstack/react-router" {
-	interface Register {
-		router: typeof router;
-	}
+if (!container) {
+  throw new Error("Mirrorr web root element #root is missing from the document")
 }
 
-function App() {
-	const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-	const user = useAuthStore((s) => s.user);
-
-	return (
-		<RouterProvider
-			router={router}
-			context={{
-				auth: {
-					isAuthenticated,
-					userRole: user?.role ?? null,
-				},
-			}}
-		/>
-	);
-}
-
-try {
-	ensureEnvSeeded();
-} catch {
-	// storage unavailable — server-link still works for this session
-}
-
-const rootElement = document.getElementById("root");
-if (!rootElement) throw new Error("Root element #root not found");
-
-type RootHolder = HTMLElement & {
-	_reactRoot?: ReturnType<typeof ReactDOM.createRoot>;
-};
-
-const holder = rootElement as RootHolder;
-holder._reactRoot ??= ReactDOM.createRoot(rootElement);
-holder._reactRoot.render(
-	<React.StrictMode>
-		<App />
-	</React.StrictMode>,
-);
+createRoot(container).render(
+  <StrictMode>
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
+  </StrictMode>,
+)

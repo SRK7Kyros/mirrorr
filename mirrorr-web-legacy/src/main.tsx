@@ -1,0 +1,63 @@
+import { createRouter, RouterProvider } from "@tanstack/react-router";
+import React from "react";
+import ReactDOM from "react-dom/client";
+import { useAuthStore } from "@/stores/auth-store";
+import { ensureEnvSeeded } from "@/lib/server";
+import { routeTree } from "./routeTree.gen";
+import "./index.css";
+
+const routerBasepath = import.meta.env.BASE_URL.replace(/\/$/, "");
+const router = createRouter({
+	routeTree,
+	...(routerBasepath ? { basepath: routerBasepath } : {}),
+	context: {
+		auth: {
+			isAuthenticated: false,
+			userRole: null,
+		},
+	},
+});
+
+declare module "@tanstack/react-router" {
+	interface Register {
+		router: typeof router;
+	}
+}
+
+function App() {
+	const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+	const user = useAuthStore((s) => s.user);
+
+	return (
+		<RouterProvider
+			router={router}
+			context={{
+				auth: {
+					isAuthenticated,
+					userRole: user?.role ?? null,
+				},
+			}}
+		/>
+	);
+}
+
+try {
+	ensureEnvSeeded();
+} catch {
+	// storage unavailable — server-link still works for this session
+}
+
+const rootElement = document.getElementById("root");
+if (!rootElement) throw new Error("Root element #root not found");
+
+type RootHolder = HTMLElement & {
+	_reactRoot?: ReturnType<typeof ReactDOM.createRoot>;
+};
+
+const holder = rootElement as RootHolder;
+holder._reactRoot ??= ReactDOM.createRoot(rootElement);
+holder._reactRoot.render(
+	<React.StrictMode>
+		<App />
+	</React.StrictMode>,
+);
