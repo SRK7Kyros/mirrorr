@@ -2,9 +2,13 @@ import { QueryClientProvider } from "@tanstack/react-query"
 import { RouterProvider } from "@tanstack/react-router"
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
+import { assertApiConfig } from "@/config/env"
 import { queryClient } from "@/query-client"
 import { router } from "@/router"
 import "@/styles.css"
+
+// Boot guard: a missing or malformed VITE_API_URL must fail before any request.
+assertApiConfig()
 
 const container = document.getElementById("root")
 
