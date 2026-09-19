@@ -1,6 +1,6 @@
 import { createRootRoute, Outlet } from "@tanstack/react-router"
 import { useEffect, useRef, useSyncExternalStore } from "react"
-import { ToastViewport } from "@/components/ui/ToastViewport"
+import { ToastViewport } from "@/components/ui/Toast"
 import {
   SESSION_EXPIRED_MESSAGE,
   consumeSessionExpired,
