@@ -17,6 +17,12 @@ dist-ssr
 # TanStack Router cache
 .tanstack
 
+# Test artefacts (Playwright storage state, reports, traces, coverage)
+.playwright/
+playwright-report/
+test-results/
+coverage/
+
 # Logs
 logs
 *.log
