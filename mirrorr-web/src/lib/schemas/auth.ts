@@ -24,10 +24,19 @@ export const authClientSchema = z.object({
 export const authResponseSchema = z.object({
   user: authUserSchema,
   client: authClientSchema.nullable().optional(),
-  access_token: z.string().optional(),
-  refresh_token: z.string().optional(),
+  access_token: z.string().nullable().optional(),
+  refresh_token: z.string().nullable().optional(),
+})
+
+/**
+ * `GET /auth/status` (public bootstrap probe, `docs/general-client-specification.md`
+ * §2): drives the V2 route rule and the V1 footer hint.
+ */
+export const authStatusSchema = z.object({
+  has_users: z.boolean(),
 })
 
 export type AuthUser = z.infer<typeof authUserSchema>
 export type AuthClient = z.infer<typeof authClientSchema>
 export type AuthResponse = z.infer<typeof authResponseSchema>
+export type AuthStatus = z.infer<typeof authStatusSchema>

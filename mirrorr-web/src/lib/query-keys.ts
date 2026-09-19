@@ -62,6 +62,8 @@ export function normalizeListFilters(
 /** The spec's key table; parameterized lists take their filters here. */
 export const queryKeys = {
   authMe: () => ["auth", "me"] as const,
+  /** Public bootstrap probe (`GET /auth/status`); used by V1/V2, not in the spec table. */
+  authStatus: () => ["auth", "status"] as const,
   sessions: (filters?: ListFilters) => ["sessions", normalizeListFilters(filters)] as const,
   session: (id: number) => ["session", id] as const,
   autoruns: (filters?: ListFilters) => ["autoruns", normalizeListFilters(filters)] as const,

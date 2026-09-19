@@ -1,10 +1,9 @@
-import fs from "node:fs"
 import path from "node:path"
 import { defineConfig, devices } from "@playwright/test"
 
 /**
- * Canonical Playwright storage-state path. The auth setup (later step) writes
- * here; contexts load it once it exists.
+ * Canonical storage-state path. The `setup` project writes it after one real
+ * login; every browser project loads it. Gitignored (`.playwright/`).
  */
 export const STORAGE_STATE = path.join(import.meta.dirname, ".playwright/auth.json")
 
@@ -22,13 +21,21 @@ export default defineConfig({
   reporter: "list",
   use: {
     baseURL: E2E_BASE_URL,
-    // Until the auth setup lands there is no stored state to load.
-    ...(fs.existsSync(STORAGE_STATE) ? { storageState: STORAGE_STATE } : {}),
+    // Written by the `setup` project; unconditional since todo 8.
+    storageState: STORAGE_STATE,
   },
   projects: [
     {
+      name: "setup",
+      // The setup login must start logged out even if a stale state file exists.
+      use: { ...devices["Desktop Chrome"], storageState: { cookies: [], origins: [] } },
+      testMatch: /auth\.setup\.ts/,
+    },
+    {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
+      dependencies: ["setup"],
+      testIgnore: /auth\.setup\.ts/,
     },
   ],
   webServer: {
