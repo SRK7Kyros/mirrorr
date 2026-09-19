@@ -49,6 +49,12 @@ interface RequestOptions {
   readonly body?: unknown
   readonly signal?: AbortSignal
   readonly headers?: Readonly<Record<string, string>>
+  /**
+   * Public endpoints (login/register/status) where a 401 means "bad
+   * credentials / not bootstrapped", not "expired session": the
+   * refresh-and-retry dance is skipped and the 401 is surfaced as-is.
+   */
+  readonly skipAuthRefresh?: boolean
 }
 
 export interface ApiFetchOptions<T> extends RequestOptions {
@@ -125,7 +131,7 @@ export async function apiFetch<T>(
   options: ApiFetchOptions<T> = {},
 ): Promise<T | undefined> {
   let response = await sendRequest(path, options)
-  if (response.status === UNAUTHORIZED) {
+  if (response.status === UNAUTHORIZED && options.skipAuthRefresh !== true) {
     response = await refreshAndRetry(path, options, response)
   }
   return decodeResponse(response, path, options)

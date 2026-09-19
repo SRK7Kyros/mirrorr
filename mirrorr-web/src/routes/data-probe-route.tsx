@@ -1,6 +1,6 @@
 import { createRoute } from "@tanstack/react-router"
 import { DataProbe } from "@/components/dev/DataProbe"
-import { rootRoute } from "@/routes/root-route"
+import { authLayoutRoute } from "@/routes/auth-layout-route"
 
 /**
  * TEMPORARY dev route for the data-layer probe (removed with the probe in
@@ -8,7 +8,7 @@ import { rootRoute } from "@/routes/root-route"
  * hooks before the operator views land.
  */
 export const dataProbeRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => authLayoutRoute,
   path: "/dev/data-probe",
   component: DataProbePage,
 })
