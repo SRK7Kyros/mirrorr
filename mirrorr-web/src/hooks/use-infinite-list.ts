@@ -34,6 +34,9 @@ export interface UseInfiniteListOptions<T extends IdRow> {
   readonly limit?: number
   readonly staleTime?: number
   readonly enabled?: boolean
+  /** Polling backstop for lists whose resources emit no events (spec L140). */
+  readonly refetchInterval?: number
+  readonly refetchOnWindowFocus?: boolean
 }
 
 export interface InfiniteListResult<T extends IdRow> {
@@ -54,7 +57,15 @@ export interface InfiniteListResult<T extends IdRow> {
 export function useInfiniteList<T extends IdRow>(
   options: UseInfiniteListOptions<T>,
 ): InfiniteListResult<T> {
-  const { queryKey, fetchPage, limit = PAGE_LIMIT_DEFAULT, staleTime = 0, enabled = true } = options
+  const {
+    queryKey,
+    fetchPage,
+    limit = PAGE_LIMIT_DEFAULT,
+    staleTime = 0,
+    enabled = true,
+    refetchInterval,
+    refetchOnWindowFocus,
+  } = options
 
   const query = useInfiniteQuery<
     CursorPage<T>,
@@ -69,6 +80,8 @@ export function useInfiniteList<T extends IdRow>(
     getNextPageParam: (lastPage) => getNextPageParam(lastPage),
     staleTime,
     enabled,
+    refetchInterval,
+    refetchOnWindowFocus,
   })
 
   const { data, error, fetchNextPage, hasNextPage, isError, isFetchingNextPage, isPending } = query

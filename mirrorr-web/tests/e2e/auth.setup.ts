@@ -13,7 +13,7 @@ setup("authenticate as the seeded admin", async ({ page }) => {
   await page.getByRole("button", { name: "Sign in" }).click()
 
   await expect(page).toHaveURL(/\/sessions$/)
-  await expect(page.getByTestId("sessions-placeholder")).toBeVisible()
+  await expect(page.getByTestId("sessions-view")).toBeVisible()
 
   await page.context().storageState({ path: STORAGE_STATE })
 })

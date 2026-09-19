@@ -5,19 +5,26 @@ import {
   createRouter,
 } from "@tanstack/react-router"
 import { render, screen } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { API_URL_ENV_VAR } from "@/config/env"
 import { queryKeys } from "@/lib/query-keys"
 import { queryClient } from "@/query-client"
 import { routeTree } from "@/router"
-import { AUTH_BODY } from "@/test/api-helpers"
+import { AUTH_BODY, installFetch, jsonResponse } from "@/test/api-helpers"
+
+const EMPTY_PAGE = { items: [], next_cursor: null, has_more: false }
 
 describe("mirrorr-web app smoke", () => {
   beforeEach(() => {
+    vi.stubEnv(API_URL_ENV_VAR, "/api")
     queryClient.clear()
+    installFetch(async () => jsonResponse(200, EMPTY_PAGE))
   })
 
   afterEach(() => {
     queryClient.clear()
+    vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
   })
 
   it("renders the authenticated landing through the real router tree and providers", async () => {
@@ -36,7 +43,7 @@ describe("mirrorr-web app smoke", () => {
       </QueryClientProvider>,
     )
 
-    expect(await screen.findByTestId("sessions-placeholder")).toBeTruthy()
+    expect(await screen.findByTestId("sessions-view")).toBeTruthy()
     expect(screen.getByRole("heading", { name: "Sessions" })).toBeTruthy()
     expect(screen.getByRole("main")).toBeTruthy()
   })
