@@ -4,6 +4,11 @@ import { expect, test } from "./fixtures"
  * Design-token acceptance (docs/web-frontend-spec.md L55-L113). Values are
  * asserted against the spec hexes, not against the CSS source, so a broken
  * token chain (style not applied, var unresolved) fails here.
+ *
+ * The assertions run through the shipped primitives — StatusChip, Button,
+ * Input and Table, mounted on the Sessions placeholder — rather than through
+ * the retired Wave-0 token probe, so they stay non-vacuous as the primitives
+ * evolve.
  */
 const BG_BASE = "rgb(11, 13, 17)" // --bg-base #0B0D11
 const OK = "rgb(52, 199, 123)" // --ok #34C77B
@@ -12,8 +17,9 @@ test("body paints --bg-base and the status chip paints --ok", async ({ page }) =
   const bodyBackground = await page.evaluate(() => getComputedStyle(document.body).backgroundColor)
   expect(bodyBackground).toBe(BG_BASE)
 
-  const chip = page.getByTestId("status-chip")
+  const chip = page.locator('[data-testid="status-chip"][data-status="active"]')
   await expect(chip).toBeVisible()
+  await expect(chip).toHaveText("Running")
   expect(await chip.evaluate((element) => getComputedStyle(element).color)).toBe(OK)
 
   const chipDecoration = await chip.evaluate((element) => {
@@ -45,7 +51,7 @@ test("base typography is 13px Inter, with JetBrains Mono available", async ({ pa
 })
 
 test("the recording pulse runs at 1.6s and stops under reduced motion", async ({ page }) => {
-  const pulse = page.getByTestId("pulse-dot")
+  const pulse = page.getByTestId("status-fixture").getByTestId("pulse-dot")
   const control = page.getByRole("button", { name: "Start recording" })
 
   const running = await pulse.evaluate((element) => {
@@ -68,19 +74,19 @@ test("icon-only controls are labelled with a tooltip and icons use token sizes",
   await expect(control).toBeVisible()
   await expect(control).toHaveAttribute("title", "Start recording")
 
-  const iconSize = await control.getByTestId("icon-control").evaluate((element) => {
+  const iconSize = await control.locator("svg").evaluate((element) => {
     const style = getComputedStyle(element)
     return { width: style.width, height: style.height }
   })
   expect(iconSize).toEqual({ width: "16px", height: "16px" })
 
-  const rowIcon = page.getByTestId("icon-row")
-  const rowIconSize = await rowIcon.evaluate((element) => {
+  const rowActionIcon = page.getByTestId("table-row").first().locator("button svg")
+  const rowIconSize = await rowActionIcon.evaluate((element) => {
     const style = getComputedStyle(element)
     return { width: style.width, height: style.height }
   })
   expect(rowIconSize).toEqual({ width: "14px", height: "14px" })
-  expect(await rowIcon.getAttribute("stroke-width")).toBe("2")
+  expect(await rowActionIcon.getAttribute("stroke-width")).toBe("2")
 })
 
 test("the 4px spacing grid drives control, row and dot sizes", async ({ page }) => {
@@ -91,9 +97,12 @@ test("the 4px spacing grid drives control, row and dot sizes", async ({ page }) 
   })
   expect(controlSize).toEqual({ width: "32px", height: "32px" }) // size-8 x 4px
 
-  const row = page.getByTestId("icon-row").locator("..")
+  const row = page.getByTestId("table-row").first()
   expect(await row.evaluate((element) => getComputedStyle(element).height)).toBe("36px") // h-9 x 4px
 
-  const chipDot = page.getByTestId("status-chip").locator("span").first()
+  const input = page.getByLabel("Search")
+  expect(await input.evaluate((element) => getComputedStyle(element).height)).toBe("32px") // h-8 x 4px
+
+  const chipDot = page.locator('[data-testid="status-chip"][data-status="active"] span').first()
   expect(await chipDot.evaluate((element) => getComputedStyle(element).width)).toBe("6px") // size-1.5 x 4px
 })

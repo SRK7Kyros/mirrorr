@@ -1,11 +1,13 @@
 /**
- * Minimal toast store for the auth flows.
+ * Toast store — the single source for the Toast primitive
+ * (`src/components/ui/Toast.tsx`), consolidated from the Wave-0 auth-flow
+ * placeholder.
  *
  * Contract: `docs/web-frontend-spec.md` L110 (bottom-right, `bg-overlay` +
  * border, close button, auto-dismiss 5s, errors sticky) and L156/L371 — the
  * exact 429, session-expired and password-changed copy the auth layer raises.
- * Wave 2 ships the shared toast primitive; the V1/V2 lockout, the guard and
- * the change-password rule only need a stable message target.
+ * The store owns the timing and sticky rule; the primitive owns role, layout
+ * and the close control.
  */
 export type ToastTone = "error" | "info"
 
