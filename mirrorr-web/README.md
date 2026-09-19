@@ -1,33 +1,27 @@
 # mirrorr-web
 
-React 19 dashboard for mirrorr-core: sessions, autoruns, recordings, profiles, plugins, per-session telemetry, account settings. TanStack Router (file-based) + Query, Zustand stores, Tailwind CSS + shadcn/ui, Zod-validated API client.
+Operator console for mirrorr-core: sessions, autoruns, recordings, profiles, plugins. React 19 + Vite + TypeScript (strict) + TanStack Router (code-based route tree) + TanStack Query + Tailwind CSS v4 + Zod.
+
+The previous implementation is preserved untouched at `../mirrorr-web-legacy/` for reference only — nothing in this app is copied from it.
 
 ## Quickstart
 
 ```bash
-cd mirrorr-web
-bun install          # install dependencies
-bun run dev          # dev server (port 5173)
-bun run build        # production build → dist/
-bun run typecheck    # tsc -p tsconfig.app.json --noEmit
-bun run lint         # eslint .
+bun install
+bun run dev        # http://127.0.0.1:5175
+bun run typecheck  # tsc -p tsconfig.app.json --noEmit
+bun run build      # dist/index.html + dist/mobile.html
+bun run preview    # smoke-test the production bundle
 ```
 
-## Config
+Design source of truth: `../docs/web-frontend-spec.md` (contract behavior: `../docs/general-client-specification.md`).
 
-| Var | Default | Purpose |
-|---|---|---|
-| `VITE_API_URL` | `http://localhost:8000` | Backend base URL (REST + WS origin) |
+## Layout
 
-Set in `.env.local` (gitignored): `VITE_API_URL=http://localhost:8000`. The API client (`src/lib/api.ts`) injects JWT/API-key auth, dedupes concurrent token refresh, retries once on 401, and logs to the floating network monitor.
-
-## Real-time behavior
-
-Two WebSocket hooks, both derived from `VITE_API_URL` (`getWsEventsUrl()` / `getWsNotificationsUrl()`):
-
-- `/ws/events` (`use-ws-events.ts`) — NATS event mirror. Patches TanStack Query caches directly via `patchQueryCache()` (zero HTTP round-trip); falls back to `invalidateQueries` refetch when the event carries no `data` payload. Example: `session.updated` with entity data updates the sessions list in place.
-- `/ws/notifications` (`use-ws-notifications.ts`) — auth-required push channel. Sends unread backlog on connect, then live toasts (deduped by notification ID).
-
-Auth state (`auth-store.ts`, persisted to localStorage): JWT access + refresh tokens, current user, `isAuthenticated`. Routes under `_app/` redirect to login when unauthenticated; `_auth/` redirects away when already logged in.
-
-Backend reference: `../mirrorr-core/ARCHITECTURE.md` (§4 frontend map, §6 API, §12 WebSocket).
+| Path | Purpose |
+|---|---|
+| `index.html` | Desktop operator console entry |
+| `mobile.html` | Mobile entry (Capacitor packaging in a later step) |
+| `src/router.tsx` | Code-based TanStack Router tree |
+| `src/routes/` | Route definitions |
+| `src/styles.css` | Tailwind v4 CSS-first entry (`@import "tailwindcss"` + `@theme`) |

@@ -7,3 +7,6 @@
 # dev runtime state + deployed web build output (rebuilt from mirrorr-web/dist)
 dev/core/
 dev/web/
+
+# pre-rewrite legacy snapshot (staged by the greenfield migration plan)
+dev/web-legacy-backup/

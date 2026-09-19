@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens are seeded in a later implementation step (see
+ * docs/web-frontend-spec.md, "Design Tokens & Visual System").
+ * Tailwind v4 is CSS-first: extend the theme through @theme here.
+ * This project intentionally has no tailwind.config.* file.
+ */
+@theme {
+}
