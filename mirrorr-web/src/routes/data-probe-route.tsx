@@ -1,6 +1,7 @@
 import { createRoute } from "@tanstack/react-router"
 import { DataProbe } from "@/components/dev/DataProbe"
 import { MergeProbe } from "@/components/dev/MergeProbe"
+import { TimeProbe } from "@/components/dev/TimeProbe"
 import { authLayoutRoute } from "@/routes/auth-layout-route"
 
 /**
@@ -19,6 +20,7 @@ function DataProbePage() {
     <main className="min-h-dvh bg-bg-base p-6">
       <DataProbe />
       <MergeProbe />
+      <TimeProbe />
     </main>
   )
 }
