@@ -2,6 +2,8 @@
 
 Greenfield, decision-complete specification for the Mirrorr web client. Normative behavior comes from `docs/general-client-specification.md` (the client contract); this document resolves every UI/UX decision the client contract deliberately leaves open. Stack is pinned: React 19 + Vite + TanStack Router + TanStack Query + Tailwind CSS + Zod. Visual direction is pinned: dark-mode-first, dense, utilitarian operator console. An implementer should be able to build the entire UI from this document with zero judgment calls.
 
+**Form factors.** One codebase serves two presentations of this same UI: the desktop operator console (all decisions above the `## Mobile …` sections) and a mobile-first presentation (≤639px) shipped inside the Capacitor wrapper. Mobile is an adaptation of the same routes, tokens, contracts and caches — never a second app and never a second visual language; its decisions are the `## Mobile …` sections below, and where they are silent the desktop rule applies unchanged.
+
 ## Product Overview & Information Architecture
 
 Mirrorr is a self-hosted live-stream recorder and scheduler. The web UI is a single-operator console: its job is to let the operator start/monitor/stop recording sessions, schedule one-shot recordings (autoruns), browse finished recordings, manage reusable profiles, inspect installed plugins, move config between installs (import/export), and administer users and API keys. It is a tool, not a product site — no marketing chrome, no onboarding tour, no empty decorative space.
@@ -45,6 +47,8 @@ TanStack Router, code-based route tree. Guard: a root `beforeLoad` calls `GET /a
 | `/settings/users` | admin | Settings — Users tab | List/delete users; register-new-user form (admin-gated `POST /auth/register`). |
 | `/settings/clients` | admin | Settings — API clients tab | Create/list/revoke API keys. |
 | `*` | — | Not found | 404 view with link home. |
+
+**Mobile navigation model (compact ≤639px).** The route tree, URLs, guards, `?redirect` handling and deep-link behavior are identical on mobile; only the chrome changes — a bottom tab bar replaces the sidebar and a 44px compact app bar replaces the 48px top bar (Mobile Shell & Navigation). Every route stays reachable (More sheet), so no destination is desktop-only and no mobile-only route exists.
 
 Rules: no modal-only routes (dialogs are local state, deep links always land on full views); after login, navigate to `?redirect` or `/sessions`; after logout, full client cache wipe then `/login`; after change-password success, force logout flow to `/login` with toast "Password changed — sign in again".
 
@@ -109,7 +113,7 @@ Dark-mode-first, dense, utilitarian operator console. No light theme in v1 (them
 
 ## Data Layer Contract
 
-**HTTP client.** Single `apiFetch` wrapper: base URL `import.meta.env.VITE_API_URL` (no trailing slash), `credentials: "include"`, `Content-Type: application/json` when body present, exact paths (no trailing slashes added/removed — server has `redirect_slashes=False`). Never reads `document.cookie`. Non-2xx → throws `ApiError {status, detail, fieldErrors?}` where `fieldErrors` is parsed from 422 `detail` arrays (`{loc, msg}`) and from the custom `{detail, errors}` shape; `detail` string used for toasts. 204 → returns `undefined` (never parsed).
+**HTTP client.** Single `apiFetch` wrapper: base URL `import.meta.env.VITE_API_URL` (no trailing slash, baked at build time for both form factors), `credentials: "include"`, `Content-Type: application/json` when body present, exact paths (no trailing slashes added/removed — server has `redirect_slashes=False`). Never reads `document.cookie`. Auth acquisition is form-factor-specific: the browser build relies on the httpOnly cookie; the Capacitor wrapper sends `Authorization: Bearer <access JWT>` from secure storage and omits `credentials` (Mobile Auth & Security). `AuthResponse.access_token`/`refresh_token` are parsed as optional fields — ignored by the browser build, required by the wrapper. Non-2xx → throws `ApiError {status, detail, fieldErrors?}` where `fieldErrors` is parsed from 422 `detail` arrays (`{loc, msg}`) and from the custom `{detail, errors}` shape; `detail` string used for toasts. 204 → returns `undefined` (never parsed).
 
 **Zod validation.** Every response passes a Zod schema on first parse of each query/mutation. Optional-forward-compat: schemas use `.passthrough()` on objects and mark every field the client contract lists as non-guaranteed (e.g. `engine_name`, `resolver_name`, `profile_name`, `recording_progress`, `session_folder`, `next_run_at`, `last_run_at`) `.optional()`. Parse failure → `console.warn`, invalidate the affected query, refetch once; second failure → view error state ("Unexpected server response").
 
@@ -159,6 +163,10 @@ Dark-mode-first, dense, utilitarian operator console. No light theme in v1 (them
 - `${VITE_API_URL(http→ws)}/ws/events` — entity stream.
 - `${VITE_API_URL(http→ws)}/ws/notifications` — bell feed (skipped entirely when `AuthResponse.user` is null — API clients get 401 on this surface).
 Auth rides the httpOnly cookie (same-origin / `credentials:"include"` cross-origin); non-browser builds may use `?api_key=`. Client never sends frames; heartbeat is server-driven — client only watches for silence.
+
+**Wrapper connection auth.** The wrapper's page origin (`capacitor://localhost` on iOS, `https://localhost` on Android) is cross-site to the API, so `SameSite=Lax` cookies are not attached and a browser WebSocket cannot set an `Authorization` header. The wrapper therefore offers the access JWT as the WebSocket subprotocol — `new WebSocket(url, [accessJwt])` — which the server accepts for exactly this case (source-verified `ws_auth`); it never puts a credential in the query string (`?token=` is rejected server-side by design; `?api_key=` stays API-client-only). A `4001` close on this path means the JWT expired → refresh-once → reconnect with the new token; refresh failure → logout.
+
+**Mobile lifecycle.** On `appStateChange → background`, sockets stay open up to 30s, then close deliberately. On resume: background >30s → reconnect immediately (attempt counter reset); any socket silent >45s → force-close and reconnect; then all visible queries refetch once (the polling backstop is the source of truth). Frames that arrive while backgrounded still update badge arithmetic but render no toasts, and stale alerts are never replayed on resume. The 12-attempt → 15s-polling fallback, close-code handling and connection-dot semantics are unchanged; on compact the dot always carries its text label ("Live / Reconnecting / Polling").
 
 **Reconnect policy.** Exponential backoff 1s→2s→4s→8s→16s→30s (cap), max 12 attempts. On close code `4001` → treat as auth failure: run the refresh-once flow, reconnect if it succeeds, else logout. On `1013` → backoff retry (server restarting). After 12 failed attempts → persistent banner "Live updates offline — polling every 15s" and start polling the visible list query + open detail query at 15s; resume WS on next successful poll or manual "Retry" in the banner. Connection dot in the top bar: green (open), amber (reconnecting), red (offline/polling).
 
@@ -468,8 +476,153 @@ WCAG 2.2 AA, applied concretely to the token system:
 - **Status never color-only:** every StatusChip pairs a colored dot with a text label; recording pulse supplements, never replaces, the label.
 - **Forms:** every input has a paired `<label>`; `DynamicSchemaForm` generates `id`/`htmlFor` pairs from the schema path; inline errors use `aria-describedby`; required fields marked visually + `aria-required`.
 - **Motion:** `prefers-reduced-motion` disables the recording pulse, spinners become static hourglass icons, all transitions 0ms.
-- **Hit areas:** primary pointer targets ≥ 32×32px (documented dense exception: table overflow buttons 24px minimum); icon-only buttons always have `aria-label` + tooltip.
+- **Hit areas:** primary pointer targets ≥ 32×32px (documented dense exception: table overflow buttons 24px minimum); icon-only buttons always have `aria-label` + tooltip. On compact (≤639px) the floor rises to 44×44px for every interactive target and the table-overflow exception does not apply — lists are cards with 44px action buttons (Mobile Touch & Ergonomics).
+- **Compact additions:** safe-area inset padding on app bar/tab bar/FAB, 16px minimum form-input text, bottom-sheet dialogs that trap focus and restore it, system back consumed by open sheets, and the tab bar rendered as `<nav aria-label="Primary">` with `aria-current="page"`.
 - **Names/roles:** nav = `<nav aria-label="Primary">`; tables use real `<table>` with `<th scope="col">`; the bell is `<button aria-haspopup="dialog">`.
+
+## Mobile Shell & Navigation
+
+The mobile presentation is the same app at ≤639px viewport width; the desktop model (≥900px) and the existing collapsed-rail model (640–899px) are untouched. Chrome is selected by CSS breakpoints, not by JS route branching, so the route tree, guards, queries and caches never fork; `index.html` (desktop) and `mobile.html` (wrapper) differ only in viewport meta and native-bridge availability.
+
+| Viewport | Chrome | Rationale |
+|---|---|---|
+| ≥900px | 224px sidebar + 48px top bar (desktop, unchanged) | The dense operator console needs permanent destinations and full-width tables. |
+| 640–899px | 56px icon rail + 48px top bar (existing collapse rule, unchanged) | Tablet/landscape keeps the desktop model at reduced width cost. |
+| ≤639px | 44px compact app bar + 56px bottom tab bar (new) | Phone navigation belongs in the thumb zone; a sidebar consumes unreachable width. |
+
+**Compact chrome (exact).**
+- **Tab bar:** fixed, 56px + `env(safe-area-inset-bottom)`, `bg-raised`, 1px top border; `<nav aria-label="Primary">`; 5 slots in order — Sessions (`/sessions`), Autoruns (`/autoruns`), Recordings (`/recordings`), Profiles (`/profiles`), More (sheet). Active tab = accent icon + 11px/500 label + `aria-current="page"`; inactive = `--text-muted`. Icon 22px, stroke 2px.
+- **More sheet:** vaul bottom sheet listing Plugins, Import/Export, Settings (Account), and for admins Settings → Users / API clients, then the account rows (display name, Change password, Log out). Rationale: 7 destinations plus account actions exceed a 5-slot tab bar, and admin/account surfaces are not daily-use.
+- **App bar:** fixed, 44px + `env(safe-area-inset-top)`, `bg-raised`, 1px bottom border. Left: back chevron (44px target) on nested routes, Mirrorr mark at tab roots; title 16px/600, ellipsized; right: WS connection dot (always with text label) + notification bell, each 44px. Rationale: live status and alerts stay visible on every screen and back navigation gets a permanent reachable affordance.
+- **Primary action:** one 56px circular accent FAB with `aria-label` (a 56px control cannot carry a text label; icon-only is the documented exception) at `right:16px; bottom: calc(56px + env(safe-area-inset-bottom) + 16px)`; omitted on read-only views (Plugins) and replaced by the in-page control when the "action" is a toggle. Rationale: the per-view primary action must be thumb-reachable, and 56px clears the 44px floor.
+- **Content:** one scroll container, 16px page padding, `overflow-x: hidden` on the shell (only mono wells and filter chip rows scroll horizontally, internally). No max-width — cards fill the viewport.
+- **Back semantics:** nested views always render the app-bar chevron; Android hardware back and the iOS edge-swipe call `router.history.back()` when `router.canGoBack()`, otherwise the platform default applies (Android backgrounds the app; iOS no-op). Open sheets/drawers close first and consume the event. Rationale: platform conventions plus an explicit affordance, no custom exit dialog.
+- **Route → tab mapping:** `/sessions*` → Sessions, `/autoruns*` → Autoruns, `/recordings*` → Recordings, `/profiles*` → Profiles, `/plugins|/import-export|/settings*` → More. In-app deep links (typed/shared URL, history entry) open the owning tab and view. Rationale: tab highlighting stays derivable from the pathname alone.
+
+## Mobile Touch & Ergonomics
+
+- **Minimum target 44×44px** on compact for every interactive element — buttons, tabs, toggles, selects, checkboxes, field taps, sheet rows (48px) — with ≥8px between adjacent targets. The desktop 32px floor and the 24px table-overflow exception do not apply here. Rationale: WCAG 2.5.8's 24px is a minimum, not a comfortable thumb target; 44px matches platform HIGs and cuts mis-taps.
+- **No swipe or drag may mutate data.** The only gestures are pull-to-refresh (Sessions/Autoruns/Recordings/Profiles; 64px threshold; refetches visible queries and stale name maps — the same work as window focus) and swipe-down to dismiss sheets/drawers. Column resizing and row reordering are desktop-only. Rationale: destructive gestures are undiscoverable and an accidental delete is irreversible; pull-to-refresh is the one universally expected mobile gesture and maps exactly to the polling backstop.
+- **Rows are tap-through targets; actions live in an action sheet.** A card tap opens the detail; a single 44px "⋮" button opens a bottom action sheet listing the same actions as the desktop overflow menu, destructive entries last and `--danger`-tinted, each still followed by the same ConfirmDialog where desktop requires one. Rationale: five inline 44px buttons do not fit a 360px card, and a sheet keeps the destructive path long.
+- **Safe-area insets:** app bar pads `env(safe-area-inset-top)`; tab bar pads `env(safe-area-inset-bottom)`; the FAB offset includes it; content pads bottom by 56px + inset + 16px; landscape adds left/right insets to page padding. `mobile.html` already declares `viewport-fit=cover`. Rationale: notches and the home indicator must never occlude a control.
+- **Keyboard avoidance:** Capacitor `Keyboard` stays `resize:'none'`; the app tracks `keyboardWillShow`/`keyboardWillHide` into a `--keyboard-inset` CSS variable (the existing `use-keyboard-inset.ts` pattern) and applies it as bottom padding on the focused scroll container. The focused field is scrolled into view after the inset changes; the container's submit control sits inside the padded area so it is never hidden; sheets cap height at `calc(100dvh − env(safe-area-inset-top) − var(--keyboard-inset))`. Rationale: native resize lands after the animation and looks like lag, while an inset the UI drives stays in sync.
+- **Form controls:** 16px minimum text on compact (suppresses WebView focus zoom, aids readability), `autocomplete` on identity/password fields, `enterKeyHint="go"` on login/register (the keyboard's primary key submits), `enterKeyHint="next"|"done"` in multi-field forms. `datetime-local` opens the native picker; helper copy is unchanged.
+- **Selection:** long-press copy stays enabled on mono values (ids, hashes, paths, URLs, JSON, API keys); buttons, tab bar and chrome are `user-select:none`.
+- **Explicit no-ops:** no haptics, no long-press context menus, no hover-dependent affordance — every tooltip-only fact has a visible compact equivalent (Mobile Visual Overrides).
+
+## Mobile Visual Overrides (same tokens)
+
+No new color, radius, shadow, font or motion token is introduced; the rows below only remap existing values for ≤639px.
+
+| Element | Desktop | Compact | Rationale |
+|---|---|---|---|
+| Page padding / section gap | 24px / 24px | 16px / 16px | Recovers width at 360px without leaving the 4px grid. |
+| Card / row | 16px pad, 36px row | 16px pad, ≥64px card | Cards must be tap targets, not 36px rows. |
+| Dialog | Centered 560px (wizards 720px) | Bottom sheet, 6px top radius, drag handle, max height = viewport − app bar | Centered modals are unusable at 360px; 6px is the existing dialog radius, so no second visual language. |
+| Wizard (D2, Import) | 720px dialog | Full-screen panel, sticky header + footer | Multi-step forms with JSON editors need the viewport and keyboard room. |
+| Toast | Bottom-right 320px | Top-center, 16px side margins, below the app bar, max 2 stacked | The bottom is occupied by tab bar/keyboard; errors stay sticky with a close button. |
+| Table | Real `<table>`, 36px rows | Card list (existing <900px rule), fixed anatomy: StatusChip + identifier / meta / times / 44px overflow | Horizontal table scrolling is unusable on touch. |
+| Recording grid | `minmax(260px,1fr)` | Single column, 12px gap | One card per screen is the only readable fit. |
+| Type scale | 13px base | Same scale; form inputs 16px; titles 16px/600 | One type system; the 16px input rule is the only deviation and it prevents focus zoom. |
+| Icons | 16px (14px rows) | 20px controls/rows, 22px tab bar | Larger targets need visual weight; `aria-label` + tooltip rules unchanged. |
+| Mono wells (JSON/config) | Wraps as specified | `overflow-x:auto`, `white-space:pre`, never wrap | Wrapped JSON is unreadable; the well scrolls itself. |
+| Status chips / dots | Per STATUS_MAP | Identical, unchanged | Status semantics are wire facts and must not restyle by viewport. |
+| Motion | Per tokens | Identical, `prefers-reduced-motion` identical | No mobile-only motion. |
+| Hover-only info | `title` tooltip | Same info also exists as visible 12px muted text (e.g. "Engine cannot record", countdowns, error reasons) | Hover does not exist on touch. |
+
+## Mobile Per-View Adaptations (V1–V13)
+
+The desktop per-view specs above remain authoritative for data sources, states, copy, actions, confirmations, failure UX and WS reactions; this table specifies only the compact presentation. "Unchanged" means byte-identical behavior; a view not shown as changed has no compact change beyond the shell. Every action sheet exposes exactly the desktop action set and reuses the same ConfirmDialog for destructive entries.
+
+| View | Compact (≤639px) change | Unchanged |
+|---|---|---|
+| V1 Login | Card becomes a full-width form (max 400px, 16px margins), 44px inputs, 48px full-width submit, inline error under the field, `enterKeyHint="go"`; no chrome on the public branch. | Endpoints, 429 lockout, `?redirect` logic, copy. |
+| V2 Register | Same form treatment as V1; confirm-password last; bootstrap note above the button. | `has_users` branch and redirect, 422 field mapping. |
+| V3 Sessions | Card list: chip + `#id` + recording dot (line 1), engine→resolver + profile (line 2), started + duration (line 3), 44px overflow → action sheet (Stop, Enable/Disable recording, Save as profile, Delete; Delete absent on remuxing/finalizing per STATUS_MAP). FAB = New session (D1). Search input sits above the list, sticky under the app bar. Pending/"Stopping…" chip states identical. | Column data and id-desc sort, filter/search scope + "Load all", WS patches, 502/504 banner (full-width, wraps), 30s polling, delete-debounce. |
+| V4 Session detail | Single column in this order: header (chip, `#id`, engine→resolver, duration) → Recording card → Live URLs → Remux progress → Attempts timeline → Config (collapsed disclosure; mono well scrolls horizontally). Header overflow (44px) → action sheet for Stop/Delete; "Deleting…" overlay identical. URL rows: Open via system browser, Copy 44px. | All panel content and states, delete-hidden rule, `data`-less refetch, indeterminate progress fallback, WS handlers. |
+| V5 Autoruns | Filter control → horizontally scrollable 44px chip row (same four tokens, same `?filter=` grammar and default); card list: name + chip, engine→resolver, start (relative + tz), end, countdown line (10s tick); spent cards 60% opacity; 44px overflow → action sheet (Edit, Run now, Save as profile, Export, Delete with the live warning). FAB = New autorun (D2). | Filter grammar, auto-exhaust pagination, Run-now body composition, WS patches, locked-while-live edit rules. |
+| V6 Autorun detail | Single column: header + countdown → schedule card → linked live session card → recording flag → config (collapsed). Actions in the header overflow sheet; Edit opens the D2 full-screen panel. | Panel content, linked-session discovery (cached scan + WS), WS navigation on delete, lock rules. |
+| V7 Recordings | Single-column grid; card = name, mono slug, engine/resolver/profile, duration/size/created; primary Open (44px) opens the system browser, Copy link 44px, overflow → Delete; empty `content_url` replaces Open with the same muted hint; the once-per-session HEAD probe is retained and toasts the same failure. | Card fields, link-out-only policy (no `<video>`), delete confirm copy, `recording.created/deleted` handling. |
+| V8 Profiles | Card list: name + engine→resolver + retry mode; overflow → action sheet (Use, Edit, Export, Delete with the same in-use pre-scan/dialog). Editor becomes a full-screen panel with sticky Save; `DynamicSchemaForm` groups render full-width with 44px controls. Export = authenticated blob download with the "Export ready — copy the JSON" fallback. | Editor fields/validation, duplicate-name inline error, delete pre-scan semantics, export endpoint, `profile.*` invalidation. |
+| V9 Plugins | Two single-column card stacks; expandable sections become 44px accordions; hash copy 44px; footer note retained. | All card content, read-only policy (no edit affordances). |
+| V10 Import wizard | Full-screen step panel (`100dvh`) with sticky header (Cancel + step) and footer (Back/Next). Step 1: dropzone replaced by a 44px file-picker button (`accept="application/json"`); drag-drop is not offered. Review items render as cards (name, truncated hash mono, status badge); mapping selects full-width 44px; per-item include switch 44px; JSON preview collapsed by default. | 4-step state machine, >500 guard, exact apply-body encoding (incl. `plugin_map`, `removed_*`), error-panel behavior. |
+| V11 Settings Account | User card then stacked change-password form (16px inputs, 48px save); notification preferences are 48px switch rows; Log out lives in the More sheet (44px) and runs the same cache-wipe flow. | Change-password → forced logout → toast, preference storage keys. |
+| V12 Settings Users | Card list (username, display name, role badge); FAB = New user (admin register dialog as a sheet); delete → action sheet → ConfirmDialog with typed username (keyboard inset applies); last-admin disabled rule and tooltip copy unchanged. | Admin route guard, endpoints, typed confirmation requirement. |
+| V13 Settings Clients | Card list (name, created, active); FAB = New key; one-time reveal becomes a full-screen sheet (mono key well scrolls horizontally, 44px Copy, full-width "I've saved it"); revoke → typed confirmation. | One-time key policy, explainer copy, revoke behavior. |
+
+**Compact shared components (same contracts, sheet presentations):**
+- **D1 New Session:** full-screen sheet with sticky submit; source toggle first, profile prefill, per-field dirty tracking and all-or-nothing submission unchanged; disabled-but-visible recording-switch rule unchanged.
+- **D2 Autorun wizard:** full-screen 4-step panel; schedule step uses native `datetime-local` pickers (16px) with the same UTC helper copy; slug validation, locked-while-live fields and dirty-field `PUT` semantics unchanged.
+- **NotificationDrawer:** full-screen sheet, 48px rows, REST rows only; "Mark all read" in the header, per-row delete via a 44px row-action button; badge arithmetic unchanged.
+- **ConfirmDialog:** bottom sheet; danger confirm 48px full-width, Cancel (ghost) above it; Esc/back/overlay dismiss = cancel; typed confirmation still required for delete-user and revoke-key.
+- **ActionSheet** (compact-only presentation wrapper, not a new action model): bottom sheet listing the same actions as the desktop overflow menu; destructive entries last, `--danger`, each followed by its existing confirmation.
+- **EmptyState / ErrorPanel / SkeletonRows / HealthBanner:** same components; skeleton geometry matches the card list; the banner wraps to two lines without horizontal scroll.
+
+## Mobile Shared-Contract Treatment
+
+No shared contract forks for mobile; this table states the treatment and why.
+
+| Contract | Mobile treatment | Rationale |
+|---|---|---|
+| STATUS_MAP | Same exported map, labels, colors, dot behavior and action rules (notably delete hidden on `remuxing`/`finalizing`); only presentation changes (action sheet instead of inline menu). | Status semantics are wire facts; viewport cannot alter them. |
+| Entity merge rule | Same upsert-by-id pipeline, same pending-actions store, same deleted-wins precedence; mobile renders the same caches. | One running client means one cache; forking the rule would make the same data behave differently after a resize. |
+| Query keys & caching | Same key table and staleTimes; mobile adds no keys and no duplicate caches; name memo-map invalidation (profile events + 5min) unchanged. | Cache identity must be viewport-independent. |
+| Polling backstop | Same 30s list intervals, detail refetch rules, API-client 10s cadence and 15s WS-exhaustion fallback; pull-to-refresh and app-resume refetch exactly those queries. | The backstop is precisely the mechanism that covers mobile socket churn. |
+| UTC handling | Same parse (`value + "Z"`), same local display + tz label, same `datetime-local` → naive-UTC serialization with no suffix, same countdown granularity, durations and `formatBytes`. | Time correctness is server-authoritative; the native picker changes ergonomics only. |
+| Realtime | Same manager, 30ms coalescing, frame/close-code handling and 12-attempt cap; the wrapper adds subprotocol auth and the foreground/background lifecycle rules (Realtime Layer). | Only credential transport and process lifecycle differ on device. |
+| Notifications & badge | Same two-component arithmetic and tuple dedupe; background frames count silently, toasts are suppressed on resume, drawer is a full-screen sheet. | Badge correctness must not depend on foreground or socket state. |
+| Role/owner gating | Same: owner actions always rendered enabled, 403/404 `detail` surfaced via toast; API-client banner text unchanged, with the compact dot substitution shown as a text line in the app bar. | The server is the sole authority on ownership. |
+| Auth expiry / 429 / 204 & 422 | Same single-flight refresh, wipe-and-logout, lockout, and empty-body/field-error handling; only token storage differs (Mobile Auth & Security). | Error handling is contract behavior, not presentation. |
+
+## Mobile Packaging & Build
+
+**Identity and embedded payload.**
+- App identity stays `com.mirrorr.app` / `Mirrorr` in `mirrorr-web/capacitor.config.ts` — stable for credential scoping (Keychain/keystore) and any future store continuity.
+- The wrapper embeds the built `mobile.html` entry: `bun run mobile:build` = `vite build` (multi-entry `index.html` + `mobile.html`) then `mobile/scripts/prepare-web-assets.mjs` (copies `dist/` → `mobile/dist/`, renames `mobile.html` → `mobile/dist/index.html`); `cap sync` copies `mobile/dist` into `ios/`/`android/`. Release builds ship bundled assets — no dev server, no remote URL loading. Rationale: reuses the repo's existing entry point and scripts; a second bundler or hosted bundle would create a second release surface.
+- `mobile.html` is the wrapper document of record (viewport-locked `maximum-scale=1`, `viewport-fit=cover`, `black-translucent` status bar, `theme-color`); `index.html` keeps desktop page zoom. `mobile/dist` is an artifact — never hand-edited.
+- **Versioning:** `package.json.version` is the single version source. `mobile:build` additionally runs `mobile/scripts/set-native-version.mjs` (new script in the existing `mobile/scripts` pattern) writing the same version to Android `versionName` + `versionCode` (`major*10000 + minor*100 + patch`) and iOS `CFBundleShortVersionString` + `CFBundleVersion`; web and mobile ship from one tag. Rationale: stores require numeric, monotonic build numbers, and a single source prevents drift between artifacts.
+- Command surface is extended, not replaced: `mobile:build`, `mobile:sync`, `mobile:assets`, `mobile:add:ios|android`, `mobile:build:android:debug`, `mobile:build:ios:simulator`, `mobile:open:ios|android`; `with-mobile-env.mjs` remains the Xcode/JDK/Android-SDK env wrapper.
+
+**API base URL / environment.**
+- `VITE_API_URL` remains the single configuration value and is baked at build time for both form factors; there is no runtime server picker in v1. Production wrapper builds must target the operator's reachable origin (HTTPS behind the proxy recommended; plain-HTTP LAN installs work on Android only because `allowMixedContent: true` is set, and on iOS only for ATS-permitted hosts). Rationale: the approved data layer is single-base, and a server picker is a new feature with no contract semantics.
+- The wrapper's origins must be present in the server's `CORS_ALLOWED_ORIGINS`: iOS sends `capacitor://localhost`, Android sends `https://localhost` (existing `androidScheme:"https"`); `ionic://localhost` is in the server default allowlist but unused by this build. A missing origin fails as an opaque fetch/WS error, so it is an operator runbook item (Assumptions item 18). Rationale: CORS is server-owned and the two platforms present different origins.
+- WebSocket URLs derive from `VITE_API_URL` (`http→ws`, `https→wss`) exactly as on web — no separate WS configuration.
+
+## Mobile Auth & Security
+
+- **Auth mode: Bearer only (contract mode 2).** Every wrapper HTTP call sends `Authorization: Bearer <access JWT>`; cookies are not relied on and `credentials` is omitted. Rationale: the wrapper's page origin is cross-site to the API, so the server's `SameSite=Lax` httpOnly cookies are not reliably attached by the WebView (third-party-cookie/ITP blocking), and Bearer is a first-class contract mode that needs no policy weakening.
+- **Credential acquisition:** the `POST /auth/login` response carries `access_token`/`refresh_token` (schema-verified, Zod `.optional()`); the wrapper requires them and raises the inline error "This server does not expose app tokens — sign in with the web UI" when absent. Rationale: it is the only contracted way for a non-browser client to obtain a JWT (contract §2.2 presupposes secure JWT storage).
+- **Credential location:** `@aparajita/capacitor-secure-storage` (iOS Keychain / Android EncryptedSharedPreferences) under a per-origin key `mirrorr.tokens:<VITE_API_URL origin>`, holding the rotated pair; the access token is cached in memory for the session. Browser builds keep the cookie and never write tokens. Rationale: OS secret storage is the at-rest protection on device, and origin scoping prevents credential mixing when the base URL changes.
+- **Refresh:** identical single-flight `POST /auth/refresh` once per 401 cluster, but the rotated pair is persisted to secure storage **before** waiters retry (the shared promise is chained to the persistence write). Failure → remove the key, wipe all caches, close sockets, `/login` + "Session expired". Rationale: refresh tokens rotate (JTI); retrying with a token that was not persisted risks a revoked-replay that invalidates every session.
+- **Proactive refresh** at 23h uptime and on `appStateChange → active` when the last refresh is >1h old — the web triggers plus the persistence write.
+- **Logout / change-password:** delete the secure-storage key, wipe the TanStack cache, close both sockets, navigate `/login`; change-password keeps the forced-logout toast. Rationale: change-password invalidates all tokens server-side, and a device-retained refresh token would attempt a revoked replay.
+- **No credential ever appears in a URL** (no `?token=`, no `?api_key=` for user sessions); the WS credential rides the subprotocol (Realtime Layer). Rationale: query strings leak via proxy logs and `Referer`, and the server rejects `?token=` by design.
+- Tokens are never logged, never rendered, and never included in error toasts; secure storage is cleared on logout even if the server call fails.
+
+## Mobile Device Behaviors
+
+| Surface | Decision | Rationale |
+|---|---|---|
+| Status bar | Overlays the WebView; the compact app bar supplies the top inset; dark chrome (`--bg-raised`) with default text style. | Matches the existing `StatusBar` config and the dark-first token set; no double title bar. |
+| Splash | Native launch screen only (Capacitor default), `--bg-base` background, no animated splash; hidden once the auth check resolves or the login view first paints. | Avoids a second loading theater and invented branding. |
+| Keyboard | `resize:'none'` + `--keyboard-inset` (see Touch & Ergonomics); sheets and scroll containers react to the inset, never to native resizing. | Existing repo pattern; no post-animation layout jump. |
+| Back button / gesture | Router back when `router.canGoBack()`; open sheets close first and consume it; otherwise the platform default (Android backgrounds the app, iOS no-op). No "are you sure you want to exit" dialog. | Platform convention; navigation targets stay visible via the app-bar chevron. |
+| Orientation | Portrait and landscape both supported, no lock; compact layout applies in both; landscape adds left/right safe-area padding. | The operator may mount the device either way, and no view requires a fixed axis. |
+| External links | `content_url`, M3U8, HTML and Outplayer links open in the system browser via `@capacitor/app` `openUrl`; never in the WebView, never in a native player. Copy-link remains available. | Contract §13.11.5 link-only policy; the system browser supplies HLS/seek behavior the client must not promise. |
+| Media playback | Link-out only — no `<video>`, inline HLS, AVPlayer/ExoPlayer, downloads or background audio; when no browser handles the URL, Copy is the fallback. | Same contract rule; keeps media entitlements out of the wrapper. |
+| Clipboard | `navigator.clipboard` (secure context in both WebViews) with a transient textarea fallback; every copy control shows a "Copied" toast and a 44px target. | No extra plugin needed; feedback prevents repeated taps. |
+| Export downloads | Authenticated `fetch` → Blob → object-URL download; if the WebView cannot hand the file to a download manager, show "Export ready — copy the JSON" with a Copy action. | Bearer cannot ride a plain link, and a token in the URL is forbidden. |
+| OS deep links | In-app route deep links work (history/shared URL); custom scheme/universal-link entry into the app is not configured in v1. | Not needed for the operator console and it would add a native URL surface. |
+
+## Mobile Out of Scope (v1)
+
+Explicit exclusions — each is a deliberate "not built", not an omission:
+
+1. **Push notifications** — no APNs/FCM registration, no native permission prompt, no push plugin; alerts exist only while the app runs (WS + toasts + in-app drawer). Rationale: the server has no push infrastructure, so building one would be a server contract change.
+2. **Offline mode** — no service worker, no persisted query cache, no offline mutation queue, no cached browsing; every view requires a reachable server. Rationale: the server is the single source of truth and the contract defines no offline reconciliation semantics.
+3. **Background sync** — no background fetch/refresh, no `BGTaskScheduler`/`WorkManager` jobs; HTTP and WS run only in the foreground, and the polling backstop resumes on resume. Rationale: background execution is OS-throttled and would fight the 30s backstop rather than strengthen it.
+4. **Native video player** — no embedded playback, scrubbing, HLS or download manager; recordings and live URLs remain link-out only (contract §13.11.5). Rationale: `content_url` is a static path with no range/seek guarantees, and a player would promise what the server cannot.
+5. **Store commerce** — no IAP, subscriptions, paywalls, store listings or store-driven updates; the wrapper is built and signed by the operator. Rationale: a self-hosted operator tool with no billing surface in the contract.
 
 ## Assumptions & Open Questions
 
@@ -492,3 +645,7 @@ Decisions made on the implementer's behalf, and conflicts between the client con
 12. **`GET /recordings/{id}` and `GET /notifications/{id}` are unused** — list payloads carry every field the UI renders; noted in the coverage matrix rather than building unused detail views.
 13. **Env:** `VITE_API_URL` is the single configuration value; WS URLs derive from it (http→ws, https→wss).
 14. **API-client principal UX:** when `AuthResponse.user` is null the bell and its routes are not rendered at all (contract §13.10.3), and the persistent "acting as API client" banner substitutes for notification affordances.
+15. **Wrapper WS auth rides the WebSocket subprotocol (source-verified, outside the contract's auth-mode list).** Contract §11.1 lists cookie / `X-API-Key` / Bearer / `?api_key=`; a browser WebSocket cannot set headers, and `ws_auth` (source-verified in `mirrorr-core/src/mirrorr/api/dependencies.py`) explicitly accepts the JWT as a `Sec-WebSocket-Protocol` value for the Capacitor case and explicitly rejects `?token=`. Mobile therefore uses `new WebSocket(url, [accessJwt])`; if that path is removed server-side, mobile degrades to the 12-attempt → 15s polling fallback rather than to a credential in the URL.
+16. **`AuthResponse.access_token` / `refresh_token` (source-verified, not in the contract's `AuthResponse` shape).** The server schema carries both as optional; contract §2.2's "non-browser clients store JWT securely" presupposes them. Zod marks them `.optional()`; the browser build ignores them and the wrapper requires them, erroring inline when absent (Mobile Auth & Security).
+17. **Mobile build versioning is a client-side convention**, not a server fact: `package.json.version` → native version fields via a `mobile/scripts` step, as specified in Mobile Packaging & Build.
+18. **Android wrapper origin needs CORS configuration.** The server's default allowlist contains `capacitor://localhost` and `ionic://localhost`; with the existing `androidScheme:"https"` the Android WebView origin is `https://localhost`, which is **not** in that default list — operators must add it to `CORS_ALLOWED_ORIGINS`. Recorded because it is the one mobile-only server requirement and it is invisible until a fetch fails.
