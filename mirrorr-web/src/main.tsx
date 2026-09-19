@@ -3,12 +3,25 @@ import { RouterProvider } from "@tanstack/react-router"
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import { assertApiConfig } from "@/config/env"
+import { startProactiveRefresh } from "@/lib/api"
+import { installAuthSession } from "@/lib/auth-store"
 import { queryClient } from "@/query-client"
 import { router } from "@/router"
 import "@/styles.css"
 
 // Boot guard: a missing or malformed VITE_API_URL must fail before any request.
 assertApiConfig()
+
+// The forced-logout consequence (cache wipe, session-expired state, /login)
+// needs the live router; `api.ts` only detects the trigger.
+installAuthSession({
+  navigateToLogin: (redirectPath) => {
+    void router.navigate({ to: "/login", search: { redirect: redirectPath } })
+  },
+  getCurrentHref: () => router.state.location.href,
+})
+
+startProactiveRefresh()
 
 const container = document.getElementById("root")
 
