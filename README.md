@@ -5,7 +5,7 @@ Self-hosted live-stream recorder and scheduler. Monorepo: Python FastAPI backend
 | Dir | What | Stack |
 |---|---|---|
 | `mirrorr-core/` | Event-driven stream ingest API (resolve → ingest → HLS → optional MP4) | Python 3.14, FastAPI, SQLModel/SQLite, NATS JetStream |
-| `mirrorr-web/` | Operator dashboard (sessions, autoruns, recordings, profiles, plugins) | React 19, TanStack Router/Query, Tailwind + shadcn/ui |
+| `mirrorr-web/` | Operator dashboard (sessions, autoruns, recordings, profiles, plugins) | React 19, TanStack Router/Query, Tailwind v4, Zod |
 | `docs/` | Shared contracts (client spec is authoritative for API behavior) | Markdown |
 | `dev/` | Local systemd units, nginx conf, run helpers | Shell/systemd |
 

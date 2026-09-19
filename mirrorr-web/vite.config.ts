@@ -1,19 +1,11 @@
-import path from "path"
+import path from "node:path"
 import tailwindcss from "@tailwindcss/vite"
-import { tanstackRouter } from "@tanstack/router-plugin/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 
 export default defineConfig({
   base: process.env.MIRRORR_BASE ?? "/",
-  plugins: [
-    tanstackRouter({
-      target: "react",
-      autoCodeSplitting: true,
-    }),
-    react(),
-    tailwindcss(),
-  ],
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -29,13 +21,12 @@ export default defineConfig({
   },
   server: {
     host: "127.0.0.1",
-    port: 5174,
+    port: 5175,
     strictPort: true,
-    allowedHosts: ["__SERVER_NAME__"],
     proxy: {
       "/api/": {
         target: "http://127.0.0.1:8000/",
-        rewrite: (p) => p.replace(/^\/api\//, "/"),
+        rewrite: (requestPath) => requestPath.replace(/^\/api\//, "/"),
       },
       "/ws/": {
         target: "ws://127.0.0.1:8000",
