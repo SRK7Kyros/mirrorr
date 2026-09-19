@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "check:tokens": "bun scripts/check-tokens.mjs",
     "deploy:web": "bun scripts/deploy-web.mjs",
     "typecheck": "tsc -p tsconfig.app.json --noEmit",
     "preview": "vite preview",
@@ -14,8 +15,11 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.2.8",
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@tanstack/react-query": "5.101.0",
     "@tanstack/react-router": "1.170.16",
+    "lucide-react": "^1.21.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "zod": "4.4.3"

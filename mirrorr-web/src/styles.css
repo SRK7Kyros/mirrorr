@@ -1,10 +1,178 @@
 @import "tailwindcss";
+@import "./fonts.css";
 
 /*
- * Design tokens are seeded in a later implementation step (see
- * docs/web-frontend-spec.md, "Design Tokens & Visual System").
- * Tailwind v4 is CSS-first: extend the theme through @theme here.
- * This project intentionally has no tailwind.config.* file.
+ * Mirrorr design tokens.
+ *
+ * Single source of truth: docs/web-frontend-spec.md L55-L113 ("Design Tokens &
+ * Visual System"), with the contrast floor at L472 and the dark-only rule at
+ * L57. No colour, radius, shadow, font or motion token exists here outside that
+ * spec, and there is no light theme in v1. Where the spec describes a role
+ * without naming a custom property (font stacks, type scale, motion timings,
+ * sizing, icons), the name below is the role name and the value is transcribed
+ * verbatim; tests/fixtures/tokens.spec.json is the frozen copy of this set.
+ *
+ * Tailwind v4 is CSS-first: `@theme` is the v4 equivalent of the spec's
+ * `theme.extend` referencing the vars (L57), so utilities resolve through the
+ * custom properties declared here and never repeat a value.
+ *
+ * Mobile (<=639px) only remaps these values in a later step (L513-L531); no
+ * mobile token is introduced here.
  */
-@theme {
+
+:root {
+  /* Status chip text exceptions (L76). */
+  --danger-chip-text: #ff6b77;
+  --neutral-chip-text: #9aa3b2;
+
+  /* Borders (L99). */
+  --border-width: 1px;
+
+  /* Sizing (L97). */
+  --size-row: 36px;
+  --size-control: 32px;
+  --size-control-sm: 26px;
+
+  /* Motion (L101). */
+  --motion-fast: 120ms;
+  --motion-enter: 200ms;
+  --motion-toast: 180ms;
+  --motion-pulse: 1.6s;
+  --motion-spinner: 800ms;
+
+  /* Iconography (L103). */
+  --icon-default: 16px;
+  --icon-row: 14px;
+  --icon-empty: 20px;
+}
+
+/* `static` keeps every declared token in the built CSS even when no utility
+ * consumes it yet, so the token diff (scripts/check-tokens.mjs) is exhaustive. */
+@theme static {
+  /* Colour - surfaces & text (L61-L74). */
+  --bg-base: #0b0d11;
+  --bg-raised: #11141b;
+  --bg-overlay: #171b24;
+  --bg-inset: #080a0d;
+  --border: #232936;
+  --border-strong: #2e3547;
+  --text-primary: #e6e9f0;
+  --text-secondary: #9aa3b2;
+  --text-muted: #7e8798;
+  --accent: #4f8cff;
+  --accent-hover: #6b9fff;
+
+  /* Colour - semantic & status (L78-L85). */
+  --ok: #34c77b;
+  --danger: #f04452;
+  --warn: #f5a524;
+  --info: #5b8def;
+  --purple: #a78bfa;
+  --neutral: #6b7484;
+
+  /* Typography (L87-L95). */
+  --font-ui: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --text-micro: 11px;
+  --text-small: 12px;
+  --text-body: 13px;
+  --text-label: 12px;
+  --text-title: 16px;
+  --text-heading: 20px;
+  --text-display: 24px;
+  --leading-body: 1.45;
+  --tracking-label: 0.04em;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* Spacing - 4px base unit (L97). */
+  --spacing: 4px;
+
+  /* Radius (L99). */
+  --radius-control: 4px;
+  --radius-surface: 6px;
+  --radius-pill: 9999px;
+
+  /* Shadows (L99) - flat surfaces have none; overlays and toasts only. */
+  --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-toast: 0 4px 12px rgba(0, 0, 0, 0.4);
+
+  /* Motion - recording status pulse (L101). */
+  --animate-pulse-recording: recording-pulse var(--motion-pulse) ease-in-out infinite;
+
+  @keyframes recording-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+
+    50% {
+      opacity: 0.45;
+    }
+  }
+}
+
+/*
+ * Tailwind v4 namespace aliases: utilities resolve through the spec vars above
+ * (e.g. `bg-bg-base` compiles to `background-color: var(--bg-base)`), which is
+ * the v4 equivalent of `theme.extend.colors` referencing the vars (L57). No
+ * value is repeated here.
+ */
+@theme inline {
+  --color-bg-base: var(--bg-base);
+  --color-bg-raised: var(--bg-raised);
+  --color-bg-overlay: var(--bg-overlay);
+  --color-bg-inset: var(--bg-inset);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-ok: var(--ok);
+  --color-danger: var(--danger);
+  --color-warn: var(--warn);
+  --color-info: var(--info);
+  --color-purple: var(--purple);
+  --color-neutral: var(--neutral);
+  --color-danger-chip-text: var(--danger-chip-text);
+  --color-neutral-chip-text: var(--neutral-chip-text);
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    font-size: var(--text-body);
+    line-height: var(--leading-body);
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-mono);
+  }
+}
+
+/*
+ * L101: under `prefers-reduced-motion: reduce` all animation is removed, the
+ * recording pulse becomes a static dot, and transitions collapse to 0ms. The
+ * global rule also covers spinners (L478).
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
 }
