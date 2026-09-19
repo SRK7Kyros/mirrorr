@@ -49,6 +49,13 @@ function renderApp(initialPath: string) {
   return router
 }
 
+const EMPTY_PAGE = { items: [], next_cursor: null, has_more: false }
+const LIST_PATHS = ["/sessions/", "/engines/", "/resolvers/", "/profiles/"]
+
+function listFallback(url: string): Response {
+  return LIST_PATHS.some((path) => url.includes(path)) ? jsonResponse(200, EMPTY_PAGE) : jsonResponse(200, {})
+}
+
 function stubAuthApi(overrides: Partial<Record<string, Response>> = {}) {
   return installFetch(async (url) => {
     if (url.endsWith("/auth/status")) {
@@ -60,7 +67,7 @@ function stubAuthApi(overrides: Partial<Record<string, Response>> = {}) {
     if (url.endsWith("/auth/login")) {
       return overrides.login ?? jsonResponse(200, AUTH_BODY)
     }
-    return jsonResponse(200, {})
+    return listFallback(url)
   })
 }
 
@@ -89,7 +96,7 @@ describe("public branch", () => {
 
     renderApp("/login")
 
-    expect(await screen.findByTestId("sessions-placeholder")).toBeTruthy()
+    expect(await screen.findByTestId("sessions-view")).toBeTruthy()
   })
 
   it("bounces /register to /login when users already exist", async () => {
@@ -131,13 +138,17 @@ describe("authenticated branch", () => {
           : jsonResponse(200, AUTH_BODY)
       }
       if (url.endsWith("/auth/refresh")) return jsonResponse(200, AUTH_BODY)
-      return jsonResponse(200, {})
+      return listFallback(url)
     })
 
     renderApp("/sessions")
 
-    expect(await screen.findByTestId("sessions-placeholder")).toBeTruthy()
-    expect(calls).toEqual(["/api/auth/me", "/api/auth/refresh", "/api/auth/me"])
+    expect(await screen.findByTestId("sessions-view")).toBeTruthy()
+    expect(calls.filter((url) => url.includes("/auth/"))).toEqual([
+      "/api/auth/me",
+      "/api/auth/refresh",
+      "/api/auth/me",
+    ])
     expect(meCalls).toBe(2)
   })
 
@@ -148,7 +159,7 @@ describe("authenticated branch", () => {
       if (url.endsWith("/auth/me")) return jsonResponse(401, { detail: "expired" })
       if (url.endsWith("/auth/refresh")) return jsonResponse(200, AUTH_BODY)
       if (url.endsWith("/auth/status")) return jsonResponse(200, { has_users: true })
-      return jsonResponse(200, {})
+      return listFallback(url)
     })
 
     const router = renderApp("/sessions")
@@ -196,7 +207,7 @@ describe("?redirect contract (spec L31, L53)", () => {
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "admin123" } })
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }))
 
-    expect(await screen.findByTestId("sessions-placeholder")).toBeTruthy()
+    expect(await screen.findByTestId("sessions-view")).toBeTruthy()
     expect(router.state.location.pathname).toBe("/sessions")
   })
 })

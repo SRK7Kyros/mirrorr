@@ -13,7 +13,7 @@ test.describe("authenticated storage state", () => {
   test("the stored session lands on /sessions", async ({ page }) => {
     await page.goto("/")
     await expect(page).toHaveURL(/\/sessions$/)
-    await expect(page.getByTestId("sessions-placeholder")).toBeVisible()
+    await expect(page.getByTestId("sessions-view")).toBeVisible()
   })
 
   test("an unknown path renders the 404 view with a home link", async ({ page }) => {
@@ -34,7 +34,7 @@ test.describe("login, register and guard redirects (logged out)", () => {
     await page.getByRole("button", { name: "Sign in" }).click()
 
     await expect(page).toHaveURL(/\/sessions$/)
-    await expect(page.getByTestId("sessions-placeholder")).toBeVisible()
+    await expect(page.getByTestId("sessions-view")).toBeVisible()
   })
 
   test("a wrong password shows the exact inline copy and no toast", async ({ page }) => {
