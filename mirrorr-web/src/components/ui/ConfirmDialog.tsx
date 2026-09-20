@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react"
+import { useIsCompactShell } from "@/components/chrome/CompactShell"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { Input } from "@/components/ui/Input"
@@ -43,28 +44,41 @@ export function ConfirmDialog({
   }, [open])
 
   const confirmed = typedConfirmation === undefined || typed === typedConfirmation
+  const compact = useIsCompactShell()
+
+  // Spec L559: on compact the confirm stacks above Cancel as a full-width 48px
+  // target, so the destructive tap stays deliberate and easy to hit.
+  const footer = compact ? (
+    <div className="flex w-full flex-col items-center gap-2">
+      <Button variant="ghost" onClick={onCancel} disabled={pending}>
+        {cancelLabel}
+      </Button>
+      <Button
+        variant={danger ? "danger" : "primary"}
+        className="h-12 w-full"
+        onClick={onConfirm}
+        disabled={!confirmed || pending}
+      >
+        {confirmLabel}
+      </Button>
+    </div>
+  ) : (
+    <>
+      <Button variant="ghost" onClick={onCancel} disabled={pending}>
+        {cancelLabel}
+      </Button>
+      <Button
+        variant={danger ? "danger" : "primary"}
+        onClick={onConfirm}
+        disabled={!confirmed || pending}
+      >
+        {confirmLabel}
+      </Button>
+    </>
+  )
 
   return (
-    <Dialog
-      open={open}
-      onClose={onCancel}
-      title={title}
-      size="confirm"
-      footer={
-        <>
-          <Button variant="ghost" onClick={onCancel} disabled={pending}>
-            {cancelLabel}
-          </Button>
-          <Button
-            variant={danger ? "danger" : "primary"}
-            onClick={onConfirm}
-            disabled={!confirmed || pending}
-          >
-            {confirmLabel}
-          </Button>
-        </>
-      }
-    >
+    <Dialog open={open} onClose={onCancel} title={title} size="confirm" footer={footer}>
       <div className="flex flex-col gap-3">
         <div>{body}</div>
         {typedConfirmation !== undefined ? (
