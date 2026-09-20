@@ -158,4 +158,35 @@ test.describe("compact card list at 390x844", () => {
 
     expect(sheetLabels).toEqual([...inlineLabels, ...overflowLabels].sort())
   })
+
+  test("profiles renders cards whose sheet exposes the profile action set", async ({ page }) => {
+    await stubCatalogs(page)
+
+    await page.goto("/profiles")
+    await expect(page.getByTestId("profiles-view")).toBeVisible()
+    await expect(page.getByTestId("compact-card-list")).toBeVisible()
+    await expect(page.locator("table")).toHaveCount(0)
+
+    const card = page.getByTestId("compact-card").filter({ hasText: "p2" })
+    await expect(card).toHaveCount(1)
+    const cardBox = await card.boundingBox()
+    expect(Math.round(cardBox?.height ?? 0)).toBeGreaterThanOrEqual(CARD_FLOOR_PX)
+
+    await card.getByTestId("compact-card-overflow").click()
+    const sheet = page.getByTestId("action-sheet")
+    await expect(sheet).toBeVisible()
+    expect(nonEmpty(await sheet.getByRole("button").allTextContents())).toEqual(["Use", "Edit", "Export", "Delete"])
+
+    await page.screenshot({ path: path.join(EVIDENCE_DIR, "task-26-compact-profiles-390x844.png") })
+    await page.keyboard.press("Escape")
+    await expect(sheet).toHaveCount(0)
+
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto("/profiles")
+
+    const row = page.getByTestId("table-row").filter({ hasText: "p2" })
+    await expect(row).toBeVisible()
+    await expect(page.getByTestId("compact-card-list")).toHaveCount(0)
+    await expect(row.getByRole("button")).toHaveCount(4)
+  })
 })
