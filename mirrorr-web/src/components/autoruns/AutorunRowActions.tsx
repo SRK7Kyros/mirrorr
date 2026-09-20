@@ -8,6 +8,7 @@
 import { Loader2, MoreHorizontal } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { ExportBundleButton } from "@/components/import-export/ExportBundleButton"
+import type { ActionSheetItem } from "@/components/ui/ActionSheet"
 import { Button } from "@/components/ui/Button"
 import type { PendingAction } from "@/lib/entity-store"
 import type { Autorun } from "@/lib/schemas/autoruns"
@@ -170,4 +171,57 @@ function OverflowMenu({ autorunId, actions, disabled, onSelect }: OverflowMenuPr
       ) : null}
     </div>
   )
+}
+
+export interface AutorunActionItemArgs {
+  readonly autorun: Autorun
+  readonly pending: PendingAction | undefined
+  readonly onEdit: () => void
+  readonly onRunNow: () => void
+  readonly onSaveAsProfile: () => void
+  readonly onDelete: () => void
+  readonly onExport: () => void
+}
+
+/**
+ * Spec L505/L558: the compact sheet wraps the desktop action set rather than
+ * defining a second one — inline entries included, since five 44px buttons do
+ * not fit a 360px card. Export is always present because the desktop row renders
+ * it inline regardless of status.
+ */
+export function autorunActionItems(args: AutorunActionItemArgs): readonly ActionSheetItem[] {
+  const { autorun, pending } = args
+
+  if (pending?.kind === "delete") return []
+
+  const busy = pending !== undefined
+
+  function run(action: StatusAction) {
+    switch (action.id) {
+      case "edit":
+        args.onEdit()
+        return
+      case "run-now":
+        args.onRunNow()
+        return
+      case "save-as-profile":
+        args.onSaveAsProfile()
+        return
+      case "delete":
+        args.onDelete()
+        return
+      default:
+        return
+    }
+  }
+
+  const items: ActionSheetItem[] = autorunActionsFor(autorun.status).map((action) => ({
+    id: action.id,
+    label: action.label,
+    tone: action.kind === "danger" ? "danger" : undefined,
+    disabled: action.disabled || busy,
+    onSelect: () => run(action),
+  }))
+
+  return [...items, { id: "export", label: "Export", disabled: busy, onSelect: args.onExport }]
 }

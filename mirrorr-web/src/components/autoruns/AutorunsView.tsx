@@ -16,10 +16,13 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react"
 import { CalendarClock, Plus } from "lucide-react"
-import { AutorunRowActions } from "@/components/autoruns/AutorunRowActions"
+import { AutorunRowActions, autorunActionItems } from "@/components/autoruns/AutorunRowActions"
 import { runAutorunNow } from "@/components/autoruns/run-now"
 import { AutorunWizard } from "@/components/autoruns/AutorunWizard"
 import { SaveAutorunAsProfileDialog } from "@/components/autoruns/SaveAutorunAsProfileDialog"
+import { useIsCompactShell } from "@/components/chrome/CompactShell"
+import { ExportFallbackDialog } from "@/components/import-export/ExportFallbackDialog"
+import { CompactCardList } from "@/components/ui/CompactCardList"
 import { Button } from "@/components/ui/Button"
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 import { EmptyState, EMPTY_STATES } from "@/components/ui/EmptyState"
@@ -45,6 +48,7 @@ import {
 import { deleteAutorun, fetchAutorunsPage } from "@/lib/autoruns-api"
 import type { EntityStore } from "@/lib/entity-store"
 import { entityStore } from "@/lib/entity-store-client"
+import { exportBundleToFile } from "@/lib/export-bundle"
 import { userMessageForError } from "@/lib/errors"
 import { formatCountdown, formatRelativeTime } from "@/lib/format"
 import { isAutorunLiveStatus } from "@/lib/autorun-form"
@@ -112,6 +116,9 @@ export function AutorunsView({ filter, onFilterChange, store = entityStore }: Au
       showToast(userMessageForError(caught))
     }
   }
+
+  const compact = useIsCompactShell()
+  const [exportFallback, setExportFallback] = useState<string | null>(null)
 
   const columns: TableColumn<Autorun>[] = [
     {
@@ -205,6 +212,77 @@ export function AutorunsView({ filter, onFilterChange, store = entityStore }: Au
     },
   ]
 
+  function columnFor(key: string) {
+    return columns.find((column) => column.key === key)
+  }
+
+  function absoluteTime(value: string | null | undefined): string | null {
+    if (value === null || value === undefined) return null
+    try {
+      return formatRelativeTime(value, tick).title
+    } catch {
+      return null
+    }
+  }
+
+  /** Spec L540 V5 card anatomy; spec L531 desktop `title` tooltips become visible 12px muted text. */
+  function renderAutorunCard(row: Autorun) {
+    const cell = (key: string) => columnFor(key)?.render(row) ?? null
+    const startAbsolute = absoluteTime(row.start_time)
+    const endAbsolute = absoluteTime(row.end_time)
+
+    return (
+      <>
+        <span className="flex items-center gap-2">
+          {cell("status")}
+          {cell("name")}
+          <span className="ml-auto flex items-center gap-2">{cell("recording")}</span>
+        </span>
+        <span className="flex flex-wrap items-center gap-2 text-small text-text-secondary">
+          {cell("configuration")}
+        </span>
+        <span className="flex flex-wrap items-center gap-2 text-small text-text-secondary">
+          {cell("start")}
+          {cell("end")}
+        </span>
+        <span className="flex flex-wrap items-center gap-2 text-small text-text-secondary">
+          {cell("countdown")}
+        </span>
+        {startAbsolute === null ? null : (
+          <span data-testid="autorun-card-start-absolute" className="text-micro text-text-muted">
+            {startAbsolute}
+          </span>
+        )}
+        {endAbsolute === null ? null : (
+          <span data-testid="autorun-card-end-absolute" className="text-micro text-text-muted">
+            {endAbsolute}
+          </span>
+        )}
+      </>
+    )
+  }
+
+  async function handleExport(row: Autorun) {
+    try {
+      const outcome = await exportBundleToFile("autorun", row.id)
+      if (!outcome.downloaded) setExportFallback(outcome.text)
+    } catch (error) {
+      showToast(userMessageForError(error))
+    }
+  }
+
+  function cardActions(row: Autorun) {
+    return autorunActionItems({
+      autorun: row,
+      pending: store.getPending("autorun", row.id),
+      onEdit: () => setEditTarget(row),
+      onRunNow: () => void runAutorunNow(store, row),
+      onSaveAsProfile: () => setSaveTarget(row),
+      onDelete: () => setDeleteTarget(row),
+      onExport: () => void handleExport(row),
+    })
+  }
+
   function retry() {
     void queryClient.invalidateQueries({ queryKey: queryKeys.autoruns(), type: "all" })
   }
@@ -259,6 +337,17 @@ export function AutorunsView({ filter, onFilterChange, store = entityStore }: Au
         />
       ) : rows.length === 0 ? (
         <EmptyState icon={CalendarClock} title="No autoruns match the current filter" />
+      ) : compact ? (
+        <CompactCardList
+          label="Autoruns"
+          rows={rows}
+          getRowKey={(row) => row.id}
+          renderCard={renderAutorunCard}
+          actionsFor={cardActions}
+          hrefFor={(row) => `/autoruns/${row.id}`}
+          sheetTitle={(row) => `Autorun #${row.id} actions`}
+          rowClassName={(row) => (isSpentAutorun(row.status) ? "opacity-60" : undefined)}
+        />
       ) : (
         <Table
           label="Autoruns"
@@ -285,6 +374,7 @@ export function AutorunsView({ filter, onFilterChange, store = entityStore }: Au
 
       <AutorunWizard open={newOpen} onClose={() => setNewOpen(false)} />
       <AutorunWizard open={editTarget !== null} autorun={editTarget} onClose={() => setEditTarget(null)} />
+      <ExportFallbackDialog json={exportFallback} onClose={() => setExportFallback(null)} />
       <ConfirmDialog
         open={deleteTarget !== null}
         title="Delete autorun"
