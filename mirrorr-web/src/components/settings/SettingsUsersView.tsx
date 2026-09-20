@@ -246,6 +246,7 @@ export function SettingsUsersView() {
           <Input
             label="Username"
             autoComplete="off"
+            enterKeyHint="next"
             value={username}
             error={createErrors.username}
             onChange={(event) => setUsername(event.target.value)}
@@ -253,6 +254,7 @@ export function SettingsUsersView() {
           <Input
             label="Display name"
             autoComplete="off"
+            enterKeyHint="next"
             value={displayName}
             error={createErrors.display_name}
             onChange={(event) => setDisplayName(event.target.value)}
@@ -261,6 +263,7 @@ export function SettingsUsersView() {
             label="Password"
             type="password"
             autoComplete="new-password"
+            enterKeyHint="done"
             value={password}
             error={createErrors.password}
             onChange={(event) => setPassword(event.target.value)}

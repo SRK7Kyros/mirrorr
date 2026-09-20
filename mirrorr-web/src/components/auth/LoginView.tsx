@@ -72,6 +72,7 @@ export function LoginView({ redirectPath }: LoginViewProps) {
           value={username}
           onChange={setUsername}
           autoComplete="username"
+          enterKeyHint="next"
         />
         <AuthField
           id="login-password"
@@ -80,6 +81,7 @@ export function LoginView({ redirectPath }: LoginViewProps) {
           value={password}
           onChange={setPassword}
           autoComplete="current-password"
+          enterKeyHint="go"
         />
         <button
           type="submit"

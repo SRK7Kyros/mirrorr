@@ -7,7 +7,7 @@
  * owning the single `<main>` landmark. The compact shell scrolls in exactly
  * one container (16px padding, hidden horizontal overflow).
  */
-import { Outlet } from "@tanstack/react-router"
+import { Outlet, useLocation } from "@tanstack/react-router"
 import { ApiClientBanner } from "@/components/chrome/ApiClientBanner"
 import { CompactAppBar } from "@/components/chrome/CompactAppBar"
 import { CompactFab } from "@/components/chrome/CompactFab"
@@ -16,6 +16,8 @@ import { CompactTabBar } from "@/components/chrome/CompactTabBar"
 import { HealthBannerHost } from "@/components/chrome/HealthBannerHost"
 import { SidebarNav } from "@/components/chrome/SidebarNav"
 import { TopBar } from "@/components/chrome/TopBar"
+import { usePullToRefresh } from "@/hooks/use-pull-to-refresh"
+import { isPullToRefreshRoute } from "@/lib/pull-to-refresh"
 
 export function AppShell() {
   return (
@@ -27,6 +29,8 @@ export function AppShell() {
 
 function AppShellFrame() {
   const compact = useIsCompactShell()
+  const location = useLocation()
+  const pull = usePullToRefresh(isPullToRefreshRoute(location.pathname))
 
   if (compact) {
     return (
@@ -36,8 +40,10 @@ function AppShellFrame() {
         <ApiClientBanner />
         <div
           data-testid="compact-scroll"
-          className="flex-1 overflow-x-hidden overflow-y-auto p-4 pb-18"
+          className="compact-scroll-region flex-1 overflow-x-hidden overflow-y-auto p-4"
+          {...pull.handlers}
         >
+          {pull.indicator}
           <Outlet />
         </div>
         <CompactTabBar />

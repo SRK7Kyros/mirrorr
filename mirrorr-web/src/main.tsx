@@ -8,6 +8,7 @@ import { installAuthSession } from "@/lib/auth-store"
 import { installBackNavigation } from "@/lib/back-navigation"
 import { entityStore } from "@/lib/entity-store-client"
 import { installEventTable } from "@/lib/event-table"
+import { installKeyboardInset } from "@/lib/keyboard-inset"
 import { nameMapStore } from "@/lib/name-map-api"
 import { installNotificationPipeline } from "@/lib/notification-pipeline"
 import { startRealtimeManager } from "@/lib/realtime-manager"
@@ -36,6 +37,12 @@ installBackNavigation({
   canGoBack: () => router.history.canGoBack(),
   goBack: () => router.history.back(),
 })
+
+// Spec L508: the keyboard contract's web half. Capacitor's
+// keyboardWillShow/keyboardWillHide drive `--keyboard-inset` and every change
+// scrolls the focused field back into view; todo 29 attaches the real plugin
+// listener that dispatches the same two events.
+installKeyboardInset()
 
 // Spec L165-L181: the /ws/events subject table + 30ms coalescing buffer.
 installEventTable({

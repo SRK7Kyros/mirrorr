@@ -85,6 +85,7 @@ export function RegisterView() {
           value={username}
           onChange={setUsername}
           autoComplete="username"
+          enterKeyHint="next"
           error={fieldErrors.username}
         />
         <AuthField
@@ -93,6 +94,7 @@ export function RegisterView() {
           value={displayName}
           onChange={setDisplayName}
           autoComplete="name"
+          enterKeyHint="next"
           error={fieldErrors.display_name}
         />
         <AuthField
@@ -102,6 +104,7 @@ export function RegisterView() {
           value={password}
           onChange={setPassword}
           autoComplete="new-password"
+          enterKeyHint="next"
           error={fieldErrors.password}
         />
         <AuthField
@@ -111,6 +114,7 @@ export function RegisterView() {
           value={confirmPassword}
           onChange={setConfirmPassword}
           autoComplete="new-password"
+          enterKeyHint="go"
           error={fieldErrors.confirm_password}
         />
         <button

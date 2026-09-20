@@ -114,6 +114,7 @@ export function SettingsAccountView() {
             label="Old password"
             type="password"
             autoComplete="current-password"
+            enterKeyHint="next"
             value={oldPassword}
             error={fieldErrors.old}
             onChange={(event) => setOldPassword(event.target.value)}
@@ -122,6 +123,7 @@ export function SettingsAccountView() {
             label="New password"
             type="password"
             autoComplete="new-password"
+            enterKeyHint="next"
             value={newPassword}
             error={fieldErrors.next}
             onChange={(event) => setNewPassword(event.target.value)}
@@ -130,6 +132,7 @@ export function SettingsAccountView() {
             label="Confirm new password"
             type="password"
             autoComplete="new-password"
+            enterKeyHint="done"
             value={confirmPassword}
             error={fieldErrors.confirm}
             onChange={(event) => setConfirmPassword(event.target.value)}

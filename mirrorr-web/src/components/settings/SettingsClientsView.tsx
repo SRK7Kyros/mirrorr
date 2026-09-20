@@ -216,6 +216,7 @@ export function SettingsClientsView() {
           <Input
             label="Name"
             autoComplete="off"
+            enterKeyHint="done"
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
