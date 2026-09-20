@@ -7,24 +7,6 @@ import { authLayoutRoute } from "@/routes/auth-layout-route"
  * Minimal children for the not-yet-built authenticated views (spec L33-L49).
  * They exist so guard redirects and later waves have real targets.
  */
-export const recordingsRoute = createRoute({
-  getParentRoute: () => authLayoutRoute,
-  path: "/recordings",
-  component: () => <PlaceholderPage title="Recordings" testId="recordings-placeholder" />,
-})
-
-export const profilesRoute = createRoute({
-  getParentRoute: () => authLayoutRoute,
-  path: "/profiles",
-  component: () => <PlaceholderPage title="Profiles" testId="profiles-placeholder" />,
-})
-
-export const pluginsRoute = createRoute({
-  getParentRoute: () => authLayoutRoute,
-  path: "/plugins",
-  component: () => <PlaceholderPage title="Plugins" testId="plugins-placeholder" />,
-})
-
 export const importExportRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/import-export",

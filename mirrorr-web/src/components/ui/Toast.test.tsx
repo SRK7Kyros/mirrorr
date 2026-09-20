@@ -102,4 +102,20 @@ describe("Toast", () => {
     fireEvent.click(screen.getByRole("button", { name: "Dismiss notification" }))
     expect(onDismiss).toHaveBeenCalledWith(1)
   })
+
+  it("renders an action link with its href and keeps the toast open", () => {
+    render(<ToastViewport />)
+    act(() => {
+      showToast("Recording saved", "info", { label: "Open", href: "https://example.com/a.mp4" })
+    })
+
+    const action = screen.getByTestId("toast-action")
+    expect(action.getAttribute("href")).toBe("https://example.com/a.mp4")
+    expect(action.textContent).toBe("Open")
+    expect(action.getAttribute("target")).toBe("_blank")
+    expect(action.getAttribute("rel")).toBe("noopener noreferrer")
+
+    fireEvent.click(action)
+    expect(screen.getByTestId("toast")).not.toBeNull()
+  })
 })

@@ -42,7 +42,7 @@ export function SaveAutorunAsProfileDialog({ open, autorunId, onClose }: SaveAut
     setPending(true)
     try {
       await saveAutorunAsProfile(autorunId, trimmed)
-      await queryClient.invalidateQueries({ queryKey: queryKeys.profiles() })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.profilesAll(), type: "all" })
       showToast(`Profile "${trimmed}" saved`, "info")
       onClose()
     } catch (caught) {

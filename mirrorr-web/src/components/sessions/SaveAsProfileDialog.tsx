@@ -42,7 +42,7 @@ export function SaveAsProfileDialog({ open, sessionId, onClose }: SaveAsProfileD
     setPending(true)
     try {
       await saveSessionAsProfile(sessionId, trimmed)
-      await queryClient.invalidateQueries({ queryKey: queryKeys.profiles() })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.profilesAll(), type: "all" })
       showToast(`Profile "${trimmed}" saved`, "info")
       onClose()
     } catch (caught) {

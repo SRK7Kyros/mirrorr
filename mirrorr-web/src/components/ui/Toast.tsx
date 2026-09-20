@@ -41,6 +41,17 @@ export function Toast({ toast, onDismiss }: ToastProps) {
         />
       )}
       <span className="flex-1">{toast.message}</span>
+      {toast.action !== undefined ? (
+        <a
+          data-testid="toast-action"
+          href={toast.action.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="shrink-0 rounded-control px-1 text-small font-medium text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          {toast.action.label}
+        </a>
+      ) : null}
       <Button
         variant="ghost"
         size="sm"

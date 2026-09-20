@@ -11,10 +11,17 @@
  */
 export type ToastTone = "error" | "info"
 
+/** An inline action on a toast, e.g. V7's `recording.created` "Open" (L321). */
+export interface ToastAction {
+  readonly label: string
+  readonly href: string
+}
+
 export interface ToastMessage {
   readonly id: number
   readonly message: string
   readonly tone: ToastTone
+  readonly action?: ToastAction
 }
 
 const AUTO_DISMISS_MS = 5000
@@ -28,10 +35,10 @@ function emit(): void {
 }
 
 /** Shows a toast. `error` toasts are sticky (spec L110) — dismiss them. */
-export function showToast(message: string, tone: ToastTone = "error"): number {
+export function showToast(message: string, tone: ToastTone = "error", action?: ToastAction): number {
   const id = nextId
   nextId += 1
-  toasts = [...toasts, { id, message, tone }]
+  toasts = [...toasts, action === undefined ? { id, message, tone } : { id, message, tone, action }]
   emit()
 
   if (tone === "info") {

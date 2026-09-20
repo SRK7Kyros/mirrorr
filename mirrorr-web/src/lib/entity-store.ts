@@ -155,10 +155,27 @@ export class EntityStore {
   private readonly tombstones = new Set<string>()
   private readonly refetches = new Map<string, Promise<void>>()
   private readonly pendingListeners = new Set<() => void>()
+  private readonly frameListeners = new Set<(frame: EntityFrame) => void>()
 
   constructor(options: EntityStoreOptions) {
     this.queryClient = options.queryClient
     this.refetchEntity = options.refetchEntity ?? this.defaultRefetch
+  }
+
+  /**
+   * Observes every frame the store handles, after resource resolution. The
+   * cache reaction stays owned by `applyFrame`; listeners only mirror it so a
+   * view can raise its toast (todo 18 feeds the real frames here).
+   */
+  subscribeFrames(listener: (frame: EntityFrame) => void): () => void {
+    this.frameListeners.add(listener)
+    return () => {
+      this.frameListeners.delete(listener)
+    }
+  }
+
+  private emitFrames(frame: EntityFrame): void {
+    for (const listener of this.frameListeners) listener(frame)
   }
 
   // -------------------------------------------------------------------------
@@ -173,6 +190,7 @@ export class EntityStore {
   applyFrame(frame: EntityFrame): Promise<void> {
     const resource = resourceFromEvent(frame.event)
     if (resource === null) return Promise.resolve()
+    this.emitFrames(frame)
 
     if (frame.event.endsWith(".deleted")) {
       this.applyDeleted(resource, frame.id)
