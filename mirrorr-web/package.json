@@ -13,9 +13,23 @@
     "test": "bun run test:unit && bun run test:e2e",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
-    "test:ratelimit": "playwright test --config playwright.ratelimit.config.ts"
+    "test:ratelimit": "playwright test --config playwright.ratelimit.config.ts",
+    "mobile:build": "vite build && bun mobile/scripts/prepare-web-assets.mjs && bun mobile/scripts/set-native-version.mjs",
+    "mobile:assets": "bun mobile/scripts/prepare-web-assets.mjs",
+    "mobile:sync": "bun mobile/scripts/with-mobile-env.mjs \"bunx cap sync\"",
+    "mobile:add:ios": "bun mobile/scripts/with-mobile-env.mjs \"bunx cap add ios\"",
+    "mobile:add:android": "bun mobile/scripts/with-mobile-env.mjs \"bunx cap add android\"",
+    "mobile:build:android:debug": "bun mobile/scripts/with-mobile-env.mjs \"bun run mobile:build && bunx cap sync android && cd mobile/android && ./gradlew assembleDebug\"",
+    "mobile:build:ios:simulator": "bun mobile/scripts/with-mobile-env.mjs \"bun run mobile:build && bunx cap sync ios && cd mobile/ios/App && xcodebuild -workspace App.xcworkspace -scheme App -sdk iphonesimulator -configuration Debug build\"",
+    "mobile:open:ios": "bun mobile/scripts/with-mobile-env.mjs \"bunx cap open ios\"",
+    "mobile:open:android": "bun mobile/scripts/with-mobile-env.mjs \"bunx cap open android\""
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/ios": "^8.5.2",
+    "@capacitor/keyboard": "^8.0.5",
+    "@capacitor/status-bar": "^8.0.3",
     "@fontsource-variable/inter": "^5.2.8",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@tanstack/react-query": "5.101.0",
@@ -26,6 +40,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.2",
     "@playwright/test": "1.63.0",
     "@tailwindcss/vite": "4.3.1",
     "@testing-library/dom": "10.4.2",
