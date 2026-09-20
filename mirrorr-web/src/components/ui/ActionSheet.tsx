@@ -1,4 +1,5 @@
 import { Dialog } from "@/components/ui/Dialog"
+import { FOCUS_RING } from "@/components/ui/focus-ring"
 
 export interface ActionSheetItem {
   readonly id: string
@@ -42,7 +43,7 @@ export function ActionSheet({ open, onClose, title, items }: ActionSheetProps) {
               }}
               className={[
                 "flex h-12 w-full items-center rounded-control px-3 text-left text-body hover:bg-bg-raised",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50",
+                `${FOCUS_RING} disabled:opacity-50`,
                 item.tone === "danger" ? "text-danger" : "text-text-primary",
               ].join(" ")}
             >

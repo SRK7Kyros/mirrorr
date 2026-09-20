@@ -33,23 +33,14 @@ export interface AppLifecycleOptions {
 // The backgrounded flag is process-wide: the toast policy reads it for frames
 // that arrive while the app is hidden (spec L169, L573).
 let backgrounded = false
-const backgroundListeners = new Set<() => void>()
 
 export function isAppBackgrounded(): boolean {
   return backgrounded
 }
 
-export function subscribeAppBackground(listener: () => void): () => void {
-  backgroundListeners.add(listener)
-  return () => {
-    backgroundListeners.delete(listener)
-  }
-}
-
 function setBackgrounded(next: boolean): void {
   if (backgrounded === next) return
   backgrounded = next
-  for (const listener of [...backgroundListeners]) listener()
 }
 
 function defaultSubscribeVisibility(listener: (hidden: boolean) => void): () => void {

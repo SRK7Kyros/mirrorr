@@ -13,7 +13,6 @@ import type { QueryClient } from "@tanstack/react-query"
 import type { Autorun } from "@/lib/schemas/autoruns"
 import { fetchAutorunsPage } from "@/lib/autoruns-api"
 import { PAGE_LIMIT_DEFAULT, fetchAllPages } from "@/lib/pagination"
-import { queryKeys } from "@/lib/query-keys"
 import type { Session } from "@/lib/schemas/sessions"
 import { fetchSessionsPage } from "@/lib/sessions-api"
 
@@ -109,9 +108,3 @@ export async function collectProfileRefs(client: QueryClient, profileId: number)
 
   return refsFromRows(autoruns, sessions, profileId)
 }
-
-/** Exported for the view: the query roots the pre-scan owns. */
-export const PROFILE_REF_QUERY_KEYS = {
-  autoruns: queryKeys.autoruns(),
-  sessions: queryKeys.sessions(),
-} as const

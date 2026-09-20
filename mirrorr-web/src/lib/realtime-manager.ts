@@ -535,10 +535,6 @@ export function startRealtimeManager(): RealtimeManager {
   return manager
 }
 
-export function stopRealtimeManager(): void {
-  singleton?.stop()
-}
-
 /** The health banner's manual Retry (spec L171); no-op before the manager exists. */
 export function retryRealtimeNow(): void {
   singleton?.retryNow()
