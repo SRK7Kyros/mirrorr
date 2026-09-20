@@ -4,12 +4,14 @@ import { describe, expect, it, vi } from "vitest"
 import { Button } from "@/components/ui/Button"
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 import { Dialog } from "@/components/ui/Dialog"
+import { installBackNavigation, PLATFORM_BACK_EVENT } from "@/lib/back-navigation"
 
 /**
  * Dialog contracts: spec L111 (560px, wizards 720px, header 16px/600,
  * right-aligned footer), L112 (ConfirmDialog 400px, danger primary, typed
  * confirmation only for delete-user/revoke-key) and L405/L473 (focus trap,
- * Esc cancels, focus returns to the opener).
+ * Esc cancels, focus returns to the opener). Spec L498: an open dialog is also
+ * the back consumer, ahead of `router.history.back()`.
  */
 
 function DialogHarness() {
@@ -89,6 +91,27 @@ describe("Dialog", () => {
     )
     fireEvent.click(screen.getByTestId("dialog-overlay"))
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it("consumes the platform back while open and releases it on close", () => {
+    const goBack = vi.fn()
+    const onClose = vi.fn()
+    const uninstall = installBackNavigation({ canGoBack: () => true, goBack })
+    const { unmount } = render(
+      <Dialog open onClose={onClose} title="More">
+        <p>Body copy</p>
+      </Dialog>,
+    )
+
+    window.dispatchEvent(new Event(PLATFORM_BACK_EVENT))
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(goBack).not.toHaveBeenCalled()
+
+    unmount()
+    window.dispatchEvent(new Event(PLATFORM_BACK_EVENT))
+    expect(goBack).toHaveBeenCalledTimes(1)
+
+    uninstall()
   })
 })
 
