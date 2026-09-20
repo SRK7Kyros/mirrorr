@@ -68,7 +68,11 @@ export const queryKeys = {
   session: (id: number) => ["session", id] as const,
   autoruns: (filters?: ListFilters) => ["autoruns", normalizeListFilters(filters)] as const,
   autorun: (id: number) => ["autorun", id] as const,
+  /** Prefix covering every autoruns collection query (list + filters). */
+  autorunsAll: () => ["autoruns"] as const,
   recordings: (filters?: ListFilters) => ["recordings", normalizeListFilters(filters)] as const,
+  /** Prefix covering every recordings collection query (list + filters). */
+  recordingsAll: () => ["recordings"] as const,
   profiles: (filters?: ListFilters) => ["profiles", normalizeListFilters(filters)] as const,
   /**
    * The all-pages profile array the D1/AutorunWizard pickers read. It is a
