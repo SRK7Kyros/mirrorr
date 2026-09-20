@@ -337,4 +337,42 @@ test.describe("compact card list at 390x844", () => {
       await expect(page.getByRole("dialog")).toHaveCount(0)
     }
   })
+
+  test("a destructive confirm keeps its typed gate and stacks Cancel above a full-width 48px confirm", async ({ page }) => {
+    await page.route("**/api/auth/clients", async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.fallback()
+        return
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: { "Cache-Control": "no-store" },
+        body: JSON.stringify([{ id: 41, name: "ci-bot", created_at: "2026-09-01T00:00:00", is_active: true }]),
+      })
+    })
+
+    await page.goto("/settings/clients")
+    const card = page.getByTestId("compact-card").filter({ hasText: "ci-bot" })
+    await card.getByTestId("compact-card-overflow").click()
+    await page.getByTestId("action-sheet-revoke").click()
+
+    const dialog = page.getByRole("dialog")
+    await expect(dialog).toBeVisible()
+    const confirm = dialog.getByRole("button", { name: /Revoke/ })
+    const cancel = dialog.getByRole("button", { name: "Cancel" })
+
+    await expect(confirm).toBeDisabled()
+
+    const confirmBox = await confirm.boundingBox()
+    const cancelBox = await cancel.boundingBox()
+    expect(Math.round(confirmBox?.height ?? 0)).toBe(48)
+    expect(Math.round(cancelBox?.y ?? 0)).toBeLessThan(Math.round(confirmBox?.y ?? 0))
+    expect(confirmBox?.width ?? 0).toBeGreaterThan(cancelBox?.width ?? 0)
+
+    await page.screenshot({ path: path.join(EVIDENCE_DIR, "task-26-compact-confirm-390x844.png") })
+
+    await page.getByLabel(/to confirm$/).fill("ci-bot")
+    await expect(confirm).toBeEnabled()
+  })
 })
