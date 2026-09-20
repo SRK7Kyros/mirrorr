@@ -23,7 +23,7 @@ export function CompactTabBar() {
       <nav
         aria-label="Primary"
         data-testid="compact-tab-bar"
-        className="flex h-14 shrink-0 border-t border-border bg-bg-raised"
+        className="compact-tab-bar flex shrink-0 border-t border-border bg-bg-raised"
       >
         {COMPACT_TABS.map((tab) => {
           const current = tab.id === active ? "page" : undefined

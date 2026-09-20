@@ -40,17 +40,21 @@ export function Switch({
         title={title}
         disabled={disabled || pending}
         onClick={() => onCheckedChange(!checked)}
-        className={`inline-flex h-4 w-7 shrink-0 items-center rounded-full border px-0.5 transition-colors duration-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50 ${
-          checked ? "border-accent bg-accent" : "border-border-strong bg-bg-inset"
-        }`}
+        className="inline-flex shrink-0 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
       >
         <span
-          data-testid={pending ? "switch-pending" : "switch-knob"}
-          className={`flex size-3 items-center justify-center rounded-full bg-bg-base transition-transform duration-100 ${
-            checked ? "translate-x-3" : "translate-x-0"
+          className={`inline-flex h-4 w-7 items-center rounded-full border px-0.5 transition-colors duration-100 ${
+            checked ? "border-accent bg-accent" : "border-border-strong bg-bg-inset"
           }`}
         >
-          {pending ? <Loader2 aria-hidden="true" className="size-2 animate-spin text-text-muted" /> : null}
+          <span
+            data-testid={pending ? "switch-pending" : "switch-knob"}
+            className={`flex size-3 items-center justify-center rounded-full bg-bg-base transition-transform duration-100 ${
+              checked ? "translate-x-3" : "translate-x-0"
+            }`}
+          >
+            {pending ? <Loader2 aria-hidden="true" className="size-2 animate-spin text-text-muted" /> : null}
+          </span>
         </span>
       </button>
       <span className="text-body text-text-secondary">{label}</span>
