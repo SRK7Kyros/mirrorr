@@ -9,6 +9,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { Bell, CheckCheck, Eraser, Trash2, X } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useIsCompactShell } from "@/components/chrome/CompactShell"
 import { Button } from "@/components/ui/Button"
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 import { EmptyState } from "@/components/ui/EmptyState"
@@ -72,6 +73,7 @@ export function NotificationDrawer({
 }: NotificationDrawerProps) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const compact = useIsCompactShell()
   const panelRef = useRef<HTMLElement>(null)
   const onCloseRef = useRef(onClose)
   const [clearOpen, setClearOpen] = useState(false)
@@ -218,7 +220,10 @@ export function NotificationDrawer({
         onKeyDown={(event) => {
           if (event.key === "Escape") onClose()
         }}
-        className="absolute inset-y-0 right-0 flex w-full max-w-95 flex-col border-l border-border bg-bg-overlay shadow-overlay"
+        className={[
+          "absolute flex flex-col border-border bg-bg-overlay shadow-overlay",
+          compact ? "inset-0 w-full" : "inset-y-0 right-0 w-full max-w-95 border-l",
+        ].join(" ")}
       >
         <header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border px-3">
           <h2 className="text-title font-semibold text-text-primary">Notifications</h2>
@@ -255,7 +260,10 @@ export function NotificationDrawer({
                 <li
                   key={row.id}
                   data-testid={`notification-row-${row.id}`}
-                  className="flex items-start gap-2 border-b border-border px-3 py-3"
+                  className={[
+                    "flex items-start gap-2 border-b border-border px-3",
+                    compact ? "min-h-12 py-2" : "py-3",
+                  ].join(" ")}
                 >
                   {row.read ? (
                     <span aria-hidden="true" className="mt-1.5 size-1.5 shrink-0" />
@@ -281,7 +289,8 @@ export function NotificationDrawer({
                     disabled={remove.isPending}
                     onClick={() => remove.mutate(row.id)}
                     className={[
-                      "flex h-6 w-6 shrink-0 items-center justify-center rounded-control text-text-muted",
+                      "flex shrink-0 items-center justify-center rounded-control text-text-muted",
+                      compact ? "size-11" : "h-6 w-6",
                       "hover:bg-bg-raised hover:text-danger disabled:pointer-events-none disabled:opacity-40",
                       FOCUS_RING,
                     ].join(" ")}
