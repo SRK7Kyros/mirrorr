@@ -10,6 +10,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { AlertTriangle, Copy, Plus, Trash2 } from "lucide-react"
 import { SettingsShell } from "@/components/settings/SettingsShell"
 import { Button } from "@/components/ui/Button"
+import { useIsCompactShell } from "@/components/chrome/CompactShell"
+import { CompactCardList } from "@/components/ui/CompactCardList"
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 import { Dialog } from "@/components/ui/Dialog"
 import { EmptyState, EMPTY_STATES } from "@/components/ui/EmptyState"
@@ -120,6 +122,8 @@ export function SettingsClientsView() {
     )
   }
 
+  const compact = useIsCompactShell()
+
   const columns: ReadonlyArray<TableColumn<ApiClient>> = [
     {
       key: "name",
@@ -164,6 +168,36 @@ export function SettingsClientsView() {
     },
   ]
 
+  function columnFor(key: string) {
+    return columns.find((column) => column.key === key)
+  }
+
+  /** Spec L549 V13 card anatomy: name, created, active. */
+  function renderClientCard(client: ApiClient) {
+    const cell = (key: string) => columnFor(key)?.render(client) ?? null
+
+    return (
+      <>
+        <span className="flex items-center gap-2">
+          {cell("name")}
+          <span className="ml-auto flex items-center gap-2">{cell("is_active")}</span>
+        </span>
+        <span className="text-small text-text-secondary">{cell("created_at")}</span>
+      </>
+    )
+  }
+
+  function clientCardActions(client: ApiClient) {
+    return [
+      {
+        id: "revoke",
+        label: "Revoke",
+        tone: "danger" as const,
+        onSelect: () => setPendingRevoke(client),
+      },
+    ]
+  }
+
   return (
     <SettingsShell testId="settings-clients-view" active="clients">
       <div className="flex items-start justify-between gap-4">
@@ -180,6 +214,15 @@ export function SettingsClientsView() {
 
       {clients.length === 0 ? (
         <EmptyState title={EMPTY_STATES.apiClients} />
+      ) : compact ? (
+        <CompactCardList
+          label="API clients"
+          rows={clients}
+          getRowKey={(client) => client.id}
+          renderCard={renderClientCard}
+          actionsFor={clientCardActions}
+          sheetTitle={(client) => `API client ${client.name} actions`}
+        />
       ) : (
         <Table label="API clients" columns={columns} rows={clients} getRowKey={(client) => client.id} />
       )}
