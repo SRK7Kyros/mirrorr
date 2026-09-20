@@ -20,6 +20,7 @@ import { SKELETON_PRESETS, SkeletonRows } from "@/components/ui/SkeletonRows"
 import { Table, type TableColumn } from "@/components/ui/Table"
 import { useHighlight } from "@/hooks/use-highlight"
 import { useInfiniteList } from "@/hooks/use-infinite-list"
+import { usePollingPolicy } from "@/hooks/use-polling-policy"
 import { useNameMap } from "@/hooks/use-name-map"
 import { useStorePendingVersion } from "@/hooks/use-store-pending"
 import { getAuthState } from "@/lib/auth-store"
@@ -45,10 +46,12 @@ export function ProfilesView({ highlight = null, store = entityStore }: Profiles
   const { nameFor, invalidateNames } = useNameMap()
   useStorePendingVersion(store)
 
+  const polling = usePollingPolicy("list")
   const list = useInfiniteList<Profile>({
     queryKey: queryKeys.profiles(),
     fetchPage: fetchProfilesPage,
-    refetchOnWindowFocus: true,
+    refetchInterval: polling.refetchInterval,
+    refetchOnWindowFocus: polling.refetchOnWindowFocus,
   })
 
   const isAdmin = getAuthState().user?.role === "admin"

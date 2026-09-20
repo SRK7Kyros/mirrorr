@@ -5,6 +5,7 @@
  * each view keeps owning the single `<main>` landmark.
  */
 import { Outlet } from "@tanstack/react-router"
+import { ApiClientBanner } from "@/components/chrome/ApiClientBanner"
 import { CompactShellProvider, COMPACT_PRIMARY_ACTION_ID, useIsCompactShell } from "@/components/chrome/CompactShell"
 import { HealthBannerHost } from "@/components/chrome/HealthBannerHost"
 import { SidebarNav } from "@/components/chrome/SidebarNav"
@@ -27,6 +28,7 @@ function AppShellFrame() {
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar />
         <HealthBannerHost />
+        <ApiClientBanner />
         <div data-testid="shell-main" className="flex-1 p-6">
           <Outlet />
         </div>

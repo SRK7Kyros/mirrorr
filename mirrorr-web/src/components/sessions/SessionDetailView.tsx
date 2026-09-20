@@ -28,6 +28,7 @@ import { getAuthState } from "@/lib/auth-store"
 import type { EntityStore, PendingAction } from "@/lib/entity-store"
 import { useLiveDurationTick } from "@/hooks/use-tick"
 import { useNameMap } from "@/hooks/use-name-map"
+import { usePollingPolicy } from "@/hooks/use-polling-policy"
 import { entityStore } from "@/lib/entity-store-client"
 import { ApiError, UNEXPECTED_RESPONSE_MESSAGE, userMessageForError } from "@/lib/errors"
 import { formatSessionDuration } from "@/lib/format"
@@ -164,11 +165,14 @@ export function SessionDetailView({
   const escalationTimerRef = useRef<number | null>(null)
   const navigatedRef = useRef(false)
 
+  const pending = usePendingAction(store, sessionId)
+  const polling = usePollingPolicy("detail")
   const detailQuery = useQuery({
     queryKey: queryKeys.session(sessionId),
     queryFn: () => fetchSession(sessionId),
     staleTime: QUERY_STALE_TIMES_MS.session,
-    refetchInterval: DELETE_POLL_FALLBACK_MS,
+    refetchInterval: pending?.kind === "delete" ? DELETE_POLL_FALLBACK_MS : polling.refetchInterval,
+    refetchOnWindowFocus: polling.refetchOnWindowFocus,
     enabled: valid,
     retry: (failureCount, error) => {
       // A 404 is terminal: retrying cannot make the session appear.
@@ -182,7 +186,6 @@ export function SessionDetailView({
     staleTime: QUERY_STALE_TIMES_MS.engines,
   })
   const { nameFor } = useNameMap()
-  const pending = usePendingAction(store, sessionId)
 
   const rawStatus = detailQuery.data?.status
   const now = useLiveDurationTick(rawStatus === "active" || rawStatus === "recording")

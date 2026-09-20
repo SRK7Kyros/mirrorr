@@ -41,6 +41,19 @@ export const QUERY_STALE_TIMES_MS = {
 } as const
 
 /**
+ * The polling cadences of spec L140 (`refetchInterval: 30000` backstop for
+ * every entity list/detail), L154-L158 (API-client principals force a 10s
+ * cadence on lists and open details) and L171 (15s fallback after the
+ * reconnect ceiling). `src/lib/polling-policy.ts` is the only consumer that
+ * selects between them; views must never hard-code a number.
+ */
+export const QUERY_POLL_INTERVALS_MS = {
+  entityBackstop: 30_000,
+  offlineFallback: 15_000,
+  apiClient: 10_000,
+} as const
+
+/**
  * Drops `undefined`/`null`/empty-string filters and returns a frozen,
  * key-sorted object. `false` and `0` are kept — they are meaningful filters.
  */
