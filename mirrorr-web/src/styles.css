@@ -270,3 +270,30 @@
     padding-right: max(16px, env(safe-area-inset-right));
   }
 }
+
+/*
+ * Todo 26 (spec L513-L531): the compact visual override layer. Every row only
+ * remaps an existing value for <=639px — no new colour, radius, shadow, font
+ * or motion token enters the stylesheet. Token custom properties are never
+ * re-declared here: scripts/check-tokens.mjs diffs every declaration against
+ * tests/fixtures/tokens.spec.json, so a media-query override of a token would
+ * read as a mismatch.
+ */
+@media (max-width: 639px) {
+  /* L519: page padding / section gap 16px. The shell's own p-4 is already
+   * 16px; this only pulls a view root's 24px stack gap onto the 16px grid. */
+  .compact-scroll-region > main {
+    gap: 16px;
+  }
+
+  /* L523: toasts move to the top centre, 16px side margins, below the app bar
+   * (44px + top inset) and its own 8px offset. */
+  .compact-toast-viewport {
+    top: calc(44px + env(safe-area-inset-top) + 8px);
+    right: 16px;
+    bottom: auto;
+    left: 16px;
+    align-items: center;
+  }
+}
+

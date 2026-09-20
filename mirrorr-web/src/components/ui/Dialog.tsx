@@ -139,7 +139,13 @@ export function Dialog({ open, onClose, title, children, footer, size = "dialog"
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div
+      className={
+        compact
+          ? "fixed inset-0 z-50 flex items-end justify-center"
+          : "fixed inset-0 z-50 flex items-center justify-center p-4"
+      }
+    >
       <div
         data-testid="dialog-overlay"
         aria-hidden="true"
@@ -157,9 +163,16 @@ export function Dialog({ open, onClose, title, children, footer, size = "dialog"
         className={[
           "relative w-full rounded-surface border border-border bg-bg-overlay shadow-overlay",
           WIDTHS[size],
-          compact ? "compact-sheet-panel" : "",
+          compact ? "compact-sheet-panel rounded-b-none" : "",
         ].join(" ")}
       >
+        {compact ? (
+          <div
+            data-testid="sheet-drag-handle"
+            aria-hidden="true"
+            className="mx-auto mt-2 h-1 w-8 rounded-pill bg-border-strong"
+          />
+        ) : null}
         <header className="flex items-center justify-between border-b border-border px-4 py-3">
           <h2 id={titleId} className="text-title font-semibold text-text-primary">
             {title}

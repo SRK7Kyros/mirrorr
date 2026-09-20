@@ -159,6 +159,31 @@ test.describe("compact touch ergonomics at 390x844", () => {
     expect(writes).toEqual([])
   })
 
+  test("dialogs present as bottom sheets with a 6px top radius and a drag handle", async ({ page }) => {
+    await page.goto("/sessions")
+    await expect(page.getByTestId("sessions-view")).toBeVisible()
+
+    await page.getByTestId("compact-tab-more").click()
+    const panel = page.getByRole("dialog")
+    await expect(panel).toBeVisible()
+    await expect(page.getByTestId("sheet-drag-handle")).toBeVisible()
+
+    const box = await panel.boundingBox()
+    const viewport = page.viewportSize()
+    expect(box).not.toBeNull()
+    expect(viewport).not.toBeNull()
+    expect(Math.round((box?.y ?? 0) + (box?.height ?? 0))).toBe(viewport?.height)
+    expect(box?.x).toBe(0)
+    expect(box?.width).toBe(viewport?.width)
+
+    expect(await panel.evaluate((node) => getComputedStyle(node).borderTopLeftRadius)).toBe("6px")
+    expect(await panel.evaluate((node) => getComputedStyle(node).borderBottomLeftRadius)).toBe("0px")
+
+    await page.screenshot({
+      path: path.join(EVIDENCE_DIR, "task-26-sheet-presentation-390x844.png"),
+    })
+  })
+
   test("pull-to-refresh arms at 64px and only issues reads", async ({ page }) => {
     await page.goto("/sessions")
     await expect(page.getByTestId("sessions-view")).toBeVisible()
