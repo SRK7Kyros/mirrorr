@@ -12,6 +12,8 @@ import { Plus, Trash2 } from "lucide-react"
 import { RoleBadge } from "@/components/settings/RoleBadge"
 import { SettingsShell } from "@/components/settings/SettingsShell"
 import { Button } from "@/components/ui/Button"
+import { useIsCompactShell } from "@/components/chrome/CompactShell"
+import { CompactCardList } from "@/components/ui/CompactCardList"
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 import { Dialog } from "@/components/ui/Dialog"
 import { EmptyState, EMPTY_STATES } from "@/components/ui/EmptyState"
@@ -137,6 +139,8 @@ export function SettingsUsersView() {
     )
   }
 
+  const compact = useIsCompactShell()
+
   const columns: ReadonlyArray<TableColumn<AuthUser>> = [
     {
       key: "username",
@@ -178,6 +182,46 @@ export function SettingsUsersView() {
     },
   ]
 
+  function columnFor(key: string) {
+    return columns.find((column) => column.key === key)
+  }
+
+  function isLastAdmin(user: AuthUser): boolean {
+    return user.role === "admin" && adminCount <= 1
+  }
+
+  /** Spec L548 V12 card anatomy; spec L531 the disabled-reason tooltip becomes visible 12px muted text. */
+  function renderUserCard(user: AuthUser) {
+    const cell = (key: string) => columnFor(key)?.render(user) ?? null
+
+    return (
+      <>
+        <span className="flex items-center gap-2">
+          {cell("username")}
+          <span className="ml-auto flex items-center gap-2">{cell("role")}</span>
+        </span>
+        <span className="text-small text-text-secondary">{cell("display_name")}</span>
+        {isLastAdmin(user) ? (
+          <span data-testid="last-admin-reason" className="text-micro text-text-muted">
+            {LAST_ADMIN_TOOLTIP}
+          </span>
+        ) : null}
+      </>
+    )
+  }
+
+  function userCardActions(user: AuthUser) {
+    return [
+      {
+        id: "delete",
+        label: "Delete",
+        tone: "danger" as const,
+        disabled: isLastAdmin(user),
+        onSelect: () => setPendingDelete(user),
+      },
+    ]
+  }
+
   return (
     <SettingsShell testId="settings-users-view" active="users">
       <div className="flex items-center justify-between">
@@ -191,6 +235,15 @@ export function SettingsUsersView() {
 
       {users.length === 0 ? (
         <EmptyState title={EMPTY_STATES.users} />
+      ) : compact ? (
+        <CompactCardList
+          label="Users"
+          rows={users}
+          getRowKey={(user) => user.id}
+          renderCard={renderUserCard}
+          actionsFor={userCardActions}
+          sheetTitle={(user) => `User ${user.username} actions`}
+        />
       ) : (
         <Table label="Users" columns={columns} rows={users} getRowKey={(user) => user.id} />
       )}

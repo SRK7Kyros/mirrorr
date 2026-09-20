@@ -18,6 +18,9 @@ import { MoreHorizontal } from "lucide-react"
 import { useState, type ReactNode } from "react"
 import { ActionSheet, type ActionSheetItem } from "@/components/ui/ActionSheet"
 
+const CARD_BODY_CLASS =
+  "flex flex-1 flex-col justify-center gap-2 rounded-control focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+
 export interface CompactCardListProps<Row> {
   readonly label: string
   readonly rows: readonly Row[]
@@ -62,24 +65,22 @@ export function CompactCardList<Row>({
                 .join(" ")
                 .trim()}
             >
-              {hrefFor === undefined ? (
+              {hrefFor !== undefined ? (
+                <a href={hrefFor(row)} data-testid="compact-card-open" className={CARD_BODY_CLASS}>
+                  {renderCard(row)}
+                </a>
+              ) : onOpen === undefined ? (
+                <div className={CARD_BODY_CLASS}>{renderCard(row)}</div>
+              ) : (
                 <button
                   type="button"
                   aria-label={openLabel?.(row)}
                   data-testid="compact-card-open"
-                  onClick={() => onOpen?.(row)}
-                  className="flex flex-1 flex-col justify-center gap-2 rounded-control text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                  onClick={() => onOpen(row)}
+                  className={`${CARD_BODY_CLASS} text-left`}
                 >
                   {renderCard(row)}
                 </button>
-              ) : (
-                <a
-                  href={hrefFor(row)}
-                  data-testid="compact-card-open"
-                  className="flex flex-1 flex-col justify-center gap-2 rounded-control focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
-                >
-                  {renderCard(row)}
-                </a>
               )}
               {actions.length === 0 ? null : (
                 <button
