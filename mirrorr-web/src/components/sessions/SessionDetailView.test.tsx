@@ -3,16 +3,16 @@
  * - delete is never rendered while `remuxing`/`finalizing`;
  * - an empty `session_urls` is a first-class "Live URLs unavailable" state;
  * - a non-empty `session_urls` renders labelled links + copy + open-in-new-tab;
- * - a data-less `session.updated` frame triggers exactly ONE refetch through the
- *   entity-store seam and does not clear the rendered view;
+ * - non-remux frames are left to the global event table and never clear the view;
  * - invalid ids render "Session not found" with the back link.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { act, render, screen, waitFor } from "@testing-library/react"
+import { act, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { SessionDetailView } from "@/components/sessions/SessionDetailView"
 import { API_URL_ENV_VAR } from "@/config/env"
 import { EntityStore, type EntityResource } from "@/lib/entity-store"
+import { getRemuxProgress, clearRemuxProgress } from "@/lib/remux-progress"
 import { publishSessionFrame } from "@/lib/session-frames"
 import type { Session } from "@/lib/schemas/sessions"
 import { installFetch, jsonResponse } from "@/test/api-helpers"
@@ -75,6 +75,7 @@ afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
+  clearRemuxProgress()
 })
 
 describe("session detail actions", () => {
@@ -148,32 +149,42 @@ describe("live urls", () => {
 })
 
 describe("ws frame seam", () => {
-  it("a data-less session.updated refetches exactly once and keeps the view", async () => {
+  it("leaves non-remux frames to the global event table and keeps the view", async () => {
     const refetchEntity = vi.fn(async () => undefined)
-    setup(makeSession({ id: 47, status: "active" }), { refetchEntity })
+    const { navigate } = setup(makeSession({ id: 47, status: "active" }), { refetchEntity })
     await screen.findByTestId("session-detail")
 
     act(() => {
       publishSessionFrame({ event: "session.updated", id: 47 })
-      publishSessionFrame({ event: "session.updated", id: 47 })
+      publishSessionFrame({ event: "session.deleted", id: 47 })
     })
 
-    await waitFor(() => expect(refetchEntity).toHaveBeenCalledTimes(1))
-    expect(refetchEntity).toHaveBeenCalledWith("session", 47)
+    expect(refetchEntity).not.toHaveBeenCalled()
+    expect(navigate).not.toHaveBeenCalled()
     expect(screen.getByTestId("session-detail")).toBeTruthy()
     expect(screen.getByTestId("session-id").textContent).toBe("#47")
     expect(screen.getByTestId("status-chip").textContent).toBe("Running")
   })
 
-  it("navigates to the list on session.deleted", async () => {
-    const { navigate } = setup(makeSession({ id: 48, status: "failed" }))
+  it("applies remux progress only for the open session", async () => {
+    setup(makeSession({ id: 47, status: "remuxing" }))
     await screen.findByTestId("session-detail")
 
     act(() => {
-      publishSessionFrame({ event: "session.deleted", id: 48 })
+      publishSessionFrame({
+        event: "session.47.remux.progress",
+        id: 47,
+        data: { id: 47, session_id: 47, percent: 40, eta_seconds: 9, speed: "1.2x" },
+      })
+      publishSessionFrame({
+        event: "session.48.remux.progress",
+        id: 48,
+        data: { id: 48, session_id: 48, percent: 90, eta_seconds: 1, speed: "2x" },
+      })
     })
 
-    expect(navigate).toHaveBeenCalledWith("/sessions")
+    expect(getRemuxProgress(47)?.percent).toBe(40)
+    expect(getRemuxProgress(48)).toBeNull()
   })
 })
 

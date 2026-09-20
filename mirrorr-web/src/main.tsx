@@ -5,6 +5,9 @@ import { createRoot } from "react-dom/client"
 import { assertApiConfig } from "@/config/env"
 import { startProactiveRefresh } from "@/lib/api"
 import { installAuthSession } from "@/lib/auth-store"
+import { entityStore } from "@/lib/entity-store-client"
+import { installEventTable } from "@/lib/event-table"
+import { nameMapStore } from "@/lib/name-map-api"
 import { installNotificationFrameBridge } from "@/lib/notification-policy"
 import { startRealtimeManager } from "@/lib/realtime-manager"
 import { queryClient } from "@/query-client"
@@ -24,6 +27,18 @@ installAuthSession({
 })
 
 startProactiveRefresh()
+
+// Spec L165-L181: the /ws/events subject table + 30ms coalescing buffer.
+installEventTable({
+  store: entityStore,
+  queryClient,
+  navigate: (path) => {
+    void router.navigate({ to: path })
+  },
+  isDetailOpen: (resource, id) =>
+    router.state.location.pathname === (resource === "session" ? `/sessions/${id}` : `/autoruns/${id}`),
+  invalidateNamesForEvent: (eventType) => nameMapStore.invalidateForEvent(eventType),
+})
 
 // Watches the auth store; connects only after the first successful /auth/me.
 startRealtimeManager()
