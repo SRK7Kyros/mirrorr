@@ -87,10 +87,6 @@ export function setAuthTransport(transport: AuthTransport): void {
   authTransport = transport
 }
 
-export function getAuthTransport(): AuthTransport {
-  return authTransport
-}
-
 // ---------------------------------------------------------------------------
 // Forced logout (the auth store of todo 8 wires the real handler)
 // ---------------------------------------------------------------------------

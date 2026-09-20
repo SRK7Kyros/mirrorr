@@ -17,9 +17,9 @@
 import { MoreHorizontal } from "lucide-react"
 import { useState, type ReactNode } from "react"
 import { ActionSheet, type ActionSheetItem } from "@/components/ui/ActionSheet"
+import { FOCUS_RING } from "@/components/ui/focus-ring"
 
-const CARD_BODY_CLASS =
-  "flex flex-1 flex-col justify-center gap-2 rounded-control focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+const CARD_BODY_CLASS = `flex flex-1 flex-col justify-center gap-2 rounded-control ${FOCUS_RING}`
 
 export interface CompactCardListProps<Row> {
   readonly label: string
@@ -90,7 +90,7 @@ export function CompactCardList<Row>({
                   title="More actions"
                   aria-haspopup="dialog"
                   onClick={() => setOpenKey(getRowKey(row))}
-                  className="flex size-11 shrink-0 items-center justify-center self-center rounded-control text-text-secondary hover:bg-bg-overlay focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                  className={`flex size-11 shrink-0 items-center justify-center self-center rounded-control text-text-secondary hover:bg-bg-overlay ${FOCUS_RING}`}
                 >
                   <MoreHorizontal aria-hidden="true" className="size-5" />
                 </button>

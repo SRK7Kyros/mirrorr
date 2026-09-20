@@ -40,10 +40,6 @@ export function fetchProfilesPage(request: ProfilePageRequest): Promise<CursorPa
   })
 }
 
-export function fetchProfile(id: number): Promise<Profile> {
-  return apiFetch<Profile>(`/profiles/${id}`, { schema: profileSchema })
-}
-
 export function createProfile(body: CreateProfileBody): Promise<Profile> {
   return apiFetch<Profile>("/profiles/", { method: "POST", body, schema: profileSchema })
 }

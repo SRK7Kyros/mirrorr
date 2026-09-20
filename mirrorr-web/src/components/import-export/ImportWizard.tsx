@@ -11,6 +11,7 @@ import { Link } from "@tanstack/react-router"
 import { useEffect, useReducer, useRef, type ChangeEvent } from "react"
 import { Button } from "@/components/ui/Button"
 import { ErrorPanel } from "@/components/ui/ErrorPanel"
+import { FOCUS_RING } from "@/components/ui/focus-ring"
 import { Select } from "@/components/ui/Select"
 import { SkeletonRows, SKELETON_PRESETS } from "@/components/ui/SkeletonRows"
 import { Switch } from "@/components/ui/Switch"
@@ -226,7 +227,7 @@ export function ImportWizard() {
         </Button>
       </header>
 
-      <div ref={panelRef} tabIndex={-1} className="flex flex-1 flex-col gap-4 rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+      <div ref={panelRef} tabIndex={-1} className={`flex flex-1 flex-col gap-4 rounded-control ${FOCUS_RING}`}>
         {state.step === "choose" ? (
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-2">
