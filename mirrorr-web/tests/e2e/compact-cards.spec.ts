@@ -254,4 +254,56 @@ test.describe("compact card list at 390x844", () => {
     await expect(page.locator("table")).toHaveCount(1)
     await expect(page.getByTestId("compact-card-list")).toHaveCount(0)
   })
+
+  test("a wizard opens as a full-screen panel with a sticky header", async ({ page }) => {
+    await page.goto("/autoruns")
+    await expect(page.getByTestId("autoruns-view")).toBeVisible()
+
+    await page.getByTestId("new-autorun-primary").click()
+    const panel = page.getByRole("dialog")
+    await expect(panel).toBeVisible()
+
+    const box = await panel.boundingBox()
+    expect(Math.round(box?.y ?? -1)).toBeLessThanOrEqual(1)
+    expect(Math.round(box?.height ?? 0)).toBe(844)
+    expect(Math.round(box?.width ?? 0)).toBe(390)
+
+    await expect(page.getByTestId("sheet-drag-handle")).toHaveCount(0)
+    expect(await panel.locator("header").first().evaluate((el) => getComputedStyle(el).position)).toBe("sticky")
+
+    await page.screenshot({ path: path.join(EVIDENCE_DIR, "task-26-compact-wizard-390x844.png") })
+    await page.keyboard.press("Escape")
+  })
+
+  test("compact icons step to 20px (22px in the tab bar) and recordings collapse to one column", async ({ page }) => {
+    await page.goto("/sessions")
+    await expect(page.getByTestId("sessions-view")).toBeVisible()
+
+    const tabIconHeight = await page
+      .locator('[data-testid="compact-tab-bar"] svg.lucide')
+      .first()
+      .evaluate((el) => getComputedStyle(el).height)
+    expect(tabIconHeight).toBe("22px")
+
+    const contentIconWidth = await page.evaluate(() => {
+      const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+      icon.setAttribute("class", "lucide")
+      document.querySelector('[data-testid="compact-scroll"]')?.appendChild(icon)
+      const value = getComputedStyle(icon).width
+      icon.remove()
+      return value
+    })
+    expect(contentIconWidth).toBe("20px")
+
+    const gridTracks = await page.evaluate(() => {
+      const probe = document.createElement("div")
+      probe.setAttribute("data-testid", "recordings-grid")
+      probe.style.display = "grid"
+      document.body.appendChild(probe)
+      const value = getComputedStyle(probe).gridTemplateColumns
+      probe.remove()
+      return value
+    })
+    expect(gridTracks.split(" ").length).toBe(1)
+  })
 })
