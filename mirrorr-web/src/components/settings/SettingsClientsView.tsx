@@ -271,6 +271,7 @@ export function SettingsClientsView() {
         open={revealed !== null}
         onClose={() => setRevealed(null)}
         title="API key created"
+        size="wizard"
         footer={
           <Button variant="primary" onClick={() => setRevealed(null)}>
             {API_KEY_REVEAL_CONFIRM}

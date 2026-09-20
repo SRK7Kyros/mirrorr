@@ -339,5 +339,15 @@
     width: 22px;
     height: 22px;
   }
+
+  /* L526: mono wells (JSON/config/key) never wrap on compact — they scroll. */
+  [data-testid="api-key-value"],
+  [data-testid="autorun-config-json"],
+  [data-testid="export-fallback-json"],
+  .compact-scroll-region pre,
+  .compact-scroll-region code {
+    white-space: pre;
+    overflow-x: auto;
+  }
 }
 
