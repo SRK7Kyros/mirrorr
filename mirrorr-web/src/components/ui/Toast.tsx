@@ -71,7 +71,10 @@ export function ToastViewport() {
   if (toasts.length === 0) return null
 
   return (
-    <div data-testid="toast-viewport" className="fixed right-4 bottom-4 z-50 flex flex-col gap-2">
+    <div
+      data-testid="toast-viewport"
+      className="compact-toast-viewport fixed right-4 bottom-4 z-50 flex flex-col gap-2"
+    >
       {toasts.map((toast) => (
         <Toast key={toast.id} toast={toast} onDismiss={dismissToast} />
       ))}
