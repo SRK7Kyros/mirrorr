@@ -51,7 +51,7 @@ export function RegisterView() {
         password,
         displayName: displayName.trim(),
       })
-      completeAuthentication(response)
+      await completeAuthentication(response)
       await navigate({ href: "/sessions" })
     } catch (error) {
       if (error instanceof ApiError && error.status === 422) {

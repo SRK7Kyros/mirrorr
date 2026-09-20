@@ -43,7 +43,7 @@ export function LoginView({ redirectPath }: LoginViewProps) {
 
     try {
       const response = await login({ username, password })
-      completeAuthentication(response)
+      await completeAuthentication(response)
       await navigate({ href: postLoginPath(redirectPath) })
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
