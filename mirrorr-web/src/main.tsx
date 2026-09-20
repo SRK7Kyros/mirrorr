@@ -6,6 +6,7 @@ import { assertApiConfig } from "@/config/env"
 import { startProactiveRefresh } from "@/lib/api"
 import { installAuthSession } from "@/lib/auth-store"
 import { installNotificationFrameBridge } from "@/lib/notification-policy"
+import { startRealtimeManager } from "@/lib/realtime-manager"
 import { queryClient } from "@/query-client"
 import { router } from "@/router"
 import "@/styles.css"
@@ -23,6 +24,9 @@ installAuthSession({
 })
 
 startProactiveRefresh()
+
+// Watches the auth store; connects only after the first successful /auth/me.
+startRealtimeManager()
 
 // Dev/e2e seam: lets a synthetic notification frame exercise the toast policy
 // until the realtime socket lands (todo 18). Production builds drop this.
