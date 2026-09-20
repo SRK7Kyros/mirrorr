@@ -21,6 +21,9 @@
  *   failed refresh is never retried and never loops.
  * - A schema mismatch warns and refetches at most once, then throws
  *   `ApiParseError` (rendered as "Unexpected server response").
+ * - `apiFetchText` runs the same request core for downloads (`GET
+ *   /import-export/.../export`): same auth/credentials/refresh semantics, body
+ *   returned as text for the caller to validate and save.
  */
 import type { ZodError, ZodType } from "zod"
 import { getApiBaseUrl } from "@/config/env"
@@ -135,6 +138,22 @@ export async function apiFetch<T>(
     response = await refreshAndRetry(path, options, response)
   }
   return decodeResponse(response, path, options)
+}
+
+/**
+ * Text variant of `apiFetch` for downloads (spec L546/L614, contract §9): the
+ * body comes back as a string so the caller can validate it (`bundleSchema`)
+ * and hand it to the browser as a Blob. Auth, `credentials` and the
+ * single-flight 401 refresh ride the same request core, so the export URL
+ * never carries a token.
+ */
+export async function apiFetchText(path: string, options: RequestOptions = {}): Promise<string> {
+  let response = await sendRequest(path, options)
+  if (response.status === UNAUTHORIZED && options.skipAuthRefresh !== true) {
+    response = await refreshAndRetry(path, options, response)
+  }
+  if (!response.ok) throw await toApiError(response)
+  return response.text()
 }
 
 /**

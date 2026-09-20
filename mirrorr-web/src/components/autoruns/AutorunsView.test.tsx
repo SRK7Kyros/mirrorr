@@ -68,10 +68,16 @@ interface StubState {
   readonly autoruns: readonly Autorun[]
   postedSessionBody?: unknown
   postedAutorunBody?: unknown
+  exportedUrls?: string[]
 }
 
 function stubApi(state: StubState) {
   return installFetch(async (url, init) => {
+    if (url.startsWith("/api/import-export/")) {
+      state.exportedUrls ??= []
+      state.exportedUrls.push(url)
+      return jsonResponse(200, { version: 1, exported_at: "2026-09-20T12:00:00", profiles: [PROFILE_ITEM], autoruns: [] })
+    }
     if (url.startsWith("/api/autoruns/?") && init?.method !== "POST") {
       return jsonResponse(200, { items: state.autoruns, next_cursor: null, has_more: false })
     }
@@ -247,5 +253,18 @@ describe("D2 wizard", () => {
     expect(String(body.start_time)).not.toMatch(/Z$/)
     expect(String(body.start_time)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/)
     expect(String(body.end_time)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/)
+  })
+})
+
+describe("AutorunsView export", () => {
+  it("exports a row through the authenticated export endpoint", async () => {
+    const state: StubState = { autoruns: [SCHEDULED] }
+    stubApi(state)
+    renderView()
+    await screen.findByText("Morning run")
+
+    fireEvent.click(screen.getByTestId("autorun-5-export"))
+
+    await waitFor(() => expect(state.exportedUrls).toEqual(["/api/import-export/autoruns/5/export"]))
   })
 })

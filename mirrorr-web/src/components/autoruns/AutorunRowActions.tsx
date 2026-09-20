@@ -1,11 +1,13 @@
 /**
  * Autorun row actions — driven strictly by `autorunActionsFor` (spec L199-L213,
- * L284-L287). The action set is edit / run-now / save-as-profile / delete;
- * delete on a live autorun carries the "A recording is running — deleting will
- * stop and delete it" warning, supplied by the caller's ConfirmDialog.
+ * L284-L287) plus the status-independent Export action (spec L295, L201) that
+ * downloads the single-autorun bundle. Delete on a live autorun carries the
+ * "A recording is running — deleting will stop and delete it" warning,
+ * supplied by the caller's ConfirmDialog.
  */
 import { Loader2, MoreHorizontal } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
+import { ExportBundleButton } from "@/components/import-export/ExportBundleButton"
 import { Button } from "@/components/ui/Button"
 import type { PendingAction } from "@/lib/entity-store"
 import type { Autorun } from "@/lib/schemas/autoruns"
@@ -59,7 +61,18 @@ export function AutorunRowActions({
     }
   }
 
-  if (actions.length === 0) return <span className="text-text-muted">—</span>
+  const exportButton = (
+    <ExportBundleButton kind="autorun" id={autorun.id} name={autorun.user_friendly_name} disabled={busy} />
+  )
+
+  if (actions.length === 0) {
+    return (
+      <div className="flex items-center justify-end gap-1">
+        <span className="text-text-muted">—</span>
+        {exportButton}
+      </div>
+    )
+  }
 
   const inline = actions.filter((action) => !action.overflow)
   const overflow = actions.filter((action) => action.overflow)
@@ -78,6 +91,7 @@ export function AutorunRowActions({
           {action.label}
         </Button>
       ))}
+      {exportButton}
       {overflow.length > 0 ? (
         <OverflowMenu autorunId={autorun.id} actions={overflow} disabled={busy} onSelect={run} />
       ) : null}

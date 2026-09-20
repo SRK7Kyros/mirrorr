@@ -6,7 +6,8 @@
  * `GET/PUT/DELETE /autoruns/{id}`, `POST /autoruns/{id}/save-as-profile`.
  * There is no server "run" endpoint: run-now is composed client-side from
  * `POST /sessions/` with the autorun's engine/resolver/config/retry copy.
- * Export (`GET /import-export/autoruns/{id}/export`) belongs to todo 23.
+ * Export (`GET /import-export/autoruns/{id}/export`) is wired by the row's
+ * `ExportBundleButton` (todo 23) through `import-export-api`.
  */
 import { apiFetch } from "@/lib/api"
 import { cursorPageSchema, type CursorPage } from "@/lib/schemas/pagination"
