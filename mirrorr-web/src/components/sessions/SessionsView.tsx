@@ -390,7 +390,7 @@ export function SessionsView({ store = entityStore }: SessionsViewProps) {
           </span>
         )}
         {engineCanRecord(engine) ? null : (
-          <span data-testid="engine-cannot-record" className="text-micro text-text-muted">
+          <span data-testid="engine-cannot-record" className="text-small text-text-muted">
             Engine cannot record
           </span>
         )}
