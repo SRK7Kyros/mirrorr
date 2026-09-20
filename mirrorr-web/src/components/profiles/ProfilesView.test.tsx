@@ -107,12 +107,17 @@ interface StubState {
   putProfileBody?: unknown
   deletedProfileIds: number[]
   postedSessionBody?: unknown
+  exportedUrls: string[]
 }
 
 function stubApi(state: StubState, profiles: readonly Profile[]) {
   state.profiles = [...profiles]
   return installFetch(async (url, init) => {
     const method = init?.method ?? "GET"
+    if (url.startsWith("/api/import-export/")) {
+      state.exportedUrls.push(url)
+      return jsonResponse(200, { version: 1, exported_at: "2026-09-20T12:00:00", profiles: [PROFILE], autoruns: [] })
+    }
     if (url.startsWith("/api/engines/")) {
       return jsonResponse(200, { items: [ENGINE], next_cursor: null, has_more: false })
     }
@@ -204,7 +209,18 @@ describe("ProfilesView list", () => {
     expect(within(row).getByRole("button", { name: "Use" })).toBeDefined()
     expect(within(row).getByRole("button", { name: "Edit p2" })).toBeDefined()
     expect(within(row).getByRole("button", { name: "Delete p2" })).toBeDefined()
-    expect(screen.queryByRole("button", { name: /export/i })).toBeNull()
+    expect(within(row).getByRole("button", { name: "Export p2" })).toBeDefined()
+  })
+
+  it("exports the row through the authenticated export endpoint", async () => {
+    const state = emptyState()
+    stubApi(state, [PROFILE])
+    renderView()
+    await screen.findByText("p2")
+
+    fireEvent.click(screen.getByRole("button", { name: "Export p2" }))
+
+    await waitFor(() => expect(state.exportedUrls).toEqual(["/api/import-export/profiles/9/export"]))
   })
 
   it("renders the empty state when there are no profiles", async () => {
@@ -387,5 +403,5 @@ describe("ProfilesView Use → D1 prefill", () => {
 })
 
 function emptyState(): StubState {
-  return { profiles: [], autoruns: [], sessions: [], deletedProfileIds: [] }
+  return { profiles: [], autoruns: [], sessions: [], deletedProfileIds: [], exportedUrls: [] }
 }

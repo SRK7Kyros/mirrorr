@@ -11,8 +11,8 @@
  *   Start · End · Recording · Countdown · Actions; spent rows at 60% opacity;
  * - the countdown line recomputes on the 10s tick;
  * - actions: edit, run-now (composed `POST /sessions/`, never a run endpoint),
- *   save-as-profile on spent, delete with the live warning. Export is
- *   deliberately absent until todo 23 wires the download.
+ *   save-as-profile on spent, delete with the live warning, and the
+ *   status-independent Export download (todo 23).
  */
 import { useEffect, useMemo, useRef, useState } from "react"
 import { CalendarClock, Plus } from "lucide-react"

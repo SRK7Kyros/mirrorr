@@ -7,8 +7,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { API_URL_ENV_VAR } from "@/config/env"
-import { applyBundle, validateBundle } from "@/lib/import-export-api"
-import { ApiError } from "@/lib/errors"
+import { applyBundle, exportAutorunBundle, exportProfileBundle, validateBundle } from "@/lib/import-export-api"
+import { ApiError, ApiParseError } from "@/lib/errors"
 import { bundleSchema, type ApplyBody } from "@/lib/schemas/import-export"
 import { installFetch, jsonResponse } from "@/test/api-helpers"
 
@@ -25,6 +25,22 @@ const BUNDLE = bundleSchema.parse({
     },
   ],
   autoruns: [],
+})
+
+const AUTORUN_BUNDLE = bundleSchema.parse({
+  version: 1,
+  exported_at: "2026-09-20T12:00:00",
+  profiles: [],
+  autoruns: [
+    {
+      user_friendly_name: "Morning run",
+      profile_name: "p2",
+      profile: { name: "p2" },
+      start_time: "2030-07-15T15:12:00",
+      end_time: "2030-07-15T16:12:00",
+      recording: true,
+    },
+  ],
 })
 
 const REPORT = {
@@ -92,6 +108,60 @@ describe("applyBundle", () => {
     await expect(applyBundle({ bundle: BUNDLE, plugin_map: {} })).rejects.toMatchObject({
       detail: "Cannot resolve engine for profile 'p2'",
     })
+  })
+})
+
+describe("exportProfileBundle", () => {
+  it("GETs the profile export path with cookie credentials and without a token in the URL", async () => {
+    const fetchMock = installFetch(async () => jsonResponse(200, BUNDLE))
+
+    const text = await exportProfileBundle(9)
+
+    expect(text).toBe(JSON.stringify(BUNDLE))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0] ?? []
+    expect(url).toBe("/api/import-export/profiles/9/export")
+    expect(init?.method).toBe("GET")
+    expect(init?.credentials).toBe("include")
+    expect(new URL(String(url), "http://localhost").search).toBe("")
+    expect(String(url)).not.toMatch(/token|api_key|authorization/i)
+    expect((init?.headers as Headers).get("Authorization")).toBeNull()
+  })
+
+  it("surfaces the 403 detail when the profile is not the caller's", async () => {
+    installFetch(async () => jsonResponse(403, { detail: "Not authorized to export this resource" }))
+
+    await expect(exportProfileBundle(9)).rejects.toMatchObject({
+      status: 403,
+      detail: "Not authorized to export this resource",
+    })
+  })
+
+  it("rejects a bundle that is not version 1 with a parse error", async () => {
+    installFetch(async () => jsonResponse(200, { version: 2, profiles: [], autoruns: [] }))
+
+    await expect(exportProfileBundle(9)).rejects.toBeInstanceOf(ApiParseError)
+  })
+})
+
+describe("exportAutorunBundle", () => {
+  it("GETs the autorun export path with cookie credentials and no token in the URL", async () => {
+    const fetchMock = installFetch(async () => jsonResponse(200, AUTORUN_BUNDLE))
+
+    const text = await exportAutorunBundle(7)
+
+    expect(JSON.parse(text).autoruns[0].user_friendly_name).toBe("Morning run")
+    const [url, init] = fetchMock.mock.calls[0] ?? []
+    expect(url).toBe("/api/import-export/autoruns/7/export")
+    expect(init?.method).toBe("GET")
+    expect(init?.credentials).toBe("include")
+    expect(new URL(String(url), "http://localhost").search).toBe("")
+  })
+
+  it("rejects a malformed body as a parse error", async () => {
+    installFetch(async () => new Response("<html>gateway</html>", { status: 200 }))
+
+    await expect(exportAutorunBundle(7)).rejects.toBeInstanceOf(ApiParseError)
   })
 })
 

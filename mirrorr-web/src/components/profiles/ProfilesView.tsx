@@ -4,12 +4,13 @@
  * List + editor; the delete path pre-scans the cached autoruns/sessions and
  * lists what references the profile before confirming ("in use by N autoruns /
  * M sessions", spec L331 — the FK rule is server-enforced, the dialog is the
- * client's pre-emption). Row "Use" opens D1 prefilled. Export actions are todo
- * 23 and deliberately absent here.
+ * client's pre-emption). Row "Use" opens D1 prefilled; row "Export" downloads
+ * the single-profile bundle (todo 23, `ExportBundleButton`).
  */
 import { useEffect, useMemo, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { Plus, Trash2 } from "lucide-react"
+import { ExportBundleButton } from "@/components/import-export/ExportBundleButton"
 import { ProfileEditorDialog } from "@/components/profiles/ProfileEditorDialog"
 import { NewSessionDialog } from "@/components/sessions/NewSessionDialog"
 import { Button } from "@/components/ui/Button"
@@ -178,6 +179,12 @@ export function ProfilesView({ highlight = null, store = entityStore }: Profiles
           <Button size="sm" variant="secondary" aria-label={`Edit ${row.name}`} onClick={() => openEdit(row)}>
             Edit
           </Button>
+          <ExportBundleButton
+            kind="profile"
+            id={row.id}
+            name={row.name}
+            disabled={store.getPending("profile", row.id) !== undefined}
+          />
           <Button
             size="sm"
             variant="ghost"
