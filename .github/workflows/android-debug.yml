@@ -31,6 +31,10 @@ jobs:
         run: bun run typecheck
         working-directory: mirrorr-web
 
+      - name: Add the Android platform
+        run: bun run mobile:add:android
+        working-directory: mirrorr-web
+
       - name: Build Android debug APK
         run: bun run mobile:build:android:debug
         working-directory: mirrorr-web
