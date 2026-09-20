@@ -1,12 +1,15 @@
 import { X } from "lucide-react"
 import { useEffect, useId, useRef, type ReactNode } from "react"
 import { Button } from "@/components/ui/Button"
+import { pushBackInterceptor } from "@/lib/back-navigation"
 
 /**
  * Dialog — spec L111: max-width 560px (wizards 720px), `bg-overlay`, radius 6,
  * 16px/600 header with border-bottom, right-aligned footer. Focus enters on
  * open, is trapped while open, Esc cancels, and focus returns to the opener on
- * close (spec L405, L473). ConfirmDialog reuses this shell at 400px.
+ * close (spec L405, L473). While open it is also the topmost back consumer
+ * (spec L498): an open sheet/drawer closes before history moves. ConfirmDialog
+ * reuses this shell at 400px.
  */
 
 export type DialogSize = "dialog" | "wizard" | "confirm"
@@ -37,6 +40,7 @@ export function Dialog({ open, onClose, title, children, footer, size = "dialog"
   const titleId = useId()
   const panelRef = useRef<HTMLDivElement | null>(null)
   const openerRef = useRef<HTMLElement | null>(null)
+  const onCloseRef = useRef(onClose)
 
   // Focus enters the dialog on open and returns to the opener on close.
   useEffect(() => {
@@ -51,6 +55,18 @@ export function Dialog({ open, onClose, title, children, footer, size = "dialog"
     return () => {
       openerRef.current?.focus()
     }
+  }, [open])
+
+  // The handler is read through a ref so an `onClose` identity change does not
+  // re-register an open dialog above a newer one (which would steal its back).
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
+  // While open, the dialog consumes the platform back before history (L498).
+  useEffect(() => {
+    if (!open) return
+    return pushBackInterceptor(() => onCloseRef.current())
   }, [open])
 
   // Esc cancels; Tab cycles inside the panel.
