@@ -375,4 +375,52 @@ test.describe("compact card list at 390x844", () => {
     await page.getByLabel(/to confirm$/).fill("ci-bot")
     await expect(confirm).toBeEnabled()
   })
+
+  test("the notification drawer opens full-screen with a 48px row and a 44px row action", async ({ page }) => {
+    await page.route("**/api/notifications/**", async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.fallback()
+        return
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: { "Cache-Control": "no-store" },
+        body: JSON.stringify([
+          {
+            id: 5,
+            user_id: 1,
+            resource_type: "session",
+            resource_id: 12,
+            event_type: "session.failed",
+            title: "Session #12 failed",
+            body: null,
+            read: false,
+            created_at: "2026-09-20T08:00:00",
+          },
+        ]),
+      })
+    })
+
+    await page.goto("/sessions")
+    await page.getByTestId("notification-bell").click()
+
+    const drawer = page.getByRole("dialog", { name: "Notifications" })
+    await expect(drawer).toBeVisible()
+
+    const drawerBox = await drawer.boundingBox()
+    expect(Math.round(drawerBox?.x ?? -1)).toBe(0)
+    expect(Math.round(drawerBox?.width ?? 0)).toBe(390)
+    expect(Math.round(drawerBox?.height ?? 0)).toBe(844)
+
+    const row = page.getByTestId("notification-row-5")
+    await expect(row).toBeVisible()
+    expect(Math.round((await row.boundingBox())?.height ?? 0)).toBeGreaterThanOrEqual(48)
+
+    const removeBox = await row.getByRole("button", { name: "Delete notification" }).boundingBox()
+    expect(Math.round(removeBox?.width ?? 0)).toBeGreaterThanOrEqual(44)
+    expect(Math.round(removeBox?.height ?? 0)).toBeGreaterThanOrEqual(44)
+
+    await page.screenshot({ path: path.join(EVIDENCE_DIR, "task-26-compact-drawer-390x844.png") })
+  })
 })
