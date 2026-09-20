@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/Input"
 import { SkeletonRows } from "@/components/ui/SkeletonRows"
 import { Table, type TableColumn } from "@/components/ui/Table"
 import { usePollingPolicy } from "@/hooks/use-polling-policy"
+import { useCompactAction } from "@/hooks/use-compact-action"
 import { copyText } from "@/lib/clipboard"
 import { userMessageForError } from "@/lib/errors"
 import { formatDateTime } from "@/lib/format"
@@ -51,6 +52,7 @@ export function SettingsClientsView() {
   })
   const clients = clientsQuery.data ?? []
 
+  useCompactAction("new-key", () => setCreateOpen(true))
   const [createOpen, setCreateOpen] = useState(false)
   const [createPending, setCreatePending] = useState(false)
   const [name, setName] = useState("")

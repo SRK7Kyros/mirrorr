@@ -23,6 +23,7 @@ import { ErrorPanel } from "@/components/ui/ErrorPanel"
 import { SKELETON_PRESETS, SkeletonRows } from "@/components/ui/SkeletonRows"
 import { Table, type TableColumn } from "@/components/ui/Table"
 import { useHighlight } from "@/hooks/use-highlight"
+import { useCompactAction } from "@/hooks/use-compact-action"
 import { useInfiniteList } from "@/hooks/use-infinite-list"
 import { usePollingPolicy } from "@/hooks/use-polling-policy"
 import { useNameMap } from "@/hooks/use-name-map"
@@ -189,6 +190,8 @@ export function ProfilesView({ highlight = null, store = entityStore }: Profiles
       ),
     },
   ]
+
+  useCompactAction("new-profile", openCreate)
 
   function columnFor(key: string) {
     return columns.find((column) => column.key === key)
