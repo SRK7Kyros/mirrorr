@@ -195,7 +195,7 @@ describe("?redirect contract (spec L31, L53)", () => {
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "admin123" } })
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }))
 
-    expect(await screen.findByTestId("autoruns-placeholder")).toBeTruthy()
+    expect(await screen.findByTestId("autoruns-view")).toBeTruthy()
     expect(router.state.location.pathname).toBe("/autoruns")
   })
 
