@@ -62,7 +62,7 @@ test.describe("login, register and guard redirects (logged out)", () => {
     await page.getByRole("button", { name: "Sign in" }).click()
 
     await expect(page).toHaveURL(/\/autoruns$/)
-    await expect(page.getByTestId("autoruns-placeholder")).toBeVisible()
+    await expect(page.getByTestId("autoruns-view")).toBeVisible()
   })
 
   test("//evil is rejected and login lands on /sessions", async ({ page }) => {
