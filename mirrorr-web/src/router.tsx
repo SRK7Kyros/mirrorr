@@ -1,11 +1,12 @@
 import { createRouter } from "@tanstack/react-router"
 import { authLayoutRoute } from "@/routes/auth-layout-route"
+import { autorunDetailRoute } from "@/routes/autorun-detail-route"
+import { autorunsRoute } from "@/routes/autoruns-route"
 import { dataProbeRoute } from "@/routes/data-probe-route"
 import { indexRoute } from "@/routes/index-route"
 import { loginRoute } from "@/routes/login-route"
 import { notFoundRoute } from "@/routes/not-found-route"
 import {
-  autorunsRoute,
   importExportRoute,
   pluginsRoute,
   profilesRoute,
@@ -27,6 +28,7 @@ export const routeTree = rootRoute.addChildren([
     sessionsRoute,
     sessionDetailRoute,
     autorunsRoute,
+    autorunDetailRoute,
     recordingsRoute,
     profilesRoute,
     pluginsRoute,

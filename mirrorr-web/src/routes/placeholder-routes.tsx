@@ -7,12 +7,6 @@ import { authLayoutRoute } from "@/routes/auth-layout-route"
  * Minimal children for the not-yet-built authenticated views (spec L33-L49).
  * They exist so guard redirects and later waves have real targets.
  */
-export const autorunsRoute = createRoute({
-  getParentRoute: () => authLayoutRoute,
-  path: "/autoruns",
-  component: () => <PlaceholderPage title="Autoruns" testId="autoruns-placeholder" />,
-})
-
 export const recordingsRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/recordings",

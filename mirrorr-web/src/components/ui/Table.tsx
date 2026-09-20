@@ -19,9 +19,11 @@ export interface TableProps<Row> {
   readonly columns: readonly TableColumn<Row>[]
   readonly rows: readonly Row[]
   readonly getRowKey: (row: Row) => string | number
+  /** Optional per-row classes (e.g. `opacity-60` for spent autoruns). */
+  readonly getRowClassName?: (row: Row) => string | undefined
 }
 
-export function Table<Row>({ label, columns, rows, getRowKey }: TableProps<Row>) {
+export function Table<Row>({ label, columns, rows, getRowKey, getRowClassName }: TableProps<Row>) {
   return (
     <div className="w-full overflow-x-auto rounded-surface border border-border">
       <table aria-label={label} className="w-full border-collapse text-body">
@@ -46,7 +48,10 @@ export function Table<Row>({ label, columns, rows, getRowKey }: TableProps<Row>)
             <tr
               key={getRowKey(row)}
               data-testid="table-row"
-              className="h-9 border-b border-border transition-colors duration-[var(--motion-fast)] ease-out last:border-b-0 hover:bg-bg-overlay"
+              className={[
+                "h-9 border-b border-border transition-colors duration-[var(--motion-fast)] ease-out last:border-b-0 hover:bg-bg-overlay",
+                getRowClassName?.(row) ?? "",
+              ].join(" ")}
             >
               {columns.map((column) => (
                 <td
