@@ -8,6 +8,7 @@
     "build": "vite build",
     "check:tokens": "bun scripts/check-tokens.mjs",
     "check:contrast": "bun scripts/check-contrast.mjs",
+    "bundle:report": "bun scripts/bundle-report.mjs",
     "deploy:web": "bun scripts/deploy-web.mjs",
     "typecheck": "tsc -p tsconfig.app.json --noEmit",
     "preview": "vite preview",
