@@ -1,10 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   DEFAULT_NOTIFICATION_PREFS,
-  NOTIFICATION_FRAME_EVENT,
   NOTIFICATION_PREFS_STORAGE_KEY,
   handleNotificationFrame,
-  installNotificationFrameBridge,
   isToastEnabled,
   readNotificationPrefs,
   writeNotificationPrefs,
@@ -114,32 +112,5 @@ describe("handleNotificationFrame", () => {
     handleNotificationFrame(frame("session.stopped", "Stopped"))
 
     expect(getToasts().map((toast) => toast.tone)).toEqual(["error", "info"])
-  })
-})
-
-describe("installNotificationFrameBridge", () => {
-  it("toasts a session.crashed frame dispatched on window", () => {
-    const uninstall = installNotificationFrameBridge(window)
-
-    window.dispatchEvent(
-      new CustomEvent(NOTIFICATION_FRAME_EVENT, { detail: frame("session.crashed", "Crashed!") }),
-    )
-
-    expect(getToasts().map((toast) => toast.message)).toEqual(["Crashed!"])
-
-    uninstall()
-    clearToasts()
-    window.dispatchEvent(
-      new CustomEvent(NOTIFICATION_FRAME_EVENT, { detail: frame("session.crashed", "Again") }),
-    )
-    expect(getToasts()).toHaveLength(0)
-  })
-
-  it("ignores malformed frame details", () => {
-    installNotificationFrameBridge(window)
-
-    window.dispatchEvent(new CustomEvent(NOTIFICATION_FRAME_EVENT, { detail: { nope: true } }))
-
-    expect(getToasts()).toHaveLength(0)
   })
 })

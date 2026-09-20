@@ -12,16 +12,14 @@
  * carry `(resource_type, resource_id, event_type, title, created_at)` and no
  * `id`/`body`/`read`.
  *
- * Todo 18's socket manager calls `handleNotificationFrame` for every pushed
- * frame; the badge arithmetic must stay socket-independent.
+ * `notification-pipeline.ts` calls `handleNotificationFrame` for every frame
+ * the `/ws/notifications` socket pushes; the badge arithmetic stays
+ * socket-independent.
  */
 import { z } from "zod"
 import { showToast } from "@/lib/toast"
 
 export const NOTIFICATION_PREFS_STORAGE_KEY = "mirrorr.notification-prefs"
-
-/** Dev/e2e seam: the real socket transport is a later wave (spec todo 18/20), so frames enter here. */
-export const NOTIFICATION_FRAME_EVENT = "mirrorr:notification-frame"
 
 export interface NotificationPrefs {
   readonly crashes: boolean
@@ -207,20 +205,4 @@ export function handleNotificationFrame(frame: NotificationFrame): boolean {
 
   showToast(frame.title, toastTone(frame))
   return true
-}
-
-function isNotificationFrame(value: unknown): value is NotificationFrame {
-  if (typeof value !== "object" || value === null) return false
-  const candidate = value as { event_type?: unknown; title?: unknown }
-  return typeof candidate.event_type === "string" && typeof candidate.title === "string"
-}
-
-export function installNotificationFrameBridge(target: Window = window): () => void {
-  const listener = (event: Event) => {
-    const detail: unknown = (event as CustomEvent<unknown>).detail
-    if (isNotificationFrame(detail)) handleNotificationFrame(detail)
-  }
-
-  target.addEventListener(NOTIFICATION_FRAME_EVENT, listener)
-  return () => target.removeEventListener(NOTIFICATION_FRAME_EVENT, listener)
 }

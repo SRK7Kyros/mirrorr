@@ -8,7 +8,7 @@ import { installAuthSession } from "@/lib/auth-store"
 import { entityStore } from "@/lib/entity-store-client"
 import { installEventTable } from "@/lib/event-table"
 import { nameMapStore } from "@/lib/name-map-api"
-import { installNotificationFrameBridge } from "@/lib/notification-policy"
+import { installNotificationPipeline } from "@/lib/notification-pipeline"
 import { startRealtimeManager } from "@/lib/realtime-manager"
 import { queryClient } from "@/query-client"
 import { router } from "@/router"
@@ -43,11 +43,9 @@ installEventTable({
 // Watches the auth store; connects only after the first successful /auth/me.
 startRealtimeManager()
 
-// Dev/e2e seam: lets a synthetic notification frame exercise the toast policy
-// until the realtime socket lands (todo 18). Production builds drop this.
-if (import.meta.env.DEV) {
-  installNotificationFrameBridge()
-}
+// Spec L195: pushed frames feed the badge, the toast policy and a coalesced
+// refresh of the drawer's REST feed; a reconnect re-flushes on going live.
+installNotificationPipeline({ queryClient })
 
 const container = document.getElementById("root")
 

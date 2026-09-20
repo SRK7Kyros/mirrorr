@@ -1,4 +1,5 @@
 import path from "node:path"
+import type { WebSocketRoute } from "@playwright/test"
 import { expect, test } from "./fixtures"
 import { STORAGE_STATE } from "../../playwright.config"
 
@@ -24,7 +25,6 @@ const LAST_ADMIN_TOOLTIP = "Cannot delete the last admin"
 const API_CLIENTS_BANNER =
   "Programmatic access keys — treat like passwords. Keys act as a non-human principal; resources they create belong to no user and fire no notifications."
 const PREFS_STORAGE_KEY = "mirrorr.notification-prefs"
-const FRAME_EVENT = "mirrorr:notification-frame"
 
 interface CreatedClientRow {
   readonly id: number
@@ -112,6 +112,22 @@ test.describe("settings surfaces (V11-V13)", () => {
   })
 
   test("V11 notification preferences persist to localStorage and gate toasts", async ({ page }) => {
+    const notificationRoutes: WebSocketRoute[] = []
+    await page.routeWebSocket("**/ws/**", (ws) => {
+      if (ws.url().endsWith("/ws/notifications")) notificationRoutes.push(ws)
+    })
+    const pushCrash = async (title: string, minimumRoutes: number) => {
+      await expect.poll(() => notificationRoutes.length).toBeGreaterThanOrEqual(minimumRoutes)
+      notificationRoutes
+        .at(-1)
+        ?.send(
+          JSON.stringify({
+            type: "notification",
+            data: { resource_type: "session", resource_id: 7, event_type: "session.crashed", title },
+          }),
+        )
+    }
+
     await page.goto("/settings")
     const crashes = page.getByRole("switch", { name: "Crashes" })
     const completions = page.getByRole("switch", { name: "Completions" })
@@ -130,24 +146,12 @@ test.describe("settings surfaces (V11-V13)", () => {
     await expect(page.getByRole("switch", { name: "Completions" })).toHaveAttribute("aria-checked", "false")
     await expect(page.getByRole("switch", { name: "Recordings" })).toHaveAttribute("aria-checked", "false")
 
-    await page.evaluate(
-      (event) =>
-        window.dispatchEvent(
-          new CustomEvent(event, { detail: { event_type: "session.crashed", title: "E2E crash A" } }),
-        ),
-      FRAME_EVENT,
-    )
+    await pushCrash("E2E crash A", 2)
     await expect(page.getByText("E2E crash A")).toBeHidden()
 
     await page.getByRole("switch", { name: "Crashes" }).click()
     await page.reload()
-    await page.evaluate(
-      (event) =>
-        window.dispatchEvent(
-          new CustomEvent(event, { detail: { event_type: "session.crashed", title: "E2E crash B" } }),
-        ),
-      FRAME_EVENT,
-    )
+    await pushCrash("E2E crash B", 3)
     await expect(page.getByTestId("toast").filter({ hasText: "E2E crash B" })).toBeVisible()
     await page.screenshot({ path: path.join(EVIDENCE_DIR, "task-16-preferences-toast.png") })
   })

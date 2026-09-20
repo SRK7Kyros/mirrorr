@@ -1,7 +1,10 @@
 /**
  * Todo 19 — the `/ws/events` subject→reaction table, exactly as written in
  * `docs/web-frontend-spec.md` L165-L181 (frame handling + subject table +
- * toasts) and L183-L189 (merge + cross-client), contract §11.1.
+ * toasts) and L183-L189 (merge + cross-client), contract §11.1. Todo 20 adds
+ * the `session.{id}.remux.progress` side-channel (L189, L193, §13.4): the
+ * frame never merges into a cache; it is published with the subject id
+ * injected as `session_id` for the open detail's progress store.
  *
  * Step 1 of the TDD cycle: loose Zod parsing, the per-subject cache reaction,
  * `data`-authoritative writes, data-less refetch-once and the toast policy.
@@ -15,9 +18,16 @@ import {
   writeNotificationPrefs,
   type NotificationPrefs,
 } from "@/lib/notification-policy"
-import { EntityStore, type EntityResource } from "@/lib/entity-store"
+import { EntityStore, type EntityFrame, type EntityResource } from "@/lib/entity-store"
 import { EventTable, parseEventFrame, type ParsedEventFrame } from "@/lib/event-table"
 import { queryKeys } from "@/lib/query-keys"
+import {
+  activateRemuxProgress,
+  applyRemuxProgressFrame,
+  deactivateRemuxProgress,
+  getRemuxProgress,
+} from "@/lib/remux-progress"
+import { isRemuxProgressEvent, subscribeSessionFrames } from "@/lib/session-frames"
 import { clearToasts, getToasts } from "@/lib/toast"
 
 interface Row {
@@ -350,10 +360,99 @@ describe("autorun.* / recording.* / profile.* reactions", () => {
   it("ignores subjects outside the table without touching a cache", () => {
     const { table, refetchEntity, invalidateNamesForEvent } = makeHarness()
     expect(table.handlePayload(rawFrame({ event: "health.updated", id: 1 }))).toBe(false)
-    expect(table.handlePayload(rawFrame({ event: "session.5.remux.progress", data: { session_id: 5 } }))).toBe(false)
+    expect(table.handlePayload(rawFrame({ event: "session.5.control" }))).toBe(false)
     expect(table.handlePayload("garbage")).toBe(false)
     expect(refetchEntity).not.toHaveBeenCalled()
     expect(invalidateNamesForEvent).not.toHaveBeenCalled()
+  })
+})
+
+describe("remux progress side-channel (spec L189/L193, contract §13.4)", () => {
+  const FLAT_FRAME = {
+    type: "event",
+    event: "session.5.remux.progress",
+    percent: 42.5,
+    eta_seconds: 30,
+    speed: "1.5x",
+    frame: 100,
+    current_time: 12.3,
+    total_duration: 60,
+    elapsed: 5,
+  }
+
+  it("publishes the flat frame with the subject id injected, never merging it into a cache", () => {
+    const { client, table, refetchEntity } = makeHarness()
+    const published: EntityFrame[] = []
+    const unsubscribe = subscribeSessionFrames((frame) => published.push(frame))
+    client.setQueryData(queryKeys.session(5), { id: 5, status: "remuxing" })
+    client.setQueryData(queryKeys.sessions(), infinitePage([{ id: 5, status: "remuxing" }]))
+
+    expect(table.handlePayload(rawFrame(FLAT_FRAME))).toBe(true)
+
+    expect(published).toEqual([
+      {
+        event: "session.5.remux.progress",
+        id: 5,
+        data: {
+          percent: 42.5,
+          eta_seconds: 30,
+          speed: "1.5x",
+          frame: 100,
+          current_time: 12.3,
+          total_duration: 60,
+          elapsed: 5,
+          session_id: 5,
+          id: 5,
+        },
+      },
+    ])
+    expect(client.getQueryData(queryKeys.session(5))).toEqual({ id: 5, status: "remuxing" })
+    expect(itemsOf(client, queryKeys.sessions())).toEqual([{ id: 5, status: "remuxing" }])
+    expect(refetchEntity).not.toHaveBeenCalled()
+
+    unsubscribe()
+  })
+
+  it("applies the open session's progress and drops an unopened session's frame", () => {
+    const { table } = makeHarness()
+    const unsubscribe = subscribeSessionFrames((frame) => {
+      if (!isRemuxProgressEvent(frame.event)) return
+      applyRemuxProgressFrame(frame.data)
+    })
+    activateRemuxProgress(47)
+
+    table.handlePayload(rawFrame({ ...FLAT_FRAME, event: "session.47.remux.progress" }))
+    expect(getRemuxProgress(47)?.percent).toBe(42.5)
+    expect(getRemuxProgress(47)?.etaSeconds).toBe(30)
+
+    table.handlePayload(rawFrame({ ...FLAT_FRAME, event: "session.48.remux.progress", percent: 99 }))
+    expect(getRemuxProgress(48)).toBeNull()
+    expect(getRemuxProgress(47)?.percent).toBe(42.5)
+
+    deactivateRemuxProgress(47)
+    unsubscribe()
+  })
+
+  it("publishes progress immediately and never masks a same-id session.updated in the coalescer", () => {
+    const { client, table } = makeHarness()
+    const published: EntityFrame[] = []
+    const unsubscribe = subscribeSessionFrames((frame) => published.push(frame))
+    client.setQueryData(queryKeys.session(5), { id: 5, status: "remuxing" })
+
+    table.handlePayload(rawFrame(FLAT_FRAME))
+    table.handlePayload(rawFrame({ event: "session.updated", id: 5, data: { id: 5, status: "finalizing" } }))
+
+    expect(published.map((frame) => frame.event)).toEqual(["session.5.remux.progress"])
+    table.flushNow()
+    expect(client.getQueryData(queryKeys.session(5))).toMatchObject({ status: "finalizing" })
+
+    unsubscribe()
+  })
+
+  it("rejects remux-shaped frames with a non-numeric or missing subject id", () => {
+    const { table } = makeHarness()
+    expect(table.handlePayload(rawFrame({ event: "session.abc.remux.progress", percent: 1 }))).toBe(false)
+    expect(table.handlePayload(rawFrame({ event: "session.remux.progress", percent: 1 }))).toBe(false)
   })
 })
 
