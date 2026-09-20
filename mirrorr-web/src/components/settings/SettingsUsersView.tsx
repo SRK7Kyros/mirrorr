@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/Input"
 import { SkeletonRows } from "@/components/ui/SkeletonRows"
 import { Table, type TableColumn } from "@/components/ui/Table"
 import { usePollingPolicy } from "@/hooks/use-polling-policy"
+import { useCompactAction } from "@/hooks/use-compact-action"
 import { ApiError, userMessageForError } from "@/lib/errors"
 import { QUERY_STALE_TIMES_MS, queryKeys } from "@/lib/query-keys"
 import type { AuthUser } from "@/lib/schemas/auth"
@@ -37,6 +38,7 @@ interface CreateFieldErrors {
 }
 
 export function SettingsUsersView() {
+  useCompactAction("new-user", openCreate)
   const queryClient = useQueryClient()
   const polling = usePollingPolicy("admin")
   const usersQuery = useQuery({

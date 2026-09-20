@@ -28,6 +28,7 @@ import { SkeletonRows, SKELETON_PRESETS } from "@/components/ui/SkeletonRows"
 import { StatusChip } from "@/components/ui/StatusChip"
 import { Table, type TableColumn } from "@/components/ui/Table"
 import { useAutoLoadOnIntersect } from "@/hooks/use-auto-load"
+import { useCompactAction } from "@/hooks/use-compact-action"
 import { useInfiniteList } from "@/hooks/use-infinite-list"
 import { usePollingPolicy } from "@/hooks/use-polling-policy"
 import { useNameMap } from "@/hooks/use-name-map"
@@ -346,6 +347,8 @@ export function SessionsView({ store = entityStore }: SessionsViewProps) {
       )
     },
   })
+
+  useCompactAction("new-session", () => setNewSessionOpen(true))
 
   function columnFor(key: string) {
     return columns.find((column) => column.key === key)
