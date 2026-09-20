@@ -10,6 +10,7 @@ import { installEventTable } from "@/lib/event-table"
 import { nameMapStore } from "@/lib/name-map-api"
 import { installNotificationPipeline } from "@/lib/notification-pipeline"
 import { startRealtimeManager } from "@/lib/realtime-manager"
+import { installRealtimeResume } from "@/lib/realtime-resume"
 import { queryClient } from "@/query-client"
 import { router } from "@/router"
 import "@/styles.css"
@@ -42,6 +43,10 @@ installEventTable({
 
 // Watches the auth store; connects only after the first successful /auth/me.
 startRealtimeManager()
+
+// Spec L171: while the manager is offline, the first successful poll of any
+// query resumes the sockets — the 15s fallback closes the loop by itself.
+installRealtimeResume({ queryCache: queryClient.getQueryCache() })
 
 // Spec L195: pushed frames feed the badge, the toast policy and a coalesced
 // refresh of the drawer's REST feed; a reconnect re-flushes on going live.

@@ -29,6 +29,7 @@ import { StatusChip } from "@/components/ui/StatusChip"
 import { Table, type TableColumn } from "@/components/ui/Table"
 import { useAutoLoadOnIntersect } from "@/hooks/use-auto-load"
 import { useInfiniteList } from "@/hooks/use-infinite-list"
+import { usePollingPolicy } from "@/hooks/use-polling-policy"
 import { useNameMap } from "@/hooks/use-name-map"
 import { useCountdownTick } from "@/hooks/use-tick"
 import {
@@ -73,11 +74,12 @@ export function AutorunsView({ filter, onFilterChange, store = entityStore }: Au
   const tick = useCountdownTick()
   usePendingVersion(store)
 
+  const polling = usePollingPolicy("list")
   const list = useInfiniteList<Autorun>({
     queryKey: queryKeys.autoruns(),
     fetchPage: fetchAutorunsPage,
-    refetchInterval: 30_000,
-    refetchOnWindowFocus: true,
+    refetchInterval: polling.refetchInterval,
+    refetchOnWindowFocus: polling.refetchOnWindowFocus,
   })
   const { nameFor } = useNameMap()
 

@@ -16,6 +16,7 @@ import { SKELETON_PRESETS, SkeletonRows } from "@/components/ui/SkeletonRows"
 import { Button } from "@/components/ui/Button"
 import { useHighlight } from "@/hooks/use-highlight"
 import { useInfiniteList } from "@/hooks/use-infinite-list"
+import { usePollingPolicy } from "@/hooks/use-polling-policy"
 import { useStorePendingVersion } from "@/hooks/use-store-pending"
 import { copyText } from "@/lib/clipboard"
 import type { EntityStore } from "@/lib/entity-store"
@@ -43,10 +44,12 @@ export function RecordingsView({ highlight = null, store = entityStore }: Record
   const queryClient = useQueryClient()
   useStorePendingVersion(store)
 
+  const polling = usePollingPolicy("list")
   const list = useInfiniteList<Recording>({
     queryKey: queryKeys.recordings(),
     fetchPage: fetchRecordingsPage,
-    refetchOnWindowFocus: true,
+    refetchInterval: polling.refetchInterval,
+    refetchOnWindowFocus: polling.refetchOnWindowFocus,
   })
 
   const [deleteTarget, setDeleteTarget] = useState<Recording | null>(null)

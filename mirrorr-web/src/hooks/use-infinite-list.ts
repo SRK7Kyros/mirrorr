@@ -34,8 +34,11 @@ export interface UseInfiniteListOptions<T extends IdRow> {
   readonly limit?: number
   readonly staleTime?: number
   readonly enabled?: boolean
-  /** Polling backstop for lists whose resources emit no events (spec L140). */
-  readonly refetchInterval?: number
+  /**
+   * Polling backstop for lists whose resources emit no events (spec L140);
+   * `src/hooks/use-polling-policy.ts` supplies this value. `false` disables it.
+   */
+  readonly refetchInterval?: number | false
   readonly refetchOnWindowFocus?: boolean
 }
 

@@ -18,7 +18,7 @@ describe("authResponseSchema", () => {
       refresh_token: null,
     })
 
-    expect(parsed.user.role).toBe("admin")
+    expect(parsed.user?.role).toBe("admin")
     expect(parsed.access_token).toBeNull()
     expect(parsed.refresh_token).toBeNull()
   })
@@ -32,5 +32,15 @@ describe("authResponseSchema", () => {
 
     expect(parsed.access_token).toBe("access")
     expect(parsed.refresh_token).toBe("refresh")
+  })
+
+  it("accepts the API-client principal shape (user null, client set)", () => {
+    const parsed = authResponseSchema.parse({
+      user: null,
+      client: { id: 7, name: "ops-key" },
+    })
+
+    expect(parsed.user).toBeNull()
+    expect(parsed.client?.name).toBe("ops-key")
   })
 })

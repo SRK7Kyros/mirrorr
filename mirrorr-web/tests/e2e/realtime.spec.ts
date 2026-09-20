@@ -80,6 +80,13 @@ test.describe("realtime socket manager", () => {
 
     const eventRoutes: WebSocketRoute[] = []
     let failConnections = true
+    // Todo 21: while the WS is "down", the REST list is down too — otherwise the
+    // resume-on-next-poll backstop legitimately brings the socket back and the
+    // offline banner is transient by design (spec L171).
+    await page.route("**/api/sessions/**", (route) => {
+      if (failConnections && route.request().method() === "GET") return route.abort()
+      return route.fallback()
+    })
     await page.routeWebSocket("**/ws/**", (ws) => {
       if (!ws.url().endsWith("/ws/events")) return
       // Emulate an unreachable server: the handshake never completes, so every

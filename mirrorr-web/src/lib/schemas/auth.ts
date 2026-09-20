@@ -5,6 +5,10 @@
  * `{"user": {...}, "client": null}`; `access_token`/`refresh_token` are
  * optional fields the browser build ignores and the Capacitor wrapper reads
  * (`docs/web-frontend-spec.md` L116).
+ *
+ * `user` is nullable because an API-key principal answers
+ * `AuthState(client=..., user=None)` (§10.2, §13.10.1): the web client then
+ * renders the API-client banner and suppresses the bell (spec L158, L647).
  */
 import { z } from "zod"
 
@@ -23,7 +27,7 @@ export const authClientSchema = z.object({
 })
 
 export const authResponseSchema = z.object({
-  user: authUserSchema,
+  user: authUserSchema.nullable(),
   client: authClientSchema.nullable().optional(),
   access_token: z.string().nullable().optional(),
   refresh_token: z.string().nullable().optional(),
