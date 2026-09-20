@@ -57,6 +57,23 @@ export function setAuthSession(response: AuthResponse): void {
   setState({ user: response.user, client: response.client ?? null, sessionExpired: false })
 }
 
+/**
+ * API-client principal (spec L154): `user` null with `client` set. User-only
+ * surfaces (the bell) are suppressed and the dot is replaced by the static
+ * "API client — polling every 10s" label.
+ */
+export function setApiClientSession(client: AuthClient): void {
+  setState({ user: null, client, sessionExpired: false })
+}
+
+export function isApiClientPrincipal(current: AuthState = state): boolean {
+  return current.user === null && current.client !== null
+}
+
+export function isUserPrincipal(current: AuthState = state): boolean {
+  return current.user !== null
+}
+
 export function clearAuthSession(): void {
   setState(ANONYMOUS)
 }
