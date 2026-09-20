@@ -88,4 +88,74 @@ test.describe("compact card list at 390x844", () => {
 
     expect(sheetLabels).toEqual([...inlineLabels, ...overflowLabels].sort())
   })
+
+  test("autoruns renders cards whose sheet adds Export to the desktop action set", async ({ page }) => {
+    await page.route("**/api/autoruns/**", async (route) => {
+      const request = route.request()
+      if (request.method() !== "GET" || new URL(request.url()).pathname !== "/api/autoruns/") {
+        await route.fallback()
+        return
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: { "Cache-Control": "no-store" },
+        body: JSON.stringify({
+          items: [
+            {
+              id: 811,
+              status: "scheduled",
+              user_friendly_name: "Evening news",
+              snake_case_name: "evening_news",
+              engine_id: 1,
+              resolver_id: 1,
+              start_time: "2026-09-21T10:00:00",
+              end_time: "2026-09-21T11:00:00",
+              recording: false,
+            },
+          ],
+          next_cursor: null,
+          has_more: false,
+        }),
+      })
+    })
+    await stubCatalogs(page)
+
+    await page.goto("/autoruns")
+    await expect(page.getByTestId("autoruns-view")).toBeVisible()
+    await expect(page.getByTestId("compact-card-list")).toBeVisible()
+    await expect(page.locator("table")).toHaveCount(0)
+
+    const card = page.getByTestId("compact-card").filter({ hasText: "Evening news" })
+    await expect(card).toHaveCount(1)
+    const cardBox = await card.boundingBox()
+    expect(Math.round(cardBox?.height ?? 0)).toBeGreaterThanOrEqual(CARD_FLOOR_PX)
+
+    await card.getByTestId("compact-card-overflow").click()
+    const sheet = page.getByTestId("action-sheet")
+    await expect(sheet).toBeVisible()
+    const sheetLabels = nonEmpty(await sheet.getByRole("button").allTextContents()).sort()
+    expect(sheetLabels).toContain("Export")
+
+    await page.screenshot({ path: path.join(EVIDENCE_DIR, "task-26-compact-autorun-actions-390x844.png") })
+    await page.keyboard.press("Escape")
+    await expect(sheet).toHaveCount(0)
+
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto("/autoruns")
+
+    const row = page.getByTestId("table-row").filter({ hasText: "Evening news" })
+    await expect(row).toBeVisible()
+    await expect(page.getByTestId("compact-card-list")).toHaveCount(0)
+
+    const inlineLabels = nonEmpty(await row.getByRole("button").allTextContents())
+    const moreButton = row.getByRole("button", { name: /^More actions for autorun/ })
+    let overflowLabels: string[] = []
+    if ((await moreButton.count()) > 0) {
+      await moreButton.click()
+      overflowLabels = nonEmpty(await page.getByTestId("row-overflow-menu").getByRole("menuitem").allTextContents())
+    }
+
+    expect(sheetLabels).toEqual([...inlineLabels, ...overflowLabels].sort())
+  })
 })
