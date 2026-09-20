@@ -20,7 +20,7 @@ const TABS: readonly SettingsTab[] = [
 ]
 
 const TAB_CLASS =
-  "border-b-2 px-3 py-2 text-body transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+  "inline-flex min-h-11 items-center border-b-2 px-3 py-2 text-body transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:min-h-0"
 
 export function SettingsTabs({ active }: { readonly active: SettingsTabId }) {
   const isAdmin = getAuthState().user?.role === "admin"

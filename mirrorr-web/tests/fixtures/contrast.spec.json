@@ -1,0 +1,60 @@
+{
+  "source": "docs/web-frontend-spec.md L462-L465 (the accessibility floor's contrast table)",
+  "note": "`claimed` is the spec's table value, reported and never adjusted. `min` is what the gate enforces: the claim itself wherever the measurement meets it, otherwise the spec's own normative floor for that text ('all >= 4.5:1' for chip text). A pair measured below its claim is listed as a below-claim finding even when it passes.",
+  "pairs": [
+    { "name": "text-primary on bg-base", "fg": "--text-primary", "bg": "--bg-base", "min": 16.0, "claimed": 16.0 },
+    { "name": "text-secondary on bg-base", "fg": "--text-secondary", "bg": "--bg-base", "min": 7.6, "claimed": 7.6 },
+    { "name": "text-muted on bg-raised", "fg": "--text-muted", "bg": "--bg-raised", "min": 5.1, "claimed": 5.1 },
+    { "name": "accent on bg-base", "fg": "--accent", "bg": "--bg-base", "min": 6.0, "claimed": 6.0 },
+    { "name": "bg-base on accent", "fg": "--bg-base", "bg": "--accent", "min": 6.0, "claimed": 6.0 },
+    { "name": "bg-base on danger", "fg": "--bg-base", "bg": "--danger", "min": 5.2, "claimed": 5.2 },
+    {
+      "name": "ok chip",
+      "fg": "--ok",
+      "bg": "--bg-raised",
+      "overlay": { "color": "--ok", "alpha": 0.12 },
+      "min": 4.5,
+      "claimed": 7.0
+    },
+    {
+      "name": "warn chip",
+      "fg": "--warn",
+      "bg": "--bg-raised",
+      "overlay": { "color": "--warn", "alpha": 0.12 },
+      "min": 7.4,
+      "claimed": 7.4
+    },
+    {
+      "name": "info chip",
+      "fg": "--info",
+      "bg": "--bg-raised",
+      "overlay": { "color": "--info", "alpha": 0.12 },
+      "min": 4.5,
+      "claimed": 4.9
+    },
+    {
+      "name": "purple chip",
+      "fg": "--purple",
+      "bg": "--bg-raised",
+      "overlay": { "color": "--purple", "alpha": 0.12 },
+      "min": 5.7,
+      "claimed": 5.7
+    },
+    {
+      "name": "danger chip",
+      "fg": "--danger-chip-text",
+      "bg": "--bg-raised",
+      "overlay": { "color": "--danger", "alpha": 0.12 },
+      "min": 4.5,
+      "claimed": 6.0
+    },
+    {
+      "name": "neutral chip",
+      "fg": "--neutral-chip-text",
+      "bg": "--bg-raised",
+      "overlay": { "color": "--neutral", "alpha": 0.12 },
+      "min": 4.5,
+      "claimed": 6.4
+    }
+  ]
+}

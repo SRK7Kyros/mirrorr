@@ -278,7 +278,7 @@ export function SessionsView({ store = entityStore }: SessionsViewProps) {
           <a
             data-testid="profile-link"
             href={`/profiles/${row.profile_id}`}
-            className="text-accent hover:underline"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center text-accent hover:underline sm:min-h-0 sm:min-w-0"
           >
             {nameFor("profile", row.profile_id) ?? `#${row.profile_id}`}
           </a>

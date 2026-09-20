@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "check:tokens": "bun scripts/check-tokens.mjs",
+    "check:contrast": "bun scripts/check-contrast.mjs",
     "deploy:web": "bun scripts/deploy-web.mjs",
     "typecheck": "tsc -p tsconfig.app.json --noEmit",
     "preview": "vite preview",
@@ -45,6 +46,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@capacitor/cli": "^8.5.2",
     "@playwright/test": "1.63.0",
     "@tailwindcss/vite": "4.3.1",
