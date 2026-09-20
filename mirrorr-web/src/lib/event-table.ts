@@ -15,10 +15,11 @@
  *   "prefer `payload.data`, treat top-level fields as hints" rule.
  *
  * Boundaries: `EntityStore` owns the merge precedence and toasts are raised
- * here through the todo-16 notification preferences. Remux progress
- * (`session.{id}.remux.progress`), the notification socket pipeline and the
- * polling cadences are todos 20/21 — this module exposes the seams and drops
- * nothing it does not own.
+ * here through the todo-16 notification preferences. `session.{id}.remux.progress`
+ * frames bypass the coalescer and are published to the session-frame channel
+ * with the subject id injected as `session_id` (never merged into a cache);
+ * the `/ws/notifications` pipeline lives in `notification-pipeline.ts`, and
+ * the polling cadences are todo 21.
  */
 import type { QueryClient } from "@tanstack/react-query"
 import { z } from "zod"
@@ -27,6 +28,7 @@ import type { EntityFrame, EntityStore } from "@/lib/entity-store"
 import { readNotificationPrefs, type NotificationPrefs } from "@/lib/notification-policy"
 import { queryKeys } from "@/lib/query-keys"
 import { subscribeRealtimeFrames, type RealtimeFrame } from "@/lib/realtime-manager"
+import { publishSessionFrame } from "@/lib/session-frames"
 import { showToast, type ToastAction, type ToastTone } from "@/lib/toast"
 
 /**
@@ -72,6 +74,46 @@ export function parseEventFrame(payload: unknown): ParsedEventFrame | null {
   if (id === null) return null
 
   return { subject: event, resource: subject.resource, action: subject.action, id, data: data ?? null }
+}
+
+/** The spec's progress subject (L189, §13.4): outside the entity catalog. */
+export const REMUX_PROGRESS_SUBJECT_PATTERN = /^session\.(\d+)\.remux\.progress$/
+
+export interface ParsedRemuxProgressFrame {
+  readonly subject: string
+  readonly id: number
+  readonly data: Readonly<Record<string, unknown>>
+}
+
+/**
+ * Parses a progress frame: the core relay emits `percent`/`eta_seconds`/…
+ * flat and never sets `id`, so the id comes from the subject and is injected
+ * as `session_id` for the progress store. A nested `data` object wins where
+ * both shapes exist (the event table's data-authoritative rule).
+ */
+export function parseRemuxProgressPayload(payload: unknown): ParsedRemuxProgressFrame | null {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return null
+  const record = payload as Record<string, unknown>
+  const event = record.event
+  if (typeof event !== "string") return null
+
+  const match = REMUX_PROGRESS_SUBJECT_PATTERN.exec(event)
+  if (match === null) return null
+  const id = Number(match[1])
+  if (!Number.isInteger(id)) return null
+
+  const flat: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(record)) {
+    if (key === "event" || key === "type" || key === "data") continue
+    flat[key] = value
+  }
+  const nested = record.data
+  const data =
+    typeof nested === "object" && nested !== null && !Array.isArray(nested)
+      ? { ...flat, ...(nested as Record<string, unknown>), session_id: id }
+      : { ...flat, session_id: id }
+
+  return { subject: event, id, data }
 }
 
 const entityDataSchema = z.custom<Readonly<Record<string, unknown>>>(
@@ -123,11 +165,16 @@ export interface EventTableOptions {
   readonly invalidateNamesForEvent: (eventType: string) => unknown
   /** Defaults to the todo-16 persisted preferences. */
   readonly readPrefs?: () => NotificationPrefs
+  /** Where `session.{id}.remux.progress` frames go; defaults to the detail's session-frame channel. */
+  readonly publishRemuxFrame?: (frame: EntityFrame) => void
   /** Overridable for tests; defaults to the spec's 30ms window. */
   readonly coalesceMs?: number
 }
 
-type ResolvedOptions = EventTableOptions & { readonly readPrefs: () => NotificationPrefs }
+type ResolvedOptions = EventTableOptions & {
+  readonly readPrefs: () => NotificationPrefs
+  readonly publishRemuxFrame: (frame: EntityFrame) => void
+}
 
 interface ListPage {
   readonly items: readonly EntityValues[]
@@ -202,16 +249,31 @@ export class EventTable {
   private flushTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(options: EventTableOptions) {
-    this.options = { ...options, readPrefs: options.readPrefs ?? (() => readNotificationPrefs()) }
+    this.options = {
+      ...options,
+      readPrefs: options.readPrefs ?? (() => readNotificationPrefs()),
+      publishRemuxFrame: options.publishRemuxFrame ?? publishSessionFrame,
+    }
     this.store = options.store
   }
 
   /**
    * Parses one raw `/ws/events` payload and buffers it until the coalescing
-   * window closes. Returns `false` for malformed frames and subjects outside
-   * the catalog; never throws.
+   * window closes. Progress frames bypass the buffer: they are time-sensitive
+   * and share the `session:{id}` coalescing key with entity frames. Returns
+   * `false` for malformed frames and subjects outside the catalog; never throws.
    */
   handlePayload(payload: unknown): boolean {
+    const progress = parseRemuxProgressPayload(payload)
+    if (progress !== null) {
+      this.options.publishRemuxFrame({
+        event: progress.subject,
+        id: progress.id,
+        data: { ...progress.data, id: progress.id },
+      })
+      return true
+    }
+
     const frame = parseEventFrame(payload)
     if (frame === null) return false
     this.buffer.set(eventCoalesceKey(frame), frame)
@@ -383,8 +445,8 @@ export interface InstallEventTableOptions extends EventTableOptions {
 
 /**
  * Subscribes the table to the raw frame bus (`subscribeRealtimeFrames`) and
- * returns the teardown. Notification-role frames stay untouched — the
- * `/ws/notifications` pipeline (drawer, badge, flush) is todo 20.
+ * returns the teardown. Notification-role frames belong to the
+ * `/ws/notifications` pipeline (`notification-pipeline.ts`).
  */
 export function installEventTable(options: InstallEventTableOptions): () => void {
   const table = new EventTable(options)

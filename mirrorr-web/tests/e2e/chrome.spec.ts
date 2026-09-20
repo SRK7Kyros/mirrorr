@@ -1,5 +1,5 @@
 import path from "node:path"
-import type { Page } from "@playwright/test"
+import type { Page, WebSocketRoute } from "@playwright/test"
 import { expect, test } from "./fixtures"
 
 /**
@@ -18,7 +18,6 @@ const EVIDENCE_DIR = path.resolve(import.meta.dirname, "../../../.omo/evidence")
 const RUN_ID = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 const DISPOSABLE_USER = `qa-disposable-17-${RUN_ID}`
 const DISPOSABLE_PASSWORD = "disposable-123"
-const FRAME_EVENT = "mirrorr:notification-frame"
 const API_UNREACHABLE_COPY = "API unreachable — retrying"
 
 const NOTIFICATION_UNREAD = {
@@ -225,26 +224,27 @@ test.describe("chrome, user menu, health banner, notifications", () => {
     await page.screenshot({ path: path.join(EVIDENCE_DIR, "task-17-desktop-chrome-1280.png") })
   })
 
-  test("failure: the same synthetic frame twice for one tuple increments the badge once", async ({ page }) => {
+  test("failure: the same pushed frame twice for one tuple increments the badge once", async ({ page }) => {
     await page.setViewportSize({ width: 800, height: 900 })
     await stubNotifications(page, [])
+    let notificationSocket: WebSocketRoute | null = null
+    await page.routeWebSocket("**/ws/**", (ws) => {
+      if (ws.url().endsWith("/ws/notifications")) notificationSocket = ws
+    })
     await page.goto("/sessions")
 
     const bell = page.getByTestId("notification-bell")
     await expect(bell).toHaveAttribute("aria-label", "0 unread notifications")
 
-    const dispatchFrame = () =>
-      page.evaluate(
-        ({ event, detail }) => {
-          window.dispatchEvent(new CustomEvent(event, { detail }))
-        },
-        { event: FRAME_EVENT, detail: SYNTHETIC_FRAME },
-      )
+    const pushFrame = async () => {
+      await expect.poll(() => notificationSocket !== null).toBe(true)
+      notificationSocket?.send(JSON.stringify({ type: "notification", data: SYNTHETIC_FRAME }))
+    }
 
-    await dispatchFrame()
+    await pushFrame()
     await expect(bell).toHaveAttribute("aria-label", "1 unread notifications")
 
-    await dispatchFrame()
+    await pushFrame()
     await expect(bell).toHaveAttribute("aria-label", "1 unread notifications")
 
     await bell.click()
