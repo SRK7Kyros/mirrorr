@@ -9,11 +9,14 @@
  */
 import { useEffect, useMemo, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { Plus, Trash2 } from "lucide-react"
-import { ExportBundleButton } from "@/components/import-export/ExportBundleButton"
+import { Plus } from "lucide-react"
+import { useIsCompactShell } from "@/components/chrome/CompactShell"
+import { ExportFallbackDialog } from "@/components/import-export/ExportFallbackDialog"
 import { ProfileEditorDialog } from "@/components/profiles/ProfileEditorDialog"
+import { ProfileRowActions, profileActionItems } from "@/components/profiles/ProfileRowActions"
 import { NewSessionDialog } from "@/components/sessions/NewSessionDialog"
 import { Button } from "@/components/ui/Button"
+import { CompactCardList } from "@/components/ui/CompactCardList"
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 import { EMPTY_STATES, EmptyState } from "@/components/ui/EmptyState"
 import { ErrorPanel } from "@/components/ui/ErrorPanel"
@@ -28,6 +31,7 @@ import { getAuthState } from "@/lib/auth-store"
 import type { EntityStore } from "@/lib/entity-store"
 import { entityStore } from "@/lib/entity-store-client"
 import { ApiError, userMessageForError } from "@/lib/errors"
+import { exportBundleToFile } from "@/lib/export-bundle"
 import { deleteEntity } from "@/lib/optimistic-policy"
 import { collectProfileRefs, type ProfileRefs } from "@/lib/profile-refs"
 import { deleteProfile, fetchProfilesPage } from "@/lib/profiles-api"
@@ -132,6 +136,9 @@ export function ProfilesView({ highlight = null, store = entityStore }: Profiles
 
   const refCount = (refs?.autoruns.length ?? 0) + (refs?.sessions.length ?? 0)
 
+  const compact = useIsCompactShell()
+  const [exportFallback, setExportFallback] = useState<string | null>(null)
+
   const columns: TableColumn<Profile>[] = [
     {
       key: "name",
@@ -172,31 +179,60 @@ export function ProfilesView({ highlight = null, store = entityStore }: Profiles
       header: "Actions",
       align: "right" as const,
       render: (row) => (
-        <div className="flex items-center justify-end gap-1">
-          <Button size="sm" variant="secondary" onClick={() => setUseTarget(row)}>
-            Use
-          </Button>
-          <Button size="sm" variant="secondary" aria-label={`Edit ${row.name}`} onClick={() => openEdit(row)}>
-            Edit
-          </Button>
-          <ExportBundleButton
-            kind="profile"
-            id={row.id}
-            name={row.name}
-            disabled={store.getPending("profile", row.id) !== undefined}
-          />
-          <Button
-            size="sm"
-            variant="ghost"
-            icon={Trash2}
-            aria-label={`Delete ${row.name}`}
-            disabled={store.getPending("profile", row.id) !== undefined}
-            onClick={() => void beginDelete(row)}
-          />
-        </div>
+        <ProfileRowActions
+          profile={row}
+          pending={store.getPending("profile", row.id) !== undefined}
+          onUse={() => setUseTarget(row)}
+          onEdit={() => openEdit(row)}
+          onDelete={() => void beginDelete(row)}
+        />
       ),
     },
   ]
+
+  function columnFor(key: string) {
+    return columns.find((column) => column.key === key)
+  }
+
+  /** Spec L545 V8 card anatomy: name, engine → resolver, retry mode. */
+  function renderProfileCard(row: Profile) {
+    const cell = (key: string) => columnFor(key)?.render(row) ?? null
+
+    return (
+      <>
+        <span className="flex items-center gap-2">{cell("name")}</span>
+        <span className="flex flex-wrap items-center gap-2 text-small text-text-secondary">
+          {cell("engine")}
+          <span aria-hidden="true" className="text-text-muted">
+            →
+          </span>
+          {cell("resolver")}
+        </span>
+        <span className="flex flex-wrap items-center gap-2 text-small text-text-secondary">{cell("retry")}</span>
+        {isAdmin ? <span className="text-small text-text-secondary">{cell("owner")}</span> : null}
+      </>
+    )
+  }
+
+  async function handleExport(row: Profile) {
+    try {
+      const outcome = await exportBundleToFile("profile", row.id)
+      if (!outcome.downloaded) setExportFallback(outcome.text)
+    } catch (error) {
+      showToast(userMessageForError(error))
+    }
+  }
+
+  function cardActions(row: Profile) {
+    return profileActionItems({
+      profile: row,
+      exportDisabled: store.getPending("profile", row.id) !== undefined,
+      onUse: () => setUseTarget(row),
+      onEdit: () => openEdit(row),
+      onExport: () => void handleExport(row),
+      onDelete: () => void beginDelete(row),
+    })
+  }
 
   return (
     <main data-testid="profiles-view" className="flex flex-col gap-4">
@@ -224,7 +260,20 @@ export function ProfilesView({ highlight = null, store = entityStore }: Profiles
 
       {list.rows.length > 0 ? (
         <div ref={containerRef}>
-          <Table label="Profiles" columns={columns} rows={list.rows} getRowKey={(row) => row.id} />
+          {compact ? (
+            <CompactCardList
+              label="Profiles"
+              rows={list.rows}
+              getRowKey={(row) => row.id}
+              renderCard={renderProfileCard}
+              actionsFor={cardActions}
+              onOpen={openEdit}
+              openLabel={(row) => `Edit ${row.name}`}
+              sheetTitle={(row) => `Profile ${row.name} actions`}
+            />
+          ) : (
+            <Table label="Profiles" columns={columns} rows={list.rows} getRowKey={(row) => row.id} />
+          )}
         </div>
       ) : null}
 
@@ -244,6 +293,8 @@ export function ProfilesView({ highlight = null, store = entityStore }: Profiles
       />
 
       <NewSessionDialog open={useTarget !== null} prefillProfile={useTarget} onClose={() => setUseTarget(null)} />
+
+      <ExportFallbackDialog json={exportFallback} onClose={() => setExportFallback(null)} />
 
       <ConfirmDialog
         open={deleteTarget !== null}
