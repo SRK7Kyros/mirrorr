@@ -200,25 +200,15 @@ export function SessionDetailView({
     return () => deactivateRemuxProgress(sessionId)
   }, [valid, sessionId])
 
-  // The view's WS row: route through the entity store, navigate on delete,
-  // toast on crash, and feed remux progress to its own store (spec L181).
+  // Remux progress only (spec L181); other session frames are the global event table's (todo 19).
   useEffect(() => {
     if (!valid) return undefined
     return subscribeSessionFrames((frame) => {
       if (frame.id !== sessionId) return
-      if (isRemuxProgressEvent(frame.event)) {
-        applyRemuxProgressFrame(frame.data)
-        return
-      }
-      void store.applyFrame(frame)
-      if (frame.event.endsWith(".deleted")) {
-        if (navigatedRef.current) return
-        navigatedRef.current = true
-        navigateToList("/sessions")
-      }
-      if (frame.event.endsWith(".crashed")) showToast(`Session #${frame.id} failed`)
+      if (!isRemuxProgressEvent(frame.event)) return
+      applyRemuxProgressFrame(frame.data)
     })
-  }, [valid, sessionId, store, navigateToList])
+  }, [valid, sessionId])
 
   // 204 means the request was accepted, not that the row is gone: once the
   // delete is pending, a 404 from the poll fallback confirms the removal.
