@@ -180,9 +180,23 @@ describe("authenticated branch", () => {
 
     const router = renderApp("/settings/users")
 
-    expect(await screen.findByTestId("settings-placeholder")).toBeTruthy()
+    expect(await screen.findByTestId("settings-view")).toBeTruthy()
     expect(router.state.location.pathname).toBe("/settings")
-    expect(screen.queryByTestId("settings-users-placeholder")).toBeNull()
+    expect(screen.queryByTestId("settings-users-view")).toBeNull()
+  })
+
+  it("sends a non-admin from /settings/clients back to /settings", async () => {
+    installFetch(async (url) =>
+      url.endsWith("/auth/me")
+        ? jsonResponse(200, NON_ADMIN_ME)
+        : jsonResponse(200, { has_users: true }),
+    )
+
+    const router = renderApp("/settings/clients")
+
+    expect(await screen.findByTestId("settings-view")).toBeTruthy()
+    expect(router.state.location.pathname).toBe("/settings")
+    expect(screen.queryByTestId("settings-clients-view")).toBeNull()
   })
 })
 
