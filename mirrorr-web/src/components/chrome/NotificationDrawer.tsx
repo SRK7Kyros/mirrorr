@@ -15,6 +15,7 @@ import { EmptyState } from "@/components/ui/EmptyState"
 import { ErrorPanel } from "@/components/ui/ErrorPanel"
 import { FOCUS_RING } from "@/components/ui/focus-ring"
 import { SkeletonRows } from "@/components/ui/SkeletonRows"
+import { pushBackInterceptor } from "@/lib/back-navigation"
 import { userMessageForError } from "@/lib/errors"
 import { formatRelativeTime } from "@/lib/format"
 import {
@@ -72,11 +73,21 @@ export function NotificationDrawer({
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const panelRef = useRef<HTMLElement>(null)
+  const onCloseRef = useRef(onClose)
   const [clearOpen, setClearOpen] = useState(false)
   const [clearPending, setClearPending] = useState(false)
 
   useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
+  useEffect(() => {
     if (open) panelRef.current?.focus()
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    return pushBackInterceptor(() => onCloseRef.current())
   }, [open])
 
   const patchRow = useCallback(

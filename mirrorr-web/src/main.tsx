@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client"
 import { assertApiConfig } from "@/config/env"
 import { startProactiveRefresh } from "@/lib/api"
 import { installAuthSession } from "@/lib/auth-store"
+import { installBackNavigation } from "@/lib/back-navigation"
 import { entityStore } from "@/lib/entity-store-client"
 import { installEventTable } from "@/lib/event-table"
 import { nameMapStore } from "@/lib/name-map-api"
@@ -28,6 +29,13 @@ installAuthSession({
 })
 
 startProactiveRefresh()
+
+// Spec L498: the browser-side platform back source (todo 29 replaces the
+// event source with Capacitor's; the consequence stays this seam).
+installBackNavigation({
+  canGoBack: () => router.history.canGoBack(),
+  goBack: () => router.history.back(),
+})
 
 // Spec L165-L181: the /ws/events subject table + 30ms coalescing buffer.
 installEventTable({
