@@ -24,7 +24,9 @@ export interface CompactCardListProps<Row> {
   readonly getRowKey: (row: Row) => string | number
   readonly renderCard: (row: Row) => ReactNode
   readonly actionsFor: (row: Row) => readonly ActionSheetItem[]
-  readonly hrefFor: (row: Row) => string
+  readonly hrefFor?: (row: Row) => string
+  readonly onOpen?: (row: Row) => void
+  readonly openLabel?: (row: Row) => string
   readonly sheetTitle: (row: Row) => string
   readonly rowClassName?: (row: Row) => string | undefined
 }
@@ -36,6 +38,8 @@ export function CompactCardList<Row>({
   renderCard,
   actionsFor,
   hrefFor,
+  onOpen,
+  openLabel,
   sheetTitle,
   rowClassName,
 }: CompactCardListProps<Row>) {
@@ -58,13 +62,25 @@ export function CompactCardList<Row>({
                 .join(" ")
                 .trim()}
             >
-              <a
-                href={hrefFor(row)}
-                data-testid="compact-card-open"
-                className="flex flex-1 flex-col justify-center gap-2 rounded-control focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
-              >
-                {renderCard(row)}
-              </a>
+              {hrefFor === undefined ? (
+                <button
+                  type="button"
+                  aria-label={openLabel?.(row)}
+                  data-testid="compact-card-open"
+                  onClick={() => onOpen?.(row)}
+                  className="flex flex-1 flex-col justify-center gap-2 rounded-control text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                >
+                  {renderCard(row)}
+                </button>
+              ) : (
+                <a
+                  href={hrefFor(row)}
+                  data-testid="compact-card-open"
+                  className="flex flex-1 flex-col justify-center gap-2 rounded-control focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                >
+                  {renderCard(row)}
+                </a>
+              )}
               {actions.length === 0 ? null : (
                 <button
                   type="button"
