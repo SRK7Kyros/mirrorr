@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs"
 import path from "node:path"
-import { expect, test, stubCatalogs, stubSessionList, type SessionSeed } from "./fixtures"
+import { expect, test, ENGINE_ITEM, stubCatalogs, stubSessionList, type SessionSeed } from "./fixtures"
 
 /**
  * Todo 26 / spec L516 "card list, fixed anatomy", L539-L541 "card tap opens the
@@ -422,5 +422,128 @@ test.describe("compact card list at 390x844", () => {
     expect(Math.round(removeBox?.height ?? 0)).toBeGreaterThanOrEqual(44)
 
     await page.screenshot({ path: path.join(EVIDENCE_DIR, "task-26-compact-drawer-390x844.png") })
+  })
+
+  test("a completed session keeps the desktop action set in its sheet", async ({ page }) => {
+    await stubSessionList(page, [{ ...ROWS[0], status: "completed", ended_at: "2026-09-19T11:00:00" }])
+    await stubCatalogs(page)
+
+    await page.goto("/sessions")
+    const card = page.getByTestId("compact-card").filter({ hasText: "#701" })
+    await expect(card).toHaveCount(1)
+    await card.getByTestId("compact-card-overflow").click()
+    const sheetLabels = nonEmpty(await page.getByTestId("action-sheet").getByRole("button").allTextContents()).sort()
+    await page.keyboard.press("Escape")
+
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto("/sessions")
+    const row = page.getByTestId("table-row").filter({ hasText: "#701" })
+    await expect(row).toBeVisible()
+    const inlineLabels = nonEmpty(await row.getByRole("button").allTextContents())
+    const moreButton = row.getByRole("button", { name: /^More actions for session/ })
+    const overflowLabels =
+      (await moreButton.count()) === 0
+        ? []
+        : (await moreButton.click(),
+          nonEmpty(await page.getByTestId("row-overflow-menu").getByRole("menuitem").allTextContents()))
+
+    expect(sheetLabels).toEqual([...inlineLabels, ...overflowLabels].sort())
+  })
+
+  test("a live autorun keeps the desktop action set in its sheet", async ({ page }) => {
+    await page.route("**/api/autoruns/**", async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.fallback()
+        return
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: { "Cache-Control": "no-store" },
+        body: JSON.stringify({
+          items: [
+            {
+              id: 811,
+              status: "active",
+              user_friendly_name: "Evening news",
+              snake_case_name: "evening_news",
+              engine_id: 1,
+              resolver_id: 1,
+              start_time: "2026-09-21T10:00:00",
+              end_time: "2026-09-21T11:00:00",
+              recording: false,
+            },
+          ],
+          next_cursor: null,
+          has_more: false,
+        }),
+      })
+    })
+    await stubCatalogs(page)
+
+    await page.goto("/autoruns")
+    const card = page.getByTestId("compact-card").filter({ hasText: "Evening news" })
+    await expect(card).toHaveCount(1)
+    await card.getByTestId("compact-card-overflow").click()
+    const sheetLabels = nonEmpty(await page.getByTestId("action-sheet").getByRole("button").allTextContents()).sort()
+    await page.keyboard.press("Escape")
+
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto("/autoruns")
+    const row = page.getByTestId("table-row").filter({ hasText: "Evening news" })
+    await expect(row).toBeVisible()
+    const inlineLabels = nonEmpty(await row.getByRole("button").allTextContents())
+    const moreButton = row.getByRole("button", { name: /^More actions for autorun/ })
+    const overflowLabels =
+      (await moreButton.count()) === 0
+        ? []
+        : (await moreButton.click(),
+          nonEmpty(await page.getByTestId("row-overflow-menu").getByRole("menuitem").allTextContents()))
+
+    expect(sheetLabels).toEqual([...inlineLabels, ...overflowLabels].sort())
+  })
+
+  test("hover-only facts render as visible 12px muted text on compact", async ({ page }) => {
+    await stubSessionList(page, ROWS)
+    await stubCatalogs(page)
+    await page.route("**/api/**", async (route) => {
+      const request = route.request()
+      const pathname = new URL(request.url()).pathname
+      if (request.method() === "GET" && pathname === "/api/engines/") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          headers: { "Cache-Control": "no-store" },
+          body: JSON.stringify({
+            items: [{ ...ENGINE_ITEM, capabilities: { ...ENGINE_ITEM.capabilities, can_record: false } }],
+            next_cursor: null,
+            has_more: false,
+          }),
+        })
+        return
+      }
+      if (request.method() === "GET" && pathname === "/api/sessions/701") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          headers: { "Cache-Control": "no-store" },
+          body: JSON.stringify({ ...ROWS[0], session_urls: [] }),
+        })
+        return
+      }
+      await route.fallback()
+    })
+
+    await page.goto("/sessions")
+    const fact = page.getByTestId("engine-cannot-record")
+    await expect(fact).toBeVisible()
+    expect(await fact.evaluate((node) => getComputedStyle(node).fontSize)).toBe("12px")
+
+    await page.goto("/sessions/701")
+    const reason = page.getByTestId("switch-disabled-reason")
+    await expect(reason).toBeVisible()
+    expect(await reason.evaluate((node) => getComputedStyle(node).fontSize)).toBe("12px")
+
+    await page.screenshot({ path: path.join(EVIDENCE_DIR, "task-26-hover-facts-390x844.png") })
   })
 })

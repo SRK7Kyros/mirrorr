@@ -58,6 +58,11 @@ export function Switch({
         </span>
       </button>
       <span className="text-body text-text-secondary">{label}</span>
+      {disabled && disabledReason ? (
+        <span data-testid="switch-disabled-reason" className="text-small text-text-muted sm:hidden">
+          {disabledReason}
+        </span>
+      ) : null}
       {hint}
     </div>
   )
