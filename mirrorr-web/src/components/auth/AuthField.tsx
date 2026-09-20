@@ -5,6 +5,7 @@ interface AuthFieldProps {
   readonly onChange: (value: string) => void
   readonly type?: "text" | "password"
   readonly autoComplete?: string
+  readonly enterKeyHint?: "go" | "next" | "done"
   readonly error?: string | undefined
 }
 
@@ -15,6 +16,7 @@ export function AuthField({
   onChange,
   type = "text",
   autoComplete,
+  enterKeyHint,
   error,
 }: AuthFieldProps) {
   const errorId = `${id}-error`
@@ -30,6 +32,7 @@ export function AuthField({
         type={type}
         value={value}
         autoComplete={autoComplete}
+        enterKeyHint={enterKeyHint}
         aria-invalid={error !== undefined}
         aria-describedby={error === undefined ? undefined : errorId}
         onChange={(event) => onChange(event.target.value)}

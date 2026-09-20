@@ -1,7 +1,9 @@
 import { X } from "lucide-react"
-import { useEffect, useId, useRef, type ReactNode } from "react"
+import { useEffect, useId, useRef, type PointerEvent, type ReactNode } from "react"
+import { useIsCompactShell } from "@/components/chrome/CompactShell"
 import { Button } from "@/components/ui/Button"
 import { pushBackInterceptor } from "@/lib/back-navigation"
+import { shouldDismissSheet } from "@/lib/sheet-drag"
 
 /**
  * Dialog — spec L111: max-width 560px (wizards 720px), `bg-overlay`, radius 6,
@@ -27,6 +29,12 @@ function focusableWithin(container: HTMLElement): HTMLElement[] {
   return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
 }
 
+function isFormField(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)
+  )
+}
+
 export interface DialogProps {
   readonly open: boolean
   readonly onClose: () => void
@@ -41,6 +49,25 @@ export function Dialog({ open, onClose, title, children, footer, size = "dialog"
   const panelRef = useRef<HTMLDivElement | null>(null)
   const openerRef = useRef<HTMLElement | null>(null)
   const onCloseRef = useRef(onClose)
+  const compact = useIsCompactShell()
+  const dragStartY = useRef<number | null>(null)
+
+  // Spec L506: on the compact shell a downward drag dismisses the sheet. The
+  // drag only arms on the panel background (never inside a field, so selecting
+  // text cannot close it) and only while the panel sits at its top; its single
+  // consequence is the same onClose the close button and Esc already run.
+  function onPanelPointerDown(event: PointerEvent<HTMLDivElement>): void {
+    if (!compact || event.currentTarget.scrollTop > 0) return
+    if (isFormField(event.target)) return
+    dragStartY.current = event.clientY
+  }
+
+  function onPanelPointerUp(event: PointerEvent<HTMLDivElement>): void {
+    const start = dragStartY.current
+    dragStartY.current = null
+    if (!compact || start === null) return
+    if (shouldDismissSheet(start, event.clientY)) onClose()
+  }
 
   // Focus enters the dialog on open and returns to the opener on close.
   useEffect(() => {
@@ -125,9 +152,12 @@ export function Dialog({ open, onClose, title, children, footer, size = "dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
+        onPointerDown={onPanelPointerDown}
+        onPointerUp={onPanelPointerUp}
         className={[
           "relative w-full rounded-surface border border-border bg-bg-overlay shadow-overlay",
           WIDTHS[size],
+          compact ? "compact-sheet-panel" : "",
         ].join(" ")}
       >
         <header className="flex items-center justify-between border-b border-border px-4 py-3">

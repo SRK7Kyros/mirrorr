@@ -26,7 +26,7 @@ export function CompactAppBar() {
   return (
     <header
       data-testid="compact-app-bar"
-      className="flex h-11 shrink-0 items-center gap-1 border-b border-border bg-bg-raised pr-1 pl-2"
+      className="compact-app-bar flex shrink-0 items-center gap-1 border-b border-border bg-bg-raised pr-1 pl-2"
     >
       {nested ? (
         <button

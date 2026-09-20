@@ -27,7 +27,7 @@ export function CompactFab() {
     <div
       id={COMPACT_PRIMARY_ACTION_ID}
       data-testid="compact-primary-action"
-      className="pointer-events-none fixed right-4 bottom-18 z-40 [&>*]:pointer-events-auto"
+      className="compact-fab-offset pointer-events-none fixed right-4 z-40 [&>*]:pointer-events-auto"
     >
       <CompactFabButton id={rule.id} label={rule.label} />
     </div>

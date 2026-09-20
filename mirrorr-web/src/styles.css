@@ -176,3 +176,97 @@
     scroll-behavior: auto !important;
   }
 }
+
+/*
+ * Todo 25 (spec L502-L512): the compact ergonomics layer. Every rule is
+ * <=639px-only, so the desktop presentation and the frozen token set
+ * (L55-L113) are untouched. `--keyboard-inset` is deliberately not declared
+ * here — src/lib/keyboard-inset.ts writes it on <html> at runtime and every
+ * read falls back to 0px, so no non-spec token enters the stylesheet and
+ * scripts/check-tokens.mjs stays exact.
+ */
+@media (max-width: 639px) {
+  /* L504: the 44px floor. min-height/min-width beat the 32px desktop utilities
+   * without a specificity fight; the desktop 32px floor and the 24px
+   * table-overflow exception deliberately do not apply here. */
+  button,
+  [role="button"],
+  [role="switch"],
+  [role="checkbox"],
+  [role="tab"],
+  input,
+  select,
+  textarea,
+  summary {
+    min-height: 44px;
+  }
+
+  button,
+  [role="button"],
+  [role="switch"],
+  [role="checkbox"],
+  [role="tab"],
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-width: 44px;
+  }
+
+  /* L504: >=8px between adjacent targets. */
+  [data-compact-targets] > * + * {
+    margin-top: 8px;
+  }
+
+  /* L509: 16px minimum on compact suppresses WebView focus zoom. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  /* L510: buttons, tab bar and chrome are not text-selectable; mono values
+   * keep long-press copy (nothing here disables selection on them). */
+  button,
+  nav,
+  [role="tablist"] {
+    user-select: none;
+  }
+
+  /* L507: the app bar takes the top inset, the tab bar the bottom inset, and
+   * the FAB clears the home indicator. The height is `44px/56px + inset` so
+   * the bar grows by the notch instead of squeezing its own 44px/56px content
+   * (the previous fixed h-11/h-14). */
+  .compact-app-bar {
+    height: calc(44px + env(safe-area-inset-top));
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .compact-tab-bar {
+    height: calc(56px + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .compact-fab-offset {
+    bottom: calc(56px + env(safe-area-inset-bottom) + 16px);
+  }
+
+  /* L507-L508: the single scroll container clears the tab bar, the home
+   * indicator and the keyboard. */
+  .compact-scroll-region {
+    padding-bottom: calc(56px + env(safe-area-inset-bottom) + 16px + var(--keyboard-inset, 0px));
+    overscroll-behavior-y: contain;
+  }
+
+  /* L508: a sheet caps its height under the top inset and the keyboard. */
+  .compact-sheet-panel {
+    max-height: calc(100dvh - env(safe-area-inset-top) - var(--keyboard-inset, 0px));
+    overflow-y: auto;
+  }
+}
+
+/* L507: landscape adds the left/right insets to the page padding. */
+@media (max-width: 639px) and (orientation: landscape) {
+  .compact-scroll-region {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
+}
