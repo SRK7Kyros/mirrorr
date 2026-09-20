@@ -82,6 +82,8 @@ export const queryKeys = {
   engines: () => ["engines"] as const,
   resolvers: () => ["resolvers"] as const,
   notifications: () => ["notifications"] as const,
+  /** Liveness probe for the health banner (`GET /health`, spec L407); not in the staleTime table. */
+  health: () => ["health"] as const,
   users: () => ["users"] as const,
   clients: () => ["clients"] as const,
 } as const
