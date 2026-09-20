@@ -121,7 +121,10 @@ export function AutorunDetailView({ autorunId, store = entityStore }: AutorunDet
 
   return (
     <main data-testid="autorun-detail" className="flex flex-col gap-4">
-      <a href="/autoruns" className="inline-flex w-fit items-center gap-1 text-small text-text-secondary hover:text-text-primary">
+      <a
+        href="/autoruns"
+        className="inline-flex min-h-11 w-fit items-center gap-1 text-small text-text-secondary hover:text-text-primary sm:min-h-0"
+      >
         <ArrowLeft aria-hidden="true" className="size-[var(--icon-row)]" />
         Autoruns
       </a>
@@ -221,7 +224,11 @@ export function AutorunDetailView({ autorunId, store = entityStore }: AutorunDet
         >
           <h2 className="text-label font-medium text-text-primary">Linked session</h2>
           <StatusChip status={linked.status} />
-          <a data-testid="linked-session-link" href={`/sessions/${linked.id}`} className="text-accent hover:underline">
+          <a
+            data-testid="linked-session-link"
+            href={`/sessions/${linked.id}`}
+            className="inline-flex min-h-11 items-center text-accent hover:underline sm:min-h-0"
+          >
             #{linked.id}
           </a>
           {linked.attempts !== undefined && linked.attempts !== null ? (

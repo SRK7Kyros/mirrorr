@@ -333,9 +333,9 @@ export function SessionDetailView({
         className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-surface border border-border bg-bg-raised p-4"
       >
         <StatusChip status={displayStatus} live={isRunning} />
-        <span data-testid="session-id" className="font-mono text-title text-text-primary">
+        <h1 data-testid="session-id" className="font-mono text-title text-text-primary">
           #{session.id}
-        </span>
+        </h1>
         <span data-testid="session-route" className="inline-flex items-center gap-1 text-body">
           <NameText name={nameFor("engine", session.engine_id) ?? session.engine_name ?? undefined} id={session.engine_id} />
           <span aria-hidden="true" className="text-text-muted">
