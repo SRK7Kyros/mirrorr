@@ -21,10 +21,6 @@ export function resetMediaProbeSession(): void {
   probedThisSession = false
 }
 
-export function hasProbedThisSession(): boolean {
-  return probedThisSession
-}
-
 export interface MediaProbeOptions {
   readonly fetchImpl?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 }

@@ -1,3 +1,5 @@
+import { FOCUS_RING } from "@/components/ui/focus-ring"
+
 interface AuthFieldProps {
   readonly id: string
   readonly label: string
@@ -36,7 +38,7 @@ export function AuthField({
         aria-invalid={error !== undefined}
         aria-describedby={error === undefined ? undefined : errorId}
         onChange={(event) => onChange(event.target.value)}
-        className="h-8 rounded-control border border-border bg-bg-inset px-2 text-body text-text-primary outline-none transition-colors focus:border-border-strong"
+        className={`h-8 rounded-control border border-border bg-bg-inset px-2 text-body text-text-primary transition-colors focus:border-border-strong ${FOCUS_RING}`}
       />
       {error === undefined ? null : (
         <p id={errorId} data-testid={errorId} className="text-small text-danger">

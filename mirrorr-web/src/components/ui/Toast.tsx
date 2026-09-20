@@ -1,6 +1,7 @@
 import { AlertTriangle, Info, X } from "lucide-react"
 import { useSyncExternalStore } from "react"
 import { Button } from "@/components/ui/Button"
+import { FOCUS_RING } from "@/components/ui/focus-ring"
 import { dismissToast, getToasts, subscribeToasts, type ToastMessage } from "@/lib/toast"
 
 /**
@@ -47,7 +48,7 @@ export function Toast({ toast, onDismiss }: ToastProps) {
           href={toast.action.href}
           target="_blank"
           rel="noopener noreferrer"
-          className="shrink-0 rounded-control px-1 text-small font-medium text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className={`shrink-0 rounded-control px-1 text-small font-medium text-accent hover:underline ${FOCUS_RING}`}
         >
           {toast.action.label}
         </a>

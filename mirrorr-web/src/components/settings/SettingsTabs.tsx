@@ -2,6 +2,7 @@
  * Settings tab strip (spec L20-L21, L46-L48). Admin users additionally see the
  * Users and API clients tabs; the route guards, not the tabs, enforce access.
  */
+import { FOCUS_RING } from "@/components/ui/focus-ring"
 import { getAuthState } from "@/lib/auth-store"
 
 export type SettingsTabId = "account" | "users" | "clients"
@@ -20,7 +21,7 @@ const TABS: readonly SettingsTab[] = [
 ]
 
 const TAB_CLASS =
-  "inline-flex min-h-11 items-center border-b-2 px-3 py-2 text-body transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:min-h-0"
+  `inline-flex min-h-11 items-center border-b-2 px-3 py-2 text-body transition-colors ${FOCUS_RING} sm:min-h-0`
 
 export function SettingsTabs({ active }: { readonly active: SettingsTabId }) {
   const isAdmin = getAuthState().user?.role === "admin"
