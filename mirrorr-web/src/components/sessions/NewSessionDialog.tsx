@@ -33,26 +33,28 @@ import {
 } from "@/lib/new-session-form"
 import { createEntity } from "@/lib/optimistic-policy"
 import { QUERY_STALE_TIMES_MS, queryKeys } from "@/lib/query-keys"
-import { engineCanRecord } from "@/lib/schemas/plugins"
+import { engineCanRecord, type Profile } from "@/lib/schemas/plugins"
 import { createSession, fetchAllEngines, fetchAllProfiles, fetchAllResolvers } from "@/lib/sessions-api"
 import { showToast } from "@/lib/toast"
 
 export interface NewSessionDialogProps {
   readonly open: boolean
   readonly onClose: () => void
+  /** V8's "Use" profile prefill; `null`/absent starts from an empty form. */
+  readonly prefillProfile?: Profile | null
 }
 
-export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
+export function NewSessionDialog({ open, onClose, prefillProfile = null }: NewSessionDialogProps) {
   const [form, setForm] = useState<SessionFormState>(createEmptySessionForm)
   const [errors, setErrors] = useState<Readonly<Record<string, string>>>({})
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     if (!open) return
-    setForm(createEmptySessionForm())
+    setForm(prefillProfile === null ? createEmptySessionForm() : applyProfile(createEmptySessionForm(), prefillProfile))
     setErrors({})
     setSubmitting(false)
-  }, [open])
+  }, [open, prefillProfile])
 
   const enginesQuery = useQuery({
     queryKey: queryKeys.engines(),
@@ -67,7 +69,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     enabled: open,
   })
   const profilesQuery = useQuery({
-    queryKey: queryKeys.profiles(),
+    queryKey: queryKeys.profilesCatalog(),
     queryFn: ({ signal }) => fetchAllProfiles(signal),
     staleTime: QUERY_STALE_TIMES_MS.profiles,
     enabled: open,

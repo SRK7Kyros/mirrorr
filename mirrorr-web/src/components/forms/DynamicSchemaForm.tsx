@@ -21,6 +21,7 @@ import {
   parseIntegerListText,
   schemaProperties,
   schemaWantsKeyValues,
+  unknownPropertyKeys,
 } from "@/lib/schema-form"
 import { isObjectSchema, readJsonSchema, type JsonSchema } from "@/lib/schemas/json-schema"
 
@@ -44,11 +45,23 @@ function displayValue(value: unknown): string {
   return String(value)
 }
 
+/** Declared keys survive untouched; the free-form rows replace the rest. */
+function replaceUnknownKeys(
+  schema: JsonSchema,
+  values: Record<string, unknown>,
+  nextUnknown: Record<string, unknown>,
+): Record<string, unknown> {
+  const declared = new Set(Object.keys(schema.properties ?? {}))
+  const kept = Object.fromEntries(Object.entries(values).filter(([key]) => declared.has(key)))
+  return { ...kept, ...nextUnknown }
+}
+
 export function DynamicSchemaForm({ schema, values, onChange, errors = {}, path = "", idPrefix }: DynamicSchemaFormProps) {
   if (schema === undefined) return null
 
   const properties = schemaProperties(schema)
   const keyValues = schemaWantsKeyValues(schema) && properties.length === 0
+  const unknownKeys = properties.length > 0 ? unknownPropertyKeys(schema, values) : []
   if (properties.length === 0 && !keyValues) return null
 
   return (
@@ -74,6 +87,15 @@ export function DynamicSchemaForm({ schema, values, onChange, errors = {}, path 
           error={errors[path]}
           idPrefix={idPrefix}
           onChange={onChange}
+        />
+      ) : null}
+      {unknownKeys.length > 0 ? (
+        <KeyValueRows
+          label="Additional fields"
+          values={Object.fromEntries(unknownKeys.map((key) => [key, values[key]]))}
+          error={errors[path]}
+          idPrefix={`${idPrefix}-additional`}
+          onChange={(next) => onChange(replaceUnknownKeys(schema, values, next))}
         />
       ) : null}
     </div>
