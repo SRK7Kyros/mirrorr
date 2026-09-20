@@ -158,15 +158,15 @@ export function Dialog({ open, onClose, title, children, footer, size = "dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        onPointerDown={onPanelPointerDown}
-        onPointerUp={onPanelPointerUp}
+        onPointerDown={size === "wizard" ? undefined : onPanelPointerDown}
+        onPointerUp={size === "wizard" ? undefined : onPanelPointerUp}
         className={[
           "relative w-full rounded-surface border border-border bg-bg-overlay shadow-overlay",
           WIDTHS[size],
-          compact ? "compact-sheet-panel rounded-b-none" : "",
+          compact && size === "wizard" ? "compact-full-panel rounded-none" : compact ? "compact-sheet-panel rounded-b-none" : "",
         ].join(" ")}
       >
-        {compact ? (
+        {compact && size !== "wizard" ? (
           <div
             data-testid="sheet-drag-handle"
             aria-hidden="true"
