@@ -4,6 +4,7 @@ import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import { assertApiConfig } from "@/config/env"
 import { startProactiveRefresh } from "@/lib/api"
+import { installAppLifecycle } from "@/lib/app-lifecycle"
 import { installAuthSession } from "@/lib/auth-store"
 import { installBackNavigation } from "@/lib/back-navigation"
 import { entityStore } from "@/lib/entity-store-client"
@@ -62,6 +63,16 @@ startRealtimeManager()
 // Spec L171: while the manager is offline, the first successful poll of any
 // query resumes the sockets — the 15s fallback closes the loop by itself.
 installRealtimeResume({ queryCache: queryClient.getQueryCache() })
+
+// Spec L169: the mobile lifecycle policy — a 30s background grace then a
+// deliberate socket close, and on resume an immediate reconnect plus one
+// refetch of every visible query (the polling backstop stays the source of
+// truth). Todo 29 swaps the event source for Capacitor's `appStateChange`.
+installAppLifecycle({
+  refetchVisible: () => {
+    void queryClient.refetchQueries({ type: "active" })
+  },
+})
 
 // Spec L195: pushed frames feed the badge, the toast policy and a coalesced
 // refresh of the drawer's REST feed; a reconnect re-flushes on going live.
