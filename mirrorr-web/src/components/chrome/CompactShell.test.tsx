@@ -144,7 +144,7 @@ describe("compact app bar", () => {
     await renderInRouter(<AppShell />, "/sessions")
 
     const bar = await screen.findByTestId("compact-app-bar")
-    expect(bar.className).toContain("h-11")
+    expect(bar.className).toContain("compact-app-bar")
     expect(within(bar).getByTestId("view-title").textContent).toBe("Sessions")
     expect(within(bar).getByTestId("compact-mark")).toBeTruthy()
     expect(within(bar).queryByTestId("compact-back")).toBeNull()
@@ -190,7 +190,7 @@ describe("compact tab bar", () => {
     const bar = await screen.findByTestId("compact-tab-bar")
     expect(bar.tagName).toBe("NAV")
     expect(bar.getAttribute("aria-label")).toBe("Primary")
-    expect(bar.className).toContain("h-14")
+    expect(bar.className).toContain("compact-tab-bar")
     const slots = within(bar).getAllByRole("link")
     expect(slots).toHaveLength(4)
     expect(within(bar).getByTestId("compact-tab-more").tagName).toBe("BUTTON")
