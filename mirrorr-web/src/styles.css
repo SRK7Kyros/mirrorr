@@ -297,3 +297,47 @@
   }
 }
 
+/* Todo 26 / spec L522, L526, L528: the compact override rows that need CSS
+ * rather than component markup. A wizard (D1/D2) becomes a full-screen panel
+ * with a sticky header and footer; the recordings grid collapses to a single
+ * column with a 12px gap; control icons step to 20px and tab-bar icons to 22px.
+ * Token custom properties are never redeclared here — `scripts/check-tokens.mjs`
+ * diffs every declaration against `tests/fixtures/tokens.spec.json`. */
+@media (max-width: 639px) {
+  .compact-full-panel {
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow-y: auto;
+  }
+
+  .compact-full-panel > header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background-color: var(--color-bg-overlay);
+  }
+
+  .compact-full-panel > footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    background-color: var(--color-bg-overlay);
+  }
+
+  [data-testid="recordings-grid"] {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .compact-scroll-region svg.lucide,
+  .compact-app-bar svg.lucide {
+    width: 20px;
+    height: 20px;
+  }
+
+  .compact-tab-bar svg.lucide {
+    width: 22px;
+    height: 22px;
+  }
+}
+
