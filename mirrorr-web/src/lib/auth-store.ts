@@ -132,6 +132,18 @@ export async function signOut(): Promise<void> {
 }
 
 /**
+ * The realtime manager's second-`4001` consequence (spec L167): even after a
+ * successful refresh the server keeps rejecting the socket, so the session is
+ * gone. Preserves an already-raised "Session expired" toast flag by no-op'ing
+ * when no principal is left (the refresh-failure path marks expiration in
+ * `api.ts` before calling this).
+ */
+export function expireSession(): void {
+  if (state.user === null && state.client === null) return
+  handleForcedLogout("retry-unauthorized")
+}
+
+/**
  * Change-password rule (spec L53, L371): a 200 means the server invalidated
  * every access token, so the client force-signs out with the spec toast. The
  * V11 form arrives in todo 16 — the rule lives here so it cannot drift.
