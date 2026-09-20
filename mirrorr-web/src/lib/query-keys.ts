@@ -70,6 +70,14 @@ export const queryKeys = {
   autorun: (id: number) => ["autorun", id] as const,
   recordings: (filters?: ListFilters) => ["recordings", normalizeListFilters(filters)] as const,
   profiles: (filters?: ListFilters) => ["profiles", normalizeListFilters(filters)] as const,
+  /**
+   * The all-pages profile array the D1/AutorunWizard pickers read. It is a
+   * SEPARATE key from the paginated list (`profiles()`): one key must never
+   * carry two cache shapes (see `use-linked-session`'s shared-shape note).
+   */
+  profilesCatalog: () => ["profiles", "catalog"] as const,
+  /** Prefix covering every profiles collection query (list, filters, catalog). */
+  profilesAll: () => ["profiles"] as const,
   profile: (id: number) => ["profile", id] as const,
   engines: () => ["engines"] as const,
   resolvers: () => ["resolvers"] as const,

@@ -114,7 +114,7 @@ export function AutorunWizard({ open, onClose, autorun = null, store = entitySto
     enabled: open,
   })
   const profilesQuery = useQuery({
-    queryKey: queryKeys.profiles(),
+    queryKey: queryKeys.profilesCatalog(),
     queryFn: ({ signal }) => fetchAllProfiles(signal),
     staleTime: QUERY_STALE_TIMES_MS.profiles,
     enabled: open,

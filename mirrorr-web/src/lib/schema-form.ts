@@ -50,6 +50,31 @@ export function mergeConfig(defaults: ConfigValues, values: ConfigValues): Recor
   return { ...defaults, ...values }
 }
 
+/**
+ * The form's initial values: declared schema `default`s merged with the
+ * server's `default_params` (params win — they are the live values).
+ */
+export function prefillValues(
+  schema: JsonSchema | undefined,
+  defaultParams: ConfigValues = {},
+): Record<string, unknown> {
+  return mergeConfig(schemaDefaults(schema), defaultParams)
+}
+
+/**
+ * Keys present in `values` that the schema does not declare — rendered as
+ * free-form key/value rows and still submitted (contract §8.1). A schema with
+ * `additionalProperties: false` closes the object instead.
+ */
+export function unknownPropertyKeys(
+  schema: JsonSchema | undefined,
+  values: ConfigValues,
+): readonly string[] {
+  if (schema?.additionalProperties === false) return []
+  const declared = new Set(Object.keys(schema?.properties ?? {}))
+  return Object.keys(values).filter((key) => !declared.has(key))
+}
+
 function isEmpty(value: unknown): boolean {
   if (value === undefined || value === null) return true
   if (typeof value === "string") return value.trim().length === 0
