@@ -45,6 +45,13 @@ if (minor > 99 || patchLevel > 99) {
 const version = `${major}.${minor}.${patchLevel}`
 const versionCode = major * 10000 + minor * 100 + patchLevel
 
+if (versionCode < 1) {
+  console.error(
+    `set-native-version: version ${raw} encodes to versionCode ${versionCode} — Android requires a positive integer, so set a real package.json version`,
+  )
+  process.exit(1)
+}
+
 async function exists(file) {
   try {
     await access(file)
