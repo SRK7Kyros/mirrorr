@@ -13,10 +13,12 @@
 import { useQuery } from "@tanstack/react-query"
 import { Plus, Video } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
+import { useIsCompactShell } from "@/components/chrome/CompactShell"
 import { NewSessionDialog } from "@/components/sessions/NewSessionDialog"
 import { SaveAsProfileDialog } from "@/components/sessions/SaveAsProfileDialog"
-import { SessionRowActions } from "@/components/sessions/SessionRowActions"
+import { SessionRowActions, sessionActionItems } from "@/components/sessions/SessionRowActions"
 import { Button } from "@/components/ui/Button"
+import { CompactCardList } from "@/components/ui/CompactCardList"
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 import { EmptyState, EMPTY_STATES } from "@/components/ui/EmptyState"
 import { ErrorPanel } from "@/components/ui/ErrorPanel"
@@ -222,6 +224,7 @@ export function SessionsView({ store = entityStore }: SessionsViewProps) {
 
   const isAdmin = getAuthState().user?.role === "admin"
   const now = new Date()
+  const compact = useIsCompactShell()
 
   const columns: TableColumn<Session>[] = [
     {
@@ -344,6 +347,70 @@ export function SessionsView({ store = entityStore }: SessionsViewProps) {
     },
   })
 
+  function columnFor(key: string) {
+    return columns.find((column) => column.key === key)
+  }
+
+  function absoluteStarted(row: Session): string | null {
+    if (row.started_at === null || row.started_at === undefined) return null
+    try {
+      return formatRelativeTime(row.started_at, now).title
+    } catch {
+      return null
+    }
+  }
+
+  /** Spec L539 V3 card anatomy; spec L531 desktop `title` tooltips become visible 12px muted text. */
+  function renderSessionCard(row: Session) {
+    const cell = (key: string) => columnFor(key)?.render(row) ?? null
+    const engine = enginesQuery.data?.find((item) => item.id === row.engine_id)
+    const startedAbsolute = absoluteStarted(row)
+
+    return (
+      <>
+        <span className="flex items-center gap-2">
+          {cell("status")}
+          {cell("id")}
+          <span className="ml-auto flex items-center gap-2">{cell("recording")}</span>
+        </span>
+        <span className="flex flex-wrap items-center gap-2 text-small text-text-secondary">
+          {cell("configuration")}
+          {cell("profile")}
+        </span>
+        <span className="flex flex-wrap items-center gap-2 text-small text-text-secondary">
+          {cell("started")}
+          {cell("duration")}
+        </span>
+        {startedAbsolute === null ? null : (
+          <span data-testid="card-started-absolute" className="text-micro text-text-muted">
+            {startedAbsolute}
+          </span>
+        )}
+        {engineCanRecord(engine) ? null : (
+          <span data-testid="engine-cannot-record" className="text-micro text-text-muted">
+            Engine cannot record
+          </span>
+        )}
+      </>
+    )
+  }
+
+  function cardActions(row: Session) {
+    const engine = enginesQuery.data?.find((item) => item.id === row.engine_id)
+    return sessionActionItems({
+      session: row,
+      canRecord: engineCanRecord(engine),
+      pending: store.getPending("session", row.id),
+      escalated: escalated.has(row.id),
+      controlUnavailable: controlUnavailable.has(row.id),
+      onStop: () => setStopTarget(row),
+      onToggleRecording: () => void handleToggleRecording(row),
+      onSaveAsProfile: () => setSaveTarget(row),
+      onDelete: () => setDeleteTarget(row),
+      onForceDelete: () => setDeleteTarget(row),
+    })
+  }
+
   function retry() {
     void queryClient.invalidateQueries({ queryKey: queryKeys.sessions(), type: "all" })
   }
@@ -411,6 +478,16 @@ export function SessionsView({ store = entityStore }: SessionsViewProps) {
         />
       ) : filteredRows.length === 0 ? (
         <EmptyState icon={Video} title="No sessions match the current filter" />
+      ) : compact ? (
+        <CompactCardList
+          label="Sessions"
+          rows={filteredRows}
+          getRowKey={(row) => row.id}
+          renderCard={renderSessionCard}
+          actionsFor={cardActions}
+          hrefFor={(row) => `/sessions/${row.id}`}
+          sheetTitle={(row) => `Session #${row.id} actions`}
+        />
       ) : (
         <Table label="Sessions" columns={columns} rows={filteredRows} getRowKey={(row) => row.id} />
       )}

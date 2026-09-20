@@ -10,6 +10,7 @@
  */
 import { Loader2, MoreHorizontal } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
+import type { ActionSheetItem } from "@/components/ui/ActionSheet"
 import { Button } from "@/components/ui/Button"
 import type { PendingAction } from "@/lib/entity-store"
 import type { Session } from "@/lib/schemas/sessions"
@@ -207,4 +208,66 @@ function OverflowMenu({ sessionId, actions, disabled, onSelect }: OverflowMenuPr
       ) : null}
     </div>
   )
+}
+
+export interface SessionActionItemArgs {
+  readonly session: Session
+  readonly canRecord: boolean
+  readonly pending: PendingAction | undefined
+  readonly escalated: boolean
+  readonly controlUnavailable: boolean
+  readonly onStop: () => void
+  readonly onToggleRecording: () => void
+  readonly onSaveAsProfile: () => void
+  readonly onDelete: () => void
+  readonly onForceDelete: () => void
+}
+
+/**
+ * Spec L505/L558: the compact sheet wraps the desktop action set rather than
+ * defining a second one — inline entries included, since five 44px buttons do
+ * not fit a 360px card. Each entry's ConfirmDialog still runs after the sheet.
+ */
+export function sessionActionItems(args: SessionActionItemArgs): readonly ActionSheetItem[] {
+  const { session, canRecord, pending, escalated, controlUnavailable } = args
+
+  if (pending?.kind === "delete") return []
+
+  const busy = pending !== undefined
+  const stopPending = pending?.kind === "stop"
+
+  function run(action: StatusAction) {
+    switch (action.id) {
+      case "stop":
+        args.onStop()
+        return
+      case "toggle-recording":
+        args.onToggleRecording()
+        return
+      case "save-as-profile":
+        args.onSaveAsProfile()
+        return
+      case "delete":
+        args.onDelete()
+        return
+      default:
+        return
+    }
+  }
+
+  const items: ActionSheetItem[] = sessionActionsFor(session.status, { canRecord }).map((action) => ({
+    id: action.id,
+    label: action.id === "stop" && stopPending ? "Stopping…" : action.label,
+    tone: action.kind === "danger" ? "danger" : undefined,
+    disabled: action.disabled || busy,
+    onSelect: () => run(action),
+  }))
+
+  const forceDelete = (escalated && stopPending) || controlUnavailable
+  if (!forceDelete) return items
+
+  return [
+    ...items,
+    { id: "force-delete", label: "Force delete", tone: "danger", onSelect: args.onForceDelete },
+  ]
 }
