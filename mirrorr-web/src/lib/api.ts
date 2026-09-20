@@ -288,6 +288,23 @@ function warnSchemaMismatch(path: string, error: ZodError): void {
 /** The one shared in-flight refresh; null when no refresh is running. */
 let refreshInFlight: Promise<AuthResponse> | null = null
 
+/**
+ * Persistence seam for the wrapper build (spec L597): the rotated pair a refresh
+ * returns must reach secure storage BEFORE any waiter retries, so a retry can
+ * never present a token the server has already rotated away (JTI rotation makes
+ * an unpersisted replay invalidate the whole session). The hook is awaited
+ * inside the shared promise, ahead of its resolution, which is what makes that
+ * ordering a property of this module rather than of every caller. A rejection
+ * fails the refresh closed — an undurable token pair is not a usable session.
+ */
+export type RefreshPersister = (response: AuthResponse) => void | Promise<void>
+
+let refreshPersister: RefreshPersister | null = null
+
+export function setRefreshPersister(persister: RefreshPersister | null): void {
+  refreshPersister = persister
+}
+
 async function performRefresh(): Promise<AuthResponse> {
   const response = await sendRequest(REFRESH_PATH, { method: "POST", body: {} })
   if (!response.ok) throw await toApiError(response)
@@ -310,7 +327,8 @@ async function performRefresh(): Promise<AuthResponse> {
 export function refreshSession(): Promise<AuthResponse> {
   refreshInFlight ??= performRefresh()
     .then(
-      (response) => {
+      async (response) => {
+        await refreshPersister?.(response)
         markSessionRefreshed()
         return response
       },
@@ -361,6 +379,20 @@ function shouldRefreshProactively(at: number): boolean {
 }
 
 /**
+ * The shared staleness rule applied on demand: the 23h timer, the
+ * `visibilitychange` handler and the wrapper's `appStateChange` resume all
+ * route through here, so ">1h since the last successful refresh" is stated
+ * once (spec L150-L156, L600).
+ */
+export function refreshSessionIfStale(at: number = Date.now()): void {
+  if (!shouldRefreshProactively(at)) return
+  void refreshSession().catch(() => {
+    // The failure already emitted the one forced logout; swallow so a timer or
+    // a lifecycle event never produces an unhandled rejection.
+  })
+}
+
+/**
  * Starts the proactive refresh rules and returns a stop function.
  *
  * The 23h timer and the `visibilitychange` handler both refresh ONLY when the
@@ -376,11 +408,7 @@ export function startProactiveRefresh(options: ProactiveRefreshOptions = {}): ()
   const getVisibilityState = options.getVisibilityState ?? (() => document.visibilityState)
 
   const tick = (): void => {
-    if (!shouldRefreshProactively(now())) return
-    void refreshSession().catch(() => {
-      // The failure already emitted the one forced logout; swallow so the
-      // timer never produces an unhandled rejection.
-    })
+    refreshSessionIfStale(now())
   }
 
   const onVisibilityChange = (): void => {
