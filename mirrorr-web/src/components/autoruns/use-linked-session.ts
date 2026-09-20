@@ -7,6 +7,7 @@
  */
 import { useInfiniteQuery } from "@tanstack/react-query"
 import { useMemo } from "react"
+import { usePollingPolicy } from "@/hooks/use-polling-policy"
 import { PAGE_LIMIT_DEFAULT, getNextPageParam } from "@/lib/pagination"
 import { queryKeys } from "@/lib/query-keys"
 import type { Autorun } from "@/lib/schemas/autoruns"
@@ -28,6 +29,7 @@ export function findLinkedSession(
 }
 
 export function useLinkedSession(autorun: Autorun | undefined): Session | undefined {
+  const polling = usePollingPolicy("list")
   const query = useInfiniteQuery({
     queryKey: queryKeys.sessions(),
     queryFn: ({ pageParam, signal }) =>
@@ -35,7 +37,8 @@ export function useLinkedSession(autorun: Autorun | undefined): Session | undefi
     initialPageParam: null,
     getNextPageParam,
     enabled: autorun !== undefined,
-    refetchInterval: 30_000,
+    refetchInterval: polling.refetchInterval,
+    refetchOnWindowFocus: polling.refetchOnWindowFocus,
   })
 
   const sessions = useMemo(

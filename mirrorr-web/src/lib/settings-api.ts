@@ -20,7 +20,15 @@ import {
 
 const usersSchema = z.array(authUserSchema)
 const clientsSchema = z.array(apiClientSchema)
-const createUserSchema = z.union([authResponseSchema, registrationPendingSchema])
+/**
+ * `POST /auth/register` always answers with a user principal (it may answer
+ * 202 `pending`), so the shared auth shape is narrowed back to non-null here —
+ * the nullable `user` only exists for API-key principals (§13.10.1).
+ */
+const createUserSchema = z.union([
+  authResponseSchema.extend({ user: authUserSchema }),
+  registrationPendingSchema,
+])
 
 export interface CreateUserInput {
   readonly username: string

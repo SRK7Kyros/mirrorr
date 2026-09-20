@@ -21,6 +21,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 import { ErrorPanel } from "@/components/ui/ErrorPanel"
 import { SkeletonRows, SKELETON_PRESETS } from "@/components/ui/SkeletonRows"
 import { StatusChip } from "@/components/ui/StatusChip"
+import { usePollingPolicy } from "@/hooks/use-polling-policy"
 import { useCountdownTick } from "@/hooks/use-tick"
 import {
   AUTORUN_LIVE_LOCK_MESSAGE,
@@ -49,11 +50,12 @@ export function AutorunDetailView({ autorunId, store = entityStore }: AutorunDet
   const tick = useCountdownTick()
   usePendingVersion(store)
 
+  const polling = usePollingPolicy("detail")
   const query = useQuery({
     queryKey: queryKeys.autorun(autorunId),
     queryFn: () => fetchAutorun(autorunId),
-    refetchInterval: 30_000,
-    refetchOnWindowFocus: true,
+    refetchInterval: polling.refetchInterval,
+    refetchOnWindowFocus: polling.refetchOnWindowFocus,
   })
   const linked = useLinkedSession(query.data)
 

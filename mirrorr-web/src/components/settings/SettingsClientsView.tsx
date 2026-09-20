@@ -17,6 +17,7 @@ import { ErrorPanel } from "@/components/ui/ErrorPanel"
 import { Input } from "@/components/ui/Input"
 import { SkeletonRows } from "@/components/ui/SkeletonRows"
 import { Table, type TableColumn } from "@/components/ui/Table"
+import { usePollingPolicy } from "@/hooks/use-polling-policy"
 import { copyText } from "@/lib/clipboard"
 import { userMessageForError } from "@/lib/errors"
 import { formatDateTime } from "@/lib/format"
@@ -38,10 +39,13 @@ interface RevealedKey {
 
 export function SettingsClientsView() {
   const queryClient = useQueryClient()
+  const polling = usePollingPolicy("admin")
   const clientsQuery = useQuery({
     queryKey: queryKeys.clients(),
     queryFn: fetchClients,
     staleTime: QUERY_STALE_TIMES_MS.clients,
+    refetchInterval: polling.refetchInterval,
+    refetchOnWindowFocus: polling.refetchOnWindowFocus,
   })
   const clients = clientsQuery.data ?? []
 

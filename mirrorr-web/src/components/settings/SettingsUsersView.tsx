@@ -19,6 +19,7 @@ import { ErrorPanel } from "@/components/ui/ErrorPanel"
 import { Input } from "@/components/ui/Input"
 import { SkeletonRows } from "@/components/ui/SkeletonRows"
 import { Table, type TableColumn } from "@/components/ui/Table"
+import { usePollingPolicy } from "@/hooks/use-polling-policy"
 import { ApiError, userMessageForError } from "@/lib/errors"
 import { QUERY_STALE_TIMES_MS, queryKeys } from "@/lib/query-keys"
 import type { AuthUser } from "@/lib/schemas/auth"
@@ -35,10 +36,13 @@ interface CreateFieldErrors {
 
 export function SettingsUsersView() {
   const queryClient = useQueryClient()
+  const polling = usePollingPolicy("admin")
   const usersQuery = useQuery({
     queryKey: queryKeys.users(),
     queryFn: fetchUsers,
     staleTime: QUERY_STALE_TIMES_MS.users,
+    refetchInterval: polling.refetchInterval,
+    refetchOnWindowFocus: polling.refetchOnWindowFocus,
   })
   const users = usersQuery.data ?? []
   const adminCount = users.filter((user) => user.role === "admin").length

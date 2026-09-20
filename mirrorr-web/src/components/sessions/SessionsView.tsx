@@ -27,6 +27,7 @@ import { StatusChip } from "@/components/ui/StatusChip"
 import { Table, type TableColumn } from "@/components/ui/Table"
 import { useAutoLoadOnIntersect } from "@/hooks/use-auto-load"
 import { useInfiniteList } from "@/hooks/use-infinite-list"
+import { usePollingPolicy } from "@/hooks/use-polling-policy"
 import { useNameMap } from "@/hooks/use-name-map"
 import { getAuthState } from "@/lib/auth-store"
 import type { EntityStore, PendingAction } from "@/lib/entity-store"
@@ -78,11 +79,12 @@ export function SessionsView({ store = entityStore }: SessionsViewProps) {
     [search, statusFilter],
   )
 
+  const polling = usePollingPolicy("list")
   const list = useInfiniteList<Session>({
     queryKey: queryKeys.sessions(filters),
     fetchPage: fetchSessionsPage,
-    refetchInterval: 30_000,
-    refetchOnWindowFocus: true,
+    refetchInterval: polling.refetchInterval,
+    refetchOnWindowFocus: polling.refetchOnWindowFocus,
   })
   const { nameFor } = useNameMap()
   const enginesQuery = useQuery({
