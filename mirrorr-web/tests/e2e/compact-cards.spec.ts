@@ -324,4 +324,17 @@ test.describe("compact card list at 390x844", () => {
     expect(well.whiteSpace).toBe("pre")
     expect(well.overflowX).toBe("auto")
   })
+
+  test("the compact FAB invokes each view's primary action", async ({ page }) => {
+    const paths = ["/sessions", "/autoruns", "/profiles", "/settings/users", "/settings/clients"] as const
+
+    for (const path of paths) {
+      await page.goto(path)
+      await expect(page.getByTestId("compact-fab")).toBeVisible()
+      await page.getByTestId("compact-fab").click()
+      await expect(page.getByRole("dialog")).toHaveCount(1)
+      await page.keyboard.press("Escape")
+      await expect(page.getByRole("dialog")).toHaveCount(0)
+    }
+  })
 })
