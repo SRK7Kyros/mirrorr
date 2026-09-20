@@ -4,7 +4,7 @@ import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import { assertApiConfig } from "@/config/env"
 import { startProactiveRefresh } from "@/lib/api"
-import { installAppLifecycle } from "@/lib/app-lifecycle"
+import { installWrapperRuntime } from "@/lib/wrapper-runtime"
 import { installAuthSession } from "@/lib/auth-store"
 import { installBackNavigation } from "@/lib/back-navigation"
 import { entityStore } from "@/lib/entity-store-client"
@@ -68,7 +68,10 @@ installRealtimeResume({ queryCache: queryClient.getQueryCache() })
 // deliberate socket close, and on resume an immediate reconnect plus one
 // refetch of every visible query (the polling backstop stays the source of
 // truth). Todo 29 swaps the event source for Capacitor's `appStateChange`.
-installAppLifecycle({
+// Awaited, not fired and forgotten: on a native platform the bearer transport and
+// the restored token pair must exist before the first request, or the auth check
+// goes out cookie-less, 401s into a forced logout, and reloads into the same state.
+await installWrapperRuntime({
   refetchVisible: () => {
     void queryClient.refetchQueries({ type: "active" })
   },

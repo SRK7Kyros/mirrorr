@@ -94,6 +94,24 @@ export interface AuthSessionWiring {
   readonly getCurrentHref: () => string
 }
 
+/**
+ * Session lifecycle seam for the Capacitor wrapper (spec L597-L600): a login
+ * must persist the token pair, and every wipe (logout, forced logout,
+ * change-password) must delete it. The browser build registers nothing, so
+ * cookie mode never touches token storage. Sockets need no handling here — the
+ * realtime manager watches the auth store and closes on a lost principal.
+ */
+export interface SessionLifecycleHooks {
+  readonly onAuthenticated?: (response: AuthResponse) => void | Promise<void>
+  readonly onCleared?: () => void
+}
+
+let sessionLifecycleHooks: SessionLifecycleHooks | null = null
+
+export function setSessionLifecycleHooks(hooks: SessionLifecycleHooks | null): void {
+  sessionLifecycleHooks = hooks
+}
+
 /** Called once at boot (and by tests with their own router). */
 export function installAuthSession(wiring: AuthSessionWiring): void {
   navigateToLogin = wiring.navigateToLogin
@@ -105,6 +123,7 @@ function handleForcedLogout(_reason: ForcedLogoutReason): void {
   const hadSession = state.user !== null || state.client !== null
   queryClient.clear()
   clearToasts()
+  sessionLifecycleHooks?.onCleared?.()
   if (hadSession) markSessionExpired()
   else setState(ANONYMOUS)
   redirectToLogin()
@@ -118,6 +137,7 @@ function redirectToLogin(): void {
 export function clearSession(): void {
   queryClient.clear()
   clearAuthSession()
+  sessionLifecycleHooks?.onCleared?.()
   resetSession()
   redirectToLogin()
 }
@@ -157,9 +177,24 @@ export async function changePasswordAndSignOut(
   showToast(PASSWORD_CHANGED_MESSAGE, "info")
 }
 
-/** Seeds every cache/store location a login/register response feeds. */
-export function completeAuthentication(response: AuthResponse): void {
+function seedAuthentication(response: AuthResponse): void {
   markSessionRefreshed()
   setAuthSession(response)
   queryClient.setQueryData(queryKeys.authMe(), response)
+}
+
+/**
+ * Seeds every cache/store location a login/register response feeds. The wrapper
+ * hook runs first and may reject — throwing through to the caller's error path,
+ * which is how a server that exposes no app tokens surfaces its inline error.
+ * With no hook registered the seeding stays synchronous, so the browser build's
+ * login completes before the caller's next statement.
+ */
+export function completeAuthentication(response: AuthResponse): Promise<void> {
+  const pending = sessionLifecycleHooks?.onAuthenticated?.(response)
+  if (pending === undefined) {
+    seedAuthentication(response)
+    return Promise.resolve()
+  }
+  return Promise.resolve(pending).then(() => seedAuthentication(response))
 }
