@@ -7,9 +7,8 @@ import { API_URL_ENV_VAR } from "@/config/env"
 import { getAuthState, installAuthSession, setAuthSession } from "@/lib/auth-store"
 import {
   DEFAULT_NOTIFICATION_PREFS,
-  NOTIFICATION_FRAME_EVENT,
   NOTIFICATION_PREFS_STORAGE_KEY,
-  installNotificationFrameBridge,
+  handleNotificationFrame,
 } from "@/lib/notification-policy"
 import { queryClient } from "@/query-client"
 import { installFetch, jsonResponse } from "@/test/api-helpers"
@@ -132,23 +131,14 @@ describe("V11 notification preferences", () => {
   })
 
   it("gates the session.crashed toast on the crashes preference", async () => {
-    installNotificationFrameBridge(window)
     renderAccount()
 
-    window.dispatchEvent(
-      new CustomEvent(NOTIFICATION_FRAME_EVENT, {
-        detail: { event_type: "session.crashed", title: "Session 7 crashed" },
-      }),
-    )
+    handleNotificationFrame({ event_type: "session.crashed", title: "Session 7 crashed" })
     expect(await screen.findByText("Session 7 crashed")).toBeTruthy()
 
     fireEvent.click(screen.getByRole("switch", { name: "Crashes" }))
     clearToasts()
-    window.dispatchEvent(
-      new CustomEvent(NOTIFICATION_FRAME_EVENT, {
-        detail: { event_type: "session.crashed", title: "Session 8 crashed" },
-      }),
-    )
+    handleNotificationFrame({ event_type: "session.crashed", title: "Session 8 crashed" })
     expect(getToasts()).toHaveLength(0)
     expect(screen.queryByText("Session 8 crashed")).toBeNull()
   })
