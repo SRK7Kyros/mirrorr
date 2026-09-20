@@ -306,4 +306,22 @@ test.describe("compact card list at 390x844", () => {
     })
     expect(gridTracks.split(" ").length).toBe(1)
   })
+
+  test("mono wells scroll horizontally instead of wrapping", async ({ page }) => {
+    await page.goto("/sessions")
+    await expect(page.getByTestId("sessions-view")).toBeVisible()
+
+    const well = await page.evaluate(() => {
+      const probe = document.createElement("span")
+      probe.setAttribute("data-testid", "api-key-value")
+      document.querySelector('[data-testid="compact-scroll"]')?.appendChild(probe)
+      const styles = getComputedStyle(probe)
+      const value = { whiteSpace: styles.whiteSpace, overflowX: styles.overflowX }
+      probe.remove()
+      return value
+    })
+
+    expect(well.whiteSpace).toBe("pre")
+    expect(well.overflowX).toBe("auto")
+  })
 })
