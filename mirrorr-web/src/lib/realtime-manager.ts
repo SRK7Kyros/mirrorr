@@ -220,6 +220,31 @@ export class RealtimeManager {
     for (const role of this.activeRoles()) this.reconnectNow(role)
   }
 
+  /**
+   * Spec L169 (mobile lifecycle): once the app has been backgrounded past the
+   * grace window the sockets are closed deliberately — no retry is scheduled,
+   * because the resume path owns recovery and a hidden client cannot act on it.
+   */
+  pauseNow(): void {
+    if (!this.started) return
+    for (const role of SOCKET_ROLES) this.shutdownSocket(role)
+    this.updateStatus()
+  }
+
+  /**
+   * Spec L169 (mobile lifecycle): on resume every active socket reconnects
+   * immediately with a fresh attempt budget, so a long background cannot spend
+   * the 12-attempt ceiling before the operator sees the app again.
+   */
+  resumeNow(): void {
+    if (!this.started) return
+    for (const role of this.activeRoles()) {
+      this.shutdownSocket(role)
+      this.connect(role)
+    }
+    this.updateStatus()
+  }
+
   // -------------------------------------------------------------------------
   // Principal gate
   // -------------------------------------------------------------------------
@@ -517,4 +542,14 @@ export function stopRealtimeManager(): void {
 /** The health banner's manual Retry (spec L171); no-op before the manager exists. */
 export function retryRealtimeNow(): void {
   singleton?.retryNow()
+}
+
+/** Spec L169: the lifecycle pause — deliberate close after the background grace. */
+export function pauseRealtimeNow(): void {
+  singleton?.pauseNow()
+}
+
+/** Spec L169: the lifecycle resume — immediate reconnect, attempt counter reset. */
+export function resumeRealtimeNow(): void {
+  singleton?.resumeNow()
 }

@@ -17,6 +17,7 @@
  * socket-independent.
  */
 import { z } from "zod"
+import { isAppBackgrounded } from "@/lib/app-lifecycle"
 import { showToast } from "@/lib/toast"
 
 export const NOTIFICATION_PREFS_STORAGE_KEY = "mirrorr.notification-prefs"
@@ -200,6 +201,11 @@ function toastTone(frame: NotificationFrame): "error" | "info" {
  */
 export function handleNotificationFrame(frame: NotificationFrame): boolean {
   addSyntheticNotification(frame)
+
+  // Spec L169/L573: a frame that lands while the app is backgrounded still
+  // counts toward the badge but raises no toast — and nothing is queued, so no
+  // stale alert replays on resume.
+  if (isAppBackgrounded()) return false
 
   if (!isToastEnabled(frame, readNotificationPrefs())) return false
 
