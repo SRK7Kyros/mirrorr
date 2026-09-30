@@ -1,0 +1,17 @@
+/*
+ * app.css — token + layer aggregator (spec §1 tokens are law).
+ * Order: tokens → base → ui primitives → chrome shell → responsive breakpoints.
+ */
+@import "./styles/tokens.css";
+@import "./styles/base.css";
+@import "./styles/ui.css";
+@import "./styles/ui-status.css";
+@import "./styles/ui-feedback.css";
+@import "./styles/ui-overlays.css";
+@import "./styles/chrome.css";
+@import "./styles/chrome-panels.css";
+@import "./styles/chrome-breakpoints.css";
+@import "./styles/auth.css";
+@import "./styles/views.css";
+@import "./styles/views-detail.css";
+@import "./styles/settings.css";

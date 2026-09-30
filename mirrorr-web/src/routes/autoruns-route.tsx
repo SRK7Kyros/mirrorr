@@ -1,7 +1,10 @@
 import { createRoute } from "@tanstack/react-router"
-import { AutorunsView } from "@/components/autoruns/AutorunsView"
-import { DEFAULT_AUTORUN_FILTER } from "@/lib/autorun-filters"
+import { lazy, Suspense } from "react"
 import { authLayoutRoute } from "@/routes/auth-layout-route"
+
+const AutorunsList = lazy(() =>
+  import("@/views/autoruns/autoruns-list").then((m) => ({ default: m.AutorunsList })),
+)
 
 export interface AutorunsSearch {
   readonly filter?: string
@@ -11,19 +14,15 @@ export const autorunsRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/autoruns",
   validateSearch: (search: Record<string, unknown>): AutorunsSearch => ({
-    filter: typeof search.filter === "string" && search.filter.length > 0 ? search.filter : undefined,
+    filter: typeof search.filter === "string" ? search.filter : undefined,
   }),
-  component: AutorunsRouteComponent,
+  component: AutorunsRouteView,
 })
 
-function AutorunsRouteComponent() {
-  const search = autorunsRoute.useSearch()
-  const navigate = autorunsRoute.useNavigate()
-
+function AutorunsRouteView() {
   return (
-    <AutorunsView
-      filter={search.filter ?? DEFAULT_AUTORUN_FILTER}
-      onFilterChange={(next) => void navigate({ search: { filter: next } })}
-    />
+    <Suspense fallback={null}>
+      <AutorunsList />
+    </Suspense>
   )
 }

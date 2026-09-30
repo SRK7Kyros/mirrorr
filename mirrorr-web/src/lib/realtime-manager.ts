@@ -1,551 +1,349 @@
-/**
- * The realtime socket manager: ONE singleton owning both WebSockets.
- *
- * Contract:
- * - `docs/web-frontend-spec.md` L162-L171 — both sockets open after the first
- *   successful `GET /auth/me` and close on logout; `/ws/events` is the entity
- *   stream and `/ws/notifications` is skipped entirely when `user` is null
- *   (API-client principals); auth rides the httpOnly cookie on web and the
- *   `Sec-WebSocket-Protocol` subprotocol in the Capacitor wrapper; the client
- *   never sends frames (`heartbeat is server-driven — client only watches for
- *   silence`); reconnect is 1→2→4→8→16→30s capped, max 12 attempts; close
- *   `4001` runs refresh-once → reconnect (second `4001` → logout), `1013`
- *   retries with backoff; after 12 failed attempts the dot is red and the
- *   "Live updates offline — polling every 15s" banner shows.
- * - `docs/web-frontend-spec.md` L589 — socket URLs are DERIVED from
- *   `VITE_API_URL` by `src/config/env.ts`; this module never re-derives them.
- * - `docs/general-client-specification.md` §11.1-§11.2 (server-push only) and
- *   §13.9.6 (`4001` = auth, `1013` = temporarily unavailable, anything else =
- *   capped backoff).
- *
- * Boundaries owned by later todos: the manager only parses JSON and exposes
- * the raw frame stream (`subscribeRealtimeFrames`). The subject→reaction table,
- * coalescing and remux progress are todo 19; the notification badge/toast
- * pipeline is todo 20; polling cadences are todo 21.
- */
-import { getWsEventsUrl, getWsNotificationsUrl } from "@/config/env"
-import { refreshSession } from "@/lib/api"
-import { expireSession, getAuthState, subscribeToAuth } from "@/lib/auth-store"
-import {
-  DEFAULT_REALTIME_STATUS,
-  setRealtimeStatus,
-  type RealtimeStatus,
-} from "@/lib/realtime-status"
+import { apiBase, refreshSession } from "@/lib/api"
 
-/** Spec L171: exponential backoff 1s→2s→4s→8s→16s→30s (cap). */
-export const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 16000, 30000] as const
+export type RealtimeSocketState =
+  | "closed"
+  | "connecting"
+  | "open"
+  | "reconnecting"
+  | "polling"
+  | "skipped"
 
-/** Spec L171: max 12 reconnection attempts before the red/polling state. */
-export const MAX_RECONNECT_ATTEMPTS = 12
+export interface RealtimeState {
+  readonly events: RealtimeSocketState
+  readonly notifications: RealtimeSocketState
+  readonly attempts: number
+  readonly pollingFallback: boolean
+}
 
-/** Spec L169: any socket silent >45s is force-closed and reconnected. */
-export const SOCKET_SILENCE_TIMEOUT_MS = 45_000
-
-/** §13.9.6: auth close code; the server refuses unauthenticated sockets with it. */
-export const AUTH_CLOSE_CODE = 4001
-
-export type RealtimeSocketRole = "events" | "notifications"
-
-/** The minimal WebSocket surface the manager drives (fake-able in tests). */
-export interface RealtimeSocket {
-  readonly send: (data: string) => void
-  readonly close: (code?: number, reason?: string) => void
+export interface WebSocketLike {
   onopen: ((event: Event) => void) | null
-  onmessage: ((event: { readonly data: unknown }) => void) | null
-  onclose: ((event: { readonly code: number }) => void) | null
+  onclose: ((event: CloseEvent) => void) | null
+  onmessage: ((event: MessageEvent) => void) | null
+  close: () => void
 }
 
-/** One raw parsed frame, tagged with the socket it arrived on (todo 19/20 seam). */
-export interface RealtimeFrame {
-  readonly role: RealtimeSocketRole
-  readonly payload: unknown
-}
+export type WebSocketConstructor = new (url: string) => WebSocketLike
 
-/** The principal shape the gate reads (structurally `AuthState`). */
-export interface RealtimePrincipalState {
-  readonly user: unknown | null
-  readonly client: unknown | null
+export interface RealtimeFrameHandlers {
+  readonly onEvent?: (frame: unknown) => void
+  readonly onNotification?: (frame: unknown) => void
 }
 
 export interface RealtimeManagerOptions {
-  readonly createSocket?: (url: string, protocols: readonly string[]) => RealtimeSocket
-  readonly getEventsUrl?: () => string
-  readonly getNotificationsUrl?: () => string
-  readonly getSession?: () => RealtimePrincipalState
-  readonly subscribeAuth?: (listener: () => void) => () => void
-  /** Wrapper builds return the access JWT here (spec L167); web returns null. */
-  readonly getSubprotocol?: () => string | null
-  readonly refresh?: () => Promise<unknown>
-  readonly onAuthExpired?: () => void
-  readonly publishFrame?: (frame: RealtimeFrame) => void
-  readonly setStatus?: (status: RealtimeStatus) => void
-  readonly setTimeoutFn?: (callback: () => void, delayMs: number) => number
-  readonly clearTimeoutFn?: (handle: number) => void
-  readonly silenceTimeoutMs?: number
-  readonly backoffScheduleMs?: readonly number[]
-  readonly maxAttempts?: number
+  readonly webSocketImpl?: WebSocketConstructor
+  readonly refresh?: () => Promise<void>
+  readonly onAuthFailure?: () => void
 }
 
-type SlotState = "idle" | "connecting" | "open" | "waiting" | "offline"
-type AuthRefreshState = "available" | "done" | "failed"
+const MAX_ATTEMPTS = 12
+const BASE_BACKOFF_MS = 1_000
+const MAX_BACKOFF_MS = 30_000
 
-interface SocketSlot {
-  socket: RealtimeSocket | null
-  state: SlotState
-  attempts: number
-  retryTimer: number | null
-  silenceTimer: number | null
+/** Reconnect ladder 1s → 2s → 4s → 8s → 16s → 30s cap. */
+export function backoffDelay(attempt: number): number {
+  return Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * 2 ** Math.max(0, attempt - 1))
 }
 
-interface ResolvedOptions {
-  readonly createSocket: (url: string, protocols: readonly string[]) => RealtimeSocket
-  readonly getEventsUrl: () => string
-  readonly getNotificationsUrl: () => string
-  readonly getSession: () => RealtimePrincipalState
-  readonly subscribeAuth: (listener: () => void) => () => void
-  readonly getSubprotocol: () => string | null
-  readonly refresh: () => Promise<unknown>
-  readonly onAuthExpired: () => void
-  readonly publishFrame: (frame: RealtimeFrame) => void
-  readonly setStatus: (status: RealtimeStatus) => void
-  readonly setTimeoutFn: (callback: () => void, delayMs: number) => number
-  readonly clearTimeoutFn: (handle: number) => void
-  readonly silenceTimeoutMs: number
-  readonly backoffScheduleMs: readonly number[]
-  readonly maxAttempts: number
-}
-
-const SOCKET_ROLES: readonly RealtimeSocketRole[] = ["events", "notifications"]
-
-function createEmptySlot(): SocketSlot {
-  return { socket: null, state: "idle", attempts: 0, retryTimer: null, silenceTimer: null }
-}
-
-function defaultCreateSocket(url: string, protocols: readonly string[]): RealtimeSocket {
-  const socket = protocols.length === 0 ? new WebSocket(url) : new WebSocket(url, [...protocols])
-  const handle: RealtimeSocket = {
-    send: (data) => {
-      socket.send(data)
-    },
-    close: (code, reason) => {
-      socket.close(code, reason)
-    },
-    onopen: null,
-    onmessage: null,
-    onclose: null,
+/** `${base http→ws}/ws/...` — origin only (never the base path); credentials ride cookies, never query strings. */
+export function wsEndpoint(path: string): string {
+  const base = apiBase()
+  if (base.startsWith("/")) {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+    return `${protocol}//${window.location.host}${path}`
   }
-  socket.onopen = (event) => {
-    handle.onopen?.(event)
-  }
-  socket.onmessage = (event) => {
-    handle.onmessage?.(event)
-  }
-  socket.onclose = (event) => {
-    handle.onclose?.(event)
-  }
-  return handle
+  return `${base.replace(/^http/, "ws")}${path}`
 }
 
-function parseFramePayload(data: unknown): unknown {
-  if (typeof data !== "string") return undefined
-  try {
-    return JSON.parse(data)
-  } catch {
-    return undefined
-  }
-}
+type SocketKind = "events" | "notifications"
 
 export class RealtimeManager {
-  private readonly options: ResolvedOptions
-  private started = false
-  private unsubscribeAuth: (() => void) | null = null
-  private authRefreshState: AuthRefreshState = "available"
-  private authRefreshInFlight: Promise<void> | null = null
-  private readonly slots: Record<RealtimeSocketRole, SocketSlot> = {
-    events: createEmptySlot(),
-    notifications: createEmptySlot(),
+  private readonly options: RealtimeManagerOptions
+  private readonly listeners = new Set<() => void>()
+  private readonly sockets: {
+    events: WebSocketLike | null
+    notifications: WebSocketLike | null
+  } = { events: null, notifications: null }
+  private state: RealtimeState = {
+    events: "closed",
+    notifications: "closed",
+    attempts: 0,
+    pollingFallback: false,
   }
+  private handlers: RealtimeFrameHandlers = {}
+  private running = false
+  private wantNotifications = true
+  private attempts = 0
+  private timer: ReturnType<typeof setTimeout> | null = null
 
   constructor(options: RealtimeManagerOptions = {}) {
-    this.options = {
-      createSocket: options.createSocket ?? defaultCreateSocket,
-      getEventsUrl: options.getEventsUrl ?? (() => getWsEventsUrl()),
-      getNotificationsUrl: options.getNotificationsUrl ?? (() => getWsNotificationsUrl()),
-      getSession: options.getSession ?? (() => getAuthState()),
-      subscribeAuth: options.subscribeAuth ?? ((listener) => subscribeToAuth(listener)),
-      getSubprotocol: options.getSubprotocol ?? (() => null),
-      refresh: options.refresh ?? (() => refreshSession()),
-      onAuthExpired: options.onAuthExpired ?? (() => expireSession()),
-      publishFrame: options.publishFrame ?? ((frame) => publishRealtimeFrame(frame)),
-      setStatus: options.setStatus ?? ((status) => setRealtimeStatus(status)),
-      setTimeoutFn:
-        options.setTimeoutFn ??
-        ((callback, delayMs) => globalThis.setTimeout(callback, delayMs)),
-      clearTimeoutFn: options.clearTimeoutFn ?? ((handle) => globalThis.clearTimeout(handle)),
-      silenceTimeoutMs: options.silenceTimeoutMs ?? SOCKET_SILENCE_TIMEOUT_MS,
-      backoffScheduleMs: options.backoffScheduleMs ?? RECONNECT_BACKOFF_MS,
-      maxAttempts: options.maxAttempts ?? MAX_RECONNECT_ATTEMPTS,
-    }
+    this.options = options
   }
 
-  /**
-   * Starts watching the auth store. Sockets connect only once a principal
-   * exists — i.e. after the first successful `GET /auth/me` (or a login) has
-   * populated `auth-store`; an anonymous boot opens nothing.
-   */
-  start(): void {
-    if (this.started) return
-    this.started = true
-    this.unsubscribeAuth = this.options.subscribeAuth(() => {
-      this.syncFromAuth()
-    })
-    this.syncFromAuth()
-  }
-
-  /** Logout/teardown: closes both sockets, cancels timers, never reconnects. */
-  stop(): void {
-    if (!this.started) return
-    this.started = false
-    this.unsubscribeAuth?.()
-    this.unsubscribeAuth = null
-    this.authRefreshState = "available"
-    this.authRefreshInFlight = null
-    for (const role of SOCKET_ROLES) this.shutdownSocket(role)
-    this.options.setStatus(DEFAULT_REALTIME_STATUS)
-  }
-
-  /** The banner's Retry (spec L171): resume every active socket immediately. */
-  retryNow(): void {
-    if (!this.started) return
-    for (const role of this.activeRoles()) this.reconnectNow(role)
-  }
-
-  /**
-   * Spec L169 (mobile lifecycle): once the app has been backgrounded past the
-   * grace window the sockets are closed deliberately — no retry is scheduled,
-   * because the resume path owns recovery and a hidden client cannot act on it.
-   */
-  pauseNow(): void {
-    if (!this.started) return
-    for (const role of SOCKET_ROLES) this.shutdownSocket(role)
-    this.updateStatus()
-  }
-
-  /**
-   * Spec L169 (mobile lifecycle): on resume every active socket reconnects
-   * immediately with a fresh attempt budget, so a long background cannot spend
-   * the 12-attempt ceiling before the operator sees the app again.
-   */
-  resumeNow(): void {
-    if (!this.started) return
-    for (const role of this.activeRoles()) {
-      this.shutdownSocket(role)
-      this.connect(role)
-    }
-    this.updateStatus()
-  }
-
-  // -------------------------------------------------------------------------
-  // Principal gate
-  // -------------------------------------------------------------------------
-
-  private activeRoles(session: RealtimePrincipalState = this.options.getSession()): RealtimeSocketRole[] {
-    if (session.user === null && session.client === null) return []
-    // Spec L164: the notifications surface 401s for API clients — never open it.
-    return session.user === null ? ["events"] : ["events", "notifications"]
-  }
-
-  private syncFromAuth(): void {
-    const session = this.options.getSession()
-    if (session.user === null && session.client === null) {
-      for (const role of SOCKET_ROLES) this.shutdownSocket(role)
-      this.authRefreshState = "available"
-      this.options.setStatus(DEFAULT_REALTIME_STATUS)
+  start(openNotifications = true): void {
+    this.wantNotifications = openNotifications
+    if (this.running) {
+      this.syncNotificationsSocket()
       return
     }
-
-    const roles = this.activeRoles(session)
-    for (const role of SOCKET_ROLES) {
-      if (!roles.includes(role)) this.shutdownSocket(role)
-    }
-    for (const role of roles) {
-      if (this.slots[role].state === "idle") this.connect(role)
-    }
-    this.updateStatus()
+    this.running = true
+    this.attempts = 0
+    this.state = { ...this.state, attempts: 0, pollingFallback: false }
+    this.openAll()
+    this.emit()
   }
 
-  // -------------------------------------------------------------------------
-  // Socket lifecycle
-  // -------------------------------------------------------------------------
-
-  private connect(role: RealtimeSocketRole): void {
-    if (!this.started) return
-    const session = this.options.getSession()
-    if (session.user === null && session.client === null) return
-    if (role === "notifications" && session.user === null) return
-
-    const slot = this.slots[role]
-    if (slot.state !== "idle") return
-
-    const url = role === "events" ? this.options.getEventsUrl() : this.options.getNotificationsUrl()
-    const protocol = this.options.getSubprotocol()
-    const socket = this.options.createSocket(url, protocol === null ? [] : [protocol])
-
-    slot.socket = socket
-    slot.state = "connecting"
-    socket.onopen = () => {
-      this.handleOpen(role, socket)
+  stop(): void {
+    this.running = false
+    this.clearTimer()
+    this.closeSocket("events")
+    this.closeSocket("notifications")
+    this.attempts = 0
+    this.state = {
+      events: "closed",
+      notifications: this.wantNotifications ? "closed" : "skipped",
+      attempts: 0,
+      pollingFallback: false,
     }
-    socket.onmessage = (event) => {
-      this.handleMessage(role, socket, event.data)
+    this.emit()
+  }
+
+  /** Manual banner "Retry" and resume after a successful polling fetch. */
+  retry(): void {
+    if (!this.running) return
+    this.clearTimer()
+    this.attempts = 0
+    this.state = { ...this.state, attempts: 0, pollingFallback: false }
+    this.emit()
+    this.openAll()
+  }
+
+  getState(): RealtimeState {
+    return { ...this.state }
+  }
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
+
+  setFrameHandlers(handlers: RealtimeFrameHandlers): () => void {
+    this.handlers = handlers
+    return () => {
+      if (this.handlers === handlers) this.handlers = {}
+    }
+  }
+
+  private emit(): void {
+    for (const listener of this.listeners) listener()
+  }
+
+  private setSocketState(kind: SocketKind, socketState: RealtimeSocketState): void {
+    if (kind === "events") this.state = { ...this.state, events: socketState }
+    else this.state = { ...this.state, notifications: socketState }
+  }
+
+  private clearTimer(): void {
+    if (this.timer !== null) {
+      clearTimeout(this.timer)
+      this.timer = null
+    }
+  }
+
+  private socketConstructor(): WebSocketConstructor | null {
+    const globalImpl = (globalThis as { WebSocket?: WebSocketConstructor }).WebSocket
+    return this.options.webSocketImpl ?? globalImpl ?? null
+  }
+
+  private openAll(): void {
+    this.openSocket("events")
+    this.openSocket("notifications")
+  }
+
+  private syncNotificationsSocket(): void {
+    if (!this.wantNotifications) {
+      this.closeSocket("notifications")
+      this.setSocketState("notifications", "skipped")
+      this.emit()
+      return
+    }
+    if (this.sockets.notifications === null && !this.state.pollingFallback) {
+      this.openSocket("notifications")
+      this.emit()
+    }
+  }
+
+  private openSocket(kind: SocketKind): void {
+    if (!this.running) return
+    if (kind === "notifications" && !this.wantNotifications) {
+      this.setSocketState(kind, "skipped")
+      return
+    }
+    if (this.sockets[kind] !== null) return
+    const Constructor = this.socketConstructor()
+    if (Constructor === null) {
+      console.warn("WebSocket unavailable — realtime stays offline")
+      this.setSocketState(kind, "closed")
+      this.emit()
+      return
+    }
+    const degraded = this.attempts > 0 || this.state.pollingFallback
+    this.setSocketState(kind, degraded ? "reconnecting" : "connecting")
+    this.emit()
+    const path = kind === "events" ? "/ws/events" : "/ws/notifications"
+    let socket: WebSocketLike
+    try {
+      socket = new Constructor(wsEndpoint(path))
+    } catch (error) {
+      console.warn("WebSocket construction failed", error)
+      this.handleClose(kind, 1006)
+      return
+    }
+    this.sockets[kind] = socket
+    socket.onopen = () => {
+      if (this.sockets[kind] !== socket) return
+      this.handleOpen(kind)
     }
     socket.onclose = (event) => {
-      this.handleClose(role, socket, event.code)
+      if (this.sockets[kind] !== socket) return
+      this.sockets[kind] = null
+      this.handleClose(kind, event.code)
     }
-    this.updateStatus()
+    socket.onmessage = (event) => {
+      this.handleMessage(kind, event.data)
+    }
   }
 
-  private handleOpen(role: RealtimeSocketRole, socket: RealtimeSocket): void {
-    const slot = this.slots[role]
-    if (slot.socket !== socket) return
-    slot.state = "open"
-    slot.attempts = 0
-    this.startSilenceTimer(role)
-    this.updateStatus()
+  private closeSocket(kind: SocketKind): void {
+    const socket = this.sockets[kind]
+    if (socket === null) return
+    this.sockets[kind] = null
+    socket.onopen = null
+    socket.onclose = null
+    socket.onmessage = null
+    socket.close()
   }
 
-  private handleMessage(role: RealtimeSocketRole, socket: RealtimeSocket, data: unknown): void {
-    if (this.slots[role].socket !== socket) return
-    this.resetSilenceTimer(role)
-
-    const payload = parseFramePayload(data)
-    if (payload === undefined) return
-    this.options.publishFrame({ role, payload })
+  private handleOpen(kind: SocketKind): void {
+    this.setSocketState(kind, "open")
+    if (kind === "events") {
+      this.attempts = 0
+      this.state = { ...this.state, attempts: 0, pollingFallback: false }
+    }
+    this.emit()
   }
 
-  private handleClose(role: RealtimeSocketRole, socket: RealtimeSocket, code: number): void {
-    const slot = this.slots[role]
-    if (slot.socket !== socket) return
-
-    slot.socket = null
-    slot.state = "idle"
-    this.clearSilenceTimer(slot)
-    this.updateStatus()
-
-    if (!this.started) return
-    const session = this.options.getSession()
-    if (session.user === null && session.client === null) return
-
-    if (code === AUTH_CLOSE_CODE) {
-      this.handleUnauthorized(role)
+  private handleClose(kind: SocketKind, code: number): void {
+    if (!this.running) return
+    this.setSocketState(kind, "closed")
+    if (code === 4001) {
+      // Auth close: one refresh (api.ts single-flight), reconnect or logout.
+      this.emit()
+      void this.handleAuthClose()
       return
     }
-    this.scheduleRetry(role)
-  }
-
-  // -------------------------------------------------------------------------
-  // Close-code handling
-  // -------------------------------------------------------------------------
-
-  /**
-   * Spec L167: `4001` → refresh-once → reconnect; a second `4001` after that
-   * refresh → logout. Simultaneous close codes share ONE in-flight refresh, so
-   * JTI rotation can never race (spec L156).
-   */
-  private handleUnauthorized(role: RealtimeSocketRole): void {
-    if (this.authRefreshState !== "available") {
-      this.options.onAuthExpired()
+    if (kind === "notifications" && this.sockets.events !== null) {
+      // Primary stream healthy: notifications retry on plain backoff without
+      // burning the shared 12-attempt failure budget.
+      this.emit()
+      this.scheduleReconnect()
       return
     }
-
-    const refresh = this.authRefreshInFlight ?? this.beginAuthRefresh()
-    void refresh.then(
-      () => {
-        this.reconnectNow(role)
-      },
-      () => {
-        // `beginAuthRefresh` already emitted the logout consequence.
-      },
-    )
-  }
-
-  private beginAuthRefresh(): Promise<void> {
-    const refresh = this.options
-      .refresh()
-      .then(
-        () => {
-          this.authRefreshState = "done"
-        },
-        (error: unknown) => {
-          this.authRefreshState = "failed"
-          this.options.onAuthExpired()
-          throw error
-        },
-      )
-      .finally(() => {
-        if (this.authRefreshInFlight === refresh) this.authRefreshInFlight = null
-      })
-    this.authRefreshInFlight = refresh
-    return refresh
-  }
-
-  private reconnectNow(role: RealtimeSocketRole): void {
-    if (!this.started) return
-    const slot = this.slots[role]
-    if (slot.state === "open" || slot.state === "connecting") return
-    if (slot.retryTimer !== null) {
-      this.options.clearTimeoutFn(slot.retryTimer)
-      slot.retryTimer = null
-    }
-    slot.attempts = 0
-    slot.state = "idle"
-    this.connect(role)
-  }
-
-  /** Spec L171 + §13.9.6: capped backoff, max 12 attempts, then offline. */
-  private scheduleRetry(role: RealtimeSocketRole): void {
-    if (!this.started) return
-    const slot = this.slots[role]
-
-    if (slot.attempts >= this.options.maxAttempts) {
-      slot.state = "offline"
-      this.updateStatus()
+    this.attempts += 1
+    this.state = { ...this.state, attempts: this.attempts }
+    if (this.attempts >= MAX_ATTEMPTS) {
+      // 12 failed attempts → persistent banner flag + 15s polling fallback.
+      this.state = {
+        ...this.state,
+        pollingFallback: true,
+        events: "polling",
+        notifications:
+          this.sockets.notifications === null
+            ? this.wantNotifications
+              ? "closed"
+              : "skipped"
+            : "open",
+      }
+      this.clearTimer()
+      this.emit()
       return
     }
+    // Close 1013 (server restarting) and ordinary drops share the backoff.
+    this.setSocketState(kind, "reconnecting")
+    this.emit()
+    this.scheduleReconnect()
+  }
 
-    const schedule = this.options.backoffScheduleMs
-    const delay =
-      schedule.length === 0 ? RECONNECT_BACKOFF_MS[0] : schedule[Math.min(slot.attempts, schedule.length - 1)]
-    slot.attempts += 1
-    slot.state = "waiting"
-    slot.retryTimer = this.options.setTimeoutFn(() => {
-      slot.retryTimer = null
-      slot.state = "idle"
-      this.connect(role)
+  private async handleAuthClose(): Promise<void> {
+    const refresh = this.options.refresh ?? refreshSession
+    try {
+      await refresh()
+    } catch {
+      this.options.onAuthFailure?.() // refresh-once failed → auth seam logs out
+      return
+    }
+    if (!this.running) return
+    this.attempts = 0
+    this.state = { ...this.state, attempts: 0, pollingFallback: false }
+    this.emit()
+    this.openAll()
+  }
+
+  private scheduleReconnect(): void {
+    if (this.timer !== null) return
+    const delay = backoffDelay(Math.max(1, this.attempts))
+    this.timer = setTimeout(() => {
+      this.timer = null
+      this.openAll()
     }, delay)
-    this.updateStatus()
   }
 
-  // -------------------------------------------------------------------------
-  // Server-silence watch (client never pings)
-  // -------------------------------------------------------------------------
-
-  private startSilenceTimer(role: RealtimeSocketRole): void {
-    const slot = this.slots[role]
-    this.clearSilenceTimer(slot)
-    slot.silenceTimer = this.options.setTimeoutFn(() => {
-      this.recycleSocket(role)
-    }, this.options.silenceTimeoutMs)
-  }
-
-  private resetSilenceTimer(role: RealtimeSocketRole): void {
-    if (this.slots[role].state !== "open") return
-    this.startSilenceTimer(role)
-  }
-
-  private clearSilenceTimer(slot: SocketSlot): void {
-    if (slot.silenceTimer === null) return
-    this.options.clearTimeoutFn(slot.silenceTimer)
-    slot.silenceTimer = null
-  }
-
-  private recycleSocket(role: RealtimeSocketRole): void {
-    const slot = this.slots[role]
-    if (slot.state !== "open") return
-    const socket = slot.socket
-    slot.socket = null
-    slot.state = "idle"
-    this.clearSilenceTimer(slot)
-    socket?.close(1000, "silence recycle")
-    this.scheduleRetry(role)
-  }
-
-  private shutdownSocket(role: RealtimeSocketRole): void {
-    const slot = this.slots[role]
-    if (slot.retryTimer !== null) {
-      this.options.clearTimeoutFn(slot.retryTimer)
-      slot.retryTimer = null
-    }
-    this.clearSilenceTimer(slot)
-    const socket = slot.socket
-    slot.socket = null
-    slot.state = "idle"
-    slot.attempts = 0
-    socket?.close()
-  }
-
-  // -------------------------------------------------------------------------
-  // Dot seam
-  // -------------------------------------------------------------------------
-
-  private updateStatus(): void {
-    if (!this.started) {
-      this.options.setStatus(DEFAULT_REALTIME_STATUS)
+  private handleMessage(kind: SocketKind, data: unknown): void {
+    if (typeof data !== "string") {
+      console.warn("Mirrorr WS frame is not text", typeof data)
       return
     }
-    const roles = this.activeRoles()
-    if (roles.length === 0) {
-      this.options.setStatus(DEFAULT_REALTIME_STATUS)
+    let frame: unknown
+    try {
+      frame = JSON.parse(data)
+    } catch (error) {
+      console.warn("Mirrorr WS frame is not JSON", error)
       return
     }
-    if (roles.some((role) => this.slots[role].state === "offline")) {
-      this.options.setStatus("offline")
-      return
-    }
-    if (roles.every((role) => this.slots[role].state === "open")) {
-      this.options.setStatus("live")
-      return
-    }
-    this.options.setStatus("reconnecting")
+    if (kind === "events") this.handlers.onEvent?.(frame)
+    else this.handlers.onNotification?.(frame)
   }
 }
 
-// ---------------------------------------------------------------------------
-// Module-level frame bus + app singleton
-// ---------------------------------------------------------------------------
+const defaultManager = new RealtimeManager()
 
-const frameListeners = new Set<(frame: RealtimeFrame) => void>()
-
-function publishRealtimeFrame(frame: RealtimeFrame): void {
-  for (const listener of [...frameListeners]) listener(frame)
+/** Open after the first successful `/auth/me`; `openNotifications: false` for API clients. */
+export function startRealtimeManager(options?: { openNotifications?: boolean }): void {
+  defaultManager.start(options?.openNotifications ?? true)
 }
 
-/**
- * The todo-19/20 seam: every parsed `/ws/events` and `/ws/notifications` frame
- * arrives here tagged with its role. This module deliberately stops at parsing.
- */
-export function subscribeRealtimeFrames(listener: (frame: RealtimeFrame) => void): () => void {
-  frameListeners.add(listener)
-  return () => {
-    frameListeners.delete(listener)
-  }
+export function stopRealtimeManager(): void {
+  defaultManager.stop()
 }
 
-let singleton: RealtimeManager | null = null
-
-export function getRealtimeManager(): RealtimeManager {
-  singleton ??= new RealtimeManager()
-  return singleton
+export function subscribeRealtimeState(listener: () => void): () => void {
+  return defaultManager.subscribe(listener)
 }
 
-/** Boot wiring (`main.tsx`): start watching the auth store. */
-export function startRealtimeManager(): RealtimeManager {
-  const manager = getRealtimeManager()
-  manager.start()
-  return manager
+export function getRealtimeState(): RealtimeState {
+  return defaultManager.getState()
 }
 
-/** The health banner's manual Retry (spec L171); no-op before the manager exists. */
-export function retryRealtimeNow(): void {
-  singleton?.retryNow()
+export function setRealtimeFrameHandlers(handlers: RealtimeFrameHandlers): () => void {
+  return defaultManager.setFrameHandlers(handlers)
 }
 
-/** Spec L169: the lifecycle pause — deliberate close after the background grace. */
-export function pauseRealtimeNow(): void {
-  singleton?.pauseNow()
+export function retryRealtime(): void {
+  defaultManager.retry()
 }
 
-/** Spec L169: the lifecycle resume — immediate reconnect, attempt counter reset. */
-export function resumeRealtimeNow(): void {
-  singleton?.resumeNow()
+/** Views call this after a successful poll while the offline banner is up — resumes WS. */
+export function notifyRealtimePollSuccess(): void {
+  if (defaultManager.getState().pollingFallback) defaultManager.retry()
 }

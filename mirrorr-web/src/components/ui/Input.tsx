@@ -1,45 +1,80 @@
-import { useId, type InputHTMLAttributes } from "react"
-import { FOCUS_RING } from "@/components/ui/focus-ring"
+import { useId } from "react"
+import type { ComponentPropsWithoutRef } from "react"
 
-/**
- * Input — spec L108: bg-base, border, radius 4, 32px height, 13px; focus is
- * border-strong + the 2px accent ring; an error paints the danger border and a
- * 12px danger message below, wired with `aria-describedby` + `aria-invalid`
- * (spec L478). The label is always paired (axe-clean by construction).
- */
-
-export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "id"> {
+export interface InputProps extends Omit<ComponentPropsWithoutRef<"input">, "className" | "size"> {
+  /** Label text — every input pairs a <label for> (§7 forms). */
   readonly label: string
-  readonly id?: string
+  /** Helper line under the field; when `error` is set it renders as the error line. */
+  readonly helper?: string
   readonly error?: string
+  /** mono-inline rendering for id/hash/key fields (§4 filled row). */
+  readonly mono?: boolean
+  readonly className?: string
+  readonly fieldClassName?: string
 }
 
-export function Input({ label, id, error, className, ...rest }: InputProps) {
+/**
+ * Input — §4 matrix: default · hover (border-strong) · focus (ring +
+ * accent-text border) · filled · disabled · error (danger border +
+ * aria-describedby helper) · required (`*` suffix + aria-required).
+ * Compact (≤639): h44 + 16px text via chrome.css.
+ */
+export function Input({
+  label,
+  helper,
+  error,
+  mono = false,
+  className,
+  fieldClassName,
+  id,
+  required,
+  disabled,
+  ...rest
+}: InputProps) {
   const generatedId = useId()
   const inputId = id ?? generatedId
-  const errorId = `${inputId}-error`
+  const helperId = `${inputId}-helper`
+  const hasError = error !== undefined && error.length > 0
+  const helperText = hasError ? error : helper
+
+  const inputClasses = [
+    "input",
+    hasError ? "input--error" : null,
+    mono ? "input--mono" : null,
+    className,
+  ]
+    .filter((part) => part !== null && part !== "")
+    .join(" ")
+
+  const fieldClasses = fieldClassName === undefined ? "field" : `field ${fieldClassName}`
 
   return (
-    <div className="flex w-full flex-col gap-1">
-      <label htmlFor={inputId} className="text-label text-text-secondary">
+    <div className={fieldClasses}>
+      <label className="field__label" htmlFor={inputId}>
         {label}
+        {required === true ? (
+          <span className="field__required" aria-hidden="true">
+            *
+          </span>
+        ) : null}
       </label>
       <input
-        id={inputId}
-        aria-invalid={error !== undefined || undefined}
-        aria-describedby={error !== undefined ? errorId : undefined}
-        className={[
-          "h-8 w-full rounded-control border bg-bg-base px-2 text-body text-text-primary placeholder:text-text-muted focus:border-border-strong",
-          error !== undefined ? "border-danger" : "border-border",
-          FOCUS_RING,
-          className ?? "",
-        ].join(" ")}
         {...rest}
+        id={inputId}
+        className={inputClasses}
+        disabled={disabled}
+        required={required}
+        aria-required={required === true ? true : undefined}
+        aria-invalid={hasError || undefined}
+        aria-describedby={helperText !== undefined && helperText.length > 0 ? helperId : undefined}
       />
-      {error !== undefined ? (
-        <p id={errorId} className="text-small text-danger">
-          {error}
-        </p>
+      {helperText !== undefined && helperText.length > 0 ? (
+        <span
+          id={helperId}
+          className={hasError ? "field__helper field__helper--error" : "field__helper"}
+        >
+          {helperText}
+        </span>
       ) : null}
     </div>
   )

@@ -1,76 +1,198 @@
-/**
- * Auth endpoint layer.
- *
- * Contract: `docs/general-client-specification.md` §2 (exact paths, request
- * bodies, status codes) and `docs/web-frontend-spec.md` L409-L420 (endpoint
- * coverage). Login/register/status are public: they set `skipAuthRefresh` so a
- * 401 is a credential answer, never a session-expiry signal.
- */
-import { apiFetch } from "@/lib/api"
+import { redirect } from "@tanstack/react-router"
 import {
-  authResponseSchema,
-  authStatusSchema,
+  ApiError,
+  apiFetch,
+  resetAuthExhausted,
+  setAuthExhaustedHandler,
+  startProactiveRefresh,
+  stopProactiveRefresh,
+} from "@/lib/api"
+import { disposeEventTable, installEventTable } from "@/lib/event-table"
+import { startRealtimeManager, stopRealtimeManager } from "@/lib/realtime-manager"
+import {
+  AuthResponseSchema,
+  RegistrationPendingSchema,
   type AuthResponse,
-  type AuthStatus,
-} from "@/lib/schemas/auth"
+  type RegistrationPending,
+} from "@/lib/schemas"
+import { queryClient } from "@/query-client"
 
-export function fetchAuthStatus(): Promise<AuthStatus> {
-  return apiFetch("/auth/status", { schema: authStatusSchema, skipAuthRefresh: true })
+export type AuthStatus = "unknown" | "authenticated" | "anonymous"
+
+export interface AuthState {
+  readonly status: AuthStatus
+  readonly auth: AuthResponse | null
 }
 
-export function fetchAuthMe(): Promise<AuthResponse> {
-  return apiFetch("/auth/me", { schema: authResponseSchema })
+let state: AuthState = { status: "unknown", auth: null }
+const listeners = new Set<() => void>()
+
+export function getAuthState(): AuthState {
+  return state
 }
 
-export interface LoginInput {
-  readonly username: string
-  readonly password: string
+export function subscribeAuth(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
 }
 
-export function login(input: LoginInput): Promise<AuthResponse> {
-  return apiFetch("/auth/login", {
+function setState(next: AuthState): void {
+  state = next
+  for (const listener of listeners) listener()
+}
+
+/** Scaffold-compatible guard check backed by the session state. */
+export function isAuthenticated(): boolean {
+  return state.status === "authenticated"
+}
+
+export function currentAuth(): AuthResponse | null {
+  return state.auth
+}
+
+/** Role gating — `user.role` from `["auth","me"]` hides admin surfaces. */
+export function isAdmin(): boolean {
+  return state.auth?.user?.role === "admin"
+}
+
+/**
+ * API-client principal (`client` set, `user` null): views hide the bell,
+ * show the persistent banner, and force the 10s polling cadence via
+ * polling-policy; the top bar shows API_CLIENT_POLL_LABEL, never the WS dot.
+ */
+export function isApiClientPrincipal(auth: AuthResponse | null = state.auth): boolean {
+  return auth !== null && auth.client != null && auth.user == null
+}
+
+export function apiClientBannerText(clientName: string): string {
+  return `Acting as API client '${clientName}' — created resources belong to no user and produce no notifications`
+}
+
+export const API_CLIENT_POLL_LABEL = "API client — polling every 10s"
+
+function onAuthenticated(auth: AuthResponse): void {
+  setState({ status: "authenticated", auth })
+  queryClient.setQueryData(["auth", "me"], auth)
+  startRealtimeManager({ openNotifications: auth.user != null })
+  startProactiveRefresh()
+  installEventTable()
+}
+
+function clearSession(): void {
+  stopRealtimeManager()
+  stopProactiveRefresh()
+  disposeEventTable()
+  queryClient.clear()
+  setState({ status: "anonymous", auth: null })
+}
+
+/**
+ * Boot/guard flow: resolves on a session (fetching `GET /auth/me` on first
+ * use); 401 → anonymous + throw so the route guard redirects to /login.
+ * First success opens the realtime manager.
+ */
+export async function ensureAuthMe(): Promise<AuthResponse> {
+  if (state.status === "authenticated" && state.auth !== null) return state.auth
+  try {
+    const raw = await apiFetch<unknown>("/auth/me")
+    const auth = AuthResponseSchema.parse(raw)
+    onAuthenticated(auth)
+    return auth
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      if (state.status !== "anonymous") setState({ status: "anonymous", auth: null })
+      throw error
+    }
+    if (error instanceof Error && error.name === "ZodError") {
+      console.warn("auth/me response failed schema validation", error)
+    }
+    throw error
+  }
+}
+
+export async function login(username: string, password: string): Promise<AuthResponse> {
+  const raw = await apiFetch<unknown>("/auth/login", {
     method: "POST",
-    body: { username: input.username, password: input.password },
-    schema: authResponseSchema,
+    body: { username, password },
     skipAuthRefresh: true,
   })
+  const auth = AuthResponseSchema.parse(raw)
+  resetAuthExhausted()
+  onAuthenticated(auth)
+  return auth
 }
 
-export interface RegisterInput {
-  readonly username: string
-  readonly password: string
-  readonly displayName?: string
+function isPendingRegistration(raw: unknown): boolean {
+  return raw !== null && typeof raw === "object" && (raw as { status?: unknown }).status === "pending"
 }
 
-export function register(input: RegisterInput): Promise<AuthResponse> {
-  const body: Record<string, string> = {
-    username: input.username,
-    password: input.password,
-  }
-  if (input.displayName !== undefined && input.displayName.length > 0) {
-    body.display_name = input.displayName
-  }
-
-  return apiFetch("/auth/register", {
+export async function register(
+  username: string,
+  password: string,
+  displayName = "",
+): Promise<AuthResponse | RegistrationPending> {
+  const raw = await apiFetch<unknown>("/auth/register", {
     method: "POST",
-    body,
-    schema: authResponseSchema,
+    body: { username, password, display_name: displayName },
     skipAuthRefresh: true,
   })
+  if (isPendingRegistration(raw)) return RegistrationPendingSchema.parse(raw)
+  const auth = AuthResponseSchema.parse(raw)
+  resetAuthExhausted()
+  onAuthenticated(auth)
+  return auth
 }
 
-export function logout(): Promise<undefined> {
-  return apiFetch("/auth/logout", { method: "POST", body: {} })
+export async function logout(): Promise<void> {
+  try {
+    await apiFetch("/auth/logout", { method: "POST", skipAuthRefresh: true })
+  } catch {
+    // Best-effort server logout — the local clear below is authoritative.
+  }
+  clearSession()
 }
 
-export interface ChangePasswordInput {
-  readonly oldPassword: string
-  readonly newPassword: string
-}
-
-export function changePassword(input: ChangePasswordInput): Promise<undefined> {
-  return apiFetch("/auth/change-password", {
+export async function changePassword(oldPassword: string, newPassword: string): Promise<void> {
+  await apiFetch("/auth/change-password", {
     method: "POST",
-    body: { old_password: input.oldPassword, new_password: input.newPassword },
+    body: { old_password: oldPassword, new_password: newPassword },
+    skipAuthRefresh: true,
   })
+  // 200 → server revoked every token → forced logout flow.
+  await forceLogout()
+}
+
+/**
+ * Forced logout (401 exhaustion seam, change-password, failed WS-4001
+ * refresh): wipe cache + close realtime. Navigation happens only when a
+ * session existed, so anonymous boot failures never bounce public pages.
+ */
+export async function forceLogout(): Promise<void> {
+  const wasAuthenticated = state.status === "authenticated"
+  clearSession()
+  if (!wasAuthenticated) return
+  try {
+    const { router } = await import("@/router")
+    await router.navigate({ to: "/login" })
+  } catch {
+    window.location.assign("/login")
+  }
+}
+
+setAuthExhaustedHandler(() => {
+  void forceLogout()
+})
+
+/** Throw the router-level redirect to /login, preserving the origin path. */
+export function redirectToLogin(location: { href: string }): never {
+  throw redirect({ to: "/login", search: { redirect: location.href } })
+}
+
+/** Accept only same-origin absolute paths — never protocol-relative "//evil". */
+export function sanitizeRedirectPath(value: unknown): string | null {
+  if (typeof value !== "string") return null
+  if (!value.startsWith("/") || value.startsWith("//")) return null
+  return value
 }

@@ -1,23 +1,27 @@
-/**
- * Cursor pagination envelope.
- *
- * Contract: `docs/general-client-specification.md` §1.4 and §13.9.2 —
- * every list GET answers `{items, next_cursor, has_more}`; `next_cursor` is
- * the id of the last item on the page, or `null` when none.
- */
 import { z } from "zod"
 
-/** Parsed public shape of any list response. */
-export interface CursorPage<T> {
-  readonly items: readonly T[]
-  readonly next_cursor: number | null
-  readonly has_more: boolean
+/**
+ * Cursor pagination envelope (`PaginatedResponse` + typed list variants).
+ * The server gives no reliable total for filtered lists — consumers show
+ * "Showing N", never a fake total.
+ */
+export function cursorPageSchema<T extends z.ZodType>(item: T) {
+  return z
+    .object({
+      items: z.array(item),
+      next_cursor: z.number().nullable().optional(),
+      has_more: z.boolean(),
+      total: z.number().nullable().optional(),
+    })
+    .passthrough()
 }
 
-export function cursorPageSchema<S extends z.ZodType>(itemSchema: S) {
-  return z.object({
-    items: z.array(itemSchema),
-    next_cursor: z.number().int().nullable(),
-    has_more: z.boolean(),
-  })
+/** Untyped page envelope for `unknown`/client-shaped items. */
+export const CursorPageSchema = cursorPageSchema(z.unknown())
+
+export type CursorPage<T> = {
+  items: T[]
+  next_cursor?: number | null
+  has_more: boolean
+  total?: number | null
 }

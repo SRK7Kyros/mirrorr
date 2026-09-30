@@ -1,0 +1,325 @@
+/*
+ * Chrome shell — design spec §3 anatomy + scroll ownership + §6 breakpoints
+ * (640px rail · 900px sidebar). Main body is the SOLE vertical scroller:
+ * min-block-size:0 + overflow:auto; shell uses 100dvh only (never 100vh).
+ */
+
+/* ── fixed-sidenav-shell (§3.1) ────────────────────────────────── */
+.shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  grid-template-rows: var(--topbar-h) auto minmax(0, 1fr);
+  block-size: 100dvh;
+  max-block-size: 100dvh;
+  overflow-x: hidden;
+  background: var(--color-bg-base);
+}
+
+.shell__sidebar {
+  grid-column: 1;
+  grid-row: 1 / 4;
+}
+
+.shell__rail {
+  display: none;
+  grid-column: 1;
+  grid-row: 1 / 4;
+}
+
+.shell__topbar {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.shell__health {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.shell__main {
+  grid-column: 2;
+  grid-row: 3;
+  min-block-size: 0; /* grid row already minmax(0,1fr); belt+braces per §3 */
+  overflow: auto;
+  padding: var(--space-page-pad-desktop);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-section-gap-desktop);
+}
+
+.shell__appbar {
+  display: none;
+}
+
+.shell__tabbar {
+  display: none;
+}
+
+/* ── Sidebar (224 · brand well 48 · nav items 36) ──────────────── */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  block-size: var(--sidebar-h);
+  background: var(--color-bg-panel);
+  border-right: 1px solid var(--color-border-subtle);
+}
+
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  height: var(--sidebar-brand-well-h);
+  padding: 0 var(--space-smd);
+  border-bottom: 1px solid var(--color-border-subtle);
+  font-size: var(--topbar-title-size);
+  font-weight: var(--topbar-title-weight);
+  color: var(--color-text-primary);
+  letter-spacing: -0.01em;
+}
+
+/* nav overflow only — named secondary scroller (§3.1) */
+.sidebar__nav {
+  min-block-size: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sidebar-item-gap);
+  padding: var(--space-sm);
+  list-style: none;
+  margin: 0;
+}
+
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  height: var(--nav-item-h);
+  padding: var(--nav-item-pad);
+  border-radius: var(--nav-item-radius);
+  color: var(--color-text-secondary);
+  font-size: var(--nav-label-size);
+  font-weight: var(--nav-label-weight);
+  text-decoration: none;
+  transition: background-color 120ms;
+}
+
+.nav-item:hover {
+  background: var(--color-fill-hover);
+  color: var(--color-text-secondary);
+}
+
+.nav-item[aria-current="page"] {
+  background: var(--sidebar-active-fill);
+  color: var(--color-text-primary);
+}
+
+/* 2px left accent bar, inset-inline-start (§3.1) */
+.nav-item[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  inset-block: 6px;
+  inset-inline-start: 0;
+  inline-size: var(--nav-active-bar-w);
+  background: var(--color-primary);
+  border-radius: 0 2px 2px 0;
+}
+
+.nav-item__icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  color: currentColor;
+}
+
+.nav-item__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── IconRail (56 · 640–899) ───────────────────────────────────── */
+.rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  block-size: var(--sidebar-h);
+  background: var(--color-bg-panel);
+  border-right: 1px solid var(--color-border-subtle);
+  padding-top: var(--space-xs);
+}
+
+.rail__list {
+  min-block-size: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sidebar-item-gap);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  width: 100%;
+  align-items: center;
+}
+
+.rail .nav-item {
+  justify-content: center;
+  width: 40px;
+  padding: 0;
+}
+
+/* I13 — icon-only rail active must read at a glance (§3.2: fill-active +
+   accent bar). Without a label the sidebar recipe reads undifferentiated, so
+   the sole-graphic icon takes accent-text (#7DB1E5, §1) and the bar runs full
+   height inside the pill. */
+.rail .nav-item[aria-current="page"] {
+  background: var(--sidebar-active-fill);
+  color: var(--color-accent-text);
+}
+
+.rail .nav-item[aria-current="page"]::before {
+  inset-block: 0;
+}
+
+.rail .nav-item__label {
+  display: none;
+}
+
+/* ── TopBar (48 · title 16/600 · right cluster gap 8) ──────────── */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  height: var(--topbar-h);
+  padding: var(--topbar-pad);
+  background: var(--color-bg-panel);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.topbar__title {
+  font-size: var(--topbar-title-size);
+  font-weight: var(--topbar-title-weight);
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar__cluster {
+  display: flex;
+  align-items: center;
+  gap: var(--topbar-right-gap);
+  flex-shrink: 0;
+}
+
+/* connection dot + text label (§3.1 / §7 never color-alone) */
+.conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--role-meta-size);
+  font-weight: var(--health-banner-label-weight);
+  color: var(--color-text-secondary);
+}
+
+.conn__dot {
+  width: var(--chip-dot);
+  height: var(--chip-dot);
+  border-radius: var(--radius-full);
+  background: var(--color-success);
+  flex-shrink: 0;
+}
+
+.conn[data-state="reconnecting"] .conn__dot {
+  background: var(--color-warning);
+}
+
+.conn[data-state="offline"] .conn__dot {
+  background: var(--color-danger);
+}
+
+/* bell — 32px ghost icon button (44 compact) */
+.bell {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.bell:hover {
+  background: var(--color-fill-hover);
+  color: var(--color-text-primary);
+}
+
+.bell__badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+}
+
+.user-menu {
+  position: relative;
+}
+
+.user-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  height: 32px;
+  padding: 0 var(--space-xs);
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--role-body-size);
+  font-weight: var(--role-body-strong-weight);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.user-menu__trigger:hover {
+  background: var(--color-fill-hover);
+}
+
+.user-menu__panel {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 4px);
+  right: 0;
+  width: var(--overflow-menu-w);
+  padding: var(--space-xs);
+  background: var(--color-bg-raised);
+  border: 1px solid var(--color-border-standard);
+  border-radius: var(--radius-menu);
+  box-shadow: var(--shadow-menu);
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── HealthBanner (§4) ─────────────────────────────────────────── */
+.health-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  min-block-size: var(--health-banner-h-min);
+  padding: var(--space-xs) var(--space-page-pad-desktop);
+  background: var(--health-banner-bg);
+  color: var(--health-banner-fg);
+  border-bottom: var(--health-banner-border-bottom);
+  font-size: var(--health-banner-label-size);
+  font-weight: var(--health-banner-label-weight);
+}
+
+.health-banner--neutral {
+  background: var(--health-banner-neutral-bg);
+  color: var(--health-banner-neutral-fg);
+  border-bottom-color: var(--color-border-subtle);
+}
+
+/* ── NotificationDrawer (360 · header 48 · rows 56/48) ─────────── */

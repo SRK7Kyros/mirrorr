@@ -1,0 +1,205 @@
+/*
+ * Base layer — reset, dark-only canvas, type roles, focus ring, layout
+ * primitives (layout-skill: stack / cluster / scroll-body-shell) and
+ * content-stress helpers (§3.4).
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--role-body-size);
+  font-weight: var(--role-body-weight);
+  line-height: var(--role-body-lh);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Focus: 2px solid #7DB1E5, offset 1 — never outline:none without it (§7) */
+:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--color-accent-text);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--color-accent-text-hover);
+}
+
+/* ── typography roles (§1) ──────────────────────────────────────── */
+.t-h1 {
+  font-size: var(--role-h1-size);
+  font-weight: var(--role-h1-weight);
+  line-height: var(--role-h1-lh);
+  letter-spacing: var(--role-h1-tracking);
+}
+
+.t-h2 {
+  font-size: var(--role-h2-size);
+  font-weight: var(--role-h2-weight);
+  line-height: var(--role-h2-lh);
+  letter-spacing: var(--role-h2-tracking);
+}
+
+.t-h3 {
+  font-size: var(--role-h3-size);
+  font-weight: var(--role-h3-weight);
+  line-height: var(--role-h3-lh);
+  letter-spacing: var(--role-h3-tracking);
+}
+
+.t-body-md {
+  font-size: var(--role-body-md-size);
+  font-weight: var(--role-body-md-weight);
+  line-height: var(--role-body-md-lh);
+  letter-spacing: 0;
+}
+
+.t-body {
+  font-size: var(--role-body-size);
+  font-weight: var(--role-body-weight);
+  line-height: var(--role-body-lh);
+  letter-spacing: 0;
+}
+
+.t-body-strong {
+  font-size: var(--role-body-size);
+  font-weight: var(--role-body-strong-weight);
+  line-height: var(--role-body-lh);
+  letter-spacing: 0;
+}
+
+.t-label-caps {
+  font-size: var(--role-label-caps-size);
+  font-weight: var(--role-label-caps-weight);
+  line-height: var(--role-label-caps-lh);
+  letter-spacing: var(--role-label-caps-tracking);
+  text-transform: uppercase;
+}
+
+.t-meta {
+  font-size: var(--role-meta-size);
+  font-weight: var(--role-meta-weight);
+  line-height: var(--role-meta-lh);
+  letter-spacing: 0;
+}
+
+/* machine text — IBM Plex Mono where the machine speaks (§0 type axis) */
+.t-mono {
+  font-family: var(--font-mono);
+  font-size: var(--role-mono-size);
+  font-weight: var(--role-mono-weight);
+  line-height: var(--role-mono-lh);
+  letter-spacing: 0;
+  font-feature-settings: var(--features-mono);
+}
+
+.t-mono-inline {
+  font-family: var(--font-mono);
+  font-size: var(--role-mono-inline-size);
+  font-weight: var(--role-mono-inline-weight);
+  line-height: var(--role-mono-inline-lh);
+  letter-spacing: 0;
+  font-feature-settings: var(--features-mono);
+}
+
+/* every number: durations, sizes, countdowns, counts (§0) */
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── named layout primitives (layout-skill, §3) ─────────────────── */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-section-gap-desktop);
+}
+
+.cluster {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.scroll-body-shell {
+  min-block-size: 0;
+  overflow: auto;
+}
+
+/* ── content-stress rules (§3.4) ───────────────────────────────── */
+.content-limiter {
+  max-width: 65ch;
+}
+
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wrap-anywhere {
+  overflow-wrap: anywhere;
+}
+
+/* JSON / config mono well — scrolls internally, never page-level (§3.4) */
+.well {
+  background: var(--color-bg-base);
+  box-shadow: inset 0 0 0 1px var(--color-border-standard);
+  border-radius: var(--radius-well);
+  padding: var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--role-mono-size);
+  font-weight: var(--role-mono-weight);
+  line-height: var(--role-mono-lh);
+  font-feature-settings: var(--features-mono);
+  color: var(--color-text-secondary);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+/* ── motion: reduced-motion policy (§7/§8) ─────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  /* state-communicating opacity stays available via instant final state */
+  .chip__dot,
+  .spinner,
+  .skeleton {
+    animation: none !important;
+  }
+}

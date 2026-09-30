@@ -1,46 +1,29 @@
-import type { LucideIcon } from "lucide-react"
 import type { ReactNode } from "react"
 
-/**
- * EmptyState — one implementation, per-view copy as specified (spec L408).
- * `EMPTY_STATES` carries the exact strings for every v1 view so no view
- * restates its own copy.
- */
-
-export const EMPTY_STATES = {
-  sessions: "No sessions yet — start your first recording",
-  autoruns: "No autoruns — schedule a recording",
-  recordings: "No recordings yet — enable recording on a session",
-  profiles: "No profiles — save a reusable configuration",
-  engines: "No engines installed",
-  users: "No users",
-  apiClients: "No API clients yet — create one for programmatic access",
-} as const
-
-export type EmptyStateKey = keyof typeof EMPTY_STATES
-
 export interface EmptyStateProps {
-  readonly title: string
-  readonly icon?: LucideIcon
-  readonly description?: string
+  readonly headline: string
+  readonly body: string
+  /** Single primary action — spec §4: never two competing buttons. */
   readonly action?: ReactNode
+  readonly icon?: ReactNode
+  readonly className?: string
 }
 
-export function EmptyState({ title, icon: Icon, description, action }: EmptyStateProps) {
+/**
+ * EmptyState — §4: centered column, max-width 360, icon muted,
+ * headline 20/600, body 14 secondary, one optional primary CTA 16px below.
+ * Render inside the region it replaces (tbody region gets role="status" on
+ * the caller's wrapper, not here — the content itself is static copy).
+ */
+export function EmptyState({ headline, body, action, icon, className }: EmptyStateProps) {
+  const classes = className === undefined ? "empty" : `empty ${className}`
+
   return (
-    <div className="flex flex-col items-center gap-2 px-6 py-10 text-center">
-      {Icon !== undefined ? (
-        <Icon
-          aria-hidden="true"
-          strokeWidth={2}
-          className="size-[var(--icon-empty)] text-text-muted"
-        />
-      ) : null}
-      <p className="text-title font-semibold text-text-primary">{title}</p>
-      {description !== undefined ? (
-        <p className="max-w-prose text-body text-text-secondary">{description}</p>
-      ) : null}
-      {action !== undefined ? <div className="mt-2">{action}</div> : null}
+    <div className={classes}>
+      {icon !== undefined ? <span className="empty__icon">{icon}</span> : null}
+      <p className="empty__headline t-h2">{headline}</p>
+      <p className="empty__body">{body}</p>
+      {action !== undefined ? <div className="empty__action">{action}</div> : null}
     </div>
   )
 }

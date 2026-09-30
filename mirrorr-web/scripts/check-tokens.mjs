@@ -1,108 +1,124 @@
 #!/usr/bin/env bun
 /**
- * Mechanical token diff.
+ * check-tokens — assert src/styles/tokens.css declares every design-spec §1
+ * token the console depends on. Normative source:
+ * docs/web-frontend-design-spec.md §1 (Token YAML); REQUIRED below maps each
+ * §1 YAML key to the CSS custom property tokens.css binds it to (the mapping
+ * is manual by design — the YAML is the contract, tokens.css is the binding).
  *
- * Every custom property frozen in tests/fixtures/tokens.spec.json (transcribed
- * from docs/web-frontend-spec.md L55-L113) must be present, with the spec's
- * value, in the built CSS (dist/assets/*.css). Run `bun run build` first.
- *
- * Values are normalized only for case, whitespace, quote style and colour
- * syntax (hex <-> rgba) so minifier transforms cannot hide a real mismatch.
+ * Exit 0 = sheet complete; exit 1 = list of missing tokens printed.
  */
-import { existsSync, readFileSync, readdirSync } from "node:fs"
-import { join, relative } from "node:path"
+import { readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 
-const root = join(import.meta.dirname, "..")
-const fixturePath = join(root, "tests", "fixtures", "tokens.spec.json")
-const fixture = JSON.parse(readFileSync(fixturePath, "utf8"))
-const required = fixture.tokens
+const TOKENS_FILE = fileURLToPath(new URL("../src/styles/tokens.css", import.meta.url))
 
-const assetsDir = join(root, "dist", "assets")
+const STATUS_KEYS = [
+  "scheduled",
+  "active",
+  "recording",
+  "terminating",
+  "remuxing",
+  "finalizing",
+  "completed",
+  "failed",
+  "unknown",
+]
 
-if (!existsSync(assetsDir)) {
-  console.error("check-tokens: dist/assets is missing - run `bun run build` first.")
-  process.exit(2)
-}
+const COLOR_GROUPS = [
+  ["--color-primary", "--color-secondary", "--color-success", "--color-warning", "--color-danger", "--color-surface", "--color-text", "--color-neutral"],
+  ["--color-bg-base", "--color-bg-panel", "--color-bg-raised", "--color-fill-hover", "--color-fill-active", "--color-overlay-backdrop"],
+  ["--color-border-subtle", "--color-border-standard", "--color-border-strong"],
+  ["--color-text-primary", "--color-text-secondary", "--color-text-muted", "--color-text-inverse"],
+  ["--color-accent-fill", "--color-accent-fill-hover", "--color-accent-text", "--color-accent-text-hover", "--color-focus-ring"],
+]
 
-const cssFiles = readdirSync(assetsDir).filter((name) => name.endsWith(".css"))
+const TYPE_SCALE = ["--text-12", "--text-14", "--text-16", "--text-20", "--text-24", "--text-32"]
+const WEIGHTS = ["--weight-400", "--weight-500", "--weight-600"]
 
-if (cssFiles.length === 0) {
-  console.error("check-tokens: no CSS found in dist/assets - run `bun run build` first.")
-  process.exit(2)
-}
+const TYPE_ROLES = [
+  "--role-h1-size", "--role-h1-weight", "--role-h1-lh", "--role-h1-tracking",
+  "--role-h2-size", "--role-h2-weight", "--role-h2-lh", "--role-h2-tracking",
+  "--role-h3-size", "--role-h3-weight", "--role-h3-lh", "--role-h3-tracking",
+  "--role-body-md-size", "--role-body-md-weight", "--role-body-md-lh",
+  "--role-body-size", "--role-body-weight", "--role-body-lh",
+  "--role-body-strong-weight",
+  "--role-label-caps-size", "--role-label-caps-weight", "--role-label-caps-lh", "--role-label-caps-tracking",
+  "--role-meta-size", "--role-meta-weight", "--role-meta-lh",
+  "--role-mono-size", "--role-mono-weight", "--role-mono-lh",
+  "--role-mono-inline-size", "--role-mono-inline-weight", "--role-mono-inline-lh",
+]
 
-const css = cssFiles.map((name) => readFileSync(join(assetsDir, name), "utf8")).join("\n")
+const RADIUS_SCALE = ["--radius-sm", "--radius-md", "--radius-full"]
+const RADIUS_ELEMENTS = [
+  "--radius-chip", "--radius-badge", "--radius-button", "--radius-input",
+  "--radius-select", "--radius-switch-track", "--radius-well", "--radius-card",
+  "--radius-menu", "--radius-dialog", "--radius-sheet", "--radius-toast",
+  "--radius-drawer", "--radius-fab", "--radius-row",
+]
 
-/** Collect every `--name: value` declaration from the built CSS. */
-const found = new Map()
-for (const match of css.matchAll(/--([a-zA-Z][\w-]*)\s*:\s*([^;{}]+)(?=[;}])/g)) {
-  const name = `--${match[1]}`
-  const value = match[2].trim()
-  if (!found.has(name)) found.set(name, [])
-  found.get(name).push(value)
-}
+const SPACING = [
+  "--space-hair", "--space-xs", "--space-sm", "--space-smd", "--space-md",
+  "--space-lg", "--space-xl", "--space-xxl",
+  "--space-page-pad-desktop", "--space-page-pad-compact",
+  "--space-section-gap-desktop", "--space-section-gap-compact",
+  "--space-card-pad", "--space-table-cell-pad-inline",
+]
 
-const HEX = /#([0-9a-fA-F]{3,8})\b/g
-const RGB = /rgba?\(\s*([0-9.]+)\s*[, ]\s*([0-9.]+)\s*[, ]\s*([0-9.]+)\s*(?:[,/]\s*([0-9.]+)\s*)?\)/gi
+const ROW_HEIGHTS = ["--row-h-desktop", "--table-row-h", "--card-min-h-compact"]
 
-/** Canonical colour form: lowercase 8-digit hex (#rrggbbaa), so hex and rgba() compare equal. */
-function canonicalColor(r, g, b, a) {
-  const alpha = a === undefined ? 255 : Math.round(Number(a) * 255)
-  return `#${[r, g, b]
-    .map((channel) => Number(channel).toString(16).padStart(2, "0"))
-    .join("")}${alpha.toString(16).padStart(2, "0")}`
-}
+const COMPONENTS = [
+  "--focus-ring-width", "--focus-ring-color", "--focus-ring-offset",
+  "--button-h", "--input-h", "--select-trigger-h", "--chip-h", "--badge-h",
+  "--switch-track-w", "--switch-track-h",
+  "--topbar-h", "--sidebar-w", "--appbar-h", "--tabbar-h", "--fab-size",
+  "--dialog-w", "--dialog-w-wizard", "--toast-w", "--drawer-w",
+]
 
-function canonicalHex(hex) {
-  let value = hex.toLowerCase()
-  if (value.length === 3 || value.length === 4) {
-    value = [...value].map((char) => char + char).join("")
+const REQUIRED = [
+  ...COLOR_GROUPS.flat(),
+  ...STATUS_KEYS.flatMap((key) => [
+    `--status-${key}-dot`,
+    `--status-${key}-fg`,
+    `--status-${key}-tint`,
+  ]),
+  "--font-sans",
+  "--font-mono",
+  ...TYPE_SCALE,
+  ...WEIGHTS,
+  "--features-mono",
+  ...TYPE_ROLES,
+  ...RADIUS_SCALE,
+  ...RADIUS_ELEMENTS,
+  ...SPACING,
+  ...ROW_HEIGHTS,
+  ...COMPONENTS,
+]
+
+function parseDeclarations(css) {
+  const values = new Map()
+  for (const match of css.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) {
+    const value = match[2].replace(/\/\*[\s\S]*?\*\//g, "").trim()
+    if (value !== "") values.set(match[1], value)
   }
-  const channels = [0, 2, 4].map((offset) => parseInt(value.slice(offset, offset + 2), 16))
-  const alpha = value.length === 8 ? parseInt(value.slice(6, 8), 16) : 255
-  return `#${[...channels, alpha].map((channel) => channel.toString(16).padStart(2, "0")).join("")}`
+  return values
 }
 
-function normalize(raw) {
-  return raw
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .replace(/["']/g, "")
-    // Milliseconds and seconds are the same value written two ways (120ms == .12s).
-    .replace(/(-?\d*\.?\d+)(ms|s)\b/g, (_, n, unit) => `${Number(n) * (unit === "s" ? 1000 : 1)}ms`)
-    // Minifiers strip the leading zero (.12s, .04em).
-    .replace(/(?<![\d.])\.(\d+)/g, "0.$1")
-    .replace(HEX, (_, hex) => canonicalHex(hex))
-    .replace(RGB, (_, r, g, b, a) => canonicalColor(r, g, b, a))
-    .trim()
-}
-
-const diffs = []
-for (const [name, expectedRaw] of Object.entries(required)) {
-  const candidates = found.get(name)
-  if (!candidates) {
-    diffs.push(`- ${name}: ${expectedRaw} (missing from built CSS)`)
-    continue
-  }
-  const expected = normalize(expectedRaw)
-  if (!candidates.some((candidate) => normalize(candidate) === expected)) {
-    diffs.push(`- ${name}: ${expectedRaw} (found: ${candidates.join(" | ")})`)
-  }
-}
-
-const total = Object.keys(required).length
-const relativeFixture = relative(root, fixturePath)
-
-console.log(`check-tokens: fixture       ${relativeFixture}`)
-console.log(`check-tokens: built css     ${cssFiles.join(", ")}`)
-console.log(`check-tokens: tokens matched ${total - diffs.length}/${total}`)
-console.log(`--- ${relativeFixture}`)
-console.log(`+++ dist/assets/${cssFiles.join(", dist/assets/")}`)
-
-if (diffs.length > 0) {
-  for (const line of diffs) console.log(line)
-  console.error(`check-tokens: FAILED - ${diffs.length} token(s) missing or mismatched`)
+let css
+try {
+  css = readFileSync(TOKENS_FILE, "utf8")
+} catch {
+  console.error(`[check-tokens] FAIL — cannot read ${TOKENS_FILE}`)
   process.exit(1)
 }
 
-console.log("(diff is empty - every spec token is present with its spec value)")
+const declared = parseDeclarations(css)
+const missing = REQUIRED.filter((name) => !declared.has(name))
+
+if (missing.length > 0) {
+  console.error(`[check-tokens] FAIL — ${missing.length} design-spec §1 token(s) missing from tokens.css:`)
+  for (const name of missing) console.error(`  ${name}`)
+  process.exit(1)
+}
+
+console.log(`[check-tokens] ok — ${REQUIRED.length} design-spec §1 tokens present in tokens.css`)

@@ -1,70 +1,76 @@
+import { Badge } from "@/components/ui/Badge"
+import { IconBell, IconChevronLeft } from "@/components/ui/icons"
+
+export interface CompactAppBarProps {
+  readonly title: string
+  readonly connection: {
+    readonly state: "connected" | "reconnecting" | "offline"
+    readonly label: string
+    readonly hideDot?: boolean
+  }
+  readonly notificationCount: number
+  readonly onOpenNotifications: () => void
+  /** Renders the 44px back chevron instead of the Mirrorr mark when set (§3.3). */
+  readonly onBack?: () => void
+  readonly showMark?: boolean
+  readonly hideNotifications?: boolean
+}
+
 /**
- * The compact app bar (spec L498): 44px, `bg-raised`, 1px bottom border. Left
- * is the 44px back chevron on nested routes and the Mirrorr mark at the tab
- * roots; then the contextual 16px/600 title, ellipsized; then the WS dot and
- * the notification bell, each sitting in a 44px target.
- *
- * The chevron delegates to the platform back seam (spec L498) rather than
- * calling history directly, so a sheet that is somehow above it still consumes
- * the back and todo 29's native bridge behaves identically.
+ * CompactAppBar — ≤639 (§3.3/§6): 44px + env(safe-area-inset-top),
+ * border-strong bottom, back chevron OR Mirrorr mark left, title
+ * centred, conn + bell right (44px touch targets, 16/600 titles).
  */
-import { useLocation } from "@tanstack/react-router"
-import { ChevronLeft } from "lucide-react"
-import { RealtimeIndicator } from "@/components/chrome/ConnectionDot"
-import { NotificationBell } from "@/components/chrome/NotificationBell"
-import { viewTitleForPath } from "@/components/chrome/TopBar"
-import { FOCUS_RING } from "@/components/ui/focus-ring"
-import { handlePlatformBack } from "@/lib/back-navigation"
-import { isNestedRoute } from "@/lib/compact-nav"
-
-const TARGET_CLASS = "flex h-11 w-11 shrink-0 items-center justify-center rounded-control"
-
-export function CompactAppBar() {
-  const location = useLocation()
-  const nested = isNestedRoute(location.pathname)
-
+export function CompactAppBar({
+  title,
+  connection,
+  notificationCount,
+  onOpenNotifications,
+  onBack,
+  showMark = true,
+  hideNotifications = false,
+}: CompactAppBarProps) {
   return (
-    <header
-      data-testid="compact-app-bar"
-      className="compact-app-bar flex shrink-0 items-center gap-1 border-b border-border bg-bg-raised pr-1 pl-2"
-    >
-      {nested ? (
-        <button
-          type="button"
-          data-testid="compact-back"
-          aria-label="Go back"
-          title="Go back"
-          onClick={() => {
-            handlePlatformBack()
-          }}
-          className={[
-            TARGET_CLASS,
-            "text-text-secondary hover:bg-bg-overlay hover:text-text-primary",
-            FOCUS_RING,
-          ].join(" ")}
-        >
-          <ChevronLeft aria-hidden="true" strokeWidth={2} className="size-[22px]" />
-        </button>
-      ) : (
-        <span
-          data-testid="compact-mark"
-          className="flex h-11 shrink-0 items-center pr-1 text-title font-semibold text-text-primary"
-        >
-          Mirrorr
+    <header className="appbar">
+      <div className="appbar__side">
+        {onBack !== undefined ? (
+          <button type="button" className="appbar__back" aria-label="Back" onClick={onBack}>
+            <IconChevronLeft size={20} />
+          </button>
+        ) : showMark ? (
+          <span className="appbar__mark">Mirrorr</span>
+        ) : null}
+      </div>
+      <span className="appbar__title">{title}</span>
+      <div className="appbar__side">
+        <span className="conn" data-state={connection.state} role="status">
+          {connection.hideDot === true ? null : <span className="conn__dot" aria-hidden="true" />}
+          <span className="conn__label">{connection.label}</span>
         </span>
-      )}
-      <div
-        data-testid="view-title"
-        className="min-w-0 flex-1 truncate text-title font-semibold text-text-primary"
-      >
-        {viewTitleForPath(location.pathname)}
-      </div>
-      <div data-testid="compact-connection" className={[TARGET_CLASS, "min-w-11 px-1"].join(" ")}>
-        <RealtimeIndicator />
-      </div>
-      {/* The bell's own button carries the 44px target under the compact shell. */}
-      <div data-testid="compact-bell" className={[TARGET_CLASS, "[&_button]:size-11"].join(" ")}>
-        <NotificationBell />
+        {hideNotifications ? null : (
+          <button
+            type="button"
+            className="bell"
+            aria-haspopup="dialog"
+            aria-label={
+              notificationCount > 0
+                ? `Notifications, ${notificationCount} unread`
+                : "Notifications"
+            }
+            onClick={onOpenNotifications}
+          >
+            <IconBell size={18} />
+            {notificationCount > 0 ? (
+              <Badge
+                variant="unread"
+                className="bell__badge"
+                aria-label={`${notificationCount} unread notifications`}
+              >
+                {notificationCount}
+              </Badge>
+            ) : null}
+          </button>
+        )}
       </div>
     </header>
   )

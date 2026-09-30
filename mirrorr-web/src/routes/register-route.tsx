@@ -1,12 +1,21 @@
 import { createRoute, redirect } from "@tanstack/react-router"
-import { RegisterView } from "@/components/auth/RegisterView"
-import { RoutePending } from "@/components/ui/RoutePending"
-import { ensureAuthStatus, isAuthenticated } from "@/lib/auth-guard"
+import { lazy, Suspense } from "react"
+import { authStatusKey } from "@/hooks/use-auth-status"
+import { apiFetch } from "@/lib/api"
+import { isAuthenticated } from "@/lib/auth"
+import { queryClient } from "@/query-client"
 import { publicLayoutRoute } from "@/routes/public-layout-route"
+import { AuthStatusSchema } from "@/lib/schemas"
+
+const RegisterView = lazy(() =>
+  import("@/views/auth/register-view").then((module) => ({ default: module.RegisterView })),
+)
 
 /**
- * V2 bootstrap (spec L35, L252): reachable only while `has_users` is false;
- * every other outcome (users exist, status unknown) falls back to `/login`.
+ * `/register` — public bootstrap only (general-client spec guard):
+ * authenticated → /sessions; `has_users === true` → /login; fetch failure
+ * (429/network) leaves status unknown and the view redirects to /login.
+ * Export: `registerRoute` (NOT yet mounted in router.tsx).
  */
 export const registerRoute = createRoute({
   getParentRoute: () => publicLayoutRoute,
@@ -15,18 +24,27 @@ export const registerRoute = createRoute({
     if (isAuthenticated()) {
       throw redirect({ to: "/sessions" })
     }
-
-    let hasUsers: boolean
+    let hasUsers: boolean | null = null
     try {
-      hasUsers = (await ensureAuthStatus()).has_users
+      const status = AuthStatusSchema.parse(
+        await apiFetch<unknown>("/auth/status", { skipAuthRefresh: true }),
+      )
+      queryClient.setQueryData(authStatusKey, status)
+      hasUsers = status.has_users
     } catch {
-      throw redirect({ to: "/login" })
+      hasUsers = null
     }
-    if (hasUsers) {
+    if (hasUsers === true) {
       throw redirect({ to: "/login" })
     }
   },
-  pendingComponent: RoutePending,
-  pendingMs: 0,
-  component: RegisterView,
+  component: RegisterRouteView,
 })
+
+function RegisterRouteView() {
+  return (
+    <Suspense fallback={null}>
+      <RegisterView />
+    </Suspense>
+  )
+}

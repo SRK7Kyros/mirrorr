@@ -1,95 +1,106 @@
-import { useEffect, useState, type ReactNode } from "react"
-import { useIsCompactShell } from "@/components/chrome/CompactShell"
-import { Button } from "@/components/ui/Button"
-import { Dialog } from "@/components/ui/Dialog"
-import { Input } from "@/components/ui/Input"
+import { useId, useState } from "react"
+import type { ReactNode } from "react"
+import { Button } from "./Button"
+import { Dialog } from "./Dialog"
+import { Input } from "./Input"
 
-/**
- * ConfirmDialog — spec L112 + L405: 400px, danger primary button for
- * destructive actions, optional typed-confirmation input, focus-trapped with
- * Esc cancelling. Typed confirmation is opt-in and only delete-user and
- * revoke-key pass it (spec L112/L550).
- */
+export type ConfirmTone = "default" | "destructive" | "block"
+
+export interface TypedConfirm {
+  /** Exact phrase the user must type (V11 revoke key, V7 delete, …). */
+  readonly phrase: string
+  readonly instruction?: string
+  readonly inputLabel?: string
+}
 
 export interface ConfirmDialogProps {
   readonly open: boolean
+  readonly onClose: () => void
+  readonly onConfirm: () => void
   readonly title: string
   readonly body: ReactNode
-  readonly confirmLabel?: string
+  readonly confirmLabel: string
   readonly cancelLabel?: string
-  readonly danger?: boolean
-  readonly pending?: boolean
-  /** When set, confirm stays disabled until the input matches exactly. */
-  readonly typedConfirmation?: string
-  readonly onConfirm: () => void
-  readonly onCancel: () => void
+  readonly tone?: ConfirmTone
+  readonly loading?: boolean
+  /** Adds the mono phrase-confirmation input; confirm stays at 40% opacity (§4). */
+  readonly typedConfirm?: TypedConfirm
 }
 
+/**
+ * ConfirmDialog — §4 three shapes:
+ * • standard (ghost Cancel + primary Confirm, secondary body copy)
+ * • destructive (warning icon + title 14/500 `#FF6B77` + amber-tinted detail;
+ *   rendered here as a tinted body via tone="destructive", danger button)
+ * • block ("… still in use" + single Close → cancelLabel only, no confirm)
+ * • typed-confirm: mono input must match `phrase` (leading/trailing space
+ *   trimmed); Confirm is aria-disabled at 40% opacity until it matches.
+ * Compact presentation is Dialog's sheet resolution (§6).
+ */
 export function ConfirmDialog({
   open,
+  onClose,
+  onConfirm,
   title,
   body,
-  confirmLabel = "Confirm",
+  confirmLabel,
   cancelLabel = "Cancel",
-  danger = true,
-  pending = false,
-  typedConfirmation,
-  onConfirm,
-  onCancel,
+  tone = "default",
+  loading = false,
+  typedConfirm,
 }: ConfirmDialogProps) {
-  const [typed, setTyped] = useState("")
+  const phraseId = useId()
+  const [typedValue, setTypedValue] = useState("")
 
-  useEffect(() => {
-    if (open) setTyped("")
-  }, [open])
+  const phraseMatches =
+    typedConfirm === undefined || typedValue.trim() === typedConfirm.phrase
+  const canConfirm = phraseMatches && !loading
+  const typedMismatch =
+    typedConfirm !== undefined && typedValue.length > 0 && !phraseMatches
 
-  const confirmed = typedConfirmation === undefined || typed === typedConfirmation
-  const compact = useIsCompactShell()
+  const close = () => {
+    setTypedValue("")
+    onClose()
+  }
 
-  // Spec L559: on compact the confirm stacks above Cancel as a full-width 48px
-  // target, so the destructive tap stays deliberate and easy to hit.
-  const footer = compact ? (
-    <div className="flex w-full flex-col items-center gap-2">
-      <Button variant="ghost" onClick={onCancel} disabled={pending}>
-        {cancelLabel}
-      </Button>
-      <Button
-        variant={danger ? "danger" : "primary"}
-        className="h-12 w-full"
-        onClick={onConfirm}
-        disabled={!confirmed || pending}
-      >
-        {confirmLabel}
-      </Button>
-    </div>
-  ) : (
+  const footer = (
     <>
-      <Button variant="ghost" onClick={onCancel} disabled={pending}>
-        {cancelLabel}
+      <Button variant="ghost" onClick={close}>
+        {tone === "block" ? confirmLabel : cancelLabel}
       </Button>
-      <Button
-        variant={danger ? "danger" : "primary"}
-        onClick={onConfirm}
-        disabled={!confirmed || pending}
-      >
-        {confirmLabel}
-      </Button>
+      {tone !== "block" ? (
+        <Button
+          variant={tone === "destructive" ? "danger" : "primary"}
+          loading={loading}
+          aria-disabled={!canConfirm}
+          onClick={() => {
+            if (canConfirm) onConfirm()
+          }}
+        >
+          {confirmLabel}
+        </Button>
+      ) : null}
     </>
   )
 
   return (
-    <Dialog open={open} onClose={onCancel} title={title} size="confirm" footer={footer}>
-      <div className="flex flex-col gap-3">
-        <div>{body}</div>
-        {typedConfirmation !== undefined ? (
-          <Input
-            label={`Type ${typedConfirmation} to confirm`}
-            value={typed}
-            autoComplete="off"
-            onChange={(event) => setTyped(event.target.value)}
-          />
-        ) : null}
+    <Dialog open={open} onClose={close} title={title} footer={footer}>
+      <div className={tone === "destructive" ? "confirm__body confirm__body--destructive" : "confirm__body"}>
+        {body}
       </div>
+      {typedConfirm !== undefined ? (
+        <Input
+          id={phraseId}
+          label={typedConfirm.inputLabel ?? `Type “${typedConfirm.phrase}” to confirm`}
+          mono
+          autoComplete="off"
+          spellCheck={false}
+          value={typedValue}
+          error={typedMismatch ? "Phrase does not match" : undefined}
+          helper={typedMismatch ? undefined : typedConfirm.instruction}
+          onChange={(event) => setTypedValue(event.target.value)}
+        />
+      ) : null}
     </Dialog>
   )
 }

@@ -1,0 +1,164 @@
+/*
+ * UI overlays + feedback surfaces — §4 ErrorPanel / Toast / Dialog / Sheet /
+ * OverflowMenu / FAB. Shadows exist ONLY on this overlay layer (§0 accessory
+ * removed: content surfaces stay flat).
+ */
+
+/* ── ErrorPanel (bg danger 8%, border danger 35%, r8, pad 16) ──── */
+.error-panel {
+  background: var(--error-bg);
+  border: var(--error-border);
+  border-radius: var(--error-radius);
+  padding: var(--error-pad);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.error-panel__title {
+  font-size: var(--error-title-size);
+  font-weight: var(--error-title-weight);
+  line-height: 1.45;
+  color: var(--error-fg);
+}
+
+.error-panel__body {
+  font-size: var(--error-body-size);
+  font-weight: var(--role-meta-weight);
+  line-height: var(--role-meta-lh);
+  color: var(--error-fg);
+  overflow-wrap: anywhere;
+}
+
+.error-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-xs);
+}
+
+/* row-level variant: compact inline under a table row (§4) */
+.error-panel--row {
+  padding: var(--space-sm) var(--space-smd);
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.error-panel--row .error-panel__body {
+  flex: 1 1 200px;
+}
+
+/* ── Toast (320 · r8 · bottom-right desktop / top-center compact) ─ */
+.toast-viewport {
+  position: fixed;
+  z-index: 70;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  width: var(--toast-w);
+  max-width: calc(100vw - 32px);
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  position: relative;
+  width: 100%;
+  padding: var(--toast-pad);
+  background: var(--color-bg-raised);
+  border: 1px solid var(--color-border-standard);
+  border-radius: var(--radius-toast);
+  box-shadow: var(--shadow-toast);
+  display: flex;
+  gap: var(--space-sm);
+  overflow: hidden;
+}
+
+.toast--error {
+  border-color: var(--color-border-standard);
+}
+
+.toast--error::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-danger);
+}
+
+.toast__dot {
+  width: var(--chip-dot);
+  height: var(--chip-dot);
+  margin-top: 5px;
+  border-radius: var(--radius-full);
+  background: var(--color-success);
+  flex-shrink: 0;
+}
+
+.toast--error .toast__dot {
+  background: var(--color-danger);
+}
+
+.toast__content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toast__title {
+  font-size: var(--toast-title-size);
+  font-weight: var(--toast-title-weight);
+  line-height: 1.45;
+  color: var(--color-text-primary);
+}
+
+.toast--error .toast__title {
+  color: var(--error-fg);
+}
+
+.toast__body {
+  font-size: var(--toast-body-size);
+  font-weight: var(--toast-body-weight);
+  line-height: var(--role-meta-lh);
+  color: var(--color-text-secondary);
+}
+
+.toast__action {
+  align-self: flex-start;
+  font-size: var(--toast-body-size);
+  font-weight: var(--toast-title-weight);
+  color: var(--color-accent-text);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.toast__close {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.toast__close:hover {
+  background: var(--color-fill-hover);
+  color: var(--color-text-primary);
+}
+
+/* ── Backdrop (dialog/sheet/drawer scrim) ──────────────────────── */

@@ -1,0 +1,382 @@
+/*
+ * Enterprise-Mirrorr design tokens — design spec §1, byte-for-byte.
+ * Normative source: docs/web-frontend-design-spec.md (Token YAML).
+ * Rule: enterprise hexes are law; derived neutrals are real neutrals
+ * (no hue cast); STATUS_MAP functional roles re-bound in colors.status + §2.
+ * mode: dark-only (v1 ships dark theme only).
+ */
+
+:root {
+  /* ── colors: core ─────────────────────────────────────────────── */
+  /* accent FILL role: primary buttons, FAB, switch-on, active bars, chip tints */
+  --color-primary: #0C5CAB;
+  /* accent DEPTH role: primary-button hover/pressed, STATUS processing tint */
+  --color-secondary: #0a4a8a;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-surface: #09090b; /* = bg-base */
+  --color-text: #fafafa; /* = text-primary */
+  --color-neutral: #09090b; /* enterprise neutral == surface */
+
+  /* derived surface ladder — Linear luminance-stepping reasoning over
+     enterprise surface */
+  --color-bg-base: #09090b; /* page canvas; inset wells */
+  --color-bg-panel: #0E0F12; /* sidebar, topbar, compact app bar, tab bar, drawer chrome */
+  --color-bg-raised: #14171B; /* cards, table rows, inputs, menus, dialogs, toasts, skeletons */
+  --color-fill-hover: rgba(255,255,255,0.04); /* row/nav/button ghost hover */
+  --color-fill-active: rgba(255,255,255,0.07); /* pressed ghost, active nav item */
+  --color-overlay-backdrop: rgba(0,0,0,0.85); /* dialog/sheet scrim */
+
+  /* hairline border system (Linear border-as-depth) */
+  --color-border-subtle: rgba(255,255,255,0.05); /* row dividers, chrome seams */
+  --color-border-standard: rgba(255,255,255,0.08); /* cards, inputs, menus, wells */
+  --color-border-strong: rgba(255,255,255,0.14); /* dialog/sheet edge, topbar-bottom on compact */
+
+  /* text ladder (contrast-verified in §7) */
+  --color-text-primary: #fafafa;
+  --color-text-secondary: #9AA3B2; /* labels, descriptions, secondary cells */
+  --color-text-muted: #7E8798; /* meta/timestamps/placeholders ONLY — never body copy */
+  --color-text-inverse: #09090b; /* text on solid success/warning/danger fills */
+
+  /* accent text role (same hue family as primary — NOT a second accent) */
+  --color-accent-fill: #0C5CAB;
+  --color-accent-fill-hover: #0a4a8a;
+  --color-accent-text: #7DB1E5; /* links, focus ring, active-indicator sole graphics, info chip fg */
+  --color-accent-text-hover: #9CC5EE;
+  --color-focus-ring: #7DB1E5; /* 2px outline, offset 1px (re-binding; see §2) */
+
+  /* ── colors: STATUS_MAP re-bindings (§2 full mapping) ─────────── */
+  /* Per role: dot (graphic), fg (chip text), tint (12% alpha fill over
+     bg-raised), solid (rare) */
+  --status-scheduled-dot: #7DB1E5;
+  --status-scheduled-fg: #7DB1E5;
+  --status-scheduled-tint: rgba(12,92,171,0.12);
+
+  --status-active-dot: #10b981;
+  --status-active-fg: #34D399;
+  --status-active-tint: rgba(16,185,129,0.12);
+
+  --status-recording-dot: #ef4444;
+  --status-recording-fg: #FF6B77;
+  --status-recording-tint: rgba(239,68,68,0.12);
+
+  --status-terminating-dot: #f59e0b;
+  --status-terminating-fg: #FBBF24;
+  --status-terminating-tint: rgba(245,158,11,0.12);
+
+  --status-remuxing-dot: #A7C0E0;
+  --status-remuxing-fg: #A7C0E0;
+  --status-remuxing-tint: rgba(10,74,138,0.12);
+
+  --status-finalizing-dot: #A7C0E0;
+  --status-finalizing-fg: #A7C0E0;
+  --status-finalizing-tint: rgba(10,74,138,0.12);
+
+  --status-completed-dot: #10b981;
+  --status-completed-fg: #34D399;
+  --status-completed-tint: rgba(16,185,129,0.12);
+
+  --status-failed-dot: #ef4444;
+  --status-failed-fg: #FF6B77;
+  --status-failed-tint: rgba(239,68,68,0.12);
+
+  --status-unknown-dot: #9AA3B2;
+  --status-unknown-fg: #9AA3B2;
+  --status-unknown-tint: rgba(255,255,255,0.05);
+
+  /* ── typography ───────────────────────────────────────────────── */
+  --font-sans: "'IBM Plex Sans', system-ui, sans-serif";
+  --font-mono: "'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace";
+  /* sourceScale: 12/14/16/20/24/32 — enterprise scale; 13px base re-bound
+     to 14px (nearest step) in §2 */
+  --text-12: 12px;
+  --text-14: 14px;
+  --text-16: 16px;
+  --text-20: 20px;
+  --text-24: 24px;
+  --text-32: 32px;
+  --weight-400: 400;
+  --weight-500: 500; /* signature emphasis (Linear-510 role → Plex Medium) */
+  --weight-600: 600; /* max weight — 700+ never used (no shouting) */
+  /* slashed zero + tabular figures in all machine values */
+  --features-mono: "tnum" 1, "zero" 1;
+
+  /* typography roles (§1 typography.roles) */
+  --role-h1-size: 32px;
+  --role-h1-weight: 600;
+  --role-h1-lh: 1.15;
+  --role-h1-tracking: -0.02em;
+  --role-h2-size: 24px;
+  --role-h2-weight: 600;
+  --role-h2-lh: 1.2;
+  --role-h2-tracking: -0.015em;
+  --role-h3-size: 20px;
+  --role-h3-weight: 600;
+  --role-h3-lh: 1.25;
+  --role-h3-tracking: -0.01em;
+  --role-body-md-size: 16px;
+  --role-body-md-weight: 400;
+  --role-body-md-lh: 1.4;
+  --role-body-size: 14px;
+  --role-body-weight: 400;
+  --role-body-lh: 1.45;
+  --role-body-strong-weight: 500;
+  --role-label-caps-size: 12px;
+  --role-label-caps-weight: 500;
+  --role-label-caps-lh: 1.4;
+  --role-label-caps-tracking: 0.06em;
+  --role-meta-size: 12px;
+  --role-meta-weight: 400;
+  --role-meta-lh: 1.4;
+  --role-mono-size: 12px;
+  --role-mono-weight: 400;
+  --role-mono-lh: 1.5;
+  --role-mono-inline-size: 12px;
+  --role-mono-inline-weight: 500;
+  --role-mono-inline-lh: 1.45;
+
+  /* ── rounded (4/8 enterprise scale; no third radius) ──────────── */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-full: 9999px; /* status dots + FAB ONLY */
+  /* element mapping — radius scales with the element */
+  --radius-chip: 4px;
+  --radius-badge: 4px;
+  --radius-button: 4px;
+  --radius-input: 4px;
+  --radius-select: 4px;
+  --radius-switch-track: 9999px;
+  --radius-well: 4px;
+  --radius-card: 8px;
+  --radius-menu: 8px;
+  --radius-dialog: 8px;
+  --radius-sheet: 8px 8px 0 0;
+  --radius-toast: 8px;
+  --radius-drawer: 0;
+  --radius-fab: 9999px;
+  --radius-row: 4px;
+
+  /* ── spacing (8pt baseline grid) ──────────────────────────────── */
+  --space-hair: 2px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-smd: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-xxl: 48px;
+  --space-page-pad-desktop: 24px;
+  --space-page-pad-compact: 16px;
+  --space-section-gap-desktop: 24px;
+  --space-section-gap-compact: 16px;
+  --space-card-pad: 16px;
+  --space-table-cell-pad-inline: 12px;
+  --row-h-desktop: 36px;
+  --card-min-h-compact: 64px;
+
+  /* ── components (§1 components.*) ─────────────────────────────── */
+  /* focus_ring: 2px solid #7DB1E5, offset 1px */
+  --focus-ring-width: 2px;
+  --focus-ring-color: #7DB1E5;
+  --focus-ring-offset: 1px;
+
+  --sidebar-w: 224px;
+  --sidebar-rail-w: 56px;
+  --sidebar-h: 100dvh;
+  --sidebar-brand-well-h: 48px;
+  --sidebar-item-h: 36px;
+  --sidebar-item-gap: 2px;
+  --sidebar-item-pad: 0 12px;
+  --sidebar-item-radius: 4px;
+  --sidebar-icon: 16px;
+  --sidebar-active-fill: rgba(255,255,255,0.07);
+  --sidebar-active-bar-w: 2px;
+
+  --topbar-h: 48px;
+  --topbar-pad: 0 24px;
+  --topbar-title-size: 16px;
+  --topbar-title-weight: 600;
+  --topbar-right-gap: 8px;
+
+  --appbar-h: 44px;
+  --appbar-target: 44px;
+  --appbar-safe-top: env(safe-area-inset-top);
+
+  --tabbar-h: 56px;
+  --tabbar-icon: 22px;
+  --tabbar-label: 11px;
+  --tabbar-label-weight: 500;
+  --tabbar-active: #7DB1E5;
+  --tabbar-inactive: #7E8798;
+  --tabbar-safe-bottom: env(safe-area-inset-bottom);
+
+  --fab-size: 56px;
+  --fab-icon: 24px;
+  --fab-bottom: calc(56px + env(safe-area-inset-bottom) + 16px);
+
+  --table-row-h: 36px;
+  --card-pad: 16px;
+
+  --chip-h: 20px;
+  --chip-pad: 0 8px;
+  --chip-radius: 4px;
+  --chip-label-size: 12px;
+  --chip-label-weight: 500;
+  --chip-dot: 8px;
+  --chip-dot-gap: 6px;
+  --chip-pulse-period: 1.6s;
+
+  --badge-h: 18px;
+  --badge-pad: 0 6px;
+  --badge-radius: 4px;
+  --badge-label-size: 12px;
+  --badge-label-weight: 500;
+  --badge-solid-fg: #09090b;
+  --badge-unread-min: 16px;
+
+  --button-h: 32px;
+  --button-h-compact: 44px;
+  --button-px: 12px;
+  --button-radius: 4px;
+  --button-label-size: 14px;
+  --button-label-weight: 500;
+  --button-disabled-fg: #7E8798;
+  --button-disabled-bg: rgba(255,255,255,0.02);
+  --button-disabled-border: rgba(255,255,255,0.05);
+  --button-danger-hover-bg: #f87171;
+  --button-danger-text-fg: #FF6B77;
+  --button-danger-text-hover-bg: rgba(239,68,68,0.08);
+  --button-danger-text-active-bg: rgba(239,68,68,0.12);
+
+  --input-h: 32px;
+  --input-h-compact: 44px;
+  --input-px: 12px;
+  --input-radius: 4px;
+  --input-text-size: 14px;
+  --input-text-compact: 16px;
+  --input-label-size: 12px;
+  --input-label-weight: 500;
+  --input-helper-size: 12px;
+  --input-error-border: #ef4444;
+
+  --select-trigger-h: 32px;
+  --select-trigger-h-compact: 44px;
+  --select-menu-radius: 8px;
+  --select-option-h: 28px;
+  --select-option-h-compact: 44px;
+
+  --switch-track-w: 32px;
+  --switch-track-h: 18px;
+  --switch-track-w-compact: 44px;
+  --switch-track-h-compact: 24px;
+  --switch-thumb: 14px;
+  --switch-thumb-compact: 18px;
+  --switch-hit-area: 44px;
+
+  --dialog-w: 560px;
+  --dialog-w-wizard: 720px;
+  --dialog-pad: 24px;
+  --dialog-title-size: 20px;
+  --dialog-title-weight: 600;
+  /* shadow: overlays only (dialog/sheet/toast/drawer/menu) — never content */
+  --shadow-dialog: 0 8px 24px rgba(0,0,0,0.45), 0 2px 6px rgba(0,0,0,0.3);
+  --shadow-sheet: 0 -8px 24px rgba(0,0,0,0.45);
+  --shadow-toast: 0 8px 24px rgba(0,0,0,0.45);
+  --shadow-drawer: -8px 0 24px rgba(0,0,0,0.45);
+  --shadow-menu: 0 8px 24px rgba(0,0,0,0.45);
+
+  --sheet-handle-w: 32px;
+  --sheet-handle-h: 4px;
+  --sheet-handle-bg: rgba(255,255,255,0.14);
+  --sheet-row-h: 48px;
+  --sheet-max-h: calc(100dvh - env(safe-area-inset-top) - var(--keyboard-inset, 0px));
+
+  --toast-w: 320px;
+  --toast-pad: 12px;
+  --toast-title-size: 14px;
+  --toast-title-weight: 500;
+  --toast-body-size: 12px;
+  --toast-body-weight: 400;
+
+  --drawer-w: 360px;
+  --drawer-header-h: 48px;
+  --drawer-row-h: 56px;
+  --drawer-row-h-compact: 48px;
+
+  --skeleton-bg: #14171B;
+  --skeleton-shimmer: rgba(255,255,255,0.04);
+  --skeleton-radius: 4px;
+  --skeleton-row-h: 36px;
+  --skeleton-card-h: 96px;
+  --skeleton-sweep: 1.4s linear infinite;
+
+  --empty-icon-size: 20px;
+  --empty-headline-size: 20px;
+  --empty-headline-weight: 600;
+  --empty-body-size: 14px;
+  --empty-gap: 8px;
+  --empty-max-w: 360px;
+
+  --error-bg: rgba(239,68,68,0.08);
+  --error-border: 1px solid rgba(239,68,68,0.35);
+  --error-fg: #FF6B77;
+  --error-radius: 8px;
+  --error-pad: 16px;
+  --error-title-size: 14px;
+  --error-title-weight: 500;
+  --error-body-size: 12px;
+
+  --health-banner-bg: rgba(245,158,11,0.12);
+  --health-banner-fg: #FBBF24;
+  --health-banner-border-bottom: 1px solid rgba(245,158,11,0.35);
+  --health-banner-h-min: 36px;
+  --health-banner-label-size: 12px;
+  --health-banner-label-weight: 500;
+  --health-banner-neutral-bg: rgba(255,255,255,0.05);
+  --health-banner-neutral-fg: #9AA3B2;
+
+  --nav-item-h: 36px;
+  --nav-item-pad: 0 12px;
+  --nav-item-radius: 4px;
+  --nav-label-size: 14px;
+  --nav-label-weight: 500;
+  --nav-icon: 16px;
+  --nav-active-bar-w: 2px;
+
+  --tab-h: 44px;
+  --tab-label-size: 14px;
+  --tab-label-weight: 500;
+  --tab-active-fg: #7DB1E5;
+  --tab-inactive-fg: #7E8798;
+
+  --confirm-typed-input-h: 32px;
+  --confirm-typed-input-h-compact: 44px;
+  --confirm-disabled-opacity: 0.4;
+
+  --overflow-menu-w: 200px;
+  --overflow-item-h: 32px;
+  --overflow-item-h-compact: 44px;
+  --overflow-destructive-fg: #FF6B77;
+
+  --action-sheet-row-h: 48px;
+  --action-sheet-destructive-fg: #FF6B77;
+
+  /* ── motion tokens (motion.dev — pinned; full policy §8) ──────── */
+  /* micro: spring 400/30 · ui: spring 300/24 · page: spring 350/35
+     (RESERVED — unused in v1) · tween-enter: 0.2s easeOut */
+  --motion-micro-stiffness: 400;
+  --motion-micro-damping: 30;
+  --motion-ui-stiffness: 300;
+  --motion-ui-damping: 24;
+  --motion-page-stiffness: 350;
+  --motion-page-damping: 35;
+  --motion-tween-enter-duration: 0.2s;
+
+  /* shadow-policy: content surfaces none (luminance + hairlines only);
+     overlays only use --shadow-* above */
+  --shadow-policy: none;
+
+  /* Cap seam — keyboard inset (§3.3) */
+  --keyboard-inset: 0px;
+}

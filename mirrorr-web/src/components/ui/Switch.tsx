@@ -1,70 +1,74 @@
-/**
- * Switch — the accessible boolean control for D1's recording toggle.
- *
- * Contract: `docs/web-frontend-spec.md` L401 — the recording control is a
- * switch that stays visible but `disabled` when the engine reports
- * `can_record:false`, with the tooltip "Engine cannot record" (never hidden).
- * L218: recording enable/disable shows a spinner until the WS flip confirms.
- */
-import { Loader2 } from "lucide-react"
-import type { ReactNode } from "react"
-import { FOCUS_RING } from "@/components/ui/focus-ring"
+import { useId } from "react"
+import { Spinner } from "./Spinner"
 
 export interface SwitchProps {
   readonly checked: boolean
-  readonly onCheckedChange: (checked: boolean) => void
+  readonly onChange: (next: boolean) => void
   readonly label: string
-  readonly disabled?: boolean
+  /** Visible disabled reason (§4: never hidden — 12px muted twin of any tooltip). */
   readonly disabledReason?: string
+  readonly disabled?: boolean
+  /** Pending: thumb → 12px spinner, track stays at target color, no toggle (§4). */
   readonly pending?: boolean
-  readonly hint?: ReactNode
+  readonly id?: string
+  /** Optional visible row label rendered beside the track. */
+  readonly showLabel?: boolean
 }
 
+/**
+ * Switch — §4 matrix: off (raised track + standard border, thumb left) ·
+ * on (`#0C5CAB`, thumb right) · disabled-but-visible (fill-hover track,
+ * muted thumb + visible reason text) · pending (spinner replaces thumb).
+ * 32×18 desktop / 44×24 compact, 44px hit area throughout.
+ * While pending the caller owns the optimistic target via `checked` — the
+ * track reflects that target color until the real state flips back.
+ */
 export function Switch({
   checked,
-  onCheckedChange,
+  onChange,
   label,
-  disabled = false,
   disabledReason,
+  disabled = false,
   pending = false,
-  hint,
+  id,
+  showLabel = false,
 }: SwitchProps) {
-  const title = disabled && disabledReason ? disabledReason : undefined
+  const generatedId = useId()
+  const switchId = id ?? generatedId
+  const reasonId = `${switchId}-reason`
+  const isDisabled = disabled || pending
 
   return (
-    <div className="flex items-center gap-2">
+    <span className="switch-wrap">
       <button
         type="button"
         role="switch"
+        id={switchId}
+        className="switch"
         aria-checked={checked}
-        aria-label={label}
-        title={title}
-        disabled={disabled || pending}
-        onClick={() => onCheckedChange(!checked)}
-        className={`inline-flex shrink-0 items-center justify-center rounded-full ${FOCUS_RING} disabled:cursor-not-allowed disabled:opacity-50`}
+        aria-disabled={isDisabled || undefined}
+        aria-label={showLabel ? undefined : label}
+        aria-describedby={disabledReason !== undefined ? reasonId : undefined}
+        data-pending={pending || undefined}
+        onClick={() => {
+          if (!isDisabled) onChange(!checked)
+        }}
       >
-        <span
-          className={`inline-flex h-4 w-7 items-center rounded-full border px-0.5 transition-colors duration-100 ${
-            checked ? "border-accent bg-accent" : "border-border-strong bg-bg-inset"
-          }`}
-        >
-          <span
-            data-testid={pending ? "switch-pending" : "switch-knob"}
-            className={`flex size-3 items-center justify-center rounded-full bg-bg-base transition-transform duration-100 ${
-              checked ? "translate-x-3" : "translate-x-0"
-            }`}
-          >
-            {pending ? <Loader2 aria-hidden="true" className="size-2 animate-spin text-text-muted" /> : null}
-          </span>
+        <span className="switch__track">
+          <span className="switch__thumb" />
+          {pending ? (
+            <span className="switch__pending-spinner">
+              <Spinner size="sm" />
+            </span>
+          ) : null}
         </span>
+        {showLabel ? <span className="t-body-strong">{label}</span> : null}
       </button>
-      <span className="text-body text-text-secondary">{label}</span>
-      {disabled && disabledReason ? (
-        <span data-testid="switch-disabled-reason" className="text-small text-text-muted sm:hidden">
+      {disabled && disabledReason !== undefined ? (
+        <span id={reasonId} className="switch__reason">
           {disabledReason}
         </span>
       ) : null}
-      {hint}
-    </div>
+    </span>
   )
 }

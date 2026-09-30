@@ -1,106 +1,127 @@
 /**
- * The query-key table and staleTimes.
- *
- * Contract: `docs/web-frontend-spec.md` L120-L137 (key shapes + staleTime
- * column) and L138 ("filter/search changes reset the query key (new cursor)").
- *
- * Every list key carries its NORMALIZED filter object, so a filter change
- * yields a fresh key and a fresh cursor; equal filters always hash to the same
- * key. The normalized object is frozen and key-sorted, which also makes it
- * stable for React dependency arrays.
+ * Query key factories — exact key table from the Data Layer Contract §Query
+ * keys & caching. One root namespace per resource so invalidation never
+ * scatters (the legacy DROP: 15-file scattered `invalidateQueries`).
  */
 
-/** Scalar values a list filter may carry. */
-export type ListFilterValue = string | number | boolean
+export interface ListParams {
+  readonly status?: string
+  readonly search?: string
+  readonly [key: string]: unknown
+}
 
-/** A list's filter/search parameters; blank entries are dropped. */
-export type ListFilters = Readonly<Record<string, ListFilterValue | null | undefined>>
+/** Cursor pagination envelope — `getNextPageParam` consumes this shape. */
+export interface CursorPage<T> {
+  items: T[]
+  next_cursor?: number | null
+  has_more: boolean
+  total?: number | null
+}
+
+export const queryKeys = {
+  authMe: ["auth", "me"] as const,
+  sessions: (params: ListParams = {}) => ["sessions", params] as const,
+  session: (id: number | string) => ["session", id] as const,
+  autoruns: (params: ListParams = {}) => ["autoruns", params] as const,
+  autorun: (id: number | string) => ["autorun", id] as const,
+  recordings: (params: ListParams = {}) => ["recordings", params] as const,
+  profiles: (params: ListParams = {}) => ["profiles", params] as const,
+  profile: (id: number | string) => ["profile", id] as const,
+  engines: ["engines"] as const,
+  resolvers: ["resolvers"] as const,
+  notifications: ["notifications"] as const,
+  users: ["users"] as const,
+  clients: ["clients"] as const,
+} as const
 
 /**
- * The staleTime column of the spec's query-key table, in milliseconds.
- *
- * - entity lists are `0` because the WebSocket stream is the delta source;
- * - engine/resolver catalogs are `5min` and fetched all-pages (`limit=200`);
- * - notifications/users/clients and profile details are `30s`;
- * - `auth/me` is `60s`.
+ * Root prefixes for list-wide writes/invalidation — match every
+ * `queryKeys.<list>(params)` variant regardless of the params shape views use.
  */
-export const QUERY_STALE_TIMES_MS = {
+export const queryRoots = {
+  sessions: ["sessions"],
+  autoruns: ["autoruns"],
+  recordings: ["recordings"],
+  profiles: ["profiles"],
+} as const
+
+/** staleTime table (contract §Query keys & caching). */
+export const staleTimes = {
   authMe: 60_000,
-  sessions: 0,
-  session: 0,
-  autoruns: 0,
-  autorun: 0,
-  recordings: 0,
-  profiles: 0,
-  profile: 30_000,
-  engines: 300_000,
-  resolvers: 300_000,
+  list: 0,
+  detail: 0,
+  profileDetail: 30_000,
+  lookup: 300_000,
   notifications: 30_000,
   users: 30_000,
   clients: 30_000,
 } as const
 
-/**
- * The polling cadences of spec L140 (`refetchInterval: 30000` backstop for
- * every entity list/detail), L154-L158 (API-client principals force a 10s
- * cadence on lists and open details) and L171 (15s fallback after the
- * reconnect ceiling). `src/lib/polling-policy.ts` is the only consumer that
- * selects between them; views must never hard-code a number.
- */
-export const QUERY_POLL_INTERVALS_MS = {
-  entityBackstop: 30_000,
-  offlineFallback: 15_000,
-  apiClient: 10_000,
-} as const
+export const PAGE_SIZE = 50
+export const LOOKUP_PAGE_SIZE = 200
 
-/**
- * Drops `undefined`/`null`/empty-string filters and returns a frozen,
- * key-sorted object. `false` and `0` are kept — they are meaningful filters.
- */
-export function normalizeListFilters(
-  filters: ListFilters = {},
-): Readonly<Record<string, ListFilterValue>> {
-  const entries = Object.entries(filters).filter(
-    (entry): entry is [string, ListFilterValue] =>
-      entry[1] !== undefined && entry[1] !== null && entry[1] !== "",
-  )
-  // Stable, locale-independent ordering so equal filters hash identically.
-  entries.sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-
-  const normalized: Record<string, ListFilterValue> = {}
-  for (const [key, value] of entries) normalized[key] = value
-  return Object.freeze(normalized)
+/** Cursor continuation: `has_more ? next_cursor : undefined`. */
+export function getNextPageParam<T>(last: CursorPage<T> | undefined): number | undefined {
+  if (last === undefined || !last.has_more) return undefined
+  return last.next_cursor ?? undefined
 }
 
-/** The spec's key table; parameterized lists take their filters here. */
-export const queryKeys = {
-  authMe: () => ["auth", "me"] as const,
-  /** Public bootstrap probe (`GET /auth/status`); used by V1/V2, not in the spec table. */
-  authStatus: () => ["auth", "status"] as const,
-  sessions: (filters?: ListFilters) => ["sessions", normalizeListFilters(filters)] as const,
-  session: (id: number) => ["session", id] as const,
-  autoruns: (filters?: ListFilters) => ["autoruns", normalizeListFilters(filters)] as const,
-  autorun: (id: number) => ["autorun", id] as const,
-  /** Prefix covering every autoruns collection query (list + filters). */
-  autorunsAll: () => ["autoruns"] as const,
-  recordings: (filters?: ListFilters) => ["recordings", normalizeListFilters(filters)] as const,
-  /** Prefix covering every recordings collection query (list + filters). */
-  recordingsAll: () => ["recordings"] as const,
-  profiles: (filters?: ListFilters) => ["profiles", normalizeListFilters(filters)] as const,
-  /**
-   * The all-pages profile array the D1/AutorunWizard pickers read. It is a
-   * SEPARATE key from the paginated list (`profiles()`): one key must never
-   * carry two cache shapes (see `use-linked-session`'s shared-shape note).
-   */
-  profilesCatalog: () => ["profiles", "catalog"] as const,
-  /** Prefix covering every profiles collection query (list, filters, catalog). */
-  profilesAll: () => ["profiles"] as const,
-  profile: (id: number) => ["profile", id] as const,
-  engines: () => ["engines"] as const,
-  resolvers: () => ["resolvers"] as const,
-  notifications: () => ["notifications"] as const,
-  /** Liveness probe for the health banner (`GET /health`, spec L407); not in the staleTime table. */
-  health: () => ["health"] as const,
-  users: () => ["users"] as const,
-  clients: () => ["clients"] as const,
-} as const
+/** Server does not guarantee newest-first — every list sorts id-desc after merge. */
+export function sortByIdDesc<T extends { id: number }>(items: readonly T[]): T[] {
+  return [...items].sort((a, b) => b.id - a.id)
+}
+
+export function flattenPages<T>(pages: readonly CursorPage<T>[] | undefined): T[] {
+  return pages === undefined ? [] : pages.flatMap((page) => page.items)
+}
+
+export function mergedSortedByIdDesc<T extends { id: number }>(
+  pages: readonly CursorPage<T>[] | undefined,
+): T[] {
+  return sortByIdDesc(flattenPages(pages))
+}
+
+/** Name memo-map — `["engines"]`/`["resolvers"]`/`["profiles"]` → id→name. */
+export function buildNameMap<T extends { id: number; name: string }>(
+  items: readonly T[] | undefined,
+): Map<number, string> {
+  const map = new Map<number, string>()
+  for (const item of items ?? []) map.set(item.id, item.name)
+  return map
+}
+
+export function buildNameMapFromPages<T extends { id: number; name: string }>(
+  pages: readonly CursorPage<T>[] | undefined,
+): Map<number, string> {
+  return buildNameMap(flattenPages(pages))
+}
+
+/**
+ * Prefer a present non-null `_name` field; else memo-map; missing id → `#id`
+ * (rendered muted by the caller). `id` null → `—`.
+ */
+export function resolveEntityName(
+  direct: string | null | undefined,
+  names: Map<number, string> | undefined,
+  id: number | null | undefined,
+): string {
+  if (direct !== null && direct !== undefined && direct !== "") return direct
+  if (id === null || id === undefined) return "—"
+  return names?.get(id) ?? `#${id}`
+}
+
+/** Crawl every cursor page (lookup tables: engines/resolvers, limit=200). */
+export async function fetchAllLookupPages<T>(
+  fetchPage: (cursor: number | undefined) => Promise<CursorPage<T>>,
+): Promise<T[]> {
+  const all: T[] = []
+  let cursor: number | undefined
+  for (;;) {
+    const page = await fetchPage(cursor)
+    all.push(...page.items)
+    if (!page.has_more) break
+    cursor = page.next_cursor ?? undefined
+    if (cursor === undefined) break
+  }
+  return all
+}

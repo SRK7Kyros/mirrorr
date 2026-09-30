@@ -1,0 +1,349 @@
+/*
+ * views.css — entity views V3–V10 shared presentation (design spec §5/§6).
+ * Table ≥900px reflows to card list below via ONE DOM (grid reflow, no
+ * forked logic). All values via tokens — no raw hex.
+ */
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-section-gap-desktop);
+  /* page pad lives on .shell__main (spec §3 main region 24px) — a second pad
+     here offset content 24px from the topbar title's gutter. */
+}
+
+@media (max-width: 639px) {
+  .view {
+    gap: var(--space-section-gap-compact);
+  }
+}
+
+.view-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.view-header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.view-title {
+  font-size: var(--text-20);
+  font-weight: var(--weight-600);
+  letter-spacing: -0.01em;
+}
+
+.view-subtitle {
+  color: var(--color-text-secondary);
+}
+
+.view-footnote {
+  color: var(--color-text-muted);
+  font-size: var(--role-meta-size);
+}
+
+/* ── list toolbar (search + filter chips) ─────────────────────────── */
+.list-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.list-toolbar__search {
+  width: 280px;
+  max-width: 100%;
+}
+
+.search-hint {
+  color: var(--color-text-muted);
+  font-size: var(--role-meta-size);
+}
+
+.filter-chips {
+  display: flex;
+  gap: var(--space-xs);
+  overflow-x: auto;
+  padding-bottom: var(--space-hair);
+}
+
+.chip-btn {
+  height: 28px;
+  padding: 0 var(--space-sm);
+  border: 1px solid var(--color-border-standard);
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--chip-label-size);
+  font-weight: var(--chip-label-weight);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chip-btn:hover {
+  background: var(--color-fill-hover);
+}
+
+.chip-btn[data-active="true"] {
+  background: var(--color-fill-active);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+
+@media (max-width: 639px) {
+  .chip-btn {
+    height: 44px;
+    padding: 0 var(--space-md);
+  }
+}
+
+/* ── entity table → card list (one DOM) ───────────────────────────── */
+.entity-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+}
+
+.entity-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-bg-base);
+  color: var(--color-text-muted);
+  font-size: var(--role-label-caps-size);
+  font-weight: var(--role-label-caps-weight);
+  letter-spacing: var(--role-label-caps-tracking);
+  text-transform: uppercase;
+  text-align: left;
+  padding: var(--space-xs) var(--space-table-cell-pad-inline);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.entity-table td {
+  height: var(--table-row-h);
+  padding: 0 var(--space-table-cell-pad-inline);
+  border-bottom: 1px solid var(--color-border-subtle);
+  color: var(--color-text-secondary);
+  font-size: var(--role-body-size);
+  vertical-align: middle;
+}
+
+.entity-table td.cell-strong {
+  color: var(--color-text-primary);
+  font-weight: var(--role-body-strong-weight);
+}
+
+.entity-row:hover {
+  background: var(--color-fill-hover);
+}
+
+.entity-row[data-spent="true"],
+.entity-row[data-deleting="true"] {
+  opacity: 0.6;
+}
+
+.entity-row[data-highlight="true"] {
+  background: var(--color-fill-active);
+  box-shadow: inset 2px 0 0 var(--color-accent-fill);
+  animation: highlight-ring 2s ease-out 1;
+}
+
+@keyframes highlight-ring {
+  0% {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+  80% {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+  100% {
+    outline: 2px solid transparent;
+    outline-offset: -2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entity-row[data-highlight="true"] {
+    animation: none;
+  }
+}
+
+.entity-table .row-primary-action {
+  margin-right: var(--space-xs);
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.icon-btn:hover {
+  background: var(--color-fill-hover);
+}
+
+@media (max-width: 639px) {
+  .icon-btn {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+/* compact card reflow — column cells land on fixed lines via grid slots */
+@media (max-width: 899px) {
+  .entity-table,
+  .entity-table tbody {
+    display: block;
+  }
+
+  .entity-table thead {
+    display: none;
+  }
+
+  .entity-table tr.entity-row {
+    display: grid;
+    grid-template-columns: auto auto 1fr auto;
+    gap: var(--space-xs) var(--space-sm);
+    align-items: center;
+    padding: var(--space-smd);
+    margin-bottom: var(--space-sm);
+    min-height: var(--card-min-h-compact);
+    border: 1px solid var(--color-border-standard);
+    border-radius: var(--radius-card);
+    background: var(--color-bg-raised);
+    box-sizing: border-box;
+  }
+
+  .entity-table td {
+    display: block;
+    height: auto;
+    padding: 0;
+    border: 0;
+  }
+
+  .entity-table td[data-col="status"] {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .entity-table td[data-col="id"],
+  .entity-table td[data-col="name"] {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+  }
+
+  .entity-table td[data-col="recording"],
+  .entity-table td[data-col="countdown"] {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .entity-table td[data-col="actions"] {
+    grid-column: 4;
+    grid-row: 1 / span 3;
+    justify-self: end;
+  }
+
+  .entity-table td[data-col="engine"],
+  .entity-table td[data-col="enginepair"] {
+    grid-column: 1 / span 2;
+    grid-row: 2;
+    min-width: 0;
+  }
+
+  .entity-table td[data-col="profile"],
+  .entity-table td[data-col="retry"] {
+    grid-column: 3;
+    grid-row: 2;
+  }
+
+  .entity-table td[data-col="started"],
+  .entity-table td[data-col="start"] {
+    grid-column: 1 / span 2;
+    grid-row: 3;
+  }
+
+  .entity-table td[data-col="duration"],
+  .entity-table td[data-col="end"] {
+    grid-column: 3;
+    grid-row: 3;
+  }
+
+  .entity-table td[data-col="owner"],
+  .entity-table td[data-col="resolver"],
+  .entity-table td[data-col="recordingflag"] {
+    grid-column: 1 / span 3;
+    grid-row: 4;
+  }
+
+  .entity-row .row-primary-action {
+    display: none;
+  }
+}
+
+@media (min-width: 900px) and (max-width: 1279px) {
+  .entity-table th[data-col="profile"],
+  .entity-table td[data-col="profile"],
+  .entity-table th[data-col="owner"],
+  .entity-table td[data-col="owner"] {
+    display: none;
+  }
+}
+
+/* ── recording dot + engine pair + tags ───────────────────────────── */
+.rec-dot {
+  display: inline-block;
+  width: var(--chip-dot);
+  height: var(--chip-dot);
+  border-radius: var(--radius-full);
+  background: var(--color-text-muted);
+  vertical-align: middle;
+}
+
+.rec-dot[data-on="true"] {
+  background: var(--status-recording-dot);
+}
+
+.rec-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.engine-pair {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.engine-pair__strong {
+  color: var(--color-text-primary);
+  font-weight: var(--role-body-strong-weight);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unmapped {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--role-mono-inline-size);
+  font-weight: var(--role-mono-inline-weight);
+}
+
