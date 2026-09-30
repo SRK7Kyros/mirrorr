@@ -1,40 +1,37 @@
 import { createRouter } from "@tanstack/react-router"
 import { authLayoutRoute } from "@/routes/auth-layout-route"
-import { autorunDetailRoute } from "@/routes/autorun-detail-route"
+import { autorunsDetailRoute } from "@/routes/autoruns-detail-route"
 import { autorunsRoute } from "@/routes/autoruns-route"
-import { dataProbeRoute } from "@/routes/data-probe-route"
+import { importExportRoute } from "@/routes/import-export-route"
 import { indexRoute } from "@/routes/index-route"
 import { loginRoute } from "@/routes/login-route"
 import { notFoundRoute } from "@/routes/not-found-route"
-import { importExportRoute } from "@/routes/import-export-route"
 import { pluginsRoute } from "@/routes/plugins-route"
 import { profilesRoute } from "@/routes/profiles-route"
 import { publicLayoutRoute } from "@/routes/public-layout-route"
 import { recordingsRoute } from "@/routes/recordings-route"
 import { registerRoute } from "@/routes/register-route"
 import { rootRoute } from "@/routes/root-route"
-import { settingsClientsRoute } from "@/routes/settings-clients-route"
-import { settingsRoute } from "@/routes/settings-route"
-import { settingsUsersRoute } from "@/routes/settings-users-route"
-import { sessionDetailRoute } from "@/routes/session-detail-route"
+import { sessionsDetailRoute } from "@/routes/sessions-detail-route"
 import { sessionsRoute } from "@/routes/sessions-route"
+import { settingsRoute } from "@/routes/settings-route"
 
+/**
+ * Two-branch tree (brief KEEP + IMPROVEMENT #1): a public branch for
+ * unauthenticated pages and an authenticated branch behind the guard — each
+ * leaf route lazy-imports its view for code-splitting.
+ */
 export const routeTree = rootRoute.addChildren([
   publicLayoutRoute.addChildren([loginRoute, registerRoute]),
   authLayoutRoute.addChildren([
     indexRoute,
-    sessionsRoute,
-    sessionDetailRoute,
-    autorunsRoute,
-    autorunDetailRoute,
+    sessionsRoute.addChildren([sessionsDetailRoute]),
+    autorunsRoute.addChildren([autorunsDetailRoute]),
     recordingsRoute,
     profilesRoute,
     pluginsRoute,
     importExportRoute,
     settingsRoute,
-    settingsUsersRoute,
-    settingsClientsRoute,
-    dataProbeRoute,
   ]),
   notFoundRoute,
 ])

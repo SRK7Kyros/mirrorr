@@ -1,10 +1,21 @@
 import { createRoute } from "@tanstack/react-router"
-import { SessionsView } from "@/components/sessions/SessionsView"
+import { lazy, Suspense } from "react"
 import { authLayoutRoute } from "@/routes/auth-layout-route"
 
-/** V3 — the sessions list (spec L263-L273), the authenticated landing. */
+const SessionsView = lazy(() =>
+  import("@/views/sessions/sessions-list").then((module) => ({ default: module.SessionsList })),
+)
+
 export const sessionsRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/sessions",
-  component: SessionsView,
+  component: SessionsRouteView,
 })
+
+function SessionsRouteView() {
+  return (
+    <Suspense fallback={null}>
+      <SessionsView />
+    </Suspense>
+  )
+}

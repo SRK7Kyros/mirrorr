@@ -1,14 +1,12 @@
-import { createRoute } from "@tanstack/react-router"
+import { createRoute, Outlet } from "@tanstack/react-router"
 import { AppShell } from "@/components/chrome/AppShell"
-import { RoutePending } from "@/components/ui/RoutePending"
-import { ensureAuthMe, redirectToLogin } from "@/lib/auth-guard"
+import { ensureAuthMe, redirectToLogin } from "@/lib/auth"
 import { rootRoute } from "@/routes/root-route"
 
 /**
- * Authenticated branch (spec L17-L23, L31, L150-L156): every non-public route
- * nests here behind the chrome. The guard reads cached `["auth","me"]`;
- * `apiFetch` owns the 401 → one refresh → one retry dance; failure redirects
- * to `/login?redirect=…`.
+ * Authenticated branch: every non-public route nests here behind the guard
+ * and renders inside the AppShell chrome (spec §3 — sidebar/rail/tabbar
+ * responsive shell; the outlet is the sole main-body scroller).
  */
 export const authLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -20,7 +18,13 @@ export const authLayoutRoute = createRoute({
       redirectToLogin(location)
     }
   },
-  pendingComponent: RoutePending,
-  pendingMs: 0,
-  component: AppShell,
+  component: AuthLayout,
 })
+
+function AuthLayout() {
+  return (
+    <AppShell>
+      <Outlet />
+    </AppShell>
+  )
+}

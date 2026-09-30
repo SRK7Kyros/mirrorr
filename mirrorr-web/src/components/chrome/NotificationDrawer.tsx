@@ -1,324 +1,151 @@
-/**
- * Spec L406 and the contract §11.3 / §13.10.2 row rules: the drawer is fed by
- * REST rows only, unread first, with mark-read / mark-all-read / per-row delete
- * and the footer "Clear" that loops one delete per loaded row behind a single
- * confirmation. A row click navigates by `resource_type` and marks the row
- * read. Synthetic WS frames never enter this list.
- */
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
-import { Bell, CheckCheck, Eraser, Trash2, X } from "lucide-react"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useIsCompactShell } from "@/components/chrome/CompactShell"
+import { AnimatePresence, motion } from "motion/react"
+import { useEffect, useRef } from "react"
 import { Button } from "@/components/ui/Button"
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
+import { useFocusTrap } from "@/components/ui/focus-trap"
 import { EmptyState } from "@/components/ui/EmptyState"
-import { ErrorPanel } from "@/components/ui/ErrorPanel"
-import { FOCUS_RING } from "@/components/ui/focus-ring"
-import { SkeletonRows } from "@/components/ui/SkeletonRows"
-import { pushBackInterceptor } from "@/lib/back-navigation"
-import { userMessageForError } from "@/lib/errors"
-import { formatRelativeTime } from "@/lib/format"
-import {
-  clearNotifications,
-  deleteNotification,
-  markAllNotificationsRead,
-  markNotificationRead,
-  type NotificationRow,
-} from "@/lib/notifications-api"
-import { acknowledgeAllSyntheticNotifications } from "@/lib/notification-policy"
-import { queryKeys } from "@/lib/query-keys"
-import { showToast } from "@/lib/toast"
+import { IconBell, IconX } from "@/components/ui/icons"
 
-export type NotificationDestination =
-  | { readonly kind: "session"; readonly id: number }
-  | { readonly kind: "autorun"; readonly id: number }
-  | { readonly kind: "recording"; readonly id: number }
-  | { readonly kind: "profile"; readonly id: number }
-
-/** The click-to-navigate map (spec L387, L406): list-highlight destinations for recordings/profiles. */
-export function notificationDestination(
-  row: Pick<NotificationRow, "resource_type" | "resource_id">,
-): NotificationDestination | null {
-  switch (row.resource_type) {
-    case "session":
-      return { kind: "session", id: row.resource_id }
-    case "autorun":
-      return { kind: "autorun", id: row.resource_id }
-    case "recording":
-      return { kind: "recording", id: row.resource_id }
-    case "profile":
-      return { kind: "profile", id: row.resource_id }
-    default:
-      return null
-  }
+export interface NotificationItem {
+  readonly id: string
+  readonly title: string
+  readonly timeLabel: string
+  readonly unread: boolean
 }
 
 export interface NotificationDrawerProps {
   readonly open: boolean
   readonly onClose: () => void
-  readonly rows: readonly NotificationRow[]
-  readonly isLoading?: boolean
-  readonly isError?: boolean
-  readonly onRetry?: () => void
+  readonly items: ReadonlyArray<NotificationItem>
+  readonly onMarkAllRead: () => void
+  readonly onOpenItem?: (item: NotificationItem) => void
+  readonly onDeleteItem?: (item: NotificationItem) => void
 }
 
+const enterTransition = { duration: 0.2, ease: "easeOut" } as const
+const exitTransition = { duration: 0.15, ease: "easeIn" } as const
+
+/**
+ * NotificationDrawer + bell target (§4): 360px right drawer on bg-panel,
+ * header 48 with “Notifications” + ghost “Mark all read”, rows 56
+ * (48 compact) with icon/title/time + 24px delete, unread = fill-active
+ * row + `#7DB1E5` icon + aria-label carrying “unread”; empty state is the
+ * EmptyState primitive. ui token enter, Esc + backdrop close, focus trap.
+ */
 export function NotificationDrawer({
   open,
   onClose,
-  rows,
-  isLoading = false,
-  isError = false,
-  onRetry,
+  items,
+  onMarkAllRead,
+  onOpenItem,
+  onDeleteItem,
 }: NotificationDrawerProps) {
-  const queryClient = useQueryClient()
-  const navigate = useNavigate()
-  const compact = useIsCompactShell()
   const panelRef = useRef<HTMLElement>(null)
-  const onCloseRef = useRef(onClose)
-  const [clearOpen, setClearOpen] = useState(false)
-  const [clearPending, setClearPending] = useState(false)
-
-  useEffect(() => {
-    onCloseRef.current = onClose
-  }, [onClose])
-
-  useEffect(() => {
-    if (open) panelRef.current?.focus()
-  }, [open])
+  useFocusTrap(panelRef, open, onClose)
 
   useEffect(() => {
     if (!open) return
-    return pushBackInterceptor(() => onCloseRef.current())
-  }, [open])
-
-  const patchRow = useCallback(
-    (id: number, read: boolean) => {
-      queryClient.setQueryData<NotificationRow[]>(queryKeys.notifications(), (current) =>
-        current?.map((row) => (row.id === id ? { ...row, read } : row)),
-      )
-    },
-    [queryClient],
-  )
-
-  const markRead = useMutation({
-    mutationFn: markNotificationRead,
-    onMutate: async (id: number) => {
-      const previous = queryClient.getQueryData<NotificationRow[]>(queryKeys.notifications())
-      patchRow(id, true)
-      return { previous }
-    },
-    onError: (error, _id, context) => {
-      if (context?.previous !== undefined) {
-        queryClient.setQueryData(queryKeys.notifications(), context.previous)
-      }
-      showToast(userMessageForError(error), "error")
-    },
-    onSuccess: (updated) => {
-      patchRow(updated.id, updated.read)
-    },
-  })
-
-  const markAll = useMutation({
-    mutationFn: markAllNotificationsRead,
-    onMutate: async () => {
-      const previous = queryClient.getQueryData<NotificationRow[]>(queryKeys.notifications())
-      queryClient.setQueryData<NotificationRow[]>(queryKeys.notifications(), (current) =>
-        current?.map((row) => ({ ...row, read: true })),
-      )
-      return { previous }
-    },
-    onError: (error, _variables, context) => {
-      if (context?.previous !== undefined) {
-        queryClient.setQueryData(queryKeys.notifications(), context.previous)
-      }
-      showToast(userMessageForError(error), "error")
-    },
-    onSuccess: () => {
-      acknowledgeAllSyntheticNotifications()
-    },
-  })
-
-  const remove = useMutation({
-    mutationFn: deleteNotification,
-    onSuccess: (_result, id) => {
-      queryClient.setQueryData<NotificationRow[]>(queryKeys.notifications(), (current) =>
-        current?.filter((row) => row.id !== id),
-      )
-    },
-    onError: (error) => {
-      showToast(userMessageForError(error), "error")
-    },
-  })
-
-  const ordered = useMemo(
-    () =>
-      [...rows].sort((left, right) => {
-        if (left.read !== right.read) return left.read ? 1 : -1
-        return right.created_at.localeCompare(left.created_at)
-      }),
-    [rows],
-  )
-
-  function navigateTo(destination: NotificationDestination): void {
-    switch (destination.kind) {
-      case "session":
-        void navigate({ to: "/sessions/$sessionId", params: { sessionId: String(destination.id) } })
-        break
-      case "autorun":
-        void navigate({ to: "/autoruns/$autorunId", params: { autorunId: String(destination.id) } })
-        break
-      case "recording":
-        void navigate({ to: "/recordings", search: { highlight: destination.id } })
-        break
-      case "profile":
-        void navigate({ to: "/profiles", search: { highlight: destination.id } })
-        break
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose()
     }
-  }
+    document.addEventListener("keydown", onKeyDown)
+    return () => document.removeEventListener("keydown", onKeyDown)
+  }, [open, onClose])
 
-  function handleRowClick(row: NotificationRow): void {
-    if (!row.read) markRead.mutate(row.id)
-    const destination = notificationDestination(row)
-    if (destination === null) return
-    navigateTo(destination)
-    onClose()
-  }
+  if (typeof document === "undefined") return null
 
-  async function handleClearConfirm(): Promise<void> {
-    setClearPending(true)
-    const result = await clearNotifications(rows)
-    setClearPending(false)
-    setClearOpen(false)
-    if (result.failed > 0) {
-      showToast(
-        `${result.failed} notification${result.failed === 1 ? "" : "s"} could not be deleted`,
-        "error",
-      )
-    }
-    // `refetchType: "all"`: the drawer itself holds props, not an observer, so
-    // the refresh must not depend on the bell being mounted.
-    await queryClient.invalidateQueries({ queryKey: queryKeys.notifications(), refetchType: "all" })
-  }
-
-  if (!open) return null
+  const unreadCount = items.filter((item) => item.unread).length
 
   return (
-    <div className="fixed inset-0 z-50">
-      <button
-        type="button"
-        aria-label="Close notifications"
-        onClick={onClose}
-        className="absolute inset-0 bg-bg-base/70"
-      />
-      <aside
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Notifications"
-        tabIndex={-1}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") onClose()
-        }}
-        className={[
-          "absolute flex flex-col border-border bg-bg-overlay shadow-overlay",
-          compact ? "inset-0 w-full" : "inset-y-0 right-0 w-full max-w-95 border-l",
-        ].join(" ")}
-      >
-        <header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border px-3">
-          <h2 className="text-title font-semibold text-text-primary">Notifications</h2>
-          <div className="flex items-center gap-1">
-            {rows.some((row) => !row.read) ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={CheckCheck}
-                disabled={markAll.isPending}
-                onClick={() => markAll.mutate()}
-              >
-                Mark all read
-              </Button>
-            ) : null}
-            <Button variant="ghost" aria-label="Close notifications" icon={X} onClick={onClose} />
-          </div>
-        </header>
-        {isLoading ? (
-          <div className="p-3">
-            <SkeletonRows count={4} />
-          </div>
-        ) : isError ? (
-          <div className="p-3">
-            <ErrorPanel message="Could not load notifications" onRetry={onRetry} />
-          </div>
-        ) : ordered.length === 0 ? (
-          <EmptyState title="No notifications" description="You're all caught up." icon={Bell} />
-        ) : (
-          <ul className="flex-1 overflow-y-auto">
-            {ordered.map((row) => {
-              const time = formatRelativeTime(row.created_at, new Date())
-              return (
-                <li
-                  key={row.id}
-                  data-testid={`notification-row-${row.id}`}
-                  className={[
-                    "flex items-start gap-2 border-b border-border px-3",
-                    compact ? "min-h-12 py-2" : "py-3",
-                  ].join(" ")}
+    <AnimatePresence>
+      {open ? (
+        <motion.div
+          key="notif-layer"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0, transition: exitTransition }}
+          transition={enterTransition}
+          style={{ position: "fixed", inset: 0, zIndex: 44 }}
+        >
+          <div className="overlay-backdrop" onClick={onClose} />
+          <motion.aside
+            ref={panelRef}
+            className="notif-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Notifications"
+            initial={{ x: 24, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 24, opacity: 0, transition: exitTransition }}
+            transition={enterTransition}
+          >
+            <div className="notif-drawer__header">
+              <span className="notif-drawer__title">Notifications</span>
+              <div className="topbar__cluster">
+                <Button variant="ghost" onClick={onMarkAllRead} disabled={unreadCount === 0}>
+                  Mark all read
+                </Button>
+                <button
+                  type="button"
+                  className="overflow__trigger"
+                  aria-label="Close notifications"
+                  onClick={onClose}
                 >
-                  {row.read ? (
-                    <span aria-hidden="true" className="mt-1.5 size-1.5 shrink-0" />
-                  ) : (
-                    <span
-                      data-testid={`notification-unread-${row.id}`}
-                      aria-hidden="true"
-                      className="mt-1.5 size-1.5 shrink-0 rounded-pill bg-accent"
-                    />
-                  )}
-                  <button
-                    type="button"
-                    data-testid={`notification-open-${row.id}`}
-                    onClick={() => handleRowClick(row)}
-                    className={["flex min-w-0 flex-1 flex-col gap-0.5 rounded-control text-left", FOCUS_RING].join(" ")}
+                  <IconX size={14} />
+                </button>
+              </div>
+            </div>
+            <div className="notif-drawer__body">
+              {items.length === 0 ? (
+                <EmptyState headline="No notifications" body="You're all caught up." />
+              ) : (
+                items.map((item) => (
+                  <div
+                    key={item.id}
+                    className="notif-row"
+                    data-unread={item.unread || undefined}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={item.unread ? `${item.title} (unread)` : item.title}
+                    onClick={() => onOpenItem?.(item)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault()
+                        onOpenItem?.(item)
+                      }
+                    }}
                   >
-                    <span className="text-body text-text-primary">{row.title}</span>
-                    <span className="text-micro text-text-muted">{time.text}</span>
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Delete notification"
-                    disabled={remove.isPending}
-                    onClick={() => remove.mutate(row.id)}
-                    className={[
-                      "flex shrink-0 items-center justify-center rounded-control text-text-muted",
-                      compact ? "size-11" : "h-6 w-6",
-                      "hover:bg-bg-raised hover:text-danger disabled:pointer-events-none disabled:opacity-40",
-                      FOCUS_RING,
-                    ].join(" ")}
-                  >
-                    <Trash2 aria-hidden="true" strokeWidth={2} className="size-[var(--icon-row)]" />
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-        )}
-        <footer className="shrink-0 border-t border-border p-3">
-          {rows.length > 0 ? (
-            <Button variant="secondary" size="sm" icon={Eraser} className="w-full" onClick={() => setClearOpen(true)}>
-              Clear
-            </Button>
-          ) : null}
-        </footer>
-        <ConfirmDialog
-          open={clearOpen}
-          title="Clear all notifications?"
-          body="Permanently deletes every loaded notification."
-          confirmLabel="Clear all"
-          pending={clearPending}
-          onConfirm={() => void handleClearConfirm()}
-          onCancel={() => setClearOpen(false)}
-        />
-      </aside>
-    </div>
+                    <span className="notif-row__icon" aria-hidden="true">
+                      <IconBell size={16} />
+                    </span>
+                    <span className="notif-row__content">
+                      <span className="notif-row__title">{item.title}</span>
+                      <span className="notif-row__time">{item.timeLabel}</span>
+                    </span>
+                    <button
+                      type="button"
+                      className="notif-row__delete"
+                      aria-label={`Delete notification: ${item.title}`}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onDeleteItem?.(item)
+                      }}
+                    >
+                      <IconX size={12} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+            {items.length > 0 ? (
+              <div className="notif-drawer__footer">
+                <Button variant="ghost" onClick={onMarkAllRead} disabled={unreadCount === 0}>
+                  Mark all read
+                </Button>
+              </div>
+            ) : null}
+          </motion.aside>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
   )
 }

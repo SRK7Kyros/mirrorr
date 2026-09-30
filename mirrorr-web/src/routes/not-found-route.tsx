@@ -1,10 +1,23 @@
 import { createRoute } from "@tanstack/react-router"
-import { NotFoundView } from "@/components/NotFoundView"
+import { lazy, Suspense } from "react"
 import { rootRoute } from "@/routes/root-route"
 
-/** `*` not-found view (spec L49): spec copy plus a link home. */
+// Brief IMPROVEMENT #1: lazy view import for route-level code-splitting.
+const NotFoundView = lazy(() =>
+  import("@/components/PlaceholderView").then((module) => ({ default: module.PlaceholderView })),
+)
+
+/** `*` catch-all (scaffold placeholder — real 404 view lands per design spec). */
 export const notFoundRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "$",
-  component: NotFoundView,
+  component: NotFoundRouteView,
 })
+
+function NotFoundRouteView() {
+  return (
+    <Suspense fallback={null}>
+      <NotFoundView />
+    </Suspense>
+  )
+}

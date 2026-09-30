@@ -1,0 +1,50 @@
+/*
+ * Settings shell (V11–V13) — spec §5: vertical tab list (Account · Users ·
+ * API clients) over a single content column max 560px; §4 danger note.
+ * Tab rows reuse chrome.css `.nav-item` geometry (36px, r4, active =
+ * fill-active + 2px accent left bar via [aria-current="page"]).
+ */
+
+.settings-tabs {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-content {
+  display: flex;
+  flex-direction: column;
+  max-width: 560px;
+  width: 100%;
+}
+
+/* One-time key reveal (V13): key well fills beside the 24px Copy button. */
+.settings-key {
+  flex: 1;
+  min-width: 0;
+}
+
+/* V13 explainer line / V13 danger note — 14/500 in the danger fg. */
+.settings-danger-note {
+  color: var(--error-fg);
+  font-size: var(--text-14, 14px);
+  font-weight: var(--weight-500, 500);
+}
+
+/* V11 notification pref rows — 48px, label 14/500 left, switch right. */
+.settings-pref-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md, 16px);
+  min-height: 48px;
+}
+
+/* V12 pending registration-request row — identity left, actions right. */
+.settings-request-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-md, 16px);
+  min-height: 48px;
+}

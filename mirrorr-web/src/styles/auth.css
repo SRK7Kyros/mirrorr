@@ -1,0 +1,74 @@
+/*
+ * auth.css — V1 Login / V2 Register public pages (spec §5).
+ * bg-base canvas, bg-raised card, tokens only — no hex, no shadows.
+ */
+
+.auth-page {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-md);
+  background: var(--color-bg-base);
+}
+
+.auth-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  inline-size: 100%;
+  max-inline-size: 360px;
+  padding: var(--space-lg);
+  background: var(--color-bg-raised);
+  border: 1px solid var(--color-border-standard);
+  border-radius: var(--radius-card);
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.auth-error {
+  margin: 0;
+  font-size: var(--error-body-size);
+  line-height: 1.5;
+  color: var(--error-fg);
+}
+
+.auth-hint {
+  margin: 0;
+  font-size: var(--role-meta-size);
+  font-weight: var(--role-meta-weight);
+  line-height: var(--role-meta-lh);
+  color: var(--color-text-muted);
+}
+
+.auth-hint a {
+  color: var(--color-accent-text);
+}
+
+.auth-submit {
+  inline-size: 100%;
+}
+
+/* Full-page status fetch (V2) — spinner stroke rides currentColor. */
+.auth-status {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-base);
+  color: var(--color-accent-text);
+}
+
+@media (max-width: 639px) {
+  .auth-card {
+    max-inline-size: 400px;
+  }
+
+  .auth-submit {
+    min-block-size: 48px;
+  }
+}

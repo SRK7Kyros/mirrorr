@@ -1,36 +1,25 @@
 import path from "node:path"
-import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 
+// Scaffold spine per architecture brief: dev on 5175 (the Playwright-managed
+// port — 5173/5174 belong to other apps and must never be used here), proxy
+// /api, /ws and /health to the FastAPI core on :8000, and multi-page inputs
+// (desktop index.html + Capacitor mobile.html). Lazy route code-splitting
+// comes from per-route `lazy()` imports in src/routes/, not a Vite plugin.
 export default defineConfig({
   base: process.env.MIRRORR_BASE ?? "/",
-  plugins: [react(), tailwindcss()],
-  // Pre-bundled at server start: the wrapper reaches these through dynamic imports
-  // (a browser build must not ship or evaluate plugin code), and a dep Vite only
-  // discovers mid-session triggers a full page reload that stalls the import.
-  optimizeDeps: {
-    include: [
-      "@aparajita/capacitor-secure-storage",
-      "@capacitor/app",
-      "@capacitor/browser",
-      "@capacitor/clipboard",
-      "@capacitor/core",
-      "@capacitor/keyboard",
-      "@capacitor/splash-screen",
-      "@capacitor/status-bar",
-    ],
-  },
+  plugins: [react()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
   build: {
     rollupOptions: {
       input: {
-        main: path.resolve(__dirname, "index.html"),
-        mobile: path.resolve(__dirname, "mobile.html"),
+        main: path.resolve(import.meta.dirname, "index.html"),
+        mobile: path.resolve(import.meta.dirname, "mobile.html"),
       },
     },
   },

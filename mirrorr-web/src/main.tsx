@@ -2,85 +2,13 @@ import { QueryClientProvider } from "@tanstack/react-query"
 import { RouterProvider } from "@tanstack/react-router"
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
-import { assertApiConfig } from "@/config/env"
-import { startProactiveRefresh } from "@/lib/api"
-import { installWrapperRuntime } from "@/lib/wrapper-runtime"
-import { installAuthSession } from "@/lib/auth-store"
-import { installBackNavigation } from "@/lib/back-navigation"
-import { entityStore } from "@/lib/entity-store-client"
-import { installEventTable } from "@/lib/event-table"
-import { installKeyboardInset } from "@/lib/keyboard-inset"
-import { nameMapStore } from "@/lib/name-map-api"
-import { installNotificationPipeline } from "@/lib/notification-pipeline"
-import { startRealtimeManager } from "@/lib/realtime-manager"
-import { installRealtimeResume } from "@/lib/realtime-resume"
+import "@/app.css"
 import { queryClient } from "@/query-client"
 import { router } from "@/router"
-import "@/styles.css"
 
-// Boot guard: a missing or malformed VITE_API_URL must fail before any request.
-assertApiConfig()
-
-// The forced-logout consequence (cache wipe, session-expired state, /login)
-// needs the live router; `api.ts` only detects the trigger.
-installAuthSession({
-  navigateToLogin: (redirectPath) => {
-    void router.navigate({ to: "/login", search: { redirect: redirectPath } })
-  },
-  getCurrentHref: () => router.state.location.href,
-})
-
-startProactiveRefresh()
-
-// Spec L498: the browser-side platform back source (todo 29 replaces the
-// event source with Capacitor's; the consequence stays this seam).
-installBackNavigation({
-  canGoBack: () => router.history.canGoBack(),
-  goBack: () => router.history.back(),
-})
-
-// Spec L508: the keyboard contract's web half. Capacitor's
-// keyboardWillShow/keyboardWillHide drive `--keyboard-inset` and every change
-// scrolls the focused field back into view; todo 29 attaches the real plugin
-// listener that dispatches the same two events.
-installKeyboardInset()
-
-// Spec L165-L181: the /ws/events subject table + 30ms coalescing buffer.
-installEventTable({
-  store: entityStore,
-  queryClient,
-  navigate: (path) => {
-    void router.navigate({ to: path })
-  },
-  isDetailOpen: (resource, id) =>
-    router.state.location.pathname === (resource === "session" ? `/sessions/${id}` : `/autoruns/${id}`),
-  invalidateNamesForEvent: (eventType) => nameMapStore.invalidateForEvent(eventType),
-})
-
-// Watches the auth store; connects only after the first successful /auth/me.
-startRealtimeManager()
-
-// Spec L171: while the manager is offline, the first successful poll of any
-// query resumes the sockets — the 15s fallback closes the loop by itself.
-installRealtimeResume({ queryCache: queryClient.getQueryCache() })
-
-// Spec L169: the mobile lifecycle policy — a 30s background grace then a
-// deliberate socket close, and on resume an immediate reconnect plus one
-// refetch of every visible query (the polling backstop stays the source of
-// truth). Todo 29 swaps the event source for Capacitor's `appStateChange`.
-// Awaited, not fired and forgotten: on a native platform the bearer transport and
-// the restored token pair must exist before the first request, or the auth check
-// goes out cookie-less, 401s into a forced logout, and reloads into the same state.
-await installWrapperRuntime({
-  refetchVisible: () => {
-    void queryClient.refetchQueries({ type: "active" })
-  },
-})
-
-// Spec L195: pushed frames feed the badge, the toast policy and a coalesced
-// refresh of the drawer's REST feed; a reconnect re-flushes on going live.
-installNotificationPipeline({ queryClient })
-
+// Scaffold boot: providers + router only. The env boot-guard, auth session
+// seam, realtime manager, event table and notification pipeline wire in here
+// as their waves land (see architecture brief "Scaffold shape").
 const container = document.getElementById("root")
 
 if (!container) {

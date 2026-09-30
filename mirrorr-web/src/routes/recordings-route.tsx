@@ -1,7 +1,10 @@
 import { createRoute } from "@tanstack/react-router"
-import { RecordingsView } from "@/components/recordings/RecordingsView"
-import { parseHighlightSearch } from "@/hooks/use-highlight"
+import { lazy, Suspense } from "react"
 import { authLayoutRoute } from "@/routes/auth-layout-route"
+
+const RecordingsGrid = lazy(() =>
+  import("@/views/recordings/recordings-grid").then((m) => ({ default: m.RecordingsGrid })),
+)
 
 export interface RecordingsSearch {
   readonly highlight?: number
@@ -10,13 +13,18 @@ export interface RecordingsSearch {
 export const recordingsRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/recordings",
-  validateSearch: (search: Record<string, unknown>): RecordingsSearch => ({
-    highlight: parseHighlightSearch(search.highlight),
-  }),
-  component: RecordingsRouteComponent,
+  validateSearch: (search: Record<string, unknown>): RecordingsSearch => {
+    const raw = search.highlight
+    const parsed = typeof raw === "string" || typeof raw === "number" ? Number(raw) : Number.NaN
+    return { highlight: Number.isFinite(parsed) ? parsed : undefined }
+  },
+  component: RecordingsRouteView,
 })
 
-function RecordingsRouteComponent() {
-  const search = recordingsRoute.useSearch()
-  return <RecordingsView highlight={search.highlight ?? null} />
+function RecordingsRouteView() {
+  return (
+    <Suspense fallback={null}>
+      <RecordingsGrid />
+    </Suspense>
+  )
 }
