@@ -1,11 +1,12 @@
 /**
- * STATUS_MAP — the single source of truth for status → label / theme token /
- * dot / row actions (web-frontend-design-spec §2 re-bindings + the Status &
- * Lifecycle Map). No view may invent statuses; unrecognized strings render
- * as `unknown` (with a warning); this map wins over per-view action lists.
+ * STATUS_MAP — the single source of truth for status → label / tone / dot /
+ * row actions, bound by `docs/console-design-spec.md` §1.4 (the executable UI
+ * spec). No view may invent statuses; unrecognized strings render as `unknown`
+ * (with a warning); this map wins over per-view action lists.
  *
- * Tones are enterprise palette token names — never CSS-variable strings
- * (app.css owns the hex values; `--purple` re-binds to `secondary`).
+ * Tones are token names, never CSS-variable strings — `styles/tokens.css` owns
+ * the hex values (spec §1.4 gives each status its tier, indicator hue and the
+ * icon + word doubling rule; status colour never carries text).
  */
 
 export type StatusTone = "primary" | "secondary" | "success" | "warning" | "danger" | "neutral"
@@ -62,7 +63,7 @@ export const STATUS_MAP = {
   terminating: {
     label: "Stopping…",
     tone: "warning",
-    dot: "static",
+    dot: "spinner",
     sessionActions: DELETE_ONLY,
     autorunActions: DELETE_ONLY,
   },

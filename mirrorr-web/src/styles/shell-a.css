@@ -1,0 +1,814 @@
+/*
+ * shell-a.css — Variant A ("Safe"), §3 anatomy: fixed backdrop, floating
+ * 240px acrylic nav rail, opaque 56px dark topbar, the stage as the single
+ * vertical scroll owner, the asymmetric tally band and the overlay layer.
+ *
+ * Every rule is scoped under `.shell-a`. Two deliberate exceptions are noted
+ * inline (the `.stage` name is the §3 region name and `base.css` already owns
+ * `.stage :where(h1,h2,h3,[id])` scroll margins; the `ui.css` `min-width:1280`
+ * `.field-grid` rule was retargeted to `.stage .field-grid`).
+ *
+ * Laws honoured literally:
+ *   - one scroll owner per region (`stage` vertical, `nav-rail` only on short
+ *     viewports, `table-wrap` horizontal) — no nested vertical scrollbars;
+ *   - `min-block-size: 0` on every flex/grid child that must shrink;
+ *   - no `100vh` — `100dvh` only, and only where the viewport frame is the
+ *     actual constraint;
+ *   - glass only where backdrop media shows through: this file styles the
+ *     acrylic when the `.shell-a__backdrop` layer is live, and the
+ *     `[data-backdrop="off"]` / reduced-transparency paths strip the blur and
+ *     fall through to glass.css's opaque twin.
+ */
+
+/* ═══════════════ Frame ═══════════════ */
+
+.shell-a {
+  --rail-gutter: 16px;
+  --rail-width: 240px;
+  --col-gap: 24px;
+  --topbar-height: 56px;
+  --z-backdrop-local: 0;
+  --z-stage-local: 10;
+  --z-topbar-local: 30;
+  --z-rail-local: 40;
+  --z-tally-local: 10;
+
+  position: relative;
+  isolation: isolate;
+  min-block-size: 100dvh;
+}
+
+/* ═══════════════ Skip link (§8.4) ═══════════════ */
+
+/*
+ * base.css parks the shared skip link at `--z-rail` (70); the shell re-pins
+ * its own copy just over the topbar so it is never swallowed by the rail.
+ */
+.shell-a .skip-link {
+  z-index: calc(var(--z-rail-local) + 1);
+}
+
+/* ═══════════════ Backdrop layer (z0, §2) ═══════════════ */
+
+/*
+ * The CARRIER is shell-owned. glass.css's `@media (prefers-reduced-transparency)`
+ * hides `.backdrop-media`; the shell renders its own media node inside this
+ * wrapper so that rule cannot silently kill the operator's backdrop while the
+ * acrylic chrome stays acrylic.
+ */
+.shell-a__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-backdrop-local);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.shell-a__backdrop-content {
+  position: absolute;
+  inset: 0;
+}
+
+/* Scrim: secondary @55% over the white page ground, so parallax travel never
+   flashes the page ground at the edges (§2.1). */
+.shell-a .backdrop-scrim {
+  position: absolute;
+  inset: 0;
+  background-color: color-mix(in srgb, var(--color-secondary) 55%, transparent);
+}
+
+/* Media: full-bleed, pre-sized, moves vertically only (no layout thrash).
+   The poster/still is the product's own subject; hue wanders, so every
+   surface that carries text over it is opaque (§2). */
+.shell-a__media {
+  position: absolute;
+  inset: 0;
+}
+
+.shell-a__media-carrier {
+  position: absolute;
+  inset: -40px 0;
+  background-position: center;
+  background-size: cover;
+}
+
+/* Empty-database default: the licensed gradient mesh (§2.3). The four hue
+   fields are the spec's bytes; only the size is dialled down, because the
+   licensed mesh is tuned for a 1280px viewport and reads soapy when smeared. */
+.shell-a__mesh {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+
+/* ═══════════════ Nav rail (z40, floating slab §3) ═══════════════ */
+
+.shell-a .nav-rail {
+  position: fixed;
+  inset-block: var(--rail-gutter);
+  inset-inline-start: var(--rail-gutter);
+  z-index: var(--z-rail-local);
+  inline-size: var(--rail-width);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-sm);
+  /* own vertical scroll — only overflows on short viewports (§3) */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Wordmark plate — `label-caps` on an opaque mini-plate, never on glass. */
+.shell-a__wordmark {
+  flex: none;
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface);
+  box-shadow: var(--luminous-edge);
+}
+
+.shell-a__wordmark-name {
+  margin: 0;
+  color: var(--color-text);
+}
+
+.shell-a__wordmark-sub {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.shell-a__nav-list {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Nav rows carry the rail's 20px glyph; the rail's own inset is already 16px,
+   so the shared 12px item padding would be double. */
+.shell-a .nav-item {
+  gap: var(--space-sm);
+  padding-inline: var(--space-sm);
+}
+
+.shell-a__rail-footer {
+  flex: none;
+  margin-block-start: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface);
+  box-shadow: var(--luminous-edge);
+}
+
+/* Connection chip: the WORLD carries the hue, the word stays #141414. */
+.shell-a__conn-dot {
+  flex: none;
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: 999px;
+  background-color: var(--color-text-muted);
+}
+
+.shell-a__conn--live .shell-a__conn-dot {
+  background-color: var(--color-success-deep);
+}
+
+.shell-a__conn--polling .shell-a__conn-dot {
+  background-color: var(--color-warning-deep);
+}
+
+.shell-a__conn--offline .shell-a__conn-dot {
+  background-color: var(--color-text-muted);
+}
+
+/* The API-client note: label-caps is licensed on opaque chrome only, so an
+   acrylic chip gets the subdued 12px uppercase treatment instead. */
+.shell-a .api-note {
+  margin: 0;
+  font-size: var(--text-label);
+  font-weight: var(--weight-ui);
+  line-height: 1.4;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text);
+}
+
+.shell-a__user {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-inline-size: 0;
+}
+
+.shell-a__user-chip {
+  min-inline-size: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.shell-a__user-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--weight-ui);
+  color: var(--color-text);
+}
+
+/* ═══════════════ Topbar (z30, opaque secondary chrome §3) ═══════════════ */
+
+.shell-a__topbar {
+  position: fixed;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  inset-inline-start: calc(var(--rail-gutter) + var(--rail-width) + var(--col-gap));
+  z-index: var(--z-topbar-local);
+  block-size: var(--topbar-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding-inline: var(--gutter);
+  /* chrome-dark owns colour + luminous edge; square top is the topbar's own
+     shape decision. */
+  border-radius: 0;
+}
+
+/* base.css gives every anchor the primary link colour (2.03:1 on #3A344E);
+   inside dark chrome anchors inherit the chrome's own ink. */
+.shell-a .chrome-dark a {
+  color: inherit;
+}
+
+.shell-a__topbar-head {
+  min-inline-size: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.shell-a__crumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-inline-size: 0;
+}
+
+.shell-a__crumb-root,
+.shell-a__crumb-view {
+  color: color-mix(in srgb, var(--color-surface) 72%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-a__crumb-view {
+  color: var(--color-surface);
+}
+
+.shell-a__crumb-glyph {
+  display: inline-flex;
+  color: color-mix(in srgb, var(--color-surface) 72%, transparent);
+}
+
+.shell-a__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: var(--weight-ui);
+  line-height: 1.3;
+  color: var(--color-surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-a__topbar-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* The topbar's single primary action. Solid primary fill (5.51:1 with a white
+   label) is the one saturated note on dark chrome; the shared `.btn` is the
+   view-level control, so the chrome CTA is shell-owned. */
+.shell-a__cta {
+  block-size: 40px;
+  padding-inline: var(--space-md);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-primary);
+  color: var(--color-surface);
+  font-weight: var(--weight-ui);
+  cursor: pointer;
+  transition: background-color var(--motion-tween-enter);
+}
+
+.shell-a__cta:hover {
+  background-color: color-mix(in srgb, var(--color-primary) 88%, var(--color-text));
+}
+
+.shell-a__icon-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 40px;
+  block-size: 40px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--color-surface);
+  cursor: pointer;
+  transition: background-color var(--motion-tween-enter);
+}
+
+.shell-a__icon-btn:hover {
+  background-color: color-mix(in srgb, var(--color-surface) 12%, transparent);
+}
+
+/* Backdrop switch — §2: chrome-dark partner of the topbar's other controls;
+   the lobed track is the only 0/4/8-exempt shape in the shell (a switch is
+   not a surface). */
+.shell-a__switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-block-size: 40px;
+  padding-inline: var(--space-sm);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--color-surface);
+  font-size: var(--text-label);
+  font-weight: var(--weight-ui);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background-color var(--motion-tween-enter);
+}
+
+.shell-a__switch:hover {
+  background-color: color-mix(in srgb, var(--color-surface) 12%, transparent);
+}
+
+.shell-a__switch-track {
+  position: relative;
+  flex: none;
+  inline-size: 28px;
+  block-size: 16px;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--color-surface) 24%, transparent);
+  transition: background-color var(--motion-tween-enter);
+}
+
+.shell-a__switch[aria-pressed="true"] .shell-a__switch-track {
+  background-color: var(--color-primary);
+}
+
+.shell-a__switch-thumb {
+  position: absolute;
+  inset-block-start: 2px;
+  inset-inline-start: 2px;
+  inline-size: 12px;
+  block-size: 12px;
+  border-radius: 999px;
+  background-color: var(--color-surface);
+  transition: translate var(--motion-tween-enter);
+}
+
+.shell-a__switch[aria-pressed="true"] .shell-a__switch-thumb {
+  translate: 12px 0;
+}
+
+.shell-a__switch-label {
+  white-space: nowrap;
+}
+
+@media (max-width: 1279px) {
+  .shell-a__switch-label {
+    display: none;
+  }
+}
+
+.shell-a__notify {
+  display: inline-flex;
+}
+
+.shell-a__notify-badge {
+  position: absolute;
+  inset-block-start: 2px;
+  inset-inline-end: 2px;
+}
+
+.shell-a__account {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* ═══════════════ Stage (z10, THE vertical scroll owner §3) ═══════════════ */
+
+.shell-a .stage {
+  position: relative;
+  z-index: var(--z-stage-local);
+  /* the viewport frame IS the constraint here — `dvh`, never `vh` */
+  block-size: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-inline-start: calc(var(--rail-gutter) + var(--rail-width) + var(--col-gap));
+  padding-block-start: var(--topbar-height);
+  padding-inline: var(--gutter);
+  padding-block-end: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  border-radius: 0;
+}
+
+.shell-a__content {
+  min-block-size: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.shell-a__measure {
+  margin: 0;
+  max-inline-size: var(--measure);
+  color: var(--color-text);
+}
+
+/* ═══════════════ Tally band (z10, first row, asymmetric §3) ═══════════════ */
+
+.shell-a__tally {
+  position: relative;
+  z-index: var(--z-tally-local);
+  flex: none;
+}
+
+.shell-a .tally-band {
+  display: grid;
+  grid-template-columns: 1.45fr 0.95fr 1.25fr;
+  gap: var(--space-md);
+  align-items: start;
+}
+
+.shell-a .tally-plate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  min-inline-size: 0;
+}
+
+/* The bare media-gap plate: an opaque reading surface sitting ON the media
+   gap, not a transparent card hoping the backdrop holds still. */
+.shell-a .tally-plate--bare {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  border: 0;
+}
+
+.shell-a .tally-plate--bare .tally-plate__surface {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface);
+  box-shadow: 0 0 0 1px var(--glass-border), var(--luminous-edge);
+}
+
+.shell-a__plate-eyebrow {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.shell-a__plate-headline {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: var(--weight-ui);
+  line-height: 1.3;
+  color: var(--color-text);
+}
+
+.shell-a__plate-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.shell-a__plate-stats {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+.shell-a__stat {
+  min-inline-size: 4rem;
+}
+
+.shell-a__stat-label {
+  margin: 0;
+  font-size: var(--text-label);
+  color: var(--color-text-muted);
+}
+
+.shell-a__stat-value {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: var(--weight-ui);
+  color: var(--color-text);
+}
+
+/* ═══════════════ Stage placeholder (no view mounted) ═══════════════ */
+
+.shell-a__pending {
+  max-inline-size: var(--measure);
+  padding: var(--space-md) 0;
+}
+
+.shell-a__pending-eyebrow {
+  margin: 0 0 var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  font-weight: var(--weight-ui);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.shell-a__pending-headline {
+  margin: 0;
+  font-size: var(--text-h3);
+  font-weight: var(--weight-ui);
+  color: var(--color-text);
+}
+
+.shell-a__pending-body {
+  margin: var(--space-sm) 0 0;
+  color: var(--color-text-muted);
+}
+
+/* ═══════════════ Backdrop state notes ═══════════════ */
+
+.shell-a__notes {
+  position: fixed;
+  inset-block-end: var(--gutter);
+  inset-inline-start: calc(var(--rail-gutter) + var(--rail-width) + var(--col-gap));
+  z-index: calc(var(--z-topbar-local) + 1);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  pointer-events: none;
+}
+
+.shell-a__note {
+  pointer-events: auto;
+}
+
+/* §2: with the backdrop off every acrylic is flat white, and the shell must
+   say so — a quiet note (edge-far keyline, no glass shadow) so it never reads
+   as a surface that lost its glass. */
+.shell-a__note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface);
+  box-shadow: 0 0 0 1px var(--edge-far), var(--luminous-edge);
+}
+
+.shell-a__note-text {
+  margin: 0;
+  color: var(--color-text);
+}
+
+.shell-a__note-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 24px;
+  block-size: 24px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  opacity: 0.55;
+  transition:
+    opacity var(--motion-tween-enter),
+    background-color var(--motion-tween-enter);
+}
+
+.shell-a__note-action[data-expanded="true"] {
+  opacity: 1;
+}
+
+.shell-a__note-action:hover {
+  background-color: color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+
+/* ═══════════════ Backdrop OFF — the opaque twin path (§2) ═══════════════ */
+
+/* `.acrylic` inside the shell falls through to glass.css's opaque twin when
+   the shell is in its no-backdrop state (same downgrade shape as the
+   recipe's own `:where()` context rule). */
+.shell-a[data-backdrop="off"] .acrylic {
+  background-color: var(--color-surface);
+  background-image: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* ═══════════════ §7 — the rail collapses below 1280px ═══════════════ */
+
+@media (max-width: 1279px) {
+  .shell-a {
+    --rail-width: 72px;
+    --col-gap: var(--space-md);
+  }
+
+  .shell-a .nav-rail {
+    align-items: center;
+    padding-inline: var(--space-sm);
+  }
+
+  .shell-a__wordmark {
+    align-self: center;
+    padding: var(--space-sm) 0;
+    inline-size: 48px;
+    text-align: center;
+  }
+
+  .shell-a__wordmark-sub {
+    display: none;
+  }
+
+  .shell-a .nav-item {
+    justify-content: center;
+    inline-size: 48px;
+    min-block-size: 44px;
+    min-inline-size: 44px;
+    padding-inline: 0;
+  }
+
+  .shell-a .nav-item__label,
+  .shell-a__user-name,
+  .shell-a__user-chip .badge {
+    display: none;
+  }
+
+  .shell-a__rail-footer {
+    align-items: center;
+    padding: var(--space-sm) 0;
+  }
+
+  .shell-a__rail-footer .chip {
+    inline-size: 44px;
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .shell-a__rail-footer .chip > span:last-child {
+    display: none;
+  }
+
+  .shell-a__api-note {
+    display: none;
+  }
+}
+
+/* ═══════════════ §7 — compact frame: no rail, bottom glass tab bar ══════ */
+
+.shell-a__tabbar {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .shell-a .nav-rail {
+    display: none;
+  }
+
+  /* the ONE breakpoint where the topbar is genuinely full-bleed */
+  .shell-a__topbar {
+    inset-inline-start: 0;
+  }
+
+  .shell-a .stage {
+    margin-inline-start: 0;
+    padding-inline: var(--space-md);
+    padding-block-end: calc(var(--space-xl) * 2);
+    gap: var(--space-sm);
+  }
+
+  .shell-a__notes {
+    inset-inline-start: var(--gutter);
+    inset-block-end: calc(var(--space-xl) * 2);
+  }
+
+  .shell-a .tally-band {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-sm);
+  }
+
+  .shell-a .tally-plate {
+    grid-column: auto !important;
+  }
+
+  .shell-a__tabbar {
+    position: fixed;
+    inset-block-end: var(--rail-gutter);
+    inset-inline: var(--rail-gutter);
+    z-index: var(--z-rail-local);
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: var(--space-sm);
+    padding: var(--space-sm);
+    border-radius: var(--radius-md);
+  }
+
+  .shell-a .tabbar__item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-block-size: 44px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background-color: transparent;
+    color: var(--color-text);
+    font-weight: var(--weight-ui);
+    cursor: pointer;
+  }
+
+  .shell-a .tabbar__item--active {
+    color: var(--color-primary);
+  }
+
+  .shell-a .tabbar__label {
+    font-size: 0.75rem;
+    line-height: 1.4;
+  }
+
+  /* The Drawer portals to <body> at z41 while this bar sits at z40, so the
+     bar is hidden while the drawer is open rather than racing it. */
+  body:has(.drawer-layer) .shell-a .shell-a__tabbar {
+    visibility: hidden;
+  }
+}
+
+/* ═══════════════ §8.6 reduced transparency ═══════════════ */
+
+/* glass.css already swaps every `.acrylic` for its opaque twin and hides
+   `.backdrop-media`; the shell hides its own backdrop content too, because
+   the mesh is decorative and a solid scrim over white is just a grey wash. */
+@media (prefers-reduced-transparency: reduce) {
+  .shell-a__backdrop-content {
+    display: none;
+  }
+}
+
+/* ═══════════════ §8.4 touch targets ═══════════════ */
+
+@media (pointer: coarse) {
+  .shell-a__cta,
+  .shell-a__icon-btn,
+  .shell-a__switch,
+  .shell-a__note-action {
+    min-block-size: 44px;
+  }
+
+  .shell-a__icon-btn,
+  .shell-a__switch,
+  .shell-a__note-action {
+    min-inline-size: 44px;
+  }
+}
+
+/* ═══════════════ §9 motion ═══════════════ */
+
+/* Only the four pinned tokens are used; the shared two-layer focus ring from
+   base.css covers every shell control through its :where() fallback, so the
+   shell adds no ring of its own. */
+@media (prefers-reduced-motion: reduce) {
+  .shell-a__cta,
+  .shell-a__icon-btn,
+  .shell-a__switch,
+  .shell-a__switch-track,
+  .shell-a__switch-thumb,
+  .shell-a__note-action {
+    transition: none;
+  }
+}

@@ -1,7 +1,7 @@
 /*
- * Base layer — reset, dark-only canvas, type roles, focus ring, layout
- * primitives (layout-skill: stack / cluster / scroll-body-shell) and
- * content-stress helpers (§3.4).
+ * base.css — reset, light-glass canvas, type roles, the two-layer focus ring,
+ * motion/reduced-motion rules and the §7 container-query + touch floors.
+ * Layout opinions belong to the shells (§3/§4) and are deliberately absent.
  */
 
 *,
@@ -10,25 +10,23 @@
   box-sizing: border-box;
 }
 
+/* Light frosted-acrylic system — light is the product, not a mode (§0). */
 html {
-  color-scheme: dark;
+  color-scheme: light;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
-  background: var(--color-bg-base);
-  color: var(--color-text-primary);
+  min-height: 100vh;
+  background-color: var(--color-surface);
+  color: var(--color-text);
   font-family: var(--font-sans);
-  font-size: var(--role-body-size);
-  font-weight: var(--role-body-weight);
-  line-height: var(--role-body-lh);
+  font-size: var(--text-body);
+  font-weight: var(--weight-read);
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-}
-
-/* Focus: 2px solid #7DB1E5, offset 1 — never outline:none without it (§7) */
-:focus-visible {
-  outline: var(--focus-ring-width) solid var(--focus-ring-color);
-  outline-offset: var(--focus-ring-offset);
+  text-rendering: optimizeLegibility;
 }
 
 button,
@@ -36,128 +34,98 @@ input,
 select,
 textarea {
   font: inherit;
+  color: inherit;
 }
 
 h1,
 h2,
 h3,
-p {
+p,
+figure {
   margin: 0;
 }
 
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 a {
-  color: var(--color-accent-text);
-  text-decoration: none;
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 a:hover {
-  color: var(--color-accent-text-hover);
+  text-decoration-thickness: 2px;
 }
 
-/* ── typography roles (§1) ──────────────────────────────────────── */
+/* ── typography roles (§1: three roles + one interpolation rule) ────────── */
 .t-h1 {
-  font-size: var(--role-h1-size);
-  font-weight: var(--role-h1-weight);
-  line-height: var(--role-h1-lh);
-  letter-spacing: var(--role-h1-tracking);
+  font-size: var(--text-h1);
+  font-weight: var(--weight-announce);
+  line-height: 1.1;
+  letter-spacing: var(--tracking-h1);
+  text-wrap: balance;
 }
 
 .t-h2 {
-  font-size: var(--role-h2-size);
-  font-weight: var(--role-h2-weight);
-  line-height: var(--role-h2-lh);
-  letter-spacing: var(--role-h2-tracking);
+  font-size: var(--text-h2);
+  font-weight: var(--weight-announce);
+  line-height: 1.2;
+  text-wrap: balance;
 }
 
 .t-h3 {
-  font-size: var(--role-h3-size);
-  font-weight: var(--role-h3-weight);
-  line-height: var(--role-h3-lh);
-  letter-spacing: var(--role-h3-tracking);
-}
-
-.t-body-md {
-  font-size: var(--role-body-md-size);
-  font-weight: var(--role-body-md-weight);
-  line-height: var(--role-body-md-lh);
-  letter-spacing: 0;
+  font-size: var(--text-h3);
+  font-weight: var(--weight-ui);
+  line-height: 1.3;
 }
 
 .t-body {
-  font-size: var(--role-body-size);
-  font-weight: var(--role-body-weight);
-  line-height: var(--role-body-lh);
-  letter-spacing: 0;
+  font-size: var(--text-body);
+  font-weight: var(--weight-read);
+  line-height: 1.5;
 }
 
 .t-body-strong {
-  font-size: var(--role-body-size);
-  font-weight: var(--role-body-strong-weight);
-  line-height: var(--role-body-lh);
-  letter-spacing: 0;
+  font-size: var(--text-body);
+  font-weight: var(--weight-ui);
+  line-height: 1.5;
 }
 
+/* label-caps — 12px mono/500/1.4/0.08em, licensed on opaque chrome only */
 .t-label-caps {
-  font-size: var(--role-label-caps-size);
-  font-weight: var(--role-label-caps-weight);
-  line-height: var(--role-label-caps-lh);
-  letter-spacing: var(--role-label-caps-tracking);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  font-weight: var(--weight-ui);
+  line-height: 1.4;
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
 
-.t-meta {
-  font-size: var(--role-meta-size);
-  font-weight: var(--role-meta-weight);
-  line-height: var(--role-meta-lh);
-  letter-spacing: 0;
-}
-
-/* machine text — IBM Plex Mono where the machine speaks (§0 type axis) */
 .t-mono {
   font-family: var(--font-mono);
-  font-size: var(--role-mono-size);
-  font-weight: var(--role-mono-weight);
-  line-height: var(--role-mono-lh);
-  letter-spacing: 0;
-  font-feature-settings: var(--features-mono);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .t-mono-inline {
   font-family: var(--font-mono);
-  font-size: var(--role-mono-inline-size);
-  font-weight: var(--role-mono-inline-weight);
-  line-height: var(--role-mono-inline-lh);
-  letter-spacing: 0;
-  font-feature-settings: var(--features-mono);
-}
-
-/* every number: durations, sizes, countdowns, counts (§0) */
-.num {
+  font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
 }
 
-/* ── named layout primitives (layout-skill, §3) ─────────────────── */
-.stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-section-gap-desktop);
+/* numeric data cells use the sans with tabular figures (§11.9) */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
 }
 
-.cluster {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.scroll-body-shell {
-  min-block-size: 0;
-  overflow: auto;
-}
-
-/* ── content-stress rules (§3.4) ───────────────────────────────── */
-.content-limiter {
-  max-width: 65ch;
+.measure {
+  max-width: var(--measure);
 }
 
 .ellipsis {
@@ -166,40 +134,138 @@ a:hover {
   white-space: nowrap;
 }
 
-.wrap-anywhere {
-  overflow-wrap: anywhere;
+/* ── a11y helpers ──────────────────────────────────────────────────────── */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
-/* JSON / config mono well — scrolls internally, never page-level (§3.4) */
-.well {
-  background: var(--color-bg-base);
-  box-shadow: inset 0 0 0 1px var(--color-border-standard);
-  border-radius: var(--radius-well);
-  padding: var(--space-sm);
-  font-family: var(--font-mono);
-  font-size: var(--role-mono-size);
-  font-weight: var(--role-mono-weight);
-  line-height: var(--role-mono-lh);
-  font-feature-settings: var(--features-mono);
-  color: var(--color-text-secondary);
-  overflow-x: auto;
-  white-space: pre;
+/* Skip link is the first tab stop (§8.4). Hidden until focused. */
+.skip-link {
+  position: absolute;
+  top: var(--space-sm);
+  left: var(--space-sm);
+  z-index: var(--z-rail);
+  padding: var(--space-sm) var(--space-md);
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 1px var(--glass-border), var(--luminous-edge), var(--glass-shadow);
+  transform: translateY(-200%);
 }
 
-/* ── motion: reduced-motion policy (§7/§8) ─────────────────────── */
+.skip-link:focus-visible {
+  transform: translateY(0);
+}
+
+/* Sticky chrome must never obscure a focused child (§8.4 / WCAG 2.4.11). */
+.stage :where(h1, h2, h3, [id]) {
+  scroll-margin-top: 64px;
+}
+
+/* ── focus: the two-layer ring, built in the shadow layer (§8.3). The
+   primary ring alone is 2.03:1 on worst-case acrylic and the white gap alone
+   2.71:1 — the pair always carries a ≥3:1 boundary. Focus is never a glow.
+   Primitive-specific rules below raise specificity over each surface shadow;
+   the :where() fallback covers anything else without out-ranking them. ──── */
+.btn:focus-visible,
+.input:focus-visible,
+.select__trigger:focus-visible,
+.switch:focus-visible,
+.chip:focus-visible,
+.status-chip--clickable:focus-visible,
+.badge--action:focus-visible,
+.nav-item:focus-visible,
+.tab:focus-visible,
+.overflow__trigger:focus-visible,
+.overflow__item:focus-visible,
+.ta-row:focus-visible,
+.toast__action:focus-visible,
+.fab:focus-visible,
+.drawer__close:focus-visible,
+.icon-btn:focus-visible,
+.tile-link:focus-visible,
+.fieldset:focus-within {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Non-interactive focus targets (dialog/drawer panels) get the ring too. */
+:where([role="dialog"][tabindex]):focus-visible {
+  outline: none;
+}
+
+/* ── motion: only the four pinned tokens; CSS transitions use the pinned
+   tween-enter duration. Nothing animates transform/layout on scroll. ───── */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    transition-duration: 0ms !important;
-    animation-duration: 0ms !important;
+    animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
   }
-
-  /* state-communicating opacity stays available via instant final state */
-  .chip__dot,
-  .spinner,
-  .skeleton {
+  /* opacity drops survive; spinners become static rings and the recording
+     pulse becomes a static dot (§9.3 / §8.6). */
+  .spinner {
     animation: none !important;
+  }
+  .status-chip__dot--pulse {
+    animation: none !important;
+    opacity: 1;
+  }
+  .tile-link:hover {
+    transform: none;
+  }
+}
+
+/* ── §7 container queries (components respond to their container) ───────── */
+@container (max-width: 42rem) {
+  .table--rows {
+    display: block;
+  }
+  .table--rows > .ta-body {
+    display: block;
+  }
+}
+
+@container (max-width: 30rem) {
+  .field-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── §7 touch: every §6 control ≥44px on coarse pointers, ≥8px gap ─────── */
+@media (pointer: coarse) {
+  .btn,
+  .input,
+  .select__trigger,
+  .switch,
+  .chip,
+  .nav-item,
+  .tab,
+  .overflow__trigger,
+  .icon-btn,
+  .drawer__close {
+    min-height: 44px;
+  }
+  .btn--ghost,
+  .overflow__trigger,
+  .icon-btn,
+  .drawer__close {
+    min-width: 44px;
   }
 }

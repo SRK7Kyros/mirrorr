@@ -1,20 +1,18 @@
 import { useMemo, useState } from "react"
 import { Button } from "@/components/ui/Button"
+import { Chip } from "@/components/ui/Chip"
 import { Dialog } from "@/components/ui/Dialog"
+import { Fieldset } from "@/components/ui/FormField"
 import { Input } from "@/components/ui/Input"
 import { Select } from "@/components/ui/Select"
 import { useToast } from "@/components/ui/Toast"
 import { ApiError } from "@/lib/api"
 import type { Autorun, Profile } from "@/lib/schemas"
-import {
-  datetimeLocalToNaiveUtc,
-  formatDateTime,
-  naiveUtcToDatetimeLocal,
-} from "@/lib/time"
+import { datetimeLocalToNaiveUtc, formatDateTime, naiveUtcToDatetimeLocal } from "@/lib/time"
 import { createAutorun, updateAutorun, type AutorunBody } from "@/views/shared/api"
 import { useEngines, useProfiles, useResolvers } from "@/views/shared/hooks"
-import { diffDirtyFields, isDirty, snapshotFields } from "@/views/shared/dirty"
-import { prefillSchemaValues, type SchemaValues } from "@/components/ui/dynamic-schema-form"
+import { diffDirtyFields, snapshotFields } from "@/views/shared/dirty"
+import { prefillSchemaValues } from "@/components/ui/dynamic-schema-form"
 import { ConfigFields, type ConfigFieldsValue, retrySchemaOf } from "@/views/shared/config-fields"
 import { isLive } from "./filter-grammar"
 import { configSnapshot, configSnapshotFrom } from "./autorun-shared"
@@ -28,12 +26,32 @@ export interface AutorunWizardDialogProps {
 
 const STEP_LABELS = ["Identity", "Schedule", "Config", "Review"] as const
 const SLUG_RE = /^[a-zA-Z0-9_-]+$/
+const CONFIG_KEYS = ["engine_id", "resolver_id", "resolver_config", "retry_mode", "retry_config"] as const
 
 function autoSlug(name: string): string {
   return name
     .toLowerCase()
     .replace(/[^a-z0-9_-]+/g, "_")
     .replace(/^_+|_+$/g, "")
+}
+
+function isConfigDirty(baseline: Record<string, unknown>, config: ConfigFieldsValue): boolean {
+  const current = configSnapshotFrom(config)
+  return CONFIG_KEYS.some((key) => JSON.stringify(baseline[key]) !== JSON.stringify(current[key]))
+}
+
+/** §11.23 — 422 `loc`-mapped copy, 400 duplicate-name, tz-suffixed times. */
+function describeSubmitError(error: unknown): string {
+  if (!(error instanceof ApiError)) return "Could not save the scheduled recording."
+  if (error.status === 400) return "That snake-case name is already used on this server."
+  if (error.status === 422) {
+    const joined = Object.values(error.fieldErrors ?? {}).join(" ")
+    if (joined.toLowerCase().includes("timezone") || joined.toLowerCase().includes("tz")) {
+      return "Use the local-time picker — times are stored as UTC."
+    }
+    return joined === "" ? "Some fields need attention." : joined
+  }
+  return error.message
 }
 
 const EMPTY_CONFIG: ConfigFieldsValue = {
@@ -46,14 +64,12 @@ const EMPTY_CONFIG: ConfigFieldsValue = {
 }
 
 /**
- * D2 — Autorun create/edit wizard (4 steps: Identity · Schedule · Config ·
- * Review). `datetime-local` inputs convert via `@/lib/time`
- * (`datetimeLocalToNaiveUtc`) — naive UTC, no suffix. Submission semantics
- * (contract): create unedited-from-profile sends
- * `{user_friendly_name, snake_case_name, profile_id, start_time, end_time,
- * recording}`; any config edit switches to the full explicit body (replaces
- * profile_id). EDIT mode `PUT` sends ONLY dirty fields (exclude_unset
- * semantics) — locked fields while live are never sent.
+ * §5.5 primary action — New scheduled recording (4 steps: Identity · Schedule ·
+ * Config · Review). ONE-SHOT, so there are no weekday/cron controls. Local
+ * `datetime-local` pickers convert to naive UTC on submit. Edit mode sends only
+ * dirty fields (`PUT` exclude_unset semantics); config fields are dropped from
+ * the body whenever the run is live (no server lock exists — the client owns
+ * the protection).
  */
 export function AutorunWizardDialog({
   open,
@@ -71,21 +87,24 @@ export function AutorunWizardDialog({
   const [name, setName] = useState(editing?.user_friendly_name ?? "")
   const [slug, setSlug] = useState(editing?.snake_case_name ?? "")
   const [slugTouched, setSlugTouched] = useState(editing !== null)
-  const [source, setSource] = useState<"profile" | "custom">(editing == null && prefillProfileId != null ? "profile" : "custom")
+  const [source, setSource] = useState<"profile" | "custom">(
+    editing == null && prefillProfileId != null ? "profile" : "custom",
+  )
   const [profileId, setProfileId] = useState<number | null>(editing?.profile_id ?? prefillProfileId)
   const [startLocal, setStartLocal] = useState(editing == null ? "" : naiveUtcToDatetimeLocal(editing.start_time))
   const [endLocal, setEndLocal] = useState(editing == null ? "" : naiveUtcToDatetimeLocal(editing.end_time))
-  const [config, setConfig] = useState<ConfigFieldsValue>(() => {
-    if (editing === null) return EMPTY_CONFIG
-    return {
-      engineId: editing.engine_id,
-      resolverId: editing.resolver_id,
-      resolverConfig: { ...(editing.resolver_config ?? {}) },
-      retryMode: editing.retry_mode ?? null,
-      retryConfig: { ...(editing.retry_config ?? {}) },
-      recording: editing.recording === true,
-    }
-  })
+  const [config, setConfig] = useState<ConfigFieldsValue>(() =>
+    editing === null
+      ? EMPTY_CONFIG
+      : {
+          engineId: editing.engine_id,
+          resolverId: editing.resolver_id,
+          resolverConfig: { ...(editing.resolver_config ?? {}) },
+          retryMode: editing.retry_mode ?? null,
+          retryConfig: { ...(editing.retry_config ?? {}) },
+          recording: editing.recording === true,
+        },
+  )
   const [baseline, setBaseline] = useState<Record<string, unknown>>(() =>
     snapshotFields(editing === null ? {} : configSnapshot(editing)),
   )
@@ -93,15 +112,17 @@ export function AutorunWizardDialog({
   const [formError, setFormError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const configDirty = isDirty(
-    baseline,
-    configSnapshotFrom(config),
-    ["engine_id", "resolver_id", "resolver_config", "retry_mode", "retry_config"],
-  )
-
   const slugValid = SLUG_RE.test(slug)
   const endAfterStart = startLocal === "" || endLocal === "" || endLocal > startLocal
   const pastStart = startLocal !== "" && new Date(startLocal).getTime() < Date.now()
+  const configReady =
+    editing !== null || config.engineId != null || (source === "profile" && profileId != null)
+  const startReady = startLocal !== "" && endLocal !== "" && endAfterStart
+  const canNext =
+    (step === 0 && name.trim() !== "" && slugValid) ||
+    (step === 1 && startReady) ||
+    (step === 2 && configReady) ||
+    step === 3
 
   const applyProfile = (nextId: number | null) => {
     setProfileId(nextId)
@@ -142,12 +163,6 @@ export function AutorunWizardDialog({
     [name, slug, engines, resolvers, config, startLocal, endLocal],
   )
 
-  const canNext =
-    (step === 0 && name.trim() !== "" && slugValid) ||
-    (step === 1 && startLocal !== "" && endAfterStart) ||
-    step === 2 ||
-    step === 3
-
   const submit = async () => {
     setBusy(true)
     setFieldErrors({})
@@ -155,9 +170,7 @@ export function AutorunWizardDialog({
     try {
       const startTime = datetimeLocalToNaiveUtc(startLocal)
       const endTime = datetimeLocalToNaiveUtc(endLocal)
-      let body: AutorunBody
       if (editing !== null) {
-        // PUT = dirty fields ONLY (exclude_unset semantics); locked fields never sent.
         const current: Record<string, unknown> = {
           user_friendly_name: name,
           snake_case_name: slug,
@@ -174,30 +187,21 @@ export function AutorunWizardDialog({
           recording: editing.recording === true,
           ...snapshotFields(configSnapshot(editing)),
         }
-        const dirty = diffDirtyFields(initial, current)
         const dirtyBody: Record<string, unknown> = {}
-        for (const key of dirty) dirtyBody[key] = current[key]
-        if (liveLocked) {
-          delete dirtyBody.engine_id
-          delete dirtyBody.resolver_id
-          delete dirtyBody.resolver_config
-          delete dirtyBody.retry_mode
-          delete dirtyBody.retry_config
-        }
-        body = dirtyBody as AutorunBody
-        await updateAutorun(editing.id, body)
-      } else if (source === "profile" && profileId != null && !configDirty) {
-        body = {
+        for (const key of diffDirtyFields(initial, current)) dirtyBody[key] = current[key]
+        if (liveLocked) for (const key of CONFIG_KEYS) delete dirtyBody[key]
+        await updateAutorun(editing.id, dirtyBody as AutorunBody)
+      } else if (source === "profile" && profileId != null && !isConfigDirty(baseline, config)) {
+        await createAutorun({
           user_friendly_name: name,
           snake_case_name: slug,
           profile_id: profileId,
           start_time: startTime,
           end_time: endTime,
           recording: config.recording,
-        }
-        await createAutorun(body)
+        })
       } else {
-        body = {
+        await createAutorun({
           user_friendly_name: name,
           snake_case_name: slug,
           engine_id: config.engineId ?? 0,
@@ -208,17 +212,16 @@ export function AutorunWizardDialog({
           start_time: startTime,
           end_time: endTime,
           recording: config.recording,
-        }
-        await createAutorun(body)
+        })
       }
       onClose()
       toast({
         kind: "success",
-        title: editing === null ? "Autorun created" : "Autorun saved",
+        title: editing === null ? "Scheduled recording created" : "Scheduled recording saved",
       })
     } catch (error) {
       if (error instanceof ApiError && error.fieldErrors !== undefined) setFieldErrors(error.fieldErrors)
-      setFormError(error instanceof ApiError ? error.message : "Could not save autorun")
+      setFormError(describeSubmitError(error))
     } finally {
       setBusy(false)
     }
@@ -229,13 +232,13 @@ export function AutorunWizardDialog({
       open={open}
       onClose={onClose}
       wizard
-      title={editing === null ? "New autorun" : "Edit autorun"}
+      title={editing === null ? "New scheduled recording" : "Edit scheduled recording"}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <span className="cluster">
+          <span className="ve-inline">
             {step > 0 ? (
               <Button variant="ghost" onClick={() => setStep((current) => current - 1)}>
                 Back
@@ -247,146 +250,155 @@ export function AutorunWizardDialog({
               </Button>
             ) : (
               <Button loading={busy} onClick={() => void submit()}>
-                {editing === null ? "Create autorun" : "Save changes"}
+                {editing === null ? "Create" : "Save changes"}
               </Button>
             )}
           </span>
         </>
       }
     >
-      <nav className="step-indicator" aria-label="Wizard steps">
-        {STEP_LABELS.map((label, index) => (
-          <span key={label} className="step-indicator__step" data-state={index === step ? "active" : index < step ? "done" : "upcoming"}>
-            {index < step ? `✓ ${label}` : label}
-            {index < STEP_LABELS.length - 1 ? <span className="step-indicator__rule" /> : null}
-          </span>
-        ))}
-      </nav>
-
-      {formError !== null ? <p className="warn-text">{formError}</p> : null}
-
-      {step === 0 ? (
-        <div className="stack" style={{ gap: "var(--space-md)" }}>
-          <Input
-            label="User-friendly name"
-            value={name}
-            error={fieldErrors.user_friendly_name}
-            required
-            onChange={(event) => {
-              const next = event.target.value
-              setName(next)
-              if (!slugTouched) setSlug(autoSlug(next))
-            }}
-          />
-          <Input
-            label="Snake-case name"
-            mono
-            value={slug}
-            required
-            error={fieldErrors.snake_case_name ?? (slug !== "" && !slugValid ? "Only letters, numbers, _ and -" : undefined)}
-            helper={slugValid && slug !== "" ? `slug: ${slug}` : "Only letters, numbers, _ and -"}
-            onChange={(event) => {
-              setSlugTouched(true)
-              setSlug(event.target.value)
-            }}
-          />
-        </div>
-      ) : null}
-
-      {step === 1 ? (
-        <div className="stack" style={{ gap: "var(--space-md)" }}>
-          <Input
-            type="datetime-local"
-            label="Start"
-            value={startLocal}
-            required
-            error={fieldErrors.start_time}
-            helper="Your local time — stored as UTC"
-            onChange={(event) => setStartLocal(event.target.value)}
-          />
-          <Input
-            type="datetime-local"
-            label="End"
-            value={endLocal}
-            required
-            error={fieldErrors.end_time ?? (endAfterStart ? undefined : "End must be after start")}
-            helper="Your local time — stored as UTC"
-            onChange={(event) => setEndLocal(event.target.value)}
-          />
-          {pastStart ? (
-            <p className="warn-text">
-              Start is in the past — starts immediately; the server treats past times as a backfill
-              trigger
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-
-      {step === 2 ? (
-        <div className="stack" style={{ gap: "var(--space-md)" }}>
-          {liveLocked ? (
-            <p className="warn-text">
-              This autorun is running — only name and times can change; setting an end time in the
-              past stops the current run
-            </p>
-          ) : null}
-          <div className="filter-chips" role="group" aria-label="Config source">
-            <button
-              type="button"
-              className="chip-btn"
-              data-active={source === "profile"}
-              disabled={editing !== null}
-              onClick={() => setSource("profile")}
+      <div className="ve-form">
+        <nav className="ve-steps" aria-label="Wizard steps">
+          {STEP_LABELS.map((label, index) => (
+            <span
+              key={label}
+              className="ve-step"
+              data-state={index === step ? "active" : index < step ? "done" : "upcoming"}
+              aria-current={index === step ? "step" : undefined}
             >
-              From profile
-            </button>
-            <button
-              type="button"
-              className="chip-btn"
-              data-active={source === "custom"}
-              disabled={editing !== null}
-              onClick={() => setSource("custom")}
-            >
-              Custom
-            </button>
-          </div>
-          {source === "profile" ? (
-            <Select
-              label="Profile"
-              options={profiles.map((entry: Profile) => ({ value: String(entry.id), label: entry.name }))}
-              value={profileId == null ? null : String(profileId)}
-              disabled={liveLocked}
-              error={fieldErrors.profile_id}
-              onChange={(next) => applyProfile(Number(next))}
+              {index < step ? `Done · ${label}` : label}
+              {index < STEP_LABELS.length - 1 ? <span className="ve-step__rule" aria-hidden="true" /> : null}
+            </span>
+          ))}
+        </nav>
+
+        {formError !== null ? <p className="ve-hint">{formError}</p> : null}
+
+        {step === 0 ? (
+          <>
+            <Input
+              label="User-friendly name"
+              value={name}
+              error={fieldErrors.user_friendly_name}
+              required
+              onChange={(event) => {
+                const next = event.target.value
+                setName(next)
+                if (!slugTouched) setSlug(autoSlug(next))
+              }}
             />
-          ) : null}
-          <ConfigFields
-            value={config}
-            onChange={(next) => setConfig((current) => ({ ...current, ...next }))}
-            engines={engines}
-            resolvers={resolvers}
-            errors={fieldErrors}
-            disabled={liveLocked}
-          />
-        </div>
-      ) : null}
+            <Input
+              label="Snake-case name"
+              mono
+              value={slug}
+              required
+              error={
+                fieldErrors.snake_case_name ??
+                (slug !== "" && !slugValid ? "Only letters, numbers, _ and -" : undefined)
+              }
+              helper="Used in disk paths and exports; unique on this server."
+              onChange={(event) => {
+                setSlugTouched(true)
+                setSlug(event.target.value)
+              }}
+            />
+          </>
+        ) : null}
 
-      {step === 3 ? (
-        <div className="card">
-          <dl className="kv">
-            {reviewRows.map(([label, value]) => (
-              <div key={label} style={{ display: "contents" }}>
-                <dt className="kv__label">{label}</dt>
-                <dd className="kv__value t-mono">{value}</dd>
+        {step === 1 ? (
+          <>
+            <Input
+              type="datetime-local"
+              label="Start"
+              value={startLocal}
+              required
+              error={fieldErrors.start_time}
+              helper="Your local time — stored as UTC"
+              onChange={(event) => setStartLocal(event.target.value)}
+            />
+            <Input
+              type="datetime-local"
+              label="End"
+              value={endLocal}
+              required
+              error={fieldErrors.end_time ?? (endAfterStart ? undefined : "End must be after start")}
+              helper="Your local time — stored as UTC"
+              onChange={(event) => setEndLocal(event.target.value)}
+            />
+            {pastStart ? (
+              <p className="ve-hint">Start time is in the past — the server will fire it immediately.</p>
+            ) : null}
+          </>
+        ) : null}
+
+        {step === 2 ? (
+          <>
+            {liveLocked ? (
+              <p className="ve-hint">
+                Changes affect a future run, not the current one. Moving the end time earlier may stop
+                the running recording.
+              </p>
+            ) : null}
+            <Fieldset legend="Configuration source">
+              <div className="ve-inline" role="group" aria-label="Configuration source">
+                <Chip
+                  selected={source === "profile"}
+                  disabled={editing !== null}
+                  onClick={() => setSource("profile")}
+                >
+                  From profile
+                </Chip>
+                <Chip
+                  selected={source === "custom"}
+                  disabled={editing !== null}
+                  onClick={() => setSource("custom")}
+                >
+                  Direct config
+                </Chip>
               </div>
-            ))}
-          </dl>
-        </div>
-      ) : null}
+            </Fieldset>
+            {source === "profile" && editing === null ? (
+              <Select
+                label="Profile"
+                options={profiles.map((entry: Profile) => ({ value: String(entry.id), label: entry.name }))}
+                value={profileId == null ? null : String(profileId)}
+                disabled={liveLocked}
+                error={fieldErrors.profile_id}
+                placeholder="Select a profile…"
+                onChange={(next) => applyProfile(Number(next))}
+              />
+            ) : null}
+            <Fieldset
+              legend="Engine & resolver"
+              disabled={liveLocked}
+              disabledReason="Changes affect a future run, not the current one."
+            >
+              <ConfigFields
+                value={config}
+                onChange={(next) => setConfig((current) => ({ ...current, ...next }))}
+                engines={engines}
+                resolvers={resolvers}
+                errors={fieldErrors}
+                disabled={liveLocked}
+              />
+            </Fieldset>
+          </>
+        ) : null}
+
+        {step === 3 ? (
+          <Fieldset legend="Review">
+            <dl className="ve-kv">
+              {reviewRows.map(([label, value]) => (
+                <div key={label} style={{ display: "contents" }}>
+                  <dt className="ve-kv__label">{label}</dt>
+                  <dd className="ve-kv__value">{value}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="ve-note">Runs once at the start time, then retires.</p>
+          </Fieldset>
+        ) : null}
+      </div>
     </Dialog>
   )
 }
-
-
-
-export type { SchemaValues }

@@ -1,112 +1,129 @@
-import { Link, useNavigate, useSearch } from "@tanstack/react-router"
+import { Navigate, useLocation, useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
 import type { FormEvent } from "react"
 import { Button } from "@/components/ui/Button"
+import { ErrorPanel } from "@/components/ui/ErrorPanel"
 import { Input } from "@/components/ui/Input"
-import { useToast } from "@/components/ui/Toast"
 import { useAuthStatus } from "@/hooks/use-auth-status"
 import { useRateLimitLock } from "@/hooks/use-rate-limit-lock"
 import { ApiError } from "@/lib/api"
-import { login } from "@/lib/auth"
+import { login, sanitizeRedirectPath } from "@/lib/auth"
+import { AuthFrame, AuthSplash, LOGIN_LOCK_MS, RATE_LIMIT_TITLE } from "./auth-frame"
+import "@/styles/views-admin.css"
 
-const INVALID_CREDENTIALS = "Invalid username or password"
-const API_UNREACHABLE = "API unreachable"
-const UNEXPECTED_RESPONSE = "Unexpected server response"
-const RATE_LIMITED_TITLE = "Too many attempts — try again shortly"
-// string-typed: /register is intentionally not mounted in router.tsx yet (registerRoute export is reported for wiring).
-const registerPath: string = "/register"
+const WRONG_CREDENTIALS = "Wrong username or password."
+const UNREACHABLE = "Cannot reach the recorder — retry"
+const UNEXPECTED = "Unexpected server response"
 
 /**
- * V1 Login (spec §5): centred card on bg-base, inline 401 (never toast),
- * 429 → toast + 30s submit lockout with countdown, footer register link
- * only while `GET /auth/status` reports `has_users === false`.
+ * §5.1 Auth — Login. `GET /auth/status` drives first-run branching, `POST
+ * /auth/login` is the primary. 401 inlines under the password, 429 locks the
+ * submit with a live countdown, connectivity failures take the retry panel.
  */
 export function LoginView() {
   const navigate = useNavigate()
-  const search = useSearch({ from: "/public/login" })
-  const { toast } = useToast()
+  const location = useLocation()
   const authStatus = useAuthStatus()
-  const { locked, remainingSeconds, lock } = useRateLimitLock()
+  const { locked, remainingSeconds, lock } = useRateLimitLock(LOGIN_LOCK_MS)
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
-  const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, string>>>({})
+  const [passwordError, setPasswordError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [unreachable, setUnreachable] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
-  const busy = submitting || locked
+  const redirectTarget =
+    sanitizeRedirectPath((location.search as { redirect?: unknown }).redirect) ?? "/sessions"
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault()
-    if (busy) return
+  if (authStatus.isLoading) return <AuthSplash title="Sign in" />
+  // Empty: no users yet → the bootstrap register surface owns first-run.
+  if (authStatus.status?.has_users === false) return <Navigate to="/register" />
+
+  const submit = async (): Promise<void> => {
+    if (submitting || locked) return
     setSubmitting(true)
-    setError(null)
+    setFieldErrors({})
+    setPasswordError(null)
+    setFormError(null)
+    setUnreachable(false)
     try {
       await login(username, password)
-      await navigate({ to: search.redirect ?? "/sessions" })
-    } catch (err) {
-      if (err instanceof ApiError) {
-        if (err.status === 401) {
-          setError(INVALID_CREDENTIALS)
-        } else if (err.status === 429) {
-          toast({ kind: "error", title: RATE_LIMITED_TITLE })
-          lock()
-        } else if (err.status === 0) {
-          setError(API_UNREACHABLE)
-        } else {
-          setError(err.message)
-        }
+      await navigate({ to: redirectTarget })
+    } catch (error) {
+      if (error instanceof ApiError) {
+        if (error.status === 401) setPasswordError(WRONG_CREDENTIALS)
+        else if (error.status === 429) lock()
+        else if (error.status === 0 || error.status >= 500) setUnreachable(true)
+        else if (error.status === 422 && error.fieldErrors !== undefined) {
+          const { _form, ...rest } = error.fieldErrors
+          setFieldErrors(rest)
+          if (_form !== undefined) setFormError(_form)
+        } else setFormError(error.message)
       } else {
-        setError(UNEXPECTED_RESPONSE)
+        setFormError(UNEXPECTED)
       }
     } finally {
       setSubmitting(false)
     }
   }
 
+  const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault()
+    void submit()
+  }
+
+  const disabled = submitting || locked
+
   return (
-    <main className="auth-page">
-      <div className="auth-card">
-        <h1 className="t-h3">Mirrorr</h1>
-        <form className="auth-form" onSubmit={handleSubmit} noValidate>
-          <Input
-            label="Username"
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-            autoComplete="username"
-            enterKeyHint="next"
-            required
-            disabled={submitting}
-          />
-          <Input
-            label="Password"
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete="current-password"
-            enterKeyHint="go"
-            required
-            disabled={submitting}
-          />
-          <Button
-            type="submit"
-            variant="primary"
-            className="auth-submit"
-            loading={submitting}
-            disabled={busy}
-          >
-            {locked ? `Sign in — retry in ${remainingSeconds}s` : "Sign in"}
-          </Button>
-        </form>
-        {error !== null ? (
-          <p className="auth-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-        {authStatus.status?.has_users === false ? (
-          <p className="auth-hint">
-            No accounts yet? <Link to={registerPath}>Create the first admin account</Link>
-          </p>
-        ) : null}
-      </div>
-    </main>
+    <AuthFrame
+      title="Sign in"
+      footnote={
+        <p className="t-body adm-muted adm-measure">
+          Sign in to reach your sessions, scheduled recordings and the plugin registry.
+        </p>
+      }
+    >
+      {locked ? (
+        <ErrorPanel title={RATE_LIMIT_TITLE} body={`Retry in ${remainingSeconds}s`} />
+      ) : unreachable ? (
+        <ErrorPanel
+          title={UNREACHABLE}
+          actions={
+            <Button variant="secondary" onClick={() => void submit()}>
+              Retry
+            </Button>
+          }
+        />
+      ) : formError !== null ? (
+        <ErrorPanel title={formError} />
+      ) : null}
+      <form className="auth-form" onSubmit={handleSubmit} noValidate>
+        <Input
+          label="Username"
+          value={username}
+          onChange={(event) => setUsername(event.target.value)}
+          error={fieldErrors.username}
+          autoComplete="username"
+          enterKeyHint="next"
+          required
+          disabled={disabled}
+        />
+        <Input
+          label="Password"
+          type="password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          error={passwordError ?? fieldErrors.password}
+          autoComplete="current-password"
+          enterKeyHint="go"
+          required
+          disabled={disabled}
+        />
+        <Button type="submit" variant="primary" className="auth-submit" loading={submitting} disabled={disabled}>
+          Sign in
+        </Button>
+      </form>
+    </AuthFrame>
   )
 }

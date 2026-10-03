@@ -1,4 +1,4 @@
-import { useId, useState } from "react"
+import { useId, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import { Button } from "./Button"
 import { Dialog } from "./Dialog"
@@ -7,7 +7,7 @@ import { Input } from "./Input"
 export type ConfirmTone = "default" | "destructive" | "block"
 
 export interface TypedConfirm {
-  /** Exact phrase the user must type (V11 revoke key, V7 delete, …). */
+  /** Exact phrase the user must type. */
   readonly phrase: string
   readonly instruction?: string
   readonly inputLabel?: string
@@ -23,19 +23,16 @@ export interface ConfirmDialogProps {
   readonly cancelLabel?: string
   readonly tone?: ConfirmTone
   readonly loading?: boolean
-  /** Adds the mono phrase-confirmation input; confirm stays at 40% opacity (§4). */
+  /** Adds the mono phrase-confirmation input; confirm stays disabled until it matches. */
   readonly typedConfirm?: TypedConfirm
 }
 
 /**
- * ConfirmDialog — §4 three shapes:
- * • standard (ghost Cancel + primary Confirm, secondary body copy)
- * • destructive (warning icon + title 14/500 `#FF6B77` + amber-tinted detail;
- *   rendered here as a tinted body via tone="destructive", danger button)
- * • block ("… still in use" + single Close → cancelLabel only, no confirm)
- * • typed-confirm: mono input must match `phrase` (leading/trailing space
- *   trimmed); Confirm is aria-disabled at 40% opacity until it matches.
- * Compact presentation is Dialog's sheet resolution (§6).
+ * ConfirmDialog — §6.4: as dialog plus the consequence stated verbatim. Focus
+ * starts on Cancel (safe default, §8.4). `destructive` uses the danger button
+ * and a warning-tinted body; `block` shows a single Close and no confirm;
+ * typedConfirm gates the confirm on an exact phrase. Confirm shows a spinner
+ * while busy and the dialog stays open with detail on error.
  */
 export function ConfirmDialog({
   open,
@@ -50,13 +47,12 @@ export function ConfirmDialog({
   typedConfirm,
 }: ConfirmDialogProps) {
   const phraseId = useId()
+  const cancelRef = useRef<HTMLButtonElement>(null)
   const [typedValue, setTypedValue] = useState("")
 
-  const phraseMatches =
-    typedConfirm === undefined || typedValue.trim() === typedConfirm.phrase
+  const phraseMatches = typedConfirm === undefined || typedValue.trim() === typedConfirm.phrase
   const canConfirm = phraseMatches && !loading
-  const typedMismatch =
-    typedConfirm !== undefined && typedValue.length > 0 && !phraseMatches
+  const typedMismatch = typedConfirm !== undefined && typedValue.length > 0 && !phraseMatches
 
   const close = () => {
     setTypedValue("")
@@ -65,17 +61,15 @@ export function ConfirmDialog({
 
   const footer = (
     <>
-      <Button variant="ghost" onClick={close}>
+      <Button ref={cancelRef} variant="ghost" onClick={close}>
         {tone === "block" ? confirmLabel : cancelLabel}
       </Button>
       {tone !== "block" ? (
         <Button
           variant={tone === "destructive" ? "danger" : "primary"}
           loading={loading}
-          aria-disabled={!canConfirm}
-          onClick={() => {
-            if (canConfirm) onConfirm()
-          }}
+          disabled={!canConfirm}
+          onClick={onConfirm}
         >
           {confirmLabel}
         </Button>
@@ -84,7 +78,7 @@ export function ConfirmDialog({
   )
 
   return (
-    <Dialog open={open} onClose={close} title={title} footer={footer}>
+    <Dialog open={open} onClose={close} title={title} footer={footer} initialFocusRef={cancelRef}>
       <div className={tone === "destructive" ? "confirm__body confirm__body--destructive" : "confirm__body"}>
         {body}
       </div>

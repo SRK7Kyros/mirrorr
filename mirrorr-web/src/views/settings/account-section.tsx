@@ -1,98 +1,41 @@
-import { useState, type FormEvent } from "react"
+import { useState } from "react"
+import { useNavigate } from "@tanstack/react-router"
+import { useQuery } from "@tanstack/react-query"
 import { Badge } from "@/components/ui/Badge"
 import { Button } from "@/components/ui/Button"
+import { ErrorPanel } from "@/components/ui/ErrorPanel"
 import { Input } from "@/components/ui/Input"
-import { Switch } from "@/components/ui/Switch"
+import { Skeleton } from "@/components/ui/Skeleton"
 import { useToast } from "@/components/ui/Toast"
-import { changePassword, type AuthState } from "@/lib/auth"
-import { ApiError } from "@/lib/api"
-import { useAuthState } from "@/hooks/use-auth-state"
+import { ApiError, apiFetch, refreshSession } from "@/lib/api"
+import { changePassword, currentAuth, forceLogout } from "@/lib/auth"
+import type { AuthResponse } from "@/lib/schemas"
+import { queryKeys, staleTimes } from "@/lib/query-keys"
+import { getErrorMessage } from "./settings-util"
+import "@/styles/views-admin.css"
+
+const PASSWORD_HELPER = "Changing your password signs you out everywhere."
+
+interface MeState {
+  readonly username: string
+  readonly displayName: string
+  readonly role: string
+}
 
 /**
- * V11 Account — user card (username 16/600 mono-inline, display name 14
- * secondary, role badge) + change-password form card (400 → inline on
- * old) + notification-prefs card (three 48px switch rows, localStorage).
- * Success → toast "Password changed — sign in again"; `changePassword`
- * already forces the logout flow to /login (server revokes every token).
+ * §5.11 Settings — Account. Reads `GET /auth/me`, primary action is the
+ * change-password form (`POST /auth/change-password`, which invalidates every
+ * access token → force re-login).
  */
-
-const API_UNREACHABLE = "API unreachable"
-const UNEXPECTED_RESPONSE = "Unexpected server response"
-const PASSWORDS_MISMATCH = "Passwords do not match"
-const CHANGE_SUCCESS = "Password changed — sign in again"
-const MIN_PASSWORD_LENGTH = 8
-const MIN_PASSWORD_MESSAGE = "Must be at least 8 characters"
-
-/** Spec/payload leave the storage keys open — first consumer, defaults on. */
-const PREF_KEYS = {
-  crashes: "mirrorr.pref.toast.crashes",
-  completions: "mirrorr.pref.toast.completions",
-  recordings: "mirrorr.pref.toast.recordings",
-} as const
-
-function readPref(key: string): boolean {
-  try {
-    return window.localStorage.getItem(key) !== "false"
-  } catch {
-    return true
-  }
-}
-
-function writePref(key: string, value: boolean): void {
-  try {
-    window.localStorage.setItem(key, String(value))
-  } catch {
-    // Private-mode storage failure — the toggle state still holds for this session.
-  }
-}
-
-interface PrefRowProps {
-  readonly label: string
-  readonly storageKey: string
-}
-
-function PrefRow({ label, storageKey }: PrefRowProps) {
-  const [checked, setChecked] = useState(() => readPref(storageKey))
-  return (
-    <div className="settings-pref-row">
-      <span className="t-body-strong">{label}</span>
-      <Switch
-        label={label}
-        checked={checked}
-        onChange={(next) => {
-          setChecked(next)
-          writePref(storageKey, next)
-        }}
-      />
-    </div>
-  )
-}
-
-function IdentityCard({ auth }: { readonly auth: AuthState["auth"] }) {
-  if (auth?.user) {
-    const { username, display_name: displayName, role } = auth.user
-    return (
-      <section className="card">
-        <p className="card__title t-mono-inline">{username}</p>
-        <p className="view-subtitle">{displayName}</p>
-        <p>
-          <Badge variant={role === "admin" ? "role-admin" : "role-user"}>{role}</Badge>
-        </p>
-      </section>
-    )
-  }
-  // API-client principal: no password/prefs — banner already lives in AppShell.
-  return (
-    <section className="card">
-      <p className="card__title t-mono-inline">{auth?.client?.name ?? "—"}</p>
-      <p className="t-meta">API client</p>
-    </section>
-  )
-}
-
 export function AccountSection() {
-  const { auth } = useAuthState()
-  const { toast } = useToast()
+  const navigate = useNavigate()
+  const toast = useToast()
+  const meQuery = useQuery({
+    queryKey: queryKeys.authMe,
+    queryFn: () => apiFetch<AuthResponse>("/auth/me"),
+    staleTime: staleTimes.authMe,
+  })
+
   const [oldPassword, setOldPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -100,109 +43,124 @@ export function AccountSection() {
   const [formError, setFormError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  const isUser = auth?.user != null
+  const sessionUser = currentAuth()?.user ?? null
+  const me: MeState = {
+    username: meQuery.data?.user?.username ?? sessionUser?.username ?? "—",
+    displayName: meQuery.data?.user?.display_name ?? sessionUser?.display_name ?? "—",
+    role: meQuery.data?.user?.role ?? sessionUser?.role ?? "user",
+  }
 
-  async function handleSubmit(event: FormEvent): Promise<void> {
-    event.preventDefault()
+  const mismatch = confirmPassword !== "" && confirmPassword !== newPassword
+  const canSubmit = oldPassword !== "" && newPassword !== "" && confirmPassword !== "" && !mismatch
+
+  const submit = async (): Promise<void> => {
+    if (!canSubmit || submitting) return
+    setSubmitting(true)
     setFieldErrors({})
     setFormError(null)
-    if (newPassword !== confirmPassword) {
-      setFieldErrors({ confirm_password: PASSWORDS_MISMATCH })
-      return
-    }
-    if (newPassword.length < MIN_PASSWORD_LENGTH) {
-      setFieldErrors({ new_password: MIN_PASSWORD_MESSAGE })
-      return
-    }
-    setSubmitting(true)
     try {
       await changePassword(oldPassword, newPassword)
-      // changePassword force-logged-out already (navigated to /login);
-      // the root-mounted ToastProvider outlives the view, so this lands there.
-      toast({ kind: "success", title: CHANGE_SUCCESS })
+      toast.toast({ kind: "success", title: "Password changed — please sign in again" })
+      await navigate({ to: "/login" })
     } catch (error) {
       if (error instanceof ApiError) {
-        if (error.status === 422 && error.fieldErrors) {
+        if (error.status === 422 && error.fieldErrors !== undefined) {
           const { _form, ...rest } = error.fieldErrors
           setFieldErrors(rest)
           if (_form !== undefined) setFormError(_form)
-        } else if (error.status === 400 && !error.fieldErrors) {
-          // Spec V11: 400 (bad current password) → inline on old.
-          setFieldErrors({ old_password: error.message })
-        } else if (error.status === 0) {
-          setFormError(API_UNREACHABLE)
-        } else {
-          setFormError(error.message)
-        }
+        } else if (error.status === 400) {
+          setFieldErrors((current) => ({ ...current, old_password: error.message }))
+        } else setFormError(getErrorMessage(error, "Could not change the password"))
       } else {
-        setFormError(UNEXPECTED_RESPONSE)
+        setFormError(getErrorMessage(error, "Could not change the password"))
       }
     } finally {
       setSubmitting(false)
     }
   }
 
+  if (meQuery.isLoading) {
+    return (
+      <div className="settings-panel panel opaque" aria-busy="true" aria-label="Loading account">
+        <Skeleton geometry="row" />
+        <Skeleton geometry="row" />
+        <Skeleton geometry="row" />
+      </div>
+    )
+  }
+
   return (
-    <div className="card-stack">
-      <IdentityCard auth={auth} />
-      {isUser ? (
-        <section className="card">
-          <form className="stack" onSubmit={handleSubmit} noValidate>
-            <Input
-              label="Current password"
-              type="password"
-              autoComplete="current-password"
-              enterKeyHint="next"
-              value={oldPassword}
-              onChange={(event) => setOldPassword(event.target.value)}
-              error={fieldErrors.old_password}
-              required
-              disabled={submitting}
-            />
-            <Input
-              label="New password"
-              type="password"
-              autoComplete="new-password"
-              enterKeyHint="next"
-              value={newPassword}
-              onChange={(event) => setNewPassword(event.target.value)}
-              error={fieldErrors.new_password}
-              helper="At least 8 characters"
-              required
-              disabled={submitting}
-            />
-            <Input
-              label="Confirm new password"
-              type="password"
-              autoComplete="new-password"
-              enterKeyHint="done"
-              value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              error={fieldErrors.confirm_password}
-              required
-              disabled={submitting}
-            />
-            {formError !== null ? (
-              <p className="field__helper field__helper--error" role="alert">
-                {formError}
-              </p>
-            ) : null}
-            <div>
-              <Button type="submit" variant="primary" loading={submitting}>
-                Change password
-              </Button>
-            </div>
-          </form>
-        </section>
-      ) : null}
-      {isUser ? (
-        <section className="card">
-          <p className="card__legend">Notification toasts</p>
-          <PrefRow label="Toasts for crashes" storageKey={PREF_KEYS.crashes} />
-          <PrefRow label="Toasts for completions" storageKey={PREF_KEYS.completions} />
-          <PrefRow label="Toasts for recordings saved" storageKey={PREF_KEYS.recordings} />
-        </section>
-      ) : null}
+    <div className="settings-panel panel opaque">
+      <div className="adm-panel__head">
+        <div className="adm-stack">
+          <h2 className="t-h3">Account</h2>
+          <p className="t-body adm-muted adm-measure">{me.displayName}</p>
+        </div>
+        <Badge variant={me.role === "admin" ? "role-admin" : "role-user"}>{me.role}</Badge>
+      </div>
+      <dl className="adm-row">
+        <dt className="t-label-caps adm-muted">Username</dt>
+        <dd className="t-mono">{me.username}</dd>
+      </dl>
+      <hr className="adm-divide" />
+      <form
+        className="auth-form"
+        onSubmit={(event) => {
+          event.preventDefault()
+          void submit()
+        }}
+        noValidate
+      >
+        <h3 className="t-h3">Change password</h3>
+        {formError !== null ? <ErrorPanel title={formError} /> : null}
+        <Input
+          label="Current password"
+          type="password"
+          autoComplete="current-password"
+          value={oldPassword}
+          onChange={(event) => setOldPassword(event.target.value)}
+          error={fieldErrors.old_password}
+          disabled={submitting}
+          required
+        />
+        <Input
+          label="New password"
+          type="password"
+          autoComplete="new-password"
+          value={newPassword}
+          onChange={(event) => setNewPassword(event.target.value)}
+          error={fieldErrors.new_password}
+          helper={PASSWORD_HELPER}
+          disabled={submitting}
+          required
+        />
+        <Input
+          label="Confirm new password"
+          type="password"
+          autoComplete="new-password"
+          value={confirmPassword}
+          onChange={(event) => setConfirmPassword(event.target.value)}
+          error={mismatch ? "Passwords do not match" : fieldErrors.confirm_password}
+          disabled={submitting}
+          required
+        />
+        <Button type="submit" variant="primary" loading={submitting} disabled={!canSubmit || submitting}>
+          Change password
+        </Button>
+      </form>
+      <hr className="adm-divide" />
+      <div className="adm-row">
+        <Button
+          variant="secondary"
+          onClick={() => {
+            void refreshSession()
+            forceLogout()
+            void navigate({ to: "/login" })
+          }}
+        >
+          Sign out
+        </Button>
+      </div>
     </div>
   )
 }

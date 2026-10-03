@@ -1,51 +1,96 @@
-import { useEffect, useState } from "react"
 import type { ReactNode } from "react"
-import { subscribeRemuxProgress, type RemuxProgress } from "@/lib/event-table"
+import { StatusChip } from "@/components/ui/StatusChip"
 import type { Session } from "@/lib/schemas"
-import { formatDateTime, formatDuration, formatRelativeTime } from "@/lib/time"
-import { getStatusDescriptor } from "@/lib/status-map"
+import { formatDateTime } from "@/lib/time"
+import { resolveEntityName } from "@/lib/query-keys"
 import {
   CopyButton,
   JsonWell,
   RecordingCell,
   RouteLink,
   statusChipProps,
+  sessionTitle,
 } from "@/views/shared/parts"
-import { StatusChip } from "@/components/ui/StatusChip"
+import { formatDuration } from "@/lib/time"
+import { useLiveDurationSeconds, type NameMaps } from "@/views/shared/hooks"
 
-export function PanelCard({ title, children }: { title: string; children: ReactNode }) {
+/** Opaque reading panel (spec §2: detail panes are never acrylic). */
+export function PanelCard({
+  title,
+  count,
+  actions,
+  children,
+}: {
+  title: string
+  count?: string
+  actions?: ReactNode
+  children: ReactNode
+}) {
   return (
-    <section className="card card-stack">
-      <h2 className="card__title">{title}</h2>
-      {children}
+    <section className="opaque panel ve-panel">
+      <header className="ve-panel__head">
+        <h2 className="ve-panel__title">{title}</h2>
+        <span className="ve-inline">
+          {count !== undefined ? <span className="ve-panel__count">{count}</span> : null}
+          {actions}
+        </span>
+      </header>
+      <div className="ve-panel__body">{children}</div>
     </section>
   )
 }
 
-/** Live URLs panel — labeled rows (M3U8/HTML/Outplayer) + copy + external open. */
-export function LiveUrlsPanel({ session }: { session: Session }) {
+/** Live duration readout (1s tick while the session runs). */
+export function LiveDuration({
+  startedAt,
+  endedAt,
+}: {
+  readonly startedAt: string | null | undefined
+  readonly endedAt: string | null | undefined
+}) {
+  const seconds = useLiveDurationSeconds(startedAt, endedAt)
+  return (
+    <span className="t-mono num" aria-label="Duration">
+      {seconds === null ? "—" : formatDuration(seconds)}
+    </span>
+  )
+}
+
+/**
+ * §5.4(4) — live sources. `session_urls: []` is a first-class state (the
+ * operator has not set `web_url`): explain it and disable the player
+ * affordances rather than hang a spinner.
+ */
+export function LiveUrlsPanel({ session }: { readonly session: Session }) {
   const urls = session.session_urls ?? []
+
   if (urls.length === 0) {
     return (
-      <PanelCard title="Live URLs">
-        <p className="t-body view-subtitle">
-          Live URLs unavailable — the operator must set `web_url` on the server
+      <PanelCard title="Live sources">
+        <p className="ve-note">
+          Live URLs not configured (operator must set <code className="t-mono-inline">web_url</code>).
         </p>
+        <div className="ve-inline">
+          <a className="btn btn--secondary" aria-disabled="true" tabIndex={-1} href="#live-sources">
+            <span className="btn__label">Player unavailable</span>
+          </a>
+        </div>
       </PanelCard>
     )
   }
+
   return (
-    <PanelCard title="Live URLs">
+    <PanelCard title="Live sources" count={`${urls.length}`}>
       {urls.map((entry, index) => {
         const label = entry.label ?? entry.name ?? entry.type ?? `Link ${index + 1}`
         const url = entry.url ?? entry.href ?? ""
         return (
-          <div key={`${label}-${index}`} className="url-row">
-            <span className="url-row__label">{label}</span>
-            <span className="url-row__value t-mono wrap-anywhere">{url}</span>
+          <div key={`${label}-${index}`} className="ve-url">
+            <span className="ve-url__label">{label}</span>
+            <span className="ve-url__value">{url}</span>
             <CopyButton text={url} label={`Copy ${label} URL`} />
-            <a className="btn btn--ghost" href={url} target="_blank" rel="noreferrer">
-              Open in new tab
+            <a className="btn btn--secondary" href={url} target="_blank" rel="noreferrer">
+              <span className="btn__label">Open</span>
             </a>
           </div>
         )
@@ -60,164 +105,118 @@ interface AttemptRow {
   readonly started: string | null
   readonly ended: string | null
   readonly exitCode: unknown
-  readonly error: string | null
+  readonly reason: string | null
 }
 
 function toAttemptRow(raw: Record<string, unknown>, index: number): AttemptRow {
-  const started = typeof raw.started_at === "string" ? raw.started_at : null
-  const ended = typeof raw.ended_at === "string" ? raw.ended_at : null
-  const exit = raw.exit_code
-  const errorRaw = raw.error ?? raw.reason ?? raw.detail
+  const reasonRaw = raw.error ?? raw.reason ?? raw.detail
   return {
     index: typeof raw.index === "number" ? raw.index : index,
     status: typeof raw.status === "string" ? raw.status : "unknown",
-    started,
-    ended,
-    exitCode: exit,
-    error: typeof errorRaw === "string" ? errorRaw : null,
+    started: typeof raw.started_at === "string" ? raw.started_at : null,
+    ended: typeof raw.ended_at === "string" ? raw.ended_at : null,
+    exitCode: raw.exit_code,
+    reason: typeof reasonRaw === "string" ? reasonRaw : null,
   }
 }
 
-/** Attempts timeline (36px rows) + "retry N" header counter. */
-export function AttemptsPanel({ session }: { session: Session }) {
-  const attempts = (session.attempts ?? []).map((raw, index) => toAttemptRow(raw, index))
+/** §5.4(3) — attempts timeline (own scroll, newest first). */
+export function AttemptsPanel({ session }: { readonly session: Session }) {
+  const attempts = (session.attempts ?? [])
+    .map((raw, index) => toAttemptRow(raw, index))
+    .sort((a, b) => b.index - a.index)
   const retries = session.retry_attempts ?? Math.max(0, attempts.length - 1)
+  const spawning =
+    attempts.length === 0 &&
+    (session.status === "active" || session.status === "recording" || session.status === "terminating")
+
   return (
-    <PanelCard title={`Attempts — retry ${retries}`}>
+    <PanelCard title="Attempts" count={`retry ${retries}`}>
       {attempts.length === 0 ? (
-        <p className="t-body view-subtitle">No attempts recorded</p>
+        <p className="ve-note">
+          {spawning
+            ? "Waiting for the supervisor — attempt 1 not started yet."
+            : "No attempts recorded."}
+        </p>
       ) : (
-        attempts.map((attempt) => {
-          const chip = statusChipProps(attempt.status)
-          const descriptor = getStatusDescriptor(attempt.status)
-          return (
-            <div key={attempt.index} className="timeline-row">
-              <span className="t-mono-inline">{`#${attempt.index}`}</span>
-              <StatusChip status={chip.status} title={chip.title} compact />
-              <span className="t-meta">
-                {attempt.started == null ? "—" : formatDateTime(attempt.started)}
-                {" → "}
-                {attempt.ended == null ? "…" : formatDateTime(attempt.ended)}
-              </span>
-              {attempt.exitCode === undefined || attempt.exitCode === null ? null : (
-                <span className="t-mono-inline">{`exit ${String(attempt.exitCode)}`}</span>
-              )}
-              {descriptor.icon !== undefined ? null : null}
-              {attempt.error === null ? null : (
-                <span className="timeline-row__error">{attempt.error}</span>
-              )}
-            </div>
-          )
-        })
+        <div className="ve-attempts">
+          {attempts.map((attempt) => {
+            const chip = statusChipProps(attempt.status)
+            return (
+              <div key={attempt.index} className="ve-attempt">
+                <span className="ve-attempt__id">{`#${attempt.index}`}</span>
+                <StatusChip status={chip.status} title={chip.title} compact />
+                <span className="ve-attempt__times">
+                  {attempt.started == null ? "—" : formatDateTime(attempt.started)}
+                  {" → "}
+                  {attempt.ended == null ? "…" : formatDateTime(attempt.ended)}
+                  {attempt.exitCode === undefined || attempt.exitCode === null
+                    ? ""
+                    : ` · exit ${String(attempt.exitCode)}`}
+                </span>
+                <span className="ve-attempt__reason">{attempt.reason ?? ""}</span>
+              </div>
+            )
+          })}
+        </div>
       )}
     </PanelCard>
   )
 }
 
-/** Config card — read-only JSON wells for resolver + retry config. */
-export function ConfigPanel({ session }: { session: Session }) {
+/** §5.4(5) — config snapshot (engine, resolver, resolver/retry config). */
+export function ConfigPanel({ session, names }: { readonly session: Session; readonly names: NameMaps }) {
   return (
-    <PanelCard title="Config">
+    <PanelCard title="Config snapshot">
+      <dl className="ve-kv">
+        <dt className="ve-kv__label">Engine</dt>
+        <dd className="ve-kv__value">
+          {resolveEntityName(session.engine_name, names.engines, session.engine_id)}
+        </dd>
+        <dt className="ve-kv__label">Resolver</dt>
+        <dd className="ve-kv__value">
+          {resolveEntityName(session.resolver_name, names.resolvers, session.resolver_id)}
+        </dd>
+        <dt className="ve-kv__label">Retry mode</dt>
+        <dd className="ve-kv__value t-mono num">{session.retry_mode ?? "—"}</dd>
+      </dl>
       <JsonWell label="Resolver config" value={session.resolver_config ?? {}} />
-      <JsonWell
-        label="Retry"
-        value={{
-          mode: session.retry_mode ?? null,
-          params: session.retry_config ?? {},
-        }}
-      />
+      <JsonWell label="Retry config" value={session.retry_config ?? {}} />
     </PanelCard>
   )
 }
 
-/** Recording flag card (aside). */
-export function RecordingPanel({
-  session,
-  canRecord,
-  children,
-}: {
-  session: Session
-  canRecord: boolean
-  children?: ReactNode
-}) {
+/** Timeline / recording aside (started, ended, recording flag). */
+export function TimelinePanel({ session, canRecord }: { readonly session: Session; readonly canRecord: boolean }) {
   return (
-    <PanelCard title="Recording">
-      <RecordingCell recording={session.recording} canRecord={canRecord} />
-      {children}
+    <PanelCard title="Timeline">
+      <dl className="ve-kv">
+        <dt className="ve-kv__label">Started</dt>
+        <dd className="ve-kv__value">
+          {session.started_at == null || session.started_at === "" ? "—" : formatDateTime(session.started_at)}
+        </dd>
+        <dt className="ve-kv__label">Ended</dt>
+        <dd className="ve-kv__value">
+          {session.ended_at == null || session.ended_at === "" ? "—" : formatDateTime(session.ended_at)}
+        </dd>
+        <dt className="ve-kv__label">Recording</dt>
+        <dd className="ve-kv__value">
+          <RecordingCell recording={session.recording} canRecord={canRecord} />
+        </dd>
+      </dl>
     </PanelCard>
   )
 }
 
-const REMUX_STALE_MS = 10_000
-
-/**
- * Remux progress card — visible only while `status === "remuxing"`. Progress
- * frames arrive via subscribeRemuxProgress (NOT cached); 10s without a frame
- * → indeterminate 30% shuttle.
- */
-export function RemuxPanel({ session }: { session: Session }) {
-  const [progress, setProgress] = useState<RemuxProgress | null>(null)
-  const [stale, setStale] = useState(false)
-  const remuxing = session.status === "remuxing"
-
-  useEffect(() => {
-    if (!remuxing) return
-    setProgress(null)
-    setStale(false)
-    const unsubscribe = subscribeRemuxProgress(session.id, (next) => {
-      setProgress(next)
-      setStale(false)
-    })
-    const timer = setTimeout(() => setStale(true), REMUX_STALE_MS)
-    return () => {
-      unsubscribe()
-      clearTimeout(timer)
-    }
-  }, [remuxing, session.id])
-
-  useEffect(() => {
-    if (!remuxing || progress === null) return
-    setStale(false)
-    const timer = setTimeout(() => setStale(true), REMUX_STALE_MS)
-    return () => clearTimeout(timer)
-  }, [progress, remuxing])
-
-  if (!remuxing) return null
-
-  const percent = progress?.percent ?? 0
-  const indeterminate = stale || progress === null
-  const scale = indeterminate ? 0.3 : Math.max(0, Math.min(100, percent)) / 100
-
-  return (
-    <PanelCard title="Remux progress">
-      <div className={indeterminate ? "remux remux--indeterminate" : "remux"}>
-        <span className="remux__percent num">{indeterminate ? "—" : `${percent.toFixed(0)}%`}</span>
-        <div className="remux__track">
-          <div
-            className="remux__fill"
-            style={indeterminate ? undefined : { transform: `scaleX(${scale})`, width: "100%" }}
-          />
-        </div>
-        <span className="t-meta num">
-          {progress?.eta_seconds != null ? `eta ${formatDuration(Math.round(progress.eta_seconds))}` : ""}
-          {progress?.speed != null ? ` · ${progress.speed.toFixed(1)}x` : ""}
-        </span>
-      </div>
-    </PanelCard>
-  )
-}
-
-/** Mini status line used by V6 linked-session card. */
-export function SessionStatusLine({ session }: { session: Session }) {
+/** Mini status line used by the autorun detail's linked-session panel. */
+export function SessionStatusLine({ session }: { readonly session: Session }) {
   const chip = statusChipProps(session.status)
   return (
-    <span className="cluster">
+    <span className="ve-inline">
       <StatusChip status={chip.status} title={chip.title} compact />
       <span className="t-mono-inline">{`#${session.id}`}</span>
-      <span className="t-meta">
-        {session.started_at == null ? "—" : formatRelativeTime(session.started_at)}
-      </span>
-      <RouteLink to="/sessions/$sessionId" params={{ sessionId: String(session.id) }} className="t-body">
+      <span className="ve-note ellipsis">{sessionTitle(session)}</span>
+      <RouteLink to="/sessions/$sessionId" params={{ sessionId: String(session.id) }}>
         Open session
       </RouteLink>
     </span>

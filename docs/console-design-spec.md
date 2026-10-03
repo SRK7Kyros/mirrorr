@@ -694,7 +694,7 @@ coarse pointers. `#141414` carries all words; hue never carries meaning alone.
 | empty state | opaque panel, `label-caps` eyebrow (max 1 per view), 16px body ≤25 words, primary + ≤1 secondary CTA, optional 40px stroke icon | CTA hover per button rows | CTA active per button rows | CTA focus per button rows | — | — | — | this IS the empty form: composed per §5 copy, never lorem |
 | error panel | opaque panel, `danger-deep` 3px left bar + icon + `#141414` copy (18.42:1) + Retry secondary + "Details" disclosure (mono block, opaque) | Retry hover | Retry active | `--focus-ring` | — | Retry spinner | — | — |
 | skeleton | opaque blocks (`secondary`@8–14% wash, radius 4), shaped like the final layout; no shimmer, no spinner-by-default | — | — | — | — | this IS the loading form | — | — |
-| nav item (rail/spine/tabs) | 44px target; active = `primary` 2px left bar (rail) / bottom bar (tabs) + `weight-ui` label; inactive label `#141414`@80% (4.36:1 worst-case acrylic — decorative-dim, see 8.2 row 12) | label → full `#141414` (5.19:1) | `scale(0.96)` (`micro`) | `--focus-ring` | hidden for non-admin items (users/clients), not disabled | — | — | — |
+| nav item (rail/spine/tabs) | 44px target; active = `primary` 2px left bar (rail) / bottom bar (tabs) + `weight-ui` label; inactive label `#141414`@90% (4.59:1 worst-case acrylic — AA at 16px, see 8.2 row 12) | label → full `#141414` (5.19:1) | `scale(0.96)` (`micro`) | `--focus-ring` | hidden for non-admin items (users/clients), not disabled | — | — | — |
 | tab | `label-caps` on opaque chrome strip; active tab = `surface` plate (radius 4 top) with `#141414` label; inactive label `surface`@70% on `secondary` (≥7:1) | label → 100% | indicator slides (`ui`) | `--focus-ring`, Arrow keys move (roving) | — | tab panel skeletons | panel error state | panel empty state |
 
 Notes: (a) status words, error copy and body copy are always `#141414` on light
@@ -772,7 +772,7 @@ are computed from the exact hex/alpha values in §1 (sRGB relative luminance,
 | 9 | `#FFFFFF` copy | `--scrim-55` over white media | 4.06:1 | large text only — fails 4.5 for normal; use 65 |
 | 10 | `#FFFFFF` copy | `--scrim-65` over white media | 5.74:1 | normal text over media — passes 4.5 |
 | 11 | `#FFFFFF` copy | `--scrim-75` over white media | 8.19:1 | dense text over media — passes 4.5 |
-| 12 | `#141414`@80% nav inactive label | worst-case acrylic 0.55 | 4.36:1 | 16px, hover lifts to 100% (5.19:1) — inactive labels are ≥14px and hover-recoverable; enabled nav labels use 100% where the rail is narrow. Verdict: enabled items at 5.19:1 pass; dim state is decorative-redundant (active bar + full label on the current route) |
+| 12 | `#141414`@90% nav inactive label | worst-case acrylic 0.55 | 4.59:1 | 16px. Raised from 80% to 90% in this revision: 1.4.3 covers every persistent navigation label and 80% computed 3.99:1 — a real AA miss, not a decorative carve-out. Hover lifts to 100% (5.19:1) and the active route carries the primary bar. |
 | 13 | `#05A257` success-deep indicator | `#FFFFFF` | 3.33:1 | non-text shapes — passes 3.0 |
 | 14 | `#C9722F` warning-deep indicator | `#FFFFFF` | 3.54:1 | non-text — passes 3.0 |
 | 15 | `#EA2143` danger indicator | `#FFFFFF` | 4.38:1 | non-text — passes 3.0 |

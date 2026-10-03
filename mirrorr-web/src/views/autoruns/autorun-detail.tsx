@@ -7,17 +7,14 @@ import { ErrorPanel } from "@/components/ui/ErrorPanel"
 import { OverflowMenu } from "@/components/ui/OverflowMenu"
 import { SkeletonList } from "@/components/ui/Skeleton"
 import { StatusChip } from "@/components/ui/StatusChip"
+import { ApiError } from "@/lib/api"
 import { queryKeys, resolveEntityName, staleTimes } from "@/lib/query-keys"
 import type { Autorun, Session } from "@/lib/schemas"
 import { COUNTDOWN_TICK_MS, formatCountdown, formatDateTime } from "@/lib/time"
-import { fetchAutorun } from "@/views/shared/api"
+import { fetchAutorun, fetchSessionPage } from "@/views/shared/api"
+import { useEntityList, useNameMaps, useNowTick } from "@/views/shared/hooks"
 import {
-  useEntityList,
-  useNameMaps,
-  useNowTick,
-} from "@/views/shared/hooks"
-import { fetchSessionPage } from "@/views/shared/api"
-import {
+  EngineResolverPair,
   JsonWell,
   RecordingCell,
   SaveAsProfileDialog,
@@ -25,12 +22,19 @@ import {
   useLooseNavigate,
   useQueryRemoved,
 } from "@/views/shared/parts"
-import { SessionStatusLine } from "@/views/sessions/session-detail-panels"
+import { SessionStatusLine, PanelCard } from "@/views/sessions/session-detail-panels"
 import { AutorunWizardDialog } from "./autorun-wizard-dialog"
 import { useAutorunCommands } from "./autorun-shared"
 import { isLive, isSpent } from "./filter-grammar"
+import "@/styles/views-entities.css"
 
-/** V6 — Autorun detail (`/autoruns/$autorunId`). */
+/**
+ * §5.6 — Scheduled recording detail. Identity · schedule window + countdown ·
+ * config snapshot · linked run · retirement note. "Run now" is client-composed
+ * (`POST /sessions/` with this autorun's captured config) — there is no server
+ * run endpoint. Config edits are locked while the run is live (no server lock
+ * exists; the client owns this protection).
+ */
 export function AutorunDetail() {
   const params = useParams({ strict: false }) as { autorunId?: string }
   const autorunId = params.autorunId ?? ""
@@ -50,7 +54,7 @@ export function AutorunDetail() {
     void navigate({ to: "/autoruns" })
   })
 
-  // No backlink endpoint — linked session discovery scans cached pages (contract).
+  // No session→autorun backlink endpoint — discover the spawned run from pages.
   const sessions = useEntityList<Session>({
     queryKey: queryKeys.sessions({ linked: autorunId }),
     fetchPage: (cursor) => fetchSessionPage(cursor),
@@ -70,22 +74,36 @@ export function AutorunDetail() {
 
   if (query.isLoading) {
     return (
-      <div className="view">
-        <SkeletonList rows={5} />
+      <div className="ve">
+        <SkeletonList rows={3} />
+        <SkeletonList rows={4} />
       </div>
     )
   }
 
   if (query.isError || autorun === undefined) {
+    const status = query.error instanceof ApiError ? query.error.status : 0
+    const forbidden = status === 403
     return (
-      <div className="view">
+      <div className="ve">
         <ErrorPanel
-          title="Autorun not found"
-          body={query.error instanceof Error ? query.error.message : "The autorun is gone or never existed."}
+          title={forbidden ? "Not your scheduled recording" : "Could not load scheduled recording"}
+          body={
+            forbidden
+              ? "It belongs to another user."
+              : query.error instanceof Error
+                ? query.error.message
+                : "Unexpected server response."
+          }
           actions={
-            <Button variant="ghost" onClick={() => void navigate({ to: "/autoruns" })}>
-              Back to autoruns
-            </Button>
+            <>
+              <Button variant="secondary" onClick={() => void query.refetch()}>
+                Retry
+              </Button>
+              <Button variant="ghost" onClick={() => void navigate({ to: "/autoruns" })}>
+                Back to scheduled recordings
+              </Button>
+            </>
           }
         />
       </div>
@@ -100,102 +118,89 @@ export function AutorunDetail() {
 
   const menuItems = [
     { id: "edit", label: "Edit", onSelect: () => setWizardOpen(true) },
-    { id: "run", label: "Run now", onSelect: () => void commands.runNow(autorun) },
-    ...(spent ? [{ id: "save", label: "Save as profile", onSelect: () => setSaveOpen(true) }] : []),
     { id: "export", label: "Export", onSelect: () => void commands.exportOne(autorun) },
+    ...(spent ? [{ id: "save", label: "Save as profile", onSelect: () => setSaveOpen(true) }] : []),
     { id: "delete", label: "Delete", destructive: true, onSelect: () => setDeleteOpen(true) },
   ]
 
   return (
-    <div className="view">
-      <header className="detail-header">
-        <StatusChip status={chip.status} title={spent ? "spent" : chip.title} />
-        <h1 className="card__title">{autorun.user_friendly_name}</h1>
+    <div className="ve">
+      <header className="ve-detail-head">
+        <StatusChip status={chip.status} title={spent ? "Spent" : chip.title} />
+        <h1 className="ve-detail-head__title">{autorun.user_friendly_name}</h1>
         <span className="t-mono-inline">{autorun.snake_case_name}</span>
-        <span className="detail-duration num">
-          {spent ? "spent" : formatCountdown(autorun.start_time, now)}
-        </span>
-        <div className="detail-header__actions">
-          <Button variant="ghost" className="row-primary-action" onClick={() => setWizardOpen(true)}>
+        <span className="t-mono num">{spent ? "retired" : formatCountdown(autorun.start_time, now)}</span>
+        <div className="ve-detail-head__actions">
+          <Button variant="primary" onClick={() => void commands.runNow(autorun)}>
+            Run now
+          </Button>
+          <Button variant="secondary" onClick={() => setWizardOpen(true)}>
             Edit
           </Button>
-          <OverflowMenu items={menuItems} triggerLabel="Autorun actions" />
+          <OverflowMenu items={menuItems} triggerLabel="Scheduled recording actions" />
           <Button variant="ghost" onClick={() => void navigate({ to: "/autoruns" })}>
             Back
           </Button>
         </div>
       </header>
 
-      <div className="detail-grid">
-        <div className="detail-grid__main card-stack">
-          <section className="card card-stack">
-            <h2 className="card__title">Schedule</h2>
-            <dl className="kv">
-              <dt className="kv__label">Start</dt>
-              <dd className="kv__value t-mono">{formatDateTime(autorun.start_time)}</dd>
-              <dt className="kv__label">End</dt>
-              <dd className="kv__value t-mono">{formatDateTime(autorun.end_time)}</dd>
-              <dt className="kv__label">Next run</dt>
-              <dd className="kv__value t-mono">
-                {autorun.next_run_at == null ? "—" : formatDateTime(autorun.next_run_at)}
-              </dd>
-              <dt className="kv__label">Last run</dt>
-              <dd className="kv__value t-mono">
-                {autorun.last_run_at == null ? "—" : formatDateTime(autorun.last_run_at)}
-              </dd>
-            </dl>
-          </section>
+      {live ? (
+        <p className="ve-hint">
+          Its run is live — config changes affect a future run, not the current one. Moving the end
+          time earlier may stop the running recording.
+        </p>
+      ) : null}
 
-          <section className="card card-stack">
-            <h2 className="card__title">Linked live session</h2>
+      <div className="ve-detail-grid">
+        <div className="ve-stack">
+          <PanelCard title="Schedule">
+            <dl className="ve-kv">
+              <dt className="ve-kv__label">Start</dt>
+              <dd className="ve-kv__value">{formatDateTime(autorun.start_time)}</dd>
+              <dt className="ve-kv__label">End</dt>
+              <dd className="ve-kv__value">{formatDateTime(autorun.end_time)}</dd>
+              <dt className="ve-kv__label">Countdown</dt>
+              <dd className="ve-kv__value">{spent ? "retired" : formatCountdown(autorun.start_time, now)}</dd>
+            </dl>
+            <p className="ve-note">Times are stored as UTC — shown here in your local timezone.</p>
+          </PanelCard>
+
+          <PanelCard title="Config snapshot">
+            <EngineResolverPair engineName={engineName} resolverName={resolverName} />
+            <JsonWell label="Resolver config" value={autorun.resolver_config ?? {}} />
+            <JsonWell
+              label="Retry"
+              value={{ mode: autorun.retry_mode ?? null, params: autorun.retry_config ?? {} }}
+            />
+          </PanelCard>
+
+          <PanelCard title="Linked run">
             {linked === null ? (
-              <p className="t-body view-subtitle">No live session yet</p>
+              <p className="ve-note">
+                {spent ? "No run recorded." : "No run yet — it fires once at its start time."}
+              </p>
             ) : (
               <SessionStatusLine session={linked} />
             )}
-          </section>
+          </PanelCard>
 
-          <section className="card card-stack">
-            <h2 className="card__title">Config</h2>
-            <span className="engine-pair__strong">
-              {engineName}
-              {" → "}
-              {resolverName}
-            </span>
-            <details>
-              <summary className="schema-group__toggle">Resolver config</summary>
-              <JsonWell value={autorun.resolver_config ?? {}} />
-            </details>
-            <details>
-              <summary className="schema-group__toggle">Retry config</summary>
-              <JsonWell
-                value={{
-                  mode: autorun.retry_mode ?? null,
-                  params: autorun.retry_config ?? {},
-                }}
-              />
-            </details>
-          </section>
+          <PanelCard title="Retirement">
+            <p className="ve-note">
+              Retired after its run — create a new scheduled recording to repeat.
+            </p>
+          </PanelCard>
         </div>
 
-        <aside className="detail-grid__aside card-stack">
-          <section className="card card-stack">
-            <h2 className="card__title">Recording</h2>
-            <RecordingCell
-              recording={autorun.recording}
-              canRecord={true}
-            />
-          </section>
-          {live ? (
-            <p className="warn-text">
-              This autorun is running — only name and times can change.
-            </p>
-          ) : null}
+        <aside className="ve-stack">
+          <PanelCard title="Recording">
+            <RecordingCell recording={autorun.recording} canRecord />
+            <p className="ve-note">When on, the spawned session records to disk.</p>
+          </PanelCard>
         </aside>
       </div>
 
       <AutorunWizardDialog
-        key={`${wizardOpen ? "open" : "closed"}-${autorun.id}`}
+        key={`autorun-wizard-${wizardOpen ? "open" : "closed"}-${autorun.id}`}
         open={wizardOpen}
         onClose={() => setWizardOpen(false)}
         editing={autorun}
@@ -208,11 +213,11 @@ export function AutorunDetail() {
           setDeleteOpen(false)
           void commands.remove(autorun)
         }}
-        title={`Delete autorun '${autorun.user_friendly_name}'?`}
+        title={`Delete scheduled recording '${autorun.user_friendly_name}'?`}
         body={
           live ? (
             <>
-              <p>A recording is running — deleting will stop and delete it.</p>
+              <p>It will also stop and delete any running recording it started.</p>
               <p>This cannot be undone.</p>
             </>
           ) : (

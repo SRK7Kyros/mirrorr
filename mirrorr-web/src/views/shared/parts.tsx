@@ -8,8 +8,14 @@ import { Input } from "@/components/ui/Input"
 import type { StatusKey } from "@/components/ui/StatusChip"
 import { useToast } from "@/components/ui/Toast"
 import { getStatusDescriptor } from "@/lib/status-map"
-import { formatDuration, parseNaiveUtc } from "@/lib/time"
+import { formatDateTime, formatDuration, parseNaiveUtc } from "@/lib/time"
 import type { Session } from "@/lib/schemas"
+
+/**
+ * Shared, shell-agnostic helpers for the entity surfaces. Exported names and
+ * signatures are frozen — other blocks import from here. Markup and class
+ * names follow the console token/primitive system (no rejected-build classes).
+ */
 
 /** Raw server status → StatusChip props (unknown → neutral + raw title). */
 export function statusChipProps(rawStatus: string): { status: StatusKey; title: string } {
@@ -101,7 +107,34 @@ export function sessionDurationLabel(session: Session): string {
   return seconds === null ? "—" : formatDuration(seconds)
 }
 
-/** 24px icon-only copy control with "Copied" toast (spec: copy + toast). */
+/**
+ * §11.3 — the session label is derived, never invented: the tail of the
+ * resolver `url` (source) joined with the local start time, falling back to
+ * `Session #<id>` when neither is available.
+ */
+export function sessionSourceTail(session: Session): string | null {
+  const config = session.resolver_config as Record<string, unknown> | undefined
+  const raw = config?.url ?? config?.web_url ?? config?.source
+  if (typeof raw !== "string" || raw.trim() === "") return null
+  try {
+    const url = new URL(raw)
+    const tail = decodeURIComponent(url.pathname.split("/").filter((part) => part !== "").pop() ?? "")
+    return tail === "" ? null : tail
+  } catch {
+    const parts = raw.split(/[\\/]/).filter((part) => part !== "")
+    const tail = parts.at(-1)
+    return tail === undefined || tail === "" ? null : tail
+  }
+}
+
+export function sessionTitle(session: Session): string {
+  const tail = sessionSourceTail(session)
+  const started = session.started_at == null || session.started_at === "" ? null : formatDateTime(session.started_at)
+  const parts = [tail, started].filter((part): part is string => part !== null)
+  return parts.length === 0 ? `Session #${session.id}` : parts.join(" · ")
+}
+
+/** Quiet copy control with a "Copied" confirmation (spec: copy + toast). */
 export function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
   const { toast } = useToast()
   const [copied, setCopied] = useState(false)
@@ -110,7 +143,6 @@ export function CopyButton({ text, label = "Copy" }: { text: string; label?: str
     try {
       await navigator.clipboard.writeText(text)
     } catch {
-      // transient textarea fallback (secure contexts only for clipboard API)
       const area = document.createElement("textarea")
       area.value = text
       area.style.position = "fixed"
@@ -132,24 +164,24 @@ export function CopyButton({ text, label = "Copy" }: { text: string; label?: str
   }
 
   return (
-    <button type="button" className="icon-btn" aria-label={label} title={label} onClick={() => void copy()}>
-      <span className={copied ? "t-meta copy-flash" : "t-meta"}>{copied ? "Copied" : "Copy"}</span>
+    <button type="button" className="ve-copy" aria-label={label} title={label} onClick={() => void copy()}>
+      {copied ? "Copied" : "Copy"}
     </button>
   )
 }
 
-/** Read-only JSON mono well (config panels, schema viewers). */
+/** Read-only JSON mono well (config snapshots, schema viewers). */
 export function JsonWell({ value, label }: { value: unknown; label?: string }) {
   const text = JSON.stringify(value ?? {}, null, 2)
   return (
-    <div className="stack" style={{ gap: "var(--space-xs)" }}>
-      {label !== undefined ? <span className="card__legend">{label}</span> : null}
-      <pre className="well t-mono">{text}</pre>
+    <div className="ve-stack ve-stack--tight">
+      {label !== undefined ? <span className="ve-panel__title">{label}</span> : null}
+      <pre className="ve-json">{text}</pre>
     </div>
   )
 }
 
-/** Recording column cell: 8px dot + 12px visible text (never hover-only). */
+/** Recording column cell: 8px dot + visible text (never hover-only). */
 export function RecordingCell({
   recording,
   canRecord,
@@ -159,9 +191,9 @@ export function RecordingCell({
 }) {
   const on = recording === true
   return (
-    <span className="rec-cell">
-      <span className="rec-dot" data-on={on} aria-hidden="true" />
-      <span className="t-meta">{canRecord ? (on ? "on" : "off") : "Engine cannot record"}</span>
+    <span className="ve-rec">
+      <span className="ve-rec__dot" data-on={on} aria-hidden="true" />
+      <span className="ve-note">{canRecord ? (on ? "on" : "off") : "Engine cannot record"}</span>
     </span>
   )
 }
@@ -177,14 +209,14 @@ export function EngineResolverPair({
   tag?: { label: string; href: string }
 }) {
   return (
-    <span className="engine-pair">
-      <span className="engine-pair__strong ellipsis" title={`${engineName} → ${resolverName}`}>
+    <span className="ve-pair">
+      <span className="ve-pair__name" title={`${engineName} → ${resolverName}`}>
         {engineName}
         {" → "}
         {resolverName}
       </span>
       {tag !== undefined ? (
-        <a className="t-meta" href={tag.href}>
+        <a className="ve-pair__tag" href={tag.href}>
           {tag.label}
         </a>
       ) : null}
@@ -228,6 +260,7 @@ export function SaveAsProfileDialog({ open, onClose, onSave, busy = false, error
         autoComplete="off"
         spellCheck={false}
         value={name}
+        helper="Snapshots this run's current engine, resolver and retry policy."
         error={error ?? undefined}
         onChange={(event) => setName(event.target.value)}
       />
@@ -237,9 +270,9 @@ export function SaveAsProfileDialog({ open, onClose, onSave, busy = false, error
 
 /**
  * Fires `onRemoved` when the exact query key is evicted from the cache —
- * how V4/V6 learn `session.deleted`/`autorun.deleted` landed (the event
- * table removes the detail query; it cannot navigate because installEventTable
- * is called without the navigate option).
+ * how a detail view learns `session.deleted`/`autorun.deleted` landed (the
+ * event table removes the detail query; it cannot navigate because
+ * installEventTable is called without the navigate option).
  */
 export function useQueryRemoved(queryKey: readonly unknown[], onRemoved: () => void): void {
   const client = useQueryClient()

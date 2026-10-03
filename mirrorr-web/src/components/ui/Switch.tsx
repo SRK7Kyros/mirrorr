@@ -5,23 +5,23 @@ export interface SwitchProps {
   readonly checked: boolean
   readonly onChange: (next: boolean) => void
   readonly label: string
-  /** Visible disabled reason (§4: never hidden — 12px muted twin of any tooltip). */
+  /** Visible disabled reason (§6.2: helper explains why, e.g. "Locked while this run is live."). */
   readonly disabledReason?: string
   readonly disabled?: boolean
-  /** Pending: thumb → 12px spinner, track stays at target color, no toggle (§4). */
+  /** §6.2 pending: track shows the spinner glyph, no toggle. */
   readonly pending?: boolean
+  /** §6.2 error: track fills danger-deep + inline copy (via disabledReason slot). */
+  readonly error?: boolean
   readonly id?: string
   /** Optional visible row label rendered beside the track. */
   readonly showLabel?: boolean
 }
 
 /**
- * Switch — §4 matrix: off (raised track + standard border, thumb left) ·
- * on (`#0C5CAB`, thumb right) · disabled-but-visible (fill-hover track,
- * muted thumb + visible reason text) · pending (spinner replaces thumb).
- * 32×18 desktop / 44×24 compact, 44px hit area throughout.
- * While pending the caller owns the optimistic target via `checked` — the
- * track reflects that target color until the real state flips back.
+ * Switch — §6.2: 44×24 track, radius 4 (a control, not a card). off =
+ * secondary@30% + white knob; on = primary track; the knob slides on the
+ * `micro` token (CSS transition); disabled @20%; pending shows a spinner
+ * glyph; error fills danger-deep. Always labelled — never colour-only (§8.4).
  */
 export function Switch({
   checked,
@@ -30,6 +30,7 @@ export function Switch({
   disabledReason,
   disabled = false,
   pending = false,
+  error = false,
   id,
   showLabel = false,
 }: SwitchProps) {
@@ -48,8 +49,10 @@ export function Switch({
         aria-checked={checked}
         aria-disabled={isDisabled || undefined}
         aria-label={showLabel ? undefined : label}
+        aria-invalid={error || undefined}
         aria-describedby={disabledReason !== undefined ? reasonId : undefined}
         data-pending={pending || undefined}
+        data-error={error || undefined}
         onClick={() => {
           if (!isDisabled) onChange(!checked)
         }}

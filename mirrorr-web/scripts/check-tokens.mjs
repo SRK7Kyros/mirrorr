@@ -1,99 +1,117 @@
 #!/usr/bin/env bun
 /**
- * check-tokens — assert src/styles/tokens.css declares every design-spec §1
- * token the console depends on. Normative source:
- * docs/web-frontend-design-spec.md §1 (Token YAML); REQUIRED below maps each
- * §1 YAML key to the CSS custom property tokens.css binds it to (the mapping
- * is manual by design — the YAML is the contract, tokens.css is the binding).
+ * check-tokens — assert src/styles/tokens.css declares every token of
+ * docs/console-design-spec.md §1.2 ("CSS custom properties (normative
+ * implementation values)").
  *
- * Exit 0 = sheet complete; exit 1 = list of missing tokens printed.
+ * The spec block is normative and byte-for-byte bindable, so the gate is two
+ * layers:
+ *   1. PRESENT  — every §1.2 name exists in tokens.css.
+ *   2. EQUIVALENT / CONTAINS — the value-bearing tokens carry the §1.2 value
+ *      (whitespace-insensitive compare: `rgba(255, 255, 255, .55)` and
+ *      `rgba(255,255,255,.55)` both normalise to the same string, so a
+ *      formatter cannot fail the gate but a re-derived number can). The two
+ *      recipe tokens (--luminous-edge, --focus-ring) are checked by the
+ *      substrings §1.2 requires rather than by exact string, because §1.2
+ *      itself spells them across lines.
+ *
+ * A missing or drifted token is a token-layer defect — fix tokens.css (or the
+ * spec), never this script. Exit 0 = §1.2 honoured; exit 1 = defects printed.
  */
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
 const TOKENS_FILE = fileURLToPath(new URL("../src/styles/tokens.css", import.meta.url))
 
-const STATUS_KEYS = [
-  "scheduled",
-  "active",
-  "recording",
-  "terminating",
-  "remuxing",
-  "finalizing",
-  "completed",
-  "failed",
-  "unknown",
-]
+/** §1.2 whitespace-and-case-insensitive canonicalisation. */
+const norm = (value) => value.replace(/\s+/g, "").toLowerCase()
 
-const COLOR_GROUPS = [
-  ["--color-primary", "--color-secondary", "--color-success", "--color-warning", "--color-danger", "--color-surface", "--color-text", "--color-neutral"],
-  ["--color-bg-base", "--color-bg-panel", "--color-bg-raised", "--color-fill-hover", "--color-fill-active", "--color-overlay-backdrop"],
-  ["--color-border-subtle", "--color-border-standard", "--color-border-strong"],
-  ["--color-text-primary", "--color-text-secondary", "--color-text-muted", "--color-text-inverse"],
-  ["--color-accent-fill", "--color-accent-fill-hover", "--color-accent-text", "--color-accent-text-hover", "--color-focus-ring"],
-]
+/** §1.2 names whose exact value the layer must carry. */
+const EQUIVALENT = {
+  // ---- colour: system hues (§1.2) ----
+  "--color-primary": "#1856FF",
+  "--color-secondary": "#3A344E",
+  "--color-success": "#07CA6B",
+  "--color-warning": "#E89558",
+  "--color-danger": "#EA2143",
+  "--color-surface": "#FFFFFF",
+  "--color-text": "#141414",
 
-const TYPE_SCALE = ["--text-12", "--text-14", "--text-16", "--text-20", "--text-24", "--text-32"]
-const WEIGHTS = ["--weight-400", "--weight-500", "--weight-600"]
+  // ---- colour: derived (§1.2 rationale block) ----
+  "--color-text-muted": "#6E6E6E",
+  "--color-success-deep": "#05A257",
+  "--color-warning-deep": "#C9722F",
+  "--color-danger-deep": "#D01431",
 
-const TYPE_ROLES = [
-  "--role-h1-size", "--role-h1-weight", "--role-h1-lh", "--role-h1-tracking",
-  "--role-h2-size", "--role-h2-weight", "--role-h2-lh", "--role-h2-tracking",
-  "--role-h3-size", "--role-h3-weight", "--role-h3-lh", "--role-h3-tracking",
-  "--role-body-md-size", "--role-body-md-weight", "--role-body-md-lh",
-  "--role-body-size", "--role-body-weight", "--role-body-lh",
-  "--role-body-strong-weight",
-  "--role-label-caps-size", "--role-label-caps-weight", "--role-label-caps-lh", "--role-label-caps-tracking",
-  "--role-meta-size", "--role-meta-weight", "--role-meta-lh",
-  "--role-mono-size", "--role-mono-weight", "--role-mono-lh",
-  "--role-mono-inline-size", "--role-mono-inline-weight", "--role-mono-inline-lh",
-]
+  // ---- colour: glass mix + edges (acrylic alphas 0.55 / 0.64 / 0.72) ----
+  "--glass-chip": "rgba(255, 255, 255, 0.55)",
+  "--glass-card": "rgba(255, 255, 255, 0.64)",
+  "--glass-modal": "rgba(255, 255, 255, 0.72)",
+  "--glass-nav": "rgba(255, 255, 255, 0.55)",
+  "--glass-tint": "rgba(24, 86, 255, 0.08)",
+  "--glass-border": "rgba(255, 255, 255, 0.28)",
+  "--edge-near": "rgba(255, 255, 255, 0.35)",
+  "--edge-far": "rgba(20, 20, 20, 0.06)",
+  "--glass-shadow":
+    "0 24px 48px -12px rgba(24, 86, 255, 0.18), 0 8px 16px -8px rgba(20, 20, 20, 0.12)",
 
-const RADIUS_SCALE = ["--radius-sm", "--radius-md", "--radius-full"]
-const RADIUS_ELEMENTS = [
-  "--radius-chip", "--radius-badge", "--radius-button", "--radius-input",
-  "--radius-select", "--radius-switch-track", "--radius-well", "--radius-card",
-  "--radius-menu", "--radius-dialog", "--radius-sheet", "--radius-toast",
-  "--radius-drawer", "--radius-fab", "--radius-row",
-]
+  // ---- blur ladder (8 / 16 / 24 / 40) ----
+  "--blur-chip": "8px",
+  "--blur-card": "16px",
+  "--blur-modal": "24px",
+  "--blur-nav": "40px",
 
-const SPACING = [
-  "--space-hair", "--space-xs", "--space-sm", "--space-smd", "--space-md",
-  "--space-lg", "--space-xl", "--space-xxl",
-  "--space-page-pad-desktop", "--space-page-pad-compact",
-  "--space-section-gap-desktop", "--space-section-gap-compact",
-  "--space-card-pad", "--space-table-cell-pad-inline",
-]
+  // ---- scrim ladder (always rgba(20,20,20,a)) ----
+  "--scrim-45": "rgba(20, 20, 20, 0.45)",
+  "--scrim-55": "rgba(20, 20, 20, 0.55)",
+  "--scrim-65": "rgba(20, 20, 20, 0.65)",
+  "--scrim-75": "rgba(20, 20, 20, 0.75)",
 
-const ROW_HEIGHTS = ["--row-h-desktop", "--table-row-h", "--card-min-h-compact"]
+  // ---- type: sans + mono roles ----
+  "--font-sans": '"Plus Jakarta Sans", "Segoe UI", system-ui, -apple-system, sans-serif',
+  "--font-mono": '"JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace',
+  "--text-h1": "3rem",
+  "--text-h2": "clamp(1.5rem, 1.25rem + 1vw, 2rem)",
+  "--text-h3": "clamp(1.125rem, 1.0625rem + 0.3vw, 1.5rem)",
+  "--text-body": "1rem",
+  "--text-label": "0.75rem",
+  "--tracking-h1": "-0.02em",
+  "--tracking-label": "0.08em",
+  "--weight-read": "400",
+  "--weight-ui": "500",
+  "--weight-announce": "700",
+  "--measure": "68ch",
 
-const COMPONENTS = [
-  "--focus-ring-width", "--focus-ring-color", "--focus-ring-offset",
-  "--button-h", "--input-h", "--select-trigger-h", "--chip-h", "--badge-h",
-  "--switch-track-w", "--switch-track-h",
-  "--topbar-h", "--sidebar-w", "--appbar-h", "--tabbar-h", "--fab-size",
-  "--dialog-w", "--dialog-w-wizard", "--toast-w", "--drawer-w",
-]
+  // ---- radius (closed 0 / 4 / 8) ----
+  "--radius-none": "0px",
+  "--radius-sm": "4px",
+  "--radius-md": "8px",
 
-const REQUIRED = [
-  ...COLOR_GROUPS.flat(),
-  ...STATUS_KEYS.flatMap((key) => [
-    `--status-${key}-dot`,
-    `--status-${key}-fg`,
-    `--status-${key}-tint`,
-  ]),
-  "--font-sans",
-  "--font-mono",
-  ...TYPE_SCALE,
-  ...WEIGHTS,
-  "--features-mono",
-  ...TYPE_ROLES,
-  ...RADIUS_SCALE,
-  ...RADIUS_ELEMENTS,
-  ...SPACING,
-  ...ROW_HEIGHTS,
-  ...COMPONENTS,
-]
+  // ---- spacing (4-point grid) ----
+  "--space-sm": "8px",
+  "--space-md": "16px",
+  "--space-lg": "32px",
+  "--space-xl": "64px",
+  "--gutter": "24px",
+
+  // ---- motion (four pinned tokens) ----
+  "--motion-micro": "spring(400 / 30)",
+  "--motion-ui": "spring(300 / 24)",
+  "--motion-page": "spring(350 / 35)",
+  "--motion-tween-enter": "0.2s ease-out",
+}
+
+/** §1.2 recipe tokens: exact strings are spelled across lines, so check parts. */
+const CONTAINS = {
+  "--luminous-edge": ["inset", "1px", "1px", "0", "var(--edge-near)", "0", "-1px", "0", "var(--edge-far)"],
+  "--focus-ring": [
+    "0 0 0 2px var(--color-surface)",
+    "0 0 0 4px var(--color-primary)",
+    "0 0 0 5px var(--color-text)",
+  ],
+}
+
+const NAMES = [...Object.keys(EQUIVALENT), ...Object.keys(CONTAINS)]
 
 function parseDeclarations(css) {
   const values = new Map()
@@ -113,12 +131,37 @@ try {
 }
 
 const declared = parseDeclarations(css)
-const missing = REQUIRED.filter((name) => !declared.has(name))
+const missing = NAMES.filter((name) => !declared.has(name))
+const drifted = []
 
-if (missing.length > 0) {
-  console.error(`[check-tokens] FAIL — ${missing.length} design-spec §1 token(s) missing from tokens.css:`)
-  for (const name of missing) console.error(`  ${name}`)
+for (const [name, expected] of Object.entries(EQUIVALENT)) {
+  const actual = declared.get(name)
+  if (actual !== undefined && norm(actual) !== norm(expected)) {
+    drifted.push({ name, expected, actual })
+  }
+}
+for (const [name, parts] of Object.entries(CONTAINS)) {
+  const actual = declared.get(name)
+  if (actual !== undefined && !parts.every((part) => norm(actual).includes(norm(part)))) {
+    drifted.push({ name, expected: parts.join(" … "), actual })
+  }
+}
+
+if (missing.length > 0 || drifted.length > 0) {
+  console.error(
+    `[check-tokens] FAIL — ${missing.length} missing / ${drifted.length} drifted design-spec §1.2 token(s):`,
+  )
+  for (const name of missing) console.error(`  missing  ${name}`)
+  for (const { name, expected, actual } of drifted) {
+    console.error(`  drifted  ${name}`)
+    console.error(`             spec:  ${expected}`)
+    console.error(`             sheet: ${actual}`)
+  }
+  console.error("[check-tokens] fix src/styles/tokens.css (or the spec) — do not relax this gate.")
   process.exit(1)
 }
 
-console.log(`[check-tokens] ok — ${REQUIRED.length} design-spec §1 tokens present in tokens.css`)
+console.log(
+  `[check-tokens] ok — ${NAMES.length} design-spec §1.2 tokens present in tokens.css ` +
+    `(${Object.keys(EQUIVALENT).length} value-checked, ${Object.keys(CONTAINS).length} recipe-checked)`,
+)

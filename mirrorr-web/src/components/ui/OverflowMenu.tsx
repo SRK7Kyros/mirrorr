@@ -1,7 +1,8 @@
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { useEffect, useId, useRef, useState } from "react"
 import type { KeyboardEvent as ReactKeyboardEvent } from "react"
 import { IconMoreH } from "./icons"
+import { ui } from "./motion-tokens"
 
 export interface OverflowMenuItem {
   readonly id: string
@@ -9,19 +10,18 @@ export interface OverflowMenuItem {
   readonly onSelect: () => void
   readonly destructive?: boolean
   readonly disabled?: boolean
+  /** §6.4: a disabled item explains itself inline, never silently. */
+  readonly disabledReason?: string
 }
 
 export interface OverflowMenuProps {
   readonly items: ReadonlyArray<OverflowMenuItem>
-  /** Accessible name of the trigger (spec: copy uses verbs, e.g. "More actions"). */
+  /** Accessible name of the trigger (copy uses verbs, e.g. "More actions"). */
   readonly triggerLabel: string
   readonly align?: "start" | "end"
 }
 
-/** motion `ui` spring — component state change (§8). */
-const uiSpring = { type: "spring", stiffness: 300, damping: 24 } as const
-
-/** §4: destructive items always sort last, keeping the destructive edge. */
+/** §6.4: destructive items always sort last, keeping the destructive edge. */
 function orderItems(items: ReadonlyArray<OverflowMenuItem>): OverflowMenuItem[] {
   const safe = items.filter((item) => item.destructive !== true)
   const destructive = items.filter((item) => item.destructive === true)
@@ -29,14 +29,15 @@ function orderItems(items: ReadonlyArray<OverflowMenuItem>): OverflowMenuItem[] 
 }
 
 /**
- * OverflowMenu — §4: 24px ghost trigger (32/44 compact hit area),
- * 200px menu, r8, border-standard, shadow-menu (overlay layer), items 32px
- * (44 compact), hover fill-hover, destructive `#FF6B77` last with its own
- * hover tint. Keyboard: Enter/Space opens + focuses first, ArrowUp/Down
- * cycle, Esc closes and restores trigger focus, outside pointer dismiss.
- * Enter on an item fires it and closes (spec: no arrow-then-enter ceremony).
+ * OverflowMenu — §6.4: 40×40 trigger (44 on coarse pointers), acrylic 0.72/24
+ * panel (modal tier), radius 4, 8px pad, 44px items. Opens on the `ui` token.
+ * Destructive items sort last; disabled items carry inline reason text; when
+ * the action set is empty the menu is not rendered at all (absent, not
+ * disabled). Keyboard: Enter/Space/↓ opens + focuses first, ↑/↓ cycle,
+ * Home/End jump, Esc closes and restores trigger focus, outside click closes.
  */
 export function OverflowMenu({ items, triggerLabel, align = "end" }: OverflowMenuProps) {
+  const reduced = useReducedMotion()
   const menuId = useId()
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -44,18 +45,17 @@ export function OverflowMenu({ items, triggerLabel, align = "end" }: OverflowMen
   const [activeIndex, setActiveIndex] = useState(0)
 
   const ordered = orderItems(items)
-  const menuClass = align === "start" ? "overflow__menu overflow__menu--start" : "overflow__menu"
 
   useEffect(() => {
     if (!open) return
     const onPointerDown = (event: PointerEvent) => {
-      if (rootRef.current?.contains(event.target as Node) !== true) {
-        setOpen(false)
-      }
+      if (rootRef.current?.contains(event.target as Node) !== true) setOpen(false)
     }
     document.addEventListener("pointerdown", onPointerDown)
     return () => document.removeEventListener("pointerdown", onPointerDown)
   }, [open])
+
+  if (ordered.length === 0) return null
 
   const openMenu = () => {
     setActiveIndex(0)
@@ -132,12 +132,15 @@ export function OverflowMenu({ items, triggerLabel, align = "end" }: OverflowMen
             id={menuId}
             role="menu"
             aria-label={triggerLabel}
-            className={menuClass}
-            initial={{ opacity: 0, scale: 0.98 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.98 }}
-            transition={uiSpring}
-            style={{ transformOrigin: align === "start" ? "top left" : "top right" }}
+            className={
+              align === "start"
+                ? "overflow__menu overflow__menu--start acrylic acrylic--modal acrylic--r-sm"
+                : "overflow__menu acrylic acrylic--modal acrylic--r-sm"
+            }
+            initial={{ opacity: 0, y: reduced === true ? 0 : -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={ui}
             onKeyDown={onMenuKeyDown}
           >
             {ordered.map((item, index) => (
@@ -160,7 +163,10 @@ export function OverflowMenu({ items, triggerLabel, align = "end" }: OverflowMen
                   closeMenu(true)
                 }}
               >
-                {item.label}
+                <span className="overflow__item-label">{item.label}</span>
+                {item.disabled === true && item.disabledReason !== undefined ? (
+                  <span className="overflow__item-reason">{item.disabledReason}</span>
+                ) : null}
               </button>
             ))}
           </motion.div>

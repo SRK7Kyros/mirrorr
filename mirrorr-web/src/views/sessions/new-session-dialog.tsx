@@ -1,20 +1,18 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/Button"
+import { Chip } from "@/components/ui/Chip"
 import { Dialog } from "@/components/ui/Dialog"
+import { Fieldset } from "@/components/ui/FormField"
 import { Select } from "@/components/ui/Select"
 import { useToast } from "@/components/ui/Toast"
+import { prefillSchemaValues } from "@/components/ui/dynamic-schema-form"
 import { ApiError } from "@/lib/api"
 import type { Profile } from "@/lib/schemas"
-import { prefillSchemaValues } from "@/components/ui/dynamic-schema-form"
 import { createSession, type SessionCreateBody } from "@/views/shared/api"
-import { useEngines, useProfiles, useResolvers } from "@/views/shared/hooks"
 import { isDirty, snapshotFields } from "@/views/shared/dirty"
+import { useEngines, useProfiles, useResolvers } from "@/views/shared/hooks"
 import { useLooseNavigate } from "@/views/shared/parts"
-import {
-  ConfigFields,
-  type ConfigFieldsValue,
-  retrySchemaOf,
-} from "@/views/shared/config-fields"
+import { ConfigFields, type ConfigFieldsValue, retrySchemaOf } from "@/views/shared/config-fields"
 
 export interface NewSessionDialogProps {
   readonly open: boolean
@@ -44,14 +42,11 @@ function configOf(value: ConfigFieldsValue): Record<string, unknown> {
 }
 
 /**
- * D1 — New Session dialog. Source toggle "From profile" (select prefills all
- * fields, still editable) / "Custom"; DynamicSchemaForm drives resolver_config
- * + retry_config; the recording switch is disabled-but-visible with
- * "Engine cannot record" when `can_record === false`. No date fields —
- * sessions start immediately. Dirty rule (contract): an UNEDITED "From
- * profile" submission sends `{profile_id, recording}` only; ANY single field
- * edit switches the body to the full explicit form — per-field dirty tracking,
- * all-or-nothing submission (the server snapshots config at create).
+ * §5.3 primary action — New session. Two sources: a saved profile (which
+ * prefills every field, still editable) or a direct engine + resolver +
+ * dynamic config + retry + recording choice. Sessions start immediately
+ * (`POST /sessions/`); an unedited profile submission sends `profile_id` only,
+ * any single field edit switches to the explicit all-or-nothing body.
  */
 export function NewSessionDialog({ open, onClose, prefillProfileId = null }: NewSessionDialogProps) {
   const navigate = useLooseNavigate()
@@ -60,9 +55,7 @@ export function NewSessionDialog({ open, onClose, prefillProfileId = null }: New
   const resolvers = useResolvers()
   const profiles = useProfiles()
 
-  const [source, setSource] = useState<"profile" | "custom">(
-    prefillProfileId != null ? "profile" : "custom",
-  )
+  const [source, setSource] = useState<"profile" | "custom">(prefillProfileId != null ? "profile" : "custom")
   const [profileId, setProfileId] = useState<number | null>(prefillProfileId)
   const [config, setConfig] = useState<ConfigFieldsValue>(EMPTY_CONFIG)
   const [baseline, setBaseline] = useState<Record<string, unknown>>(() => snapshotFields(configOf(EMPTY_CONFIG)))
@@ -93,22 +86,29 @@ export function NewSessionDialog({ open, onClose, prefillProfileId = null }: New
   }
 
   const configDirty = isDirty(baseline, configOf(config), CONFIG_KEYS)
+  const fromProfile = source === "profile" && profileId != null
+  const profileReady = fromProfile && !configDirty
+  const customReady = config.engineId != null && config.resolverId != null
+  const canSubmit = profileReady || customReady
 
   const submit = async () => {
+    if (!canSubmit) {
+      setFormError("Choose an engine and resolver (or select a profile).")
+      return
+    }
     setBusy(true)
     setFieldErrors({})
     setFormError(null)
-    const body: SessionCreateBody =
-      source === "profile" && profileId != null && !configDirty
-        ? { profile_id: profileId, recording: config.recording }
-        : {
-            ...(config.engineId == null ? {} : { engine_id: config.engineId }),
-            ...(config.resolverId == null ? {} : { resolver_id: config.resolverId }),
-            resolver_config: config.resolverConfig,
-            ...(config.retryMode == null ? {} : { retry_mode: config.retryMode }),
-            retry_config: config.retryConfig,
-            recording: config.recording,
-          }
+    const body: SessionCreateBody = profileReady
+      ? { profile_id: profileId as number, recording: config.recording }
+      : {
+          ...(config.engineId == null ? {} : { engine_id: config.engineId }),
+          ...(config.resolverId == null ? {} : { resolver_id: config.resolverId }),
+          resolver_config: config.resolverConfig,
+          ...(config.retryMode == null ? {} : { retry_mode: config.retryMode }),
+          retry_config: config.retryConfig,
+          recording: config.recording,
+        }
     try {
       const session = await createSession(body)
       onClose()
@@ -126,57 +126,57 @@ export function NewSessionDialog({ open, onClose, prefillProfileId = null }: New
     <Dialog
       open={open}
       onClose={onClose}
+      wizard
       title="New session"
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button loading={busy} onClick={() => void submit()}>
+          <Button loading={busy} disabled={!canSubmit} onClick={() => void submit()}>
             Start session
           </Button>
         </>
       }
     >
-      <div className="stack" style={{ gap: "var(--space-md)" }}>
-        <div className="filter-chips" role="group" aria-label="Config source">
-          <button
-            type="button"
-            className="chip-btn"
-            data-active={source === "profile"}
-            onClick={() => setSource("profile")}
-          >
-            From profile
-          </button>
-          <button
-            type="button"
-            className="chip-btn"
-            data-active={source === "custom"}
-            onClick={() => setSource("custom")}
-          >
-            Custom
-          </button>
-        </div>
+      <div className="ve-form">
+        <Fieldset legend="Configuration source">
+          <div className="ve-inline" role="group" aria-label="Configuration source">
+            <Chip selected={source === "profile"} onClick={() => setSource("profile")}>
+              From profile
+            </Chip>
+            <Chip selected={source === "custom"} onClick={() => setSource("custom")}>
+              Direct config
+            </Chip>
+          </div>
+          <p className="ve-note">
+            A session starts immediately. A profile is copied at creation — later profile edits do not
+            affect this run.
+          </p>
+        </Fieldset>
 
         {source === "profile" ? (
           <Select
             label="Profile"
             options={profiles.map((entry: Profile) => ({ value: String(entry.id), label: entry.name }))}
             value={profileId == null ? null : String(profileId)}
-            onChange={(next) => applyProfile(Number(next))}
             error={fieldErrors.profile_id}
+            placeholder="Select a profile…"
+            onChange={(next) => applyProfile(Number(next))}
           />
         ) : null}
 
-        <ConfigFields
-          value={config}
-          onChange={(next) => setConfig((current) => ({ ...current, ...next }))}
-          engines={engines}
-          resolvers={resolvers}
-          errors={fieldErrors}
-        />
+        <Fieldset legend="Engine & resolver">
+          <ConfigFields
+            value={config}
+            onChange={(next) => setConfig((current) => ({ ...current, ...next }))}
+            engines={engines}
+            resolvers={resolvers}
+            errors={fieldErrors}
+          />
+        </Fieldset>
 
-        {formError !== null ? <p className="warn-text">{formError}</p> : null}
+        {formError !== null ? <p className="ve-hint">{formError}</p> : null}
       </div>
     </Dialog>
   )
