@@ -1,7 +1,8 @@
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import { IconX } from "./icons"
+import { tweenEnter, ui } from "./motion-tokens"
 
 export interface ToastInput {
   readonly kind: "success" | "error"
@@ -22,16 +23,18 @@ interface ToastContextValue {
 const ToastContext = createContext<ToastContextValue | null>(null)
 
 const SUCCESS_TTL_MS = 4000
-const MAX_VISIBLE = 2
+/** §6.4: max 3 stacked; overflow drops the oldest non-error (errors are sticky). */
+const MAX_VISIBLE = 3
 
 /**
- * Toast — §4: 320px, r8, pad12, shadow-toast (overlay only), enter
- * tween-enter / exit 0.15s. Success auto-dismisses at 4000ms with
- * role="status"; error is sticky until dismissed, role="alert", with a
- * close X. Stack capped at MAX_VISIBLE (§1 toast max 2); queue overflow
- * drops the oldest non-error — errors are sticky, never auto-dropped.
+ * Toast — §6.4: acrylic 0.72/40 (the topmost surface gets the widest blur),
+ * radius 4, pad 12×16, icon + 16px copy + optional action. Enters on `ui`,
+ * exits on `tween-enter` (opacity-first). Error variant carries a danger-deep
+ * left bar and never auto-dismisses. role=status for success (polite),
+ * role=alert for errors (assertive) — both are #141414 copy (hard law 7).
  */
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const reduced = useReducedMotion()
   const [items, setItems] = useState<ReadonlyArray<ToastItem>>([])
   const nextId = useRef(1)
   const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>())
@@ -84,17 +87,25 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="toast-viewport" role="region" aria-label="Notifications">
+      {/* §8.5: the toast region is a live region, not a navigation landmark —
+         each toast carries role=status/alert. Naming it a "region" collides
+         with the notification drawer's own "Notifications" landmark
+         (axe landmark-unique §8.1). */}
+      <div className="toast-viewport">
         <AnimatePresence>
           {items.map((item) => (
             <motion.div
               key={item.id}
-              className={item.kind === "error" ? "toast toast--error" : "toast"}
+              className={
+                item.kind === "error"
+                  ? "toast toast--error acrylic acrylic--toast acrylic--r-sm"
+                  : "toast acrylic acrylic--toast acrylic--r-sm"
+              }
               role={item.kind === "error" ? "alert" : "status"}
-              initial={{ opacity: 0, y: 8 }}
+              initial={{ opacity: 0, y: reduced === true ? 0 : 8 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, transition: { duration: 0.15, ease: "easeIn" } }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
+              exit={{ opacity: 0 }}
+              transition={item.kind === "error" ? tweenEnter : ui}
             >
               <span className="toast__dot" aria-hidden="true" />
               <div className="toast__content">
@@ -122,7 +133,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   )
 }
 
-/** §7: toasts announce via role status/alert — caller reads context only. */
+/** §8.5: toasts announce via role=status/alert — the caller reads context only. */
 export function useToast(): ToastContextValue {
   const context = useContext(ToastContext)
   if (context === null) {

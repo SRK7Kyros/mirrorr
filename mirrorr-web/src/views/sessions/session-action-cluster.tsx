@@ -3,10 +3,10 @@ import { Button } from "@/components/ui/Button"
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 import { OverflowMenu, type OverflowMenuItem } from "@/components/ui/OverflowMenu"
 import { Switch } from "@/components/ui/Switch"
+import { RowActions } from "@/components/ui/Table"
 import { getStatusDescriptor } from "@/lib/status-map"
 import type { Session } from "@/lib/schemas"
 import { SaveAsProfileDialog } from "@/views/shared/parts"
-import { useIsCompact } from "@/views/shared/hooks"
 import type { SessionCommands } from "./session-commands"
 
 export interface SessionActionClusterProps {
@@ -17,18 +17,12 @@ export interface SessionActionClusterProps {
 }
 
 /**
- * Row/detail action cluster. STATUS_MAP owns the action set: `delete` absent
- * ⇒ never rendered (not disabled); primary = Stop (danger-text) or Save as
- * profile; recording = Switch (disabled-but-visible when can_record=false);
- * overflow holds the rest (all actions on compact, where the primary hides).
+ * Row/detail action cluster. STATUs_MAP (§1.4) owns the action set: an action
+ * absent for a status is never rendered — not disabled (§11.17). Row variant is
+ * the §6.4 cluster (up to two direct secondary actions + one overflow); detail
+ * variant surfaces stop / recording / delete inline.
  */
-export function SessionActionCluster({
-  session,
-  canRecord,
-  commands,
-  variant,
-}: SessionActionClusterProps) {
-  const compact = useIsCompact()
+export function SessionActionCluster({ session, canRecord, commands, variant }: SessionActionClusterProps) {
   const state = commands.stateOf(session.id)
   const descriptor = getStatusDescriptor(session.status)
   const actions = descriptor.sessionActions
@@ -41,6 +35,7 @@ export function SessionActionCluster({
   const [stopConfirm, setStopConfirm] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [saveOpen, setSaveOpen] = useState(false)
+  const [saveBusy, setSaveBusy] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
   // Pending "Stopping…" ends when the authoritative snapshot flips status.
@@ -48,32 +43,23 @@ export function SessionActionCluster({
     commands.acknowledgeStatus(session)
   }, [commands, session])
 
+  const openSave = () => {
+    setSaveError(null)
+    setSaveOpen(true)
+  }
+
   const primary = (() => {
-    if (state.deleting) {
-      return <span className="t-meta">Deleting…</span>
-    }
+    if (state.deleting) return <span className="ve-note">Deleting…</span>
     if (hasStop) {
       return (
-        <Button
-          variant="danger-text"
-          className="row-primary-action"
-          loading={state.stopPending}
-          onClick={() => setStopConfirm(true)}
-        >
-          {state.stillStopping ? "still stopping…" : "Stop"}
+        <Button variant="secondary" loading={state.stopPending} onClick={() => setStopConfirm(true)}>
+          {state.stillStopping ? "Still stopping…" : "Stop"}
         </Button>
       )
     }
     if (hasSave) {
       return (
-        <Button
-          variant="ghost"
-          className="row-primary-action"
-          onClick={() => {
-            setSaveError(null)
-            setSaveOpen(true)
-          }}
-        >
+        <Button variant="secondary" onClick={openSave}>
           Save as profile
         </Button>
       )
@@ -81,66 +67,48 @@ export function SessionActionCluster({
     return null
   })()
 
-  const buildItems = (): OverflowMenuItem[] => {
-    const items: OverflowMenuItem[] = []
-    const primaryAction = hasStop ? "stop" : hasSave ? "save-as-profile" : null
-    const includeAll = compact
-    if (hasStop && (includeAll || primaryAction !== "stop")) {
-      items.push({ id: "stop", label: "Stop", onSelect: () => setStopConfirm(true) })
-    }
-    if (hasToggle) {
-      items.push({
-        id: "recording",
-        label: session.recording === true ? "Disable recording" : "Enable recording",
-        disabled: state.recPending || !canRecord,
-        onSelect: () => void commands.toggleRecording(session),
-      })
-    }
-    if (hasSave && (includeAll || primaryAction !== "save-as-profile")) {
-      items.push({
-        id: "save",
-        label: "Save as profile",
-        onSelect: () => {
-          setSaveError(null)
-          setSaveOpen(true)
-        },
-      })
-    }
-    if (hasDelete) {
-      items.push({
-        id: "delete",
-        label: "Delete",
-        destructive: true,
-        onSelect: () => setDeleteConfirm(true),
-      })
-    }
-    return items
+  const menuItems: OverflowMenuItem[] = []
+  if (hasStop) menuItems.push({ id: "stop", label: "Stop", onSelect: () => setStopConfirm(true) })
+  if (hasToggle) {
+    menuItems.push({
+      id: "recording",
+      label: session.recording === true ? "Disable recording" : "Enable recording",
+      disabled: state.recPending || !canRecord,
+      disabledReason: canRecord ? undefined : "Engine cannot record",
+      onSelect: () => void commands.toggleRecording(session),
+    })
   }
+  if (hasSave) menuItems.push({ id: "save", label: "Save as profile", onSelect: openSave })
+  if (hasDelete) menuItems.push({ id: "delete", label: "Delete", destructive: true, onSelect: () => setDeleteConfirm(true) })
 
-  const menuItems = buildItems()
+  const cluster = (
+    <>
+      {primary}
+      {hasToggle && variant === "detail" ? (
+        <Switch
+          label={`Recording on session #${session.id}`}
+          showLabel
+          checked={session.recording === true}
+          pending={state.recPending}
+          disabled={!canRecord}
+          disabledReason={canRecord ? undefined : "Engine cannot record — enable it in the engine plugin"}
+          onChange={() => void commands.toggleRecording(session)}
+        />
+      ) : null}
+      {variant === "detail" && hasDelete ? (
+        <Button variant="danger-text" onClick={() => setDeleteConfirm(true)}>
+          Delete
+        </Button>
+      ) : null}
+      {menuItems.length > 0 ? (
+        <OverflowMenu items={menuItems} triggerLabel={`Actions for session #${session.id}`} />
+      ) : null}
+    </>
+  )
 
   return (
     <>
-      <span className="cluster" data-variant={variant}>
-        {primary}
-        {hasToggle ? (
-          <Switch
-            label={
-              session.recording === true
-                ? `Disable recording on session #${session.id}`
-                : `Enable recording on session #${session.id}`
-            }
-            checked={session.recording === true}
-            pending={state.recPending}
-            disabled={!canRecord}
-            disabledReason={canRecord ? undefined : "Engine cannot record"}
-            onChange={() => void commands.toggleRecording(session)}
-          />
-        ) : null}
-        {menuItems.length > 0 ? (
-          <OverflowMenu items={menuItems} triggerLabel={`Actions for session #${session.id}`} />
-        ) : null}
-      </span>
+      {variant === "row" ? <RowActions>{cluster}</RowActions> : <div className="ve-inline">{cluster}</div>}
 
       <ConfirmDialog
         open={stopConfirm}
@@ -150,7 +118,7 @@ export function SessionActionCluster({
           void commands.stop(session)
         }}
         title={`Stop session #${session.id}?`}
-        body="The recording will finalize."
+        body={<p>The supervisor stops the capture and any recording is finalized.</p>}
         confirmLabel="Stop"
         loading={state.stopPending}
       />
@@ -166,7 +134,7 @@ export function SessionActionCluster({
         body={
           session.recording === true ? (
             <>
-              <p>A recording is running — deleting will stop and delete it.</p>
+              <p>A recording is running — the server stops it, then removes the session.</p>
               <p>This cannot be undone.</p>
             </>
           ) : (
@@ -180,11 +148,13 @@ export function SessionActionCluster({
 
       <SaveAsProfileDialog
         open={saveOpen}
-        busy={false}
+        busy={saveBusy}
         error={saveError}
         onClose={() => setSaveOpen(false)}
         onSave={async (name) => {
+          setSaveBusy(true)
           const ok = await commands.saveAsProfile(session, name)
+          setSaveBusy(false)
           if (ok) setSaveOpen(false)
           else setSaveError("Could not save profile — try another name")
         }}

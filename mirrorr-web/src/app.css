@@ -1,17 +1,14 @@
 /*
- * app.css — token + layer aggregator (spec §1 tokens are law).
- * Order: tokens → base → ui primitives → chrome shell → responsive breakpoints.
+ * app.css — the single style entry point (imported once by main.tsx).
+ * Order is deliberate: token law → reset/type/a11y floor → glass recipes →
+ * primitives. Shell layers (§3/§4) are added by the shell wave; nothing here
+ * depends on them.
  */
+@import "./styles/fonts.css";
 @import "./styles/tokens.css";
 @import "./styles/base.css";
+@import "./styles/glass.css";
 @import "./styles/ui.css";
-@import "./styles/ui-status.css";
-@import "./styles/ui-feedback.css";
-@import "./styles/ui-overlays.css";
-@import "./styles/chrome.css";
-@import "./styles/chrome-panels.css";
-@import "./styles/chrome-breakpoints.css";
-@import "./styles/auth.css";
+@import "./styles/shell-a.css";
+@import "./styles/shell-b.css";
 @import "./styles/views.css";
-@import "./styles/views-detail.css";
-@import "./styles/settings.css";

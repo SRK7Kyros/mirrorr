@@ -14,6 +14,7 @@ export function useFocusTrap(
   containerRef: RefObject<HTMLElement | null>,
   active: boolean,
   onClose: () => void,
+  initialFocusRef?: RefObject<HTMLElement | null>,
 ): void {
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
@@ -30,7 +31,8 @@ export function useFocusTrap(
         (element) => element.getAttribute("aria-hidden") !== "true",
       )
 
-    focusables()[0]?.focus()
+    const preferred = initialFocusRef?.current ?? null
+    ;(preferred ?? focusables()[0])?.focus()
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {

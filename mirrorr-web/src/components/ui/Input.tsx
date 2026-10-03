@@ -1,28 +1,33 @@
 import { useId } from "react"
 import type { ComponentPropsWithoutRef } from "react"
+import { Spinner } from "./Spinner"
 
 export interface InputProps extends Omit<ComponentPropsWithoutRef<"input">, "className" | "size"> {
-  /** Label text — every input pairs a <label for> (§7 forms). */
+  /** Label text — every input pairs a <label for> (§6.2). */
   readonly label: string
   /** Helper line under the field; when `error` is set it renders as the error line. */
   readonly helper?: string
   readonly error?: string
-  /** mono-inline rendering for id/hash/key fields (§4 filled row). */
+  /** §6.2 loading state — trailing spinner while a schema resolves. */
+  readonly loading?: boolean
+  /** mono rendering for id/hash/key fields. */
   readonly mono?: boolean
   readonly className?: string
   readonly fieldClassName?: string
 }
 
 /**
- * Input — §4 matrix: default · hover (border-strong) · focus (ring +
- * accent-text border) · filled · disabled · error (danger border +
- * aria-describedby helper) · required (`*` suffix + aria-required).
- * Compact (≤639): h44 + 16px text via chrome.css.
+ * Input — §6.2 matrix: acrylic 0.72/16 or its opaque twin (assigned by the
+ * ground beneath, §1.3) · hover brightens the keyline to `edge-near` ·
+ * focus-visible = two-layer ring, never a glow · disabled · loading ·
+ * error = 2px danger-deep underline + inline copy via aria-describedby /
+ * aria-invalid · empty shows the #6E6E6E placeholder (5.10:1, never a label).
  */
 export function Input({
   label,
   helper,
   error,
+  loading = false,
   mono = false,
   className,
   fieldClassName,
@@ -39,11 +44,14 @@ export function Input({
 
   const inputClasses = [
     "input",
+    "acrylic",
+    "acrylic--input",
     hasError ? "input--error" : null,
+    loading ? "input--loading" : null,
     mono ? "input--mono" : null,
     className,
   ]
-    .filter((part) => part !== null && part !== "")
+    .filter((part) => part !== null && part !== undefined && part !== "")
     .join(" ")
 
   const fieldClasses = fieldClassName === undefined ? "field" : `field ${fieldClassName}`
@@ -58,21 +66,26 @@ export function Input({
           </span>
         ) : null}
       </label>
-      <input
-        {...rest}
-        id={inputId}
-        className={inputClasses}
-        disabled={disabled}
-        required={required}
-        aria-required={required === true ? true : undefined}
-        aria-invalid={hasError || undefined}
-        aria-describedby={helperText !== undefined && helperText.length > 0 ? helperId : undefined}
-      />
+      <span className="input-wrap">
+        <input
+          {...rest}
+          id={inputId}
+          className={inputClasses}
+          disabled={disabled}
+          required={required}
+          aria-required={required === true ? true : undefined}
+          aria-invalid={hasError || undefined}
+          aria-busy={loading || undefined}
+          aria-describedby={helperText !== undefined && helperText.length > 0 ? helperId : undefined}
+        />
+        {loading ? (
+          <span className="input__spin" aria-hidden="true">
+            <Spinner size="sm" />
+          </span>
+        ) : null}
+      </span>
       {helperText !== undefined && helperText.length > 0 ? (
-        <span
-          id={helperId}
-          className={hasError ? "field__helper field__helper--error" : "field__helper"}
-        >
+        <span id={helperId} className={hasError ? "field__helper field__helper--error" : "field__helper"}>
           {helperText}
         </span>
       ) : null}

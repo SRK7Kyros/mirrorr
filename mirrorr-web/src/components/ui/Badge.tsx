@@ -11,7 +11,11 @@ export type BadgeVariant =
 export interface BadgeProps {
   readonly variant: BadgeVariant
   readonly children: ReactNode
-  /** Accessible announcement — never glyph+number color alone (§7). */
+  /** §6.3: focus ring + press feedback when the badge opens the drawer. */
+  readonly interactive?: boolean
+  /** §6.3: failure counts fill danger-deep instead of primary. */
+  readonly error?: boolean
+  /** Accessible announcement — never glyph+number colour alone (§8.5). */
   readonly "aria-label"?: string
   readonly className?: string
 }
@@ -25,22 +29,30 @@ const variantClass: Record<BadgeVariant, string> = {
   tag: "badge badge--tag",
 }
 
-/** §4 unread: counts ≥10 collapse to "9+". */
-function formatUnread(children: ReactNode): ReactNode {
-  if (typeof children === "number" && children >= 10) {
-    return "9+"
-  }
-  return children
+/** §6.3/§11.28: 0 renders nothing (never "0"); ≥10 collapses to "9+". */
+function formatCount(children: ReactNode): ReactNode {
+  if (typeof children !== "number") return children
+  if (children <= 0) return null
+  return children >= 10 ? "9+" : children
 }
 
 /**
- * Badge — §4 variants: unread count (min 16×16, r4, danger bg, inverse fg),
- * capability false/true, admin/user role, tag. solid_fg `#09090b` for
- * solid fills; tints + fg hexes ride the §2 re-bindings in tokens.css.
+ * Badge — §6.3 count badge is the primary fill (white tabular label, 5.51:1);
+ * role/capability/tag variants are the subtle opaque chips. Empty is hidden,
+ * not "0" (§11.28).
  */
-export function Badge({ variant, children, className, ...aria }: BadgeProps) {
-  const content = variant === "unread" ? formatUnread(children) : children
-  const classes = className === undefined ? variantClass[variant] : `${variantClass[variant]} ${className}`
+export function Badge({ variant, children, interactive = false, error = false, className, ...aria }: BadgeProps) {
+  const content = variant === "unread" ? formatCount(children) : children
+  if (content === null) return null
+
+  const classes = [
+    variantClass[variant],
+    interactive ? "badge--action" : null,
+    error ? "badge--danger" : null,
+    className,
+  ]
+    .filter((part) => part !== null && part !== undefined && part !== "")
+    .join(" ")
 
   return (
     <span className={classes} {...aria}>

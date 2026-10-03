@@ -1,8 +1,9 @@
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { useEffect, useId, useRef, useState } from "react"
 import type { ReactNode, RefObject } from "react"
 import { createPortal } from "react-dom"
 import { useFocusTrap } from "./focus-trap"
+import { tweenEnter } from "./motion-tokens"
 
 export type DialogPresentation = "dialog" | "sheet"
 
@@ -12,30 +13,28 @@ export interface DialogProps {
   readonly title: string
   readonly children: ReactNode
   readonly footer?: ReactNode
-  /** 720px wizard width (D2) vs standard 560. */
+  /** Wizard width (up to 45rem) vs the standard min(32rem, 100vw − 32px). */
   readonly wizard?: boolean
   /**
    * "dialog" (desktop) vs "sheet" (compact bottom sheet). Default resolves
-   * from the 639px viewport breakpoint (§6); sheets use the 32×4 handle,
-   * sticky header/footer and min-44px rows.
+   * from the 767px page-frame breakpoint (§7). Full-screen sheets use radius 0
+   * top; the bottom sheet keeps the 8/8/0/0 plate.
    */
   readonly presentation?: DialogPresentation
+  /** §8.4: confirm dialogs open with focus on Cancel (safe default). */
+  readonly initialFocusRef?: RefObject<HTMLElement | null>
 }
-
-/** motion `tween-enter`: 0.2s easeOut in, 0.15s easeOut/opacity out (§8). */
-const enterTransition = { duration: 0.2, ease: "easeOut" } as const
-const exitTransition = { duration: 0.15, ease: "easeIn" } as const
 
 /** Compact viewport check — matchMedia-guarded for jsdom. */
 function useIsCompactViewport(): boolean {
   const [compact, setCompact] = useState(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false
-    return window.matchMedia("(max-width: 639px)").matches
+    return window.matchMedia("(max-width: 767px)").matches
   })
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return
-    const query = window.matchMedia("(max-width: 639px)")
+    const query = window.matchMedia("(max-width: 767px)")
     const onChange = () => setCompact(query.matches)
     query.addEventListener("change", onChange)
     return () => query.removeEventListener("change", onChange)
@@ -51,11 +50,12 @@ function useMountedPortal(open: boolean): boolean {
 }
 
 /**
- * Dialog — §4: bg-raised, border-strong, r8, pad24, shadow OVERLAY-only,
- * title 20/600, footer bottom-right (desktop) / full-width stacked (sheet),
- * Esc + backdrop close, focus trap (focus-trap.ts), tween-enter in / 0.15s
- * opacity out with AnimatePresence mode="wait". No box-shadow on content
- * surfaces — this is the overlay layer (§0).
+ * Dialog — §6.4: acrylic 0.72/24 over the dark scrim, radius 8, pad 32,
+ * max-width min(32rem, 100vw − 32px). Enters on `tween-enter` with
+ * AnimatePresence mode="wait" (stable key); the reduced-motion path keeps the
+ * opacity drop and drops the y offset. Focus is trapped, Esc closes, focus
+ * returns to the trigger (§8.4). Styling flows through the reusable
+ * `.acrylic--modal` recipe, so reduced transparency solid-fills it.
  */
 export function Dialog({
   open,
@@ -65,47 +65,50 @@ export function Dialog({
   footer,
   wizard = false,
   presentation,
+  initialFocusRef,
 }: DialogProps) {
+  const reduced = useReducedMotion()
   const isCompact = useIsCompactViewport()
   const resolved: DialogPresentation = presentation ?? (isCompact ? "sheet" : "dialog")
   const panelRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
   const mounted = useMountedPortal(open)
 
-  useFocusTrap(panelRef, open, onClose)
+  useFocusTrap(panelRef, open && mounted, onClose, initialFocusRef)
 
   if (typeof document === "undefined") return null
 
-  const layer = resolved === "sheet" ? "sheet-layer" : "dialog-layer"
-  const panel = resolved === "sheet" ? "sheet" : "dialog"
+  const offset = resolved === "sheet" ? 16 : 8
 
   return createPortal(
-    <AnimatePresence>
+    <AnimatePresence mode="wait">
       {mounted ? (
         <motion.div
           key="dialog-layer"
-          className={layer}
+          className={resolved === "sheet" ? "sheet-layer" : "dialog-layer"}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          exit={{ opacity: 0, transition: exitTransition }}
-          transition={enterTransition}
+          exit={{ opacity: 0 }}
+          transition={tweenEnter}
         >
-          <div
-            className="overlay-backdrop"
-            onClick={onClose}
-            data-testid="dialog-backdrop"
-          />
+          <div className="overlay-backdrop" onClick={onClose} data-testid="dialog-backdrop" />
           <motion.div
             ref={panelRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
             tabIndex={-1}
-            className={wizard ? `${panel} ${panel}--wizard` : panel}
-            initial={{ opacity: 0, y: resolved === "sheet" ? 16 : 8 }}
+            className={
+              resolved === "sheet"
+                ? "sheet acrylic acrylic--modal acrylic--r-top"
+                : wizard
+                  ? "dialog dialog--wizard acrylic acrylic--modal"
+                  : "dialog acrylic acrylic--modal"
+            }
+            initial={{ opacity: 0, y: reduced === true ? 0 : offset }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, transition: exitTransition }}
-            transition={enterTransition}
+            exit={{ opacity: 0 }}
+            transition={tweenEnter}
           >
             {resolved === "sheet" ? <div className="sheet__handle" aria-hidden="true" /> : null}
             <div className={resolved === "sheet" ? "sheet__header" : "dialog__header"}>
@@ -134,28 +137,30 @@ export interface SheetProps {
 }
 
 /**
- * Sheet — compact bottom sheet (§3.3/§4): r `8px 8px 0 0`, 32×4 handle,
- * 48px rows, sticky footer above `--keyboard-inset`, scroll in body only.
+ * Sheet — explicit compact bottom sheet (§6.4/§7): 8/8/0/0 plate, 32×4 handle,
+ * sticky-feeling footer, scroll in the body only. Same acrylic + focus rules
+ * as Dialog.
  */
 export function Sheet({ open, onClose, title, children, footer }: SheetProps) {
+  const reduced = useReducedMotion()
   const panelRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
   const mounted = useMountedPortal(open)
 
-  useFocusTrap(panelRef, open, onClose)
+  useFocusTrap(panelRef, open && mounted, onClose)
 
   if (typeof document === "undefined") return null
 
   return createPortal(
-    <AnimatePresence>
+    <AnimatePresence mode="wait">
       {mounted ? (
         <motion.div
           key="sheet-layer"
           className="sheet-layer"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          exit={{ opacity: 0, transition: exitTransition }}
-          transition={enterTransition}
+          exit={{ opacity: 0 }}
+          transition={tweenEnter}
         >
           <div className="overlay-backdrop" onClick={onClose} />
           <motion.div
@@ -164,11 +169,11 @@ export function Sheet({ open, onClose, title, children, footer }: SheetProps) {
             aria-modal="true"
             aria-labelledby={titleId}
             tabIndex={-1}
-            className="sheet"
-            initial={{ y: 24, opacity: 0 }}
+            className="sheet acrylic acrylic--modal acrylic--r-top"
+            initial={{ y: reduced === true ? 0 : 24, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 24, opacity: 0, transition: exitTransition }}
-            transition={enterTransition}
+            exit={{ opacity: 0 }}
+            transition={tweenEnter}
           >
             <div className="sheet__handle" aria-hidden="true" />
             <div className="sheet__header">

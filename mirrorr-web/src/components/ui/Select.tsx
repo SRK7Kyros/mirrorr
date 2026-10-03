@@ -1,7 +1,8 @@
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { useEffect, useId, useRef, useState } from "react"
 import type { KeyboardEvent as ReactKeyboardEvent } from "react"
 import { IconCheck, IconChevronDown } from "./icons"
+import { ui } from "./motion-tokens"
 
 export interface SelectOption {
   readonly value: string
@@ -16,20 +17,19 @@ export interface SelectProps {
   readonly placeholder?: string
   readonly helper?: string
   readonly error?: string
+  readonly loading?: boolean
   readonly disabled?: boolean
   readonly required?: boolean
   readonly id?: string
 }
 
-/** motion token `ui` — spring 300/24 (§8 component state change). */
-const uiSpring = { type: "spring", stiffness: 300, damping: 24 } as const
-
 /**
- * Select — §4 matrix: trigger mirrors Input (hover/focus/error/disabled),
- * open menu = bg-raised + border-standard + overlay shadow, option hover
- * fill-hover, selected fill-active + 14px check `#7DB1E5`.
- * Keyboard: Enter/Space opens, arrows move, Enter selects, Esc closes and
- * returns focus to trigger; roles listbox/option + aria-haspopup (§4/§7).
+ * Select / combobox — §6.2: trigger mirrors Input (acrylic 0.72/16 or opaque
+ * twin, hover/focus/error/disabled). The listbox is acrylic 0.72/24 (modal
+ * tier), opens on the `ui` token, selected row carries a primary 2px left bar,
+ * the active option takes the two-layer focus ring, and an empty option set
+ * renders "No options." (never a blank popover). Keyboard: Enter/Space/↓ opens,
+ * arrows move, Enter commits, Esc closes and returns focus to the trigger.
  */
 export function Select({
   label,
@@ -39,10 +39,12 @@ export function Select({
   placeholder = "Select…",
   helper,
   error,
+  loading = false,
   disabled = false,
   required = false,
   id,
 }: SelectProps) {
+  const reduced = useReducedMotion()
   const generatedId = useId()
   const selectId = id ?? generatedId
   const helperId = `${selectId}-helper`
@@ -59,14 +61,10 @@ export function Select({
     if (!open) return
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node
-      if (triggerRef.current?.contains(target) !== true) {
-        setOpen(false)
-      }
+      if (triggerRef.current?.contains(target) !== true) setOpen(false)
     }
     document.addEventListener("pointerdown", onPointerDown)
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown)
-    }
+    return () => document.removeEventListener("pointerdown", onPointerDown)
   }, [open])
 
   const closeAndFocus = () => {
@@ -85,11 +83,7 @@ export function Select({
     if (disabled) return
     if (event.key === "Enter" || event.key === " " || event.key === "ArrowDown") {
       event.preventDefault()
-      const startIndex = Math.max(
-        0,
-        options.findIndex((option) => option.value === value),
-      )
-      setActiveIndex(startIndex)
+      setActiveIndex(Math.max(0, options.findIndex((option) => option.value === value)))
       setOpen(true)
     }
   }
@@ -116,6 +110,15 @@ export function Select({
     }
   }
 
+  const triggerClasses = [
+    "select__trigger",
+    "acrylic",
+    "acrylic--input",
+    hasError ? "select__trigger--error" : null,
+  ]
+    .filter((part) => part !== null)
+    .join(" ")
+
   return (
     <div className="field">
       <label className="field__label" id={`${selectId}-label`} htmlFor={selectId}>
@@ -131,12 +134,13 @@ export function Select({
           ref={triggerRef}
           type="button"
           id={selectId}
-          className={hasError ? "select__trigger select__trigger--error" : "select__trigger"}
+          className={triggerClasses}
           aria-haspopup="listbox"
           aria-expanded={open}
           aria-controls={open ? listboxId : undefined}
           aria-required={required || undefined}
           aria-invalid={hasError || undefined}
+          aria-busy={loading || undefined}
           aria-describedby={helperText !== undefined && helperText.length > 0 ? helperId : undefined}
           disabled={disabled}
           onClick={() => {
@@ -157,41 +161,43 @@ export function Select({
               id={listboxId}
               role="listbox"
               aria-labelledby={`${selectId}-label`}
-              className="select__menu"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              transition={uiSpring}
-              style={{ transformOrigin: "top" }}
+              className="select__menu acrylic acrylic--modal acrylic--r-sm"
+              initial={{ opacity: 0, y: reduced === true ? 0 : -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={ui}
               onKeyDown={onListKeyDown}
             >
-              {options.map((option, index) => (
-                <li
-                  key={option.value}
-                  role="option"
-                  aria-selected={option.value === value}
-                  data-active={index === activeIndex}
-                  className="select__option"
-                  onPointerEnter={() => setActiveIndex(index)}
-                  onClick={() => commit(index)}
-                >
-                  <span className="ellipsis">{option.label}</span>
-                  {option.value === value ? (
-                    <span className="select__check">
-                      <IconCheck size={14} />
-                    </span>
-                  ) : null}
+              {options.length === 0 ? (
+                <li className="select__empty" role="presentation">
+                  No options.
                 </li>
-              ))}
+              ) : (
+                options.map((option, index) => (
+                  <li
+                    key={option.value}
+                    role="option"
+                    aria-selected={option.value === value}
+                    data-active={index === activeIndex}
+                    className="select__option"
+                    onPointerEnter={() => setActiveIndex(index)}
+                    onClick={() => commit(index)}
+                  >
+                    <span className="ellipsis">{option.label}</span>
+                    {option.value === value ? (
+                      <span className="select__check">
+                        <IconCheck size={14} />
+                      </span>
+                    ) : null}
+                  </li>
+                ))
+              )}
             </motion.ul>
           ) : null}
         </AnimatePresence>
       </div>
       {helperText !== undefined && helperText.length > 0 ? (
-        <span
-          id={helperId}
-          className={hasError ? "field__helper field__helper--error" : "field__helper"}
-        >
+        <span id={helperId} className={hasError ? "field__helper field__helper--error" : "field__helper"}>
           {helperText}
         </span>
       ) : null}

@@ -1,79 +1,115 @@
-import { IconCheck, IconX } from "./icons"
+import { getStatusDescriptor } from "@/lib/status-map"
+import type { StatusTone } from "@/lib/status-map"
+import {
+  IconCheck,
+  IconClock,
+  IconHelp,
+  IconPackage,
+  IconPlay,
+  IconRecord,
+  IconRemux,
+  IconStop,
+  IconX,
+} from "./icons"
 import { Spinner } from "./Spinner"
 
-export type StatusKey =
-  | "scheduled"
-  | "active"
-  | "recording"
-  | "terminating"
-  | "remuxing"
-  | "finalizing"
-  | "completed"
-  | "failed"
-  | "unknown"
+export type { StatusKey } from "@/lib/status-map"
 
 export interface StatusChipProps {
-  readonly status: StatusKey
-  /** Raw backend title, title-cased for display; unknown status warns once per raw key. */
+  /** A key from the spine's STATUS_MAP (never invented in a view). */
+  readonly status: import("@/lib/status-map").StatusKey
+  /** Display word; views may override (e.g. "Deleting…"). Tone/dot come from the spine. */
   readonly title: string
-  /** Row cells prefer a compact chip without the aria-live chatter (§4). */
+  /** Row cells prefer a compact chip without the aria-live chatter (§6.3). */
   readonly compact?: boolean
   /** Pass for parent-controlled labels (table cells: `aria-labelledby`). */
   readonly titleId?: string
-}
-
-const warnedUnknownTitles = new Set<string>()
-
-function warnUnknownOnce(title: string) {
-  if (warnedUnknownTitles.has(title)) return
-  warnedUnknownTitles.add(title)
-  console.warn(`[status] unknown status: ${title}`)
+  /** §6.3: focus ring when the chip navigates to detail. */
+  readonly clickable?: boolean
 }
 
 /**
- * StatusChip — §4/§2: fills are 12% tints, fg + dot are the RE-BOUND hexes
- * (info→#7DB1E5, ok→#34D399, warn→#FBBF24, danger→#FF6B77, purple→#A7C0E0,
- * neutral→#9AA3B2) declared in tokens.css under `[data-status=…]`.
- * recording pulses its dot 1.6s; remuxing/finalizing swap the dot for the
- * 12px spinner in #A7C0E0; completed/failed get ✓/✕; unknown shows the raw
- * title in neutral with a one-time console.warn.
+ * The §1.4 indicator hue per tone. Tones are the spine's `StatusTone`; the
+ * mapping is the spec's table (indicator colours are the `-deep` set where the
+ * base hue fails 3:1 on surface). The word always renders in `--color-text`.
  */
-export function StatusChip({ status, title, compact = false, titleId }: StatusChipProps) {
-  if (status === "unknown") {
-    warnUnknownOnce(title)
-  }
+const TONE_ATTR: Record<StatusTone, string> = {
+  primary: "primary",
+  secondary: "secondary",
+  success: "success",
+  warning: "warning",
+  danger: "danger",
+  neutral: "neutral",
+}
 
-  const glyph = (() => {
-    if (status === "completed") {
+/**
+ * The §1.4 icon shape per status. The spine carries `check`/`cross` for
+ * completed/failed; the remaining shapes are the spec's table, owned here
+ * because the spine does not model them.
+ */
+const STATUS_ICON: Record<import("@/lib/status-map").StatusKey, () => React.ReactElement> = {
+  scheduled: () => <IconClock size={12} />,
+  active: () => <IconPlay size={12} />,
+  recording: () => <IconRecord size={12} />,
+  terminating: () => <IconStop size={12} />,
+  remuxing: () => <IconRemux size={12} />,
+  finalizing: () => <IconPackage size={12} />,
+  completed: () => <IconCheck size={12} />,
+  failed: () => <IconX size={12} />,
+  unknown: () => <IconHelp size={12} />,
+}
+
+/**
+ * StatusChip — §6.3/§1.4: always the opaque chip twin. Icon + word doubling is
+ * mandatory; the indicator hue rides a 3px left bar and the dot (never the
+ * word — hard law 7). Tone, dot behaviour and the label all come from the
+ * spine (`src/lib/status-map.ts`), so the 9-status binding has one source of
+ * truth. `remuxing`/`finalizing`/`terminating` swap the dot for the spinner;
+ * `recording` pulses (static under reduced motion); `unknown` is the hollow
+ * ring with no hue.
+ */
+export function StatusChip({ status, title, compact = false, titleId, clickable = false }: StatusChipProps) {
+  const descriptor = getStatusDescriptor(status)
+  const tone = TONE_ATTR[descriptor.tone]
+
+  const indicator = (() => {
+    if (descriptor.dot === "spinner") {
       return (
-        <span className="chip__glyph">
-          <IconCheck size={12} />
+        <span className="status-chip__glyph">
+          <Spinner size="sm" />
         </span>
       )
     }
-    if (status === "failed") {
-      return (
-        <span className="chip__glyph">
-          <IconX size={12} />
-        </span>
-      )
+    if (descriptor.dot === "pulse") {
+      return <span className="status-chip__dot status-chip__dot--pulse" aria-hidden="true" />
     }
-    if (status === "remuxing" || status === "finalizing") {
-      return <Spinner size="sm" />
-    }
-    return <span className="chip__dot" aria-hidden="true" />
+    return <span className="status-chip__dot" aria-hidden="true" />
   })()
+
+  const classes = [
+    "status-chip",
+    compact ? "status-chip--compact" : null,
+    clickable ? "status-chip--clickable" : null,
+  ]
+    .filter((part) => part !== null)
+    .join(" ")
 
   return (
     <span
-      className={compact ? "chip chip--compact" : "chip"}
+      className={classes}
       data-status={status}
+      data-tone={tone}
+      data-dot={descriptor.dot}
       aria-live={compact ? undefined : "polite"}
+      aria-label={`Status: ${title}`}
       title={status === "unknown" ? title : undefined}
     >
-      {glyph}
-      {/* §1/§4: chip label is 12/500 Title Case — label-caps is <th>/legend only */}
-      <span id={titleId} className="chip__label">
+      <span className="status-chip__bar" aria-hidden="true" />
+      {indicator}
+      <span className="status-chip__glyph" aria-hidden="true">
+        {STATUS_ICON[status]()}
+      </span>
+      <span id={titleId} className="status-chip__label">
         {title}
       </span>
     </span>

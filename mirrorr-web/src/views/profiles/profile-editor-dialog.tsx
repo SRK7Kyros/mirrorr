@@ -2,15 +2,14 @@ import { useState } from "react"
 import { Dialog } from "@/components/ui/Dialog"
 import { Input } from "@/components/ui/Input"
 import { Button } from "@/components/ui/Button"
+import { Fieldset } from "@/components/ui/FormField"
 import { useToast } from "@/components/ui/Toast"
 import { ApiError } from "@/lib/api"
 import type { Profile } from "@/lib/schemas"
 import { createProfile, updateProfile } from "@/views/shared/api"
 import { useEngines, useResolvers } from "@/views/shared/hooks"
-import {
-  ConfigFields,
-  type ConfigFieldsValue,
-} from "@/views/shared/config-fields"
+import { ConfigFields, type ConfigFieldsValue } from "@/views/shared/config-fields"
+import "@/styles/views-entities.css"
 
 export interface ProfileEditorDialogProps {
   readonly open: boolean
@@ -32,7 +31,7 @@ function configOf(profile: Profile | null): ConfigFieldsValue {
   }
 }
 
-/** V8 editor dialog — DynamicSchemaForm from engines/resolvers config_schema. */
+/** §5.8 primary — New/Edit profile, dynamic form from the resolver + retry schemas. */
 export function ProfileEditorDialog({ open, onClose, editing = null }: ProfileEditorDialogProps) {
   const engines = useEngines()
   const resolvers = useResolvers()
@@ -72,7 +71,7 @@ export function ProfileEditorDialog({ open, onClose, editing = null }: ProfileEd
     <Dialog
       open={open}
       onClose={onClose}
-      title={editing === null ? "New profile" : `Edit profile — ${editing.name}`}
+      title={editing === null ? "New profile" : "Edit profile"}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -84,25 +83,27 @@ export function ProfileEditorDialog({ open, onClose, editing = null }: ProfileEd
         </>
       }
     >
-      <div className="stack" style={{ gap: "var(--space-md)" }}>
+      <div className="ve-form">
         <Input
           label="Name"
-          mono
           value={name}
           required
           error={fieldErrors.name}
+          helper="Duplicate names are rejected by the server."
           onChange={(event) => setName(event.target.value)}
         />
-        <ConfigFields
-          value={config}
-          onChange={(next) => setConfig((current) => ({ ...current, ...next }))}
-          engines={engines}
-          resolvers={resolvers}
-          errors={fieldErrors}
-          showRecording={false}
-        />
-        <p className="t-meta">
-          Dynamic forms come from the resolver `config_schema` and the engine retry-mode schema.
+        <Fieldset legend="Engine, resolver & retry">
+          <ConfigFields
+            value={config}
+            onChange={(next) => setConfig((current) => ({ ...current, ...next }))}
+            engines={engines}
+            resolvers={resolvers}
+            errors={fieldErrors}
+            showRecording={false}
+          />
+        </Fieldset>
+        <p className="ve-note">
+          Fields are generated from the resolver `config_schema` and the engine retry-mode schema.
         </p>
       </div>
     </Dialog>

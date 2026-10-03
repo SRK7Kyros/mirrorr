@@ -1,4 +1,5 @@
 import { useMemo } from "react"
+import { Fieldset } from "@/components/ui/FormField"
 import { Select } from "@/components/ui/Select"
 import { Switch } from "@/components/ui/Switch"
 import {
@@ -139,8 +140,7 @@ export function ConfigFields({
         />
       ) : null}
       {hasSchemaFields(retry.schema) ? (
-        <fieldset>
-          <legend className="card__legend">Retry config</legend>
+        <Fieldset legend="Retry config">
           <DynamicSchemaForm
             schema={retry.schema}
             value={value.retryConfig}
@@ -149,7 +149,7 @@ export function ConfigFields({
             errors={errors}
             disabled={disabled}
           />
-        </fieldset>
+        </Fieldset>
       ) : null}
       {showRecording ? (
         <Switch

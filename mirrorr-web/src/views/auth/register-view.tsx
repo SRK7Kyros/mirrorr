@@ -2,155 +2,174 @@ import { Navigate, useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
 import type { FormEvent } from "react"
 import { Button } from "@/components/ui/Button"
+import { ErrorPanel } from "@/components/ui/ErrorPanel"
 import { Input } from "@/components/ui/Input"
-import { Spinner } from "@/components/ui/Spinner"
 import { useToast } from "@/components/ui/Toast"
 import { useAuthStatus } from "@/hooks/use-auth-status"
 import { useRateLimitLock } from "@/hooks/use-rate-limit-lock"
 import { ApiError } from "@/lib/api"
 import { register } from "@/lib/auth"
+import { AuthFrame, AuthSplash, RATE_LIMIT_TITLE, REGISTER_LOCK_MS } from "./auth-frame"
+import "@/styles/views-admin.css"
 
-const PASSWORDS_MISMATCH = "Passwords do not match"
-const API_UNREACHABLE = "API unreachable"
-const UNEXPECTED_RESPONSE = "Unexpected server response"
-const RATE_LIMITED_TITLE = "Too many attempts — try again shortly"
-const PENDING_APPROVAL = "Registration pending approval"
+const NAME_TAKEN = "A resource with that name already exists."
+const UNREACHABLE = "Cannot reach the recorder — retry"
+const UNEXPECTED = "Unexpected server response"
 
 /**
- * V2 Register (spec §5): same card geometry as V1; full-page spinner while
- * `GET /auth/status` loads; any result other than `has_users === false`
- * redirects to /login; 422 → per-field Input errors; success → /sessions.
+ * §5.2 Auth — Register. Bootstrap (no users) owns "Create first admin account";
+ * an admin-initiated mount flips the label to "Create user". Handles the
+ * approval-gated `{status:"pending"}` response, 400 duplicate name inline on
+ * the username, 403 non-admin, 422 `loc` mapping and the 5/60s 429 lock.
  */
 export function RegisterView() {
   const navigate = useNavigate()
   const { toast } = useToast()
   const authStatus = useAuthStatus()
-  const { locked, remainingSeconds, lock } = useRateLimitLock()
+  const { locked, remainingSeconds, lock } = useRateLimitLock(REGISTER_LOCK_MS)
   const [username, setUsername] = useState("")
-  const [displayName, setDisplayName] = useState("")
   const [password, setPassword] = useState("")
-  const [confirmPassword, setConfirmPassword] = useState("")
+  const [displayName, setDisplayName] = useState("")
   const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, string>>>({})
   const [formError, setFormError] = useState<string | null>(null)
+  const [unreachable, setUnreachable] = useState(false)
+  const [notAdmin, setNotAdmin] = useState(false)
+  const [pending, setPending] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  if (authStatus.isLoading) {
-    return (
-      <div className="auth-status">
-        <Spinner size="lg" label="Loading" />
-      </div>
-    )
-  }
+  const bootstrap = authStatus.status?.has_users === false
 
-  // Bootstrap only: unknown status (429/network) or existing users → login.
-  if (authStatus.status?.has_users !== false) {
-    return <Navigate to="/login" />
-  }
+  if (authStatus.isLoading) return <AuthSplash title="Create an account" />
+  if (!bootstrap) return <Navigate to="/login" />
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault()
+  const submit = async (): Promise<void> => {
     if (submitting || locked) return
-    if (password !== confirmPassword) {
-      setFieldErrors({ confirm_password: PASSWORDS_MISMATCH })
-      setFormError(null)
-      return
-    }
     setSubmitting(true)
     setFieldErrors({})
     setFormError(null)
+    setUnreachable(false)
+    setNotAdmin(false)
+    setPending(null)
     try {
       const result = await register(username, password, displayName)
       if ("status" in result) {
-        setFormError(PENDING_APPROVAL)
+        setPending(typeof result.username === "string" ? result.username : username)
         return
       }
       await navigate({ to: "/sessions" })
-    } catch (err) {
-      if (err instanceof ApiError) {
-        if (err.status === 422 && err.fieldErrors !== undefined) {
-          const { _form, ...rest } = err.fieldErrors
+    } catch (error) {
+      if (error instanceof ApiError) {
+        if (error.status === 400) setFieldErrors({ username: error.message === "" ? NAME_TAKEN : error.message })
+        else if (error.status === 403) setNotAdmin(true)
+        else if (error.status === 429) {
+          toast({ kind: "error", title: RATE_LIMIT_TITLE })
+          lock()
+        } else if (error.status === 0 || error.status >= 500) setUnreachable(true)
+        else if (error.status === 422 && error.fieldErrors !== undefined) {
+          const { _form, ...rest } = error.fieldErrors
           setFieldErrors(rest)
           if (_form !== undefined) setFormError(_form)
-        } else if (err.status === 429) {
-          toast({ kind: "error", title: RATE_LIMITED_TITLE })
-          lock()
-        } else if (err.status === 0) {
-          setFormError(API_UNREACHABLE)
-        } else {
-          setFormError(err.message)
-        }
+        } else setFormError(error.message)
       } else {
-        setFormError(UNEXPECTED_RESPONSE)
+        setFormError(UNEXPECTED)
       }
     } finally {
       setSubmitting(false)
     }
   }
 
+  const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault()
+    void submit()
+  }
+
+  const disabled = submitting || locked
+
   return (
-    <main className="auth-page">
-      <div className="auth-card">
-        <h1 className="t-h2">Create the first admin account</h1>
-        <form className="auth-form" onSubmit={handleSubmit} noValidate>
-          <Input
-            label="Username"
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-            error={fieldErrors.username}
-            autoComplete="username"
-            enterKeyHint="next"
-            required
-            disabled={submitting}
-          />
-          <Input
-            label="Display name (optional)"
-            value={displayName}
-            onChange={(event) => setDisplayName(event.target.value)}
-            error={fieldErrors.display_name}
-            autoComplete="nickname"
-            disabled={submitting}
-          />
-          <Input
-            label="Password"
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            error={fieldErrors.password}
-            autoComplete="new-password"
-            enterKeyHint="next"
-            required
-            disabled={submitting}
-          />
-          <Input
-            label="Confirm password"
-            type="password"
-            value={confirmPassword}
-            onChange={(event) => setConfirmPassword(event.target.value)}
-            error={fieldErrors.confirm_password}
-            autoComplete="new-password"
-            enterKeyHint="go"
-            required
-            disabled={submitting}
-          />
-          <p className="auth-hint">This first account becomes the administrator</p>
-          <Button
-            type="submit"
-            variant="primary"
-            className="auth-submit"
-            loading={submitting}
-            disabled={submitting || locked}
-          >
-            {locked
-              ? `Create admin account — retry in ${remainingSeconds}s`
-              : "Create admin account"}
-          </Button>
-        </form>
-        {formError !== null ? (
-          <p className="auth-error" role="alert">
-            {formError}
+    <AuthFrame
+      title={bootstrap ? "Create the first admin account" : "Create an account"}
+      footnote={
+        bootstrap ? (
+          <p className="t-body adm-muted adm-measure">
+            This first account becomes the administrator.
           </p>
-        ) : null}
-      </div>
-    </main>
+        ) : undefined
+      }
+    >
+      {pending !== null ? (
+        <div className="adm-notice" role="status">
+          <span className="adm-banner__title">Registration pending approval</span>
+          <p className="t-body adm-measure">
+            {`'${pending}' was submitted. An administrator must approve it before it can sign in.`}
+          </p>
+          <div className="adm-row">
+            <Button variant="secondary" onClick={() => void navigate({ to: "/login" })}>
+              Return to sign in
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {notAdmin ? (
+        <ErrorPanel
+          title="Not admin"
+          body="Only an administrator can create accounts."
+          actions={
+            <Button variant="secondary" onClick={() => void navigate({ to: "/sessions" })}>
+              Back to the app
+            </Button>
+          }
+        />
+      ) : null}
+      {locked ? (
+        <ErrorPanel title={RATE_LIMIT_TITLE} body={`Retry in ${remainingSeconds}s`} />
+      ) : unreachable ? (
+        <ErrorPanel
+          title={UNREACHABLE}
+          actions={
+            <Button variant="secondary" onClick={() => void submit()}>
+              Retry
+            </Button>
+          }
+        />
+      ) : formError !== null ? (
+        <ErrorPanel title={formError} />
+      ) : null}
+      <form className="auth-form" onSubmit={handleSubmit} noValidate>
+        <Input
+          label="Username"
+          value={username}
+          onChange={(event) => setUsername(event.target.value)}
+          error={fieldErrors.username}
+          autoComplete="username"
+          enterKeyHint="next"
+          required
+          disabled={disabled}
+        />
+        <Input
+          label="Password"
+          type="password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          error={fieldErrors.password}
+          autoComplete="new-password"
+          enterKeyHint="next"
+          required
+          disabled={disabled}
+        />
+        <Input
+          label="Display name"
+          helper="Shown in the users list."
+          value={displayName}
+          onChange={(event) => setDisplayName(event.target.value)}
+          error={fieldErrors.display_name}
+          autoComplete="nickname"
+          enterKeyHint="go"
+          disabled={disabled}
+        />
+        <Button type="submit" variant="primary" className="auth-submit" loading={submitting} disabled={disabled}>
+          {bootstrap ? "Create first admin account" : "Create user"}
+        </Button>
+      </form>
+    </AuthFrame>
   )
 }

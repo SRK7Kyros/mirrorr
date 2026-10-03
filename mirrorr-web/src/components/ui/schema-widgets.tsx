@@ -94,7 +94,7 @@ export function SchemaGroup({ legend, children }: { legend: string; children: Re
         <summary className="schema-group__toggle" id={groupId}>
           {legend}
         </summary>
-        <div className="stack" style={{ gap: "var(--space-smd)" }}>
+        <div className="stack" style={{ gap: "var(--space-sm)" }}>
           {children}
         </div>
       </details>

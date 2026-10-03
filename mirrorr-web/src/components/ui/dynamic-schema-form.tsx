@@ -321,7 +321,7 @@ export function DynamicSchemaForm({
   if (legend === undefined) return body
   return (
     <fieldset>
-      <legend className="card__legend">{legend}</legend>
+      <legend className="fieldset__legend">{legend}</legend>
       {body}
     </fieldset>
   )
