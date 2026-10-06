@@ -1,0 +1,808 @@
+import { useEffect, useMemo, useState, type FormEvent } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  ApiError,
+  createProfile,
+  deleteProfile,
+  downloadJson,
+  fetchProfileExport,
+  getErrorMessage,
+  isAdmin,
+  removeFromInfiniteLists,
+  updateProfile,
+  useEntityList,
+  useNameMaps,
+  type NameMaps,
+  type ProfileBody,
+} from "@/api"
+import { fetchAllEngines, fetchAllResolvers, fetchProfilePage } from "@/api/endpoints"
+import { queryKeys, queryRoots, resolveEntityName, staleTimes } from "@/api/query-keys"
+import type { Engine, Profile, Resolver } from "@/api/schemas"
+import { humanize, showingLabel, truncate } from "@/ui/lib/format"
+import {
+  Banner,
+  Button,
+  ConfirmDialog,
+  Dialog,
+  EmptyState,
+  ErrorPanel,
+  Field,
+  IconButton,
+  IconDownload,
+  IconEdit,
+  IconPlus,
+  IconProfiles,
+  IconRefresh,
+  IconSearch,
+  IconTrash,
+  Input,
+  LoadMore,
+  Panel,
+  PanelBody,
+  Select,
+  SkeletonRows,
+  Switch,
+  Table,
+  Tag,
+  Td,
+  Textarea,
+  Th,
+  toast,
+} from "@/ui/components"
+import { Page } from "@/ui/views/shared/page"
+
+/**
+ * Profiles — the one resource here with create + update + delete (spec §5.8).
+ * The dialog renders `resolver_config` from the resolver's `config_schema` and
+ * the retry params from the engine's `retry_modes_schema`, both plain JSON
+ * Schemas, so no plugin-specific fields are hardcoded.
+ */
+
+type JsonSchema = Record<string, unknown>
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
+function schemaProperties(schema: JsonSchema | undefined): Record<string, JsonSchema> {
+  return asObject(schema?.["properties"]) as Record<string, JsonSchema>
+}
+
+function schemaRequired(schema: JsonSchema | undefined): readonly string[] {
+  const required = schema?.["required"]
+  return Array.isArray(required) ? required.filter((item): item is string => typeof item === "string") : []
+}
+
+function schemaType(schema: JsonSchema): string {
+  const type = schema["type"]
+  return typeof type === "string" ? type : ""
+}
+
+function schemaLabel(name: string, schema: JsonSchema): string {
+  const title = schema["title"]
+  return typeof title === "string" && title !== "" ? title : humanize(name)
+}
+
+function schemaHint(schema: JsonSchema): string | undefined {
+  const description = schema["description"]
+  return typeof description === "string" && description !== "" ? description : undefined
+}
+
+function pick(source: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const key of keys) out[key] = source[key]
+  return out
+}
+
+/** Seed a config object from the schema's declared `default`s. */
+function defaultsFromSchema(schema: JsonSchema | undefined): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, field] of Object.entries(schemaProperties(schema))) {
+    if (field["default"] !== undefined) out[key] = field["default"]
+  }
+  return out
+}
+
+/** JSON textarea for untyped fields and keys the schema does not declare. */
+function JsonField({
+  label,
+  hint,
+  value,
+  onChange,
+  idPrefix,
+}: {
+  readonly label: string
+  readonly hint?: string | undefined
+  readonly value: unknown
+  readonly onChange: (next: unknown) => void
+  readonly idPrefix: string
+}) {
+  const [text, setText] = useState(() => JSON.stringify(value ?? {}, null, 2))
+  const [error, setError] = useState<string | null>(null)
+  const id = `${idPrefix}-json`
+
+  function commit(): void {
+    try {
+      onChange(JSON.parse(text) as unknown)
+      setError(null)
+    } catch {
+      setError("Invalid JSON")
+    }
+  }
+
+  return (
+    <Field label={label} htmlFor={id} hint={hint ?? "JSON"} error={error}>
+      <Textarea
+        id={id}
+        rows={3}
+        spellCheck={false}
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onBlur={commit}
+      />
+    </Field>
+  )
+}
+
+function SchemaField({
+  name,
+  schema,
+  required,
+  value,
+  onChange,
+  idPrefix,
+}: {
+  readonly name: string
+  readonly schema: JsonSchema
+  readonly required: boolean
+  readonly value: unknown
+  readonly onChange: (next: unknown) => void
+  readonly idPrefix: string
+}) {
+  const id = `${idPrefix}-${name}`
+  const label = schemaLabel(name, schema)
+  const hint = schemaHint(schema)
+  const type = schemaType(schema)
+  const options = Array.isArray(schema["enum"]) ? (schema["enum"] as readonly unknown[]) : null
+
+  if (options !== null) {
+    return (
+      <Field label={label} htmlFor={id} required={required} hint={hint}>
+        <Select
+          id={id}
+          value={value === undefined || value === null ? "" : String(value)}
+          onChange={(event) =>
+            onChange(options.find((option) => String(option) === event.target.value) ?? event.target.value)
+          }
+        >
+          <option value="">Select…</option>
+          {options.map((option) => (
+            <option key={String(option)} value={String(option)}>
+              {String(option)}
+            </option>
+          ))}
+        </Select>
+      </Field>
+    )
+  }
+
+  if (type === "boolean") {
+    return (
+      <Field label={label} hint={hint}>
+        <Switch checked={value === true} onChange={(event) => onChange(event.target.checked)} />
+      </Field>
+    )
+  }
+
+  if (type === "integer" || type === "number") {
+    return (
+      <Field label={label} htmlFor={id} required={required} hint={hint}>
+        <Input
+          id={id}
+          type="number"
+          value={typeof value === "number" ? String(value) : ""}
+          min={typeof schema["minimum"] === "number" ? schema["minimum"] : undefined}
+          max={typeof schema["maximum"] === "number" ? schema["maximum"] : undefined}
+          onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))}
+        />
+      </Field>
+    )
+  }
+
+  if (type === "array") {
+    return (
+      <Field label={label} htmlFor={id} required={required} hint={hint ?? "Comma-separated values"}>
+        <Input
+          id={id}
+          value={Array.isArray(value) ? value.join(", ") : ""}
+          onChange={(event) =>
+            onChange(
+              event.target.value
+                .split(",")
+                .map((part) => part.trim())
+                .filter((part) => part !== ""),
+            )
+          }
+        />
+      </Field>
+    )
+  }
+
+  if (type === "object") {
+    return (
+      <details className="field" open>
+        <summary className="field-label" style={{ cursor: "pointer" }}>
+          {label}
+        </summary>
+        {hint !== undefined ? <span className="field-hint">{hint}</span> : null}
+        <div className="stack-sm" style={{ marginTop: "var(--s-2)" }}>
+          <SchemaForm schema={schema} value={asObject(value)} onChange={onChange} idPrefix={id} />
+        </div>
+      </details>
+    )
+  }
+
+  return <JsonField label={label} hint={hint} value={value} onChange={onChange} idPrefix={id} />
+}
+
+function SchemaForm({
+  schema,
+  value,
+  onChange,
+  idPrefix,
+}: {
+  readonly schema: JsonSchema | undefined
+  readonly value: Record<string, unknown>
+  readonly onChange: (next: Record<string, unknown>) => void
+  readonly idPrefix: string
+}) {
+  const properties = schemaProperties(schema)
+  const required = schemaRequired(schema)
+  const keys = Object.keys(properties)
+  const extras = Object.keys(value).filter((key) => !(key in properties))
+  if (keys.length === 0 && extras.length === 0) return null
+
+  return (
+    <div className="stack">
+      {keys.map((key) => (
+        <SchemaField
+          key={key}
+          name={key}
+          schema={properties[key]}
+          required={required.includes(key)}
+          value={value[key]}
+          idPrefix={idPrefix}
+          onChange={(next) => onChange({ ...value, [key]: next })}
+        />
+      ))}
+      {extras.length > 0 ? (
+        <JsonField
+          label="Additional fields"
+          value={pick(value, extras)}
+          idPrefix={idPrefix}
+          onChange={(next) => onChange({ ...pick(value, keys), ...asObject(next) })}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+function configSummary(config: Record<string, unknown> | undefined): string {
+  const entries = Object.entries(config ?? {})
+  if (entries.length === 0) return "—"
+  return truncate(entries.map(([key, value]) => `${key}=${String(value)}`).join(", "), 48)
+}
+
+interface ProfileRowProps {
+  readonly profile: Profile
+  readonly names: NameMaps
+  readonly showOwner: boolean
+  readonly onEdit: (profile: Profile) => void
+  readonly onDelete: (profile: Profile) => void
+  readonly onExport: (profile: Profile) => void
+}
+
+function ProfileRow({ profile, names, showOwner, onEdit, onDelete, onExport }: ProfileRowProps) {
+  return (
+    <tr data-id={profile.id}>
+      <Td>
+        <span className="text-truncate" title={profile.name}>
+          {profile.name}
+        </span>
+      </Td>
+      <Td>
+        {resolveEntityName(profile.engine_name, names.engines, profile.default_engine_id)}
+        <span className="text-dim" aria-hidden="true">
+          {" → "}
+        </span>
+        {resolveEntityName(profile.resolver_name, names.resolvers, profile.resolver_id)}
+      </Td>
+      <Td>
+        {profile.retry_mode !== undefined && profile.retry_mode !== "" ? (
+          <Tag accent>{humanize(profile.retry_mode)}</Tag>
+        ) : (
+          <span className="text-dim">No retry</span>
+        )}
+      </Td>
+      <Td>
+        <span className="mono text-truncate" title={JSON.stringify(profile.resolver_config ?? {})}>
+          {configSummary(profile.resolver_config)}
+        </span>
+      </Td>
+      {showOwner ? (
+        <Td>
+          {profile.requester_user_token !== undefined && profile.requester_user_token !== "" ? (
+            <span className="mono text-truncate" title={profile.requester_user_token}>
+              {profile.requester_user_token.slice(0, 8)}…
+            </span>
+          ) : (
+            <span className="text-dim">—</span>
+          )}
+        </Td>
+      ) : null}
+      <Td actions>
+        <div className="row" style={{ gap: "var(--s-2)" }}>
+          <IconButton
+            label={`Export profile ${profile.name}`}
+            icon={<IconDownload size={15} />}
+            onClick={() => onExport(profile)}
+          />
+          <IconButton
+            label={`Edit profile ${profile.name}`}
+            icon={<IconEdit size={15} />}
+            onClick={() => onEdit(profile)}
+          />
+          <IconButton
+            label={`Delete profile ${profile.name}`}
+            icon={<IconTrash size={15} />}
+            onClick={() => onDelete(profile)}
+          />
+        </div>
+      </Td>
+    </tr>
+  )
+}
+
+interface ProfileDialogProps {
+  readonly open: boolean
+  readonly onClose: () => void
+  readonly profile: Profile | null
+  readonly engines: readonly Engine[]
+  readonly resolvers: readonly Resolver[]
+  readonly schemasLoading: boolean
+  readonly existingNames: readonly { id: number; name: string }[]
+}
+
+function ProfileDialog({
+  open,
+  onClose,
+  profile,
+  engines,
+  resolvers,
+  schemasLoading,
+  existingNames,
+}: ProfileDialogProps) {
+  const queryClient = useQueryClient()
+  const [name, setName] = useState(profile?.name ?? "")
+  const [engineId, setEngineId] = useState(profile !== null ? String(profile.default_engine_id) : "")
+  const [resolverId, setResolverId] = useState(profile !== null ? String(profile.resolver_id) : "")
+  const [resolverConfig, setResolverConfig] = useState<Record<string, unknown>>(profile?.resolver_config ?? {})
+  const [retryMode, setRetryMode] = useState(profile?.retry_mode ?? "")
+  const [retryConfig, setRetryConfig] = useState<Record<string, unknown>>(profile?.retry_config ?? {})
+  const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, string>>>({})
+
+  // Reset the form each time the dialog opens (create after create, or a
+  // different row) — `profile` identity is stable while the dialog is open.
+  useEffect(() => {
+    if (!open) return
+    setName(profile?.name ?? "")
+    setEngineId(profile !== null ? String(profile.default_engine_id) : "")
+    setResolverId(profile !== null ? String(profile.resolver_id) : "")
+    setResolverConfig(profile?.resolver_config ?? {})
+    setRetryMode(profile?.retry_mode ?? "")
+    setRetryConfig(profile?.retry_config ?? {})
+    setError(null)
+    setFieldErrors({})
+  }, [open, profile])
+
+  const engine = engines.find((item) => String(item.id) === engineId)
+  const resolver = resolvers.find((item) => String(item.id) === resolverId)
+  const retryModes = asObject(engine?.retry_modes_schema)
+  const retryModeKeys = Object.keys(retryModes)
+  const retryEntry = asObject(retryModeKeys.includes(retryMode) ? retryModes[retryMode] : undefined)
+  const retrySchema = asObject(retryEntry["schema"])
+
+  const duplicate =
+    name.trim() !== "" &&
+    existingNames.some(
+      (item) => item.id !== (profile?.id ?? -1) && item.name.toLowerCase() === name.trim().toLowerCase(),
+    )
+
+  const save = useMutation({
+    mutationFn: (body: ProfileBody) => (profile === null ? createProfile(body) : updateProfile(profile.id, body)),
+    onSuccess: (saved) => {
+      void queryClient.invalidateQueries({ queryKey: queryRoots.profiles })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.profile(saved.id) })
+      toast.success(profile === null ? "Profile created" : "Profile updated", saved.name)
+      onClose()
+    },
+    onError: (caught) => {
+      if (caught instanceof ApiError && caught.fieldErrors !== undefined) setFieldErrors(caught.fieldErrors)
+      setError(getErrorMessage(caught, "Could not save the profile"))
+    },
+  })
+
+  function changeEngine(nextId: string): void {
+    setEngineId(nextId)
+    setRetryMode("")
+    setRetryConfig({})
+  }
+
+  function changeResolver(nextId: string): void {
+    setResolverId(nextId)
+    setResolverConfig(defaultsFromSchema(resolvers.find((item) => String(item.id) === nextId)?.config_schema))
+  }
+
+  function changeRetryMode(nextMode: string): void {
+    setRetryMode(nextMode)
+    setRetryConfig(asObject(asObject(retryModes[nextMode])["default_params"]))
+  }
+
+  function onSubmit(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault()
+    if (save.isPending) return
+    setError(null)
+    setFieldErrors({})
+    if (name.trim() === "") {
+      setError("Name is required")
+      return
+    }
+    if (engineId === "" || resolverId === "") {
+      setError("Pick an engine and a resolver")
+      return
+    }
+    save.mutate({
+      name: name.trim(),
+      default_engine_id: Number(engineId),
+      resolver_id: Number(resolverId),
+      resolver_config: resolverConfig,
+      ...(retryMode === "" ? {} : { retry_mode: retryMode, retry_config: retryConfig }),
+    })
+  }
+
+  const nameError = duplicate
+    ? "A profile with this name already exists."
+    : (fieldErrors.name ?? null)
+  const engineError = fieldErrors.default_engine_id ?? fieldErrors.engine_id ?? null
+  const resolverError = fieldErrors.resolver_id ?? null
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      size="lg"
+      title={profile === null ? "New profile" : "Edit profile"}
+      description="A profile saves an engine, resolver and retry policy for reuse."
+      busy={save.isPending}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={save.isPending}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            type="submit"
+            form="profile-form"
+            loading={save.isPending}
+            disabled={duplicate || name.trim() === ""}
+          >
+            {profile === null ? "Create profile" : "Save changes"}
+          </Button>
+        </>
+      }
+    >
+      <form id="profile-form" className="stack" onSubmit={onSubmit}>
+        {error !== null ? <Banner kind="danger" title={error} /> : null}
+
+        <Field label="Name" htmlFor="profile-name" required error={nameError}>
+          <Input
+            id="profile-name"
+            value={name}
+            autoComplete="off"
+            placeholder="e.g. nightly-news"
+            onChange={(event) => setName(event.target.value)}
+          />
+        </Field>
+
+        <div className="grid-2">
+          <Field label="Engine" htmlFor="profile-engine" required error={engineError}>
+            <Select id="profile-engine" value={engineId} onChange={(event) => changeEngine(event.target.value)}>
+              <option value="">Select an engine…</option>
+              {engines.map((item) => (
+                <option key={item.id} value={String(item.id)}>
+                  {item.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Resolver" htmlFor="profile-resolver" required error={resolverError}>
+            <Select id="profile-resolver" value={resolverId} onChange={(event) => changeResolver(event.target.value)}>
+              <option value="">Select a resolver…</option>
+              {resolvers.map((item) => (
+                <option key={item.id} value={String(item.id)}>
+                  {item.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+
+        <section className="stack-sm">
+          <h3 className="panel-title">Resolver config</h3>
+          {schemasLoading ? (
+            <SkeletonRows rows={3} cols={2} />
+          ) : resolver === undefined ? (
+            <p className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
+              Pick a resolver to configure it.
+            </p>
+          ) : (
+            <SchemaForm
+              schema={resolver.config_schema}
+              value={resolverConfig}
+              onChange={setResolverConfig}
+              idPrefix="profile-resolver-config"
+            />
+          )}
+          {fieldErrors.resolver_config !== undefined ? (
+            <span className="field-error" role="alert">
+              {fieldErrors.resolver_config}
+            </span>
+          ) : null}
+        </section>
+
+        <section className="stack-sm">
+          <h3 className="panel-title">Retry policy</h3>
+          {engine === undefined ? (
+            <p className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
+              Pick an engine to configure retries.
+            </p>
+          ) : retryModeKeys.length === 0 ? (
+            <p className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
+              This engine declares no retry modes.
+            </p>
+          ) : (
+            <>
+              <Field label="Mode" htmlFor="profile-retry-mode" error={fieldErrors.retry_mode ?? null}>
+                <Select
+                  id="profile-retry-mode"
+                  value={retryMode}
+                  onChange={(event) => changeRetryMode(event.target.value)}
+                >
+                  <option value="">No retry</option>
+                  {retryModeKeys.map((key) => (
+                    <option key={key} value={key}>
+                      {humanize(key)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              {retryMode !== "" ? (
+                <SchemaForm
+                  schema={retrySchema}
+                  value={retryConfig}
+                  onChange={setRetryConfig}
+                  idPrefix="profile-retry-config"
+                />
+              ) : null}
+              {fieldErrors.retry_config !== undefined ? (
+                <span className="field-error" role="alert">
+                  {fieldErrors.retry_config}
+                </span>
+              ) : null}
+            </>
+          )}
+        </section>
+      </form>
+    </Dialog>
+  )
+}
+
+export function ProfilesView() {
+  const queryClient = useQueryClient()
+  const [search, setSearch] = useState("")
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editing, setEditing] = useState<Profile | null>(null)
+  const [pending, setPending] = useState<Profile | null>(null)
+  const showOwner = isAdmin()
+  const names = useNameMaps()
+
+  const enginesQuery = useQuery({
+    queryKey: queryKeys.engines,
+    queryFn: () => fetchAllEngines(),
+    staleTime: staleTimes.lookup,
+  })
+  const resolversQuery = useQuery({
+    queryKey: queryKeys.resolvers,
+    queryFn: () => fetchAllResolvers(),
+    staleTime: staleTimes.lookup,
+  })
+
+  const list = useEntityList<Profile>({
+    queryKey: queryKeys.profiles(),
+    fetchPage: (cursor) => fetchProfilePage(cursor),
+  })
+  const { hasMore, isFetching, loadingAll, loadAll } = list
+
+  const rows = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (term === "") return list.items
+    return list.items.filter((profile) =>
+      [profile.name, profile.engine_name ?? "", profile.resolver_name ?? "", profile.retry_mode ?? ""]
+        .join(" ")
+        .toLowerCase()
+        .includes(term),
+    )
+  }, [list.items, search])
+
+  const remove = useMutation({
+    mutationFn: (id: number) => deleteProfile(id),
+    onSuccess: (_data, id) => {
+      removeFromInfiniteLists(queryClient, queryRoots.profiles, id)
+      queryClient.removeQueries({ queryKey: queryKeys.profile(id) })
+      void queryClient.invalidateQueries({ queryKey: queryRoots.profiles })
+      toast.success("Profile deleted")
+    },
+    onError: (error) => toast.error("Could not delete the profile", getErrorMessage(error, "Request failed")),
+  })
+
+  const exportProfile = useMutation({
+    mutationFn: (profile: Profile) => fetchProfileExport(profile.id),
+    onSuccess: (bundle, profile) => {
+      if (downloadJson(`${profile.name}.json`, bundle)) toast.success("Profile exported", profile.name)
+      else toast.error("Export failed", "The download could not be started.")
+    },
+    onError: (error) => toast.error("Could not export the profile", getErrorMessage(error, "Request failed")),
+  })
+
+  const openCreate = (): void => {
+    setEditing(null)
+    setDialogOpen(true)
+  }
+  const openEdit = (profile: Profile): void => {
+    setEditing(profile)
+    setDialogOpen(true)
+  }
+
+  const showOwnerColumn = showOwner
+  const columnCount = showOwnerColumn ? 6 : 5
+
+  return (
+    <Page
+      title="Profiles"
+      description="Reusable engine + resolver + retry presets. Start a session or autorun from one."
+      actions={
+        <Button variant="primary" icon={<IconPlus size={16} />} onClick={openCreate}>
+          New profile
+        </Button>
+      }
+    >
+      <div className="toolbar">
+        <span className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
+          {showingLabel(rows.length)}
+        </span>
+        <div className="toolbar-spacer" />
+        <div className="toolbar-search">
+          <span className="toolbar-search-icon" aria-hidden="true">
+            <IconSearch size={15} />
+          </span>
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Filter by name, engine, resolver…"
+            aria-label="Filter profiles"
+          />
+        </div>
+        <Button variant="ghost" size="sm" icon={<IconRefresh size={15} />} loading={isFetching} onClick={list.refetch}>
+          Refresh
+        </Button>
+      </div>
+
+      {list.isLoading ? (
+        <Panel>
+          <PanelBody>
+            <SkeletonRows rows={6} cols={columnCount} />
+          </PanelBody>
+        </Panel>
+      ) : list.isError ? (
+        <ErrorPanel message={getErrorMessage(list.error, "Could not load profiles")} onRetry={list.refetch} />
+      ) : rows.length === 0 ? (
+        <EmptyState
+          icon={<IconProfiles size={22} />}
+          title={list.items.length === 0 ? "No profiles." : "Nothing matches this filter"}
+          text={
+            list.items.length === 0
+              ? "A profile saves engine, resolver and retry policy for reuse."
+              : "Clear the search box to see every profile."
+          }
+          action={
+            list.items.length === 0 ? (
+              <Button variant="primary" icon={<IconPlus size={16} />} onClick={openCreate}>
+                New profile
+              </Button>
+            ) : undefined
+          }
+        />
+      ) : (
+        <>
+          <Panel>
+            <PanelBody flush>
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Name</Th>
+                    <Th>Engine → Resolver</Th>
+                    <Th>Retry</Th>
+                    <Th>Config</Th>
+                    {showOwnerColumn ? <Th>Owner</Th> : null}
+                    <Th aria-label="Actions" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((profile) => (
+                    <ProfileRow
+                      key={profile.id}
+                      profile={profile}
+                      names={names}
+                      showOwner={showOwnerColumn}
+                      onEdit={openEdit}
+                      onDelete={setPending}
+                      onExport={(target) => exportProfile.mutate(target)}
+                    />
+                  ))}
+                </tbody>
+              </Table>
+            </PanelBody>
+          </Panel>
+          <LoadMore
+            hasMore={hasMore}
+            isFetching={isFetching}
+            onLoadMore={list.loadMore}
+            onLoadAll={() => void loadAll()}
+            loadingAll={loadingAll}
+            count={rows.length}
+          />
+        </>
+      )}
+
+      <ProfileDialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        profile={editing}
+        engines={enginesQuery.data ?? []}
+        resolvers={resolversQuery.data ?? []}
+        schemasLoading={enginesQuery.isLoading || resolversQuery.isLoading}
+        existingNames={list.items.map((item) => ({ id: item.id, name: item.name }))}
+      />
+
+      <ConfirmDialog
+        open={pending !== null}
+        onClose={() => setPending(null)}
+        title={pending !== null ? `Delete profile “${pending.name}”?` : "Delete profile"}
+        description="Profiles in use by autoruns or sessions cannot be deleted — remove those references first."
+        confirmLabel="Delete"
+        danger
+        onConfirm={async () => {
+          if (pending === null) return
+          try {
+            await remove.mutateAsync(pending.id)
+          } catch {
+            // The mutation's onError surfaces the failure via toast.
+          }
+        }}
+      />
+    </Page>
+  )
+}

@@ -1,0 +1,558 @@
+import { useState, type ChangeEvent } from "react"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import {
+  applyImport,
+  BADGE_LABELS,
+  BUNDLE_ITEM_LIMIT,
+  buildApplyBody,
+  countBundleItems,
+  downloadJson,
+  fetchAutorunExport,
+  fetchAutorunPage,
+  fetchProfileExport,
+  getErrorMessage,
+  isSupportedVersion,
+  issueKind,
+  issueOriginHash,
+  issuePluginType,
+  itemBadge,
+  suggestedRename,
+  useEngines,
+  useEntityList,
+  useProfiles,
+  useResolvers,
+  validateBundle,
+  type ApplyBody,
+  type ImportApplySummary,
+  type ImportItem,
+  type ImportValidateReport,
+  type ItemBadge,
+  type ItemResolution,
+} from "@/api"
+import { queryKeys, queryRoots } from "@/api/query-keys"
+import {
+  Badge,
+  Banner,
+  Button,
+  Checkbox,
+  EmptyState,
+  ErrorPanel,
+  Field,
+  IconDownload,
+  LoadMore,
+  Panel,
+  PanelBody,
+  PanelFoot,
+  PanelHead,
+  Radio,
+  Select,
+  SkeletonRows,
+  Table,
+  Tag,
+  Td,
+  Th,
+  toast,
+} from "@/ui/components"
+import { Page } from "@/ui/views/shared/page"
+
+const UNREADABLE_FILE = "That file is not valid JSON — choose a mirrorr bundle."
+const UNSUPPORTED_VERSION = "Unsupported bundle version — this console reads version 1 bundles."
+
+const BADGE_VARIANT: Record<ItemBadge, "accent" | "neutral" | "danger"> = {
+  ready: "accent",
+  skip: "neutral",
+  "needs-mapping": "neutral",
+  conflict: "danger",
+}
+
+/** Resolution state is keyed by item name (bundle entries carry names). */
+type Resolutions = Record<string, ItemResolution>
+
+/* ── export half ─────────────────────────────────────────────────────── */
+
+function ExportPanel() {
+  const profiles = useProfiles()
+  const autoruns = useEntityList({
+    queryKey: queryKeys.autoruns(),
+    fetchPage: (cursor) => fetchAutorunPage(cursor),
+  })
+  const [exportingKey, setExportingKey] = useState<string | null>(null)
+
+  const runExport = async (
+    key: string,
+    filename: string,
+    load: () => Promise<unknown>,
+    label: string,
+  ): Promise<void> => {
+    setExportingKey(key)
+    try {
+      const data = await load()
+      if (!downloadJson(filename, data)) {
+        toast.error("Export failed", "The file could not be saved.")
+        return
+      }
+      toast.success("Exported", label)
+    } catch (error) {
+      toast.error("Export failed", getErrorMessage(error, "Export failed"))
+    } finally {
+      setExportingKey(null)
+    }
+  }
+
+  return (
+    <Panel>
+      <PanelHead title="Export" />
+      <PanelBody>
+        <div className="stack-sm">
+          <h3 className="panel-title">Profiles</h3>
+          {profiles.length === 0 ? (
+            <p className="text-dim">No profiles to export.</p>
+          ) : (
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Name</Th>
+                  <Th>Kind</Th>
+                  <Th className="cell-actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {profiles.map((profile) => {
+                  const key = `profile-${profile.id}`
+                  return (
+                    <tr key={key}>
+                      <Td>{profile.name}</Td>
+                      <Td>
+                        <Tag>profile</Tag>
+                      </Td>
+                      <Td actions>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          icon={<IconDownload size={15} />}
+                          loading={exportingKey === key}
+                          onClick={() =>
+                            void runExport(
+                              key,
+                              `profile-${profile.id}.json`,
+                              () => fetchProfileExport(profile.id),
+                              profile.name,
+                            )
+                          }
+                        >
+                          Export
+                        </Button>
+                      </Td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </Table>
+          )}
+        </div>
+      </PanelBody>
+      <PanelBody>
+        <div className="stack-sm">
+          <h3 className="panel-title">Autoruns</h3>
+          {autoruns.isLoading ? (
+            <SkeletonRows rows={4} cols={3} />
+          ) : autoruns.isError ? (
+            <ErrorPanel
+              message={getErrorMessage(autoruns.error, "Could not load autoruns")}
+              onRetry={autoruns.refetch}
+            />
+          ) : autoruns.items.length === 0 ? (
+            <EmptyState title="No autoruns to export." />
+          ) : (
+            <>
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Name</Th>
+                    <Th>Kind</Th>
+                    <Th className="cell-actions" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {autoruns.items.map((autorun) => {
+                    const key = `autorun-${autorun.id}`
+                    return (
+                      <tr key={key}>
+                        <Td>{autorun.user_friendly_name}</Td>
+                        <Td>
+                          <Tag>autorun</Tag>
+                        </Td>
+                        <Td actions>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            icon={<IconDownload size={15} />}
+                            loading={exportingKey === key}
+                            onClick={() =>
+                              void runExport(
+                                key,
+                                `autorun-${autorun.id}.json`,
+                                () => fetchAutorunExport(autorun.id),
+                                autorun.user_friendly_name,
+                              )
+                            }
+                          >
+                            Export
+                          </Button>
+                        </Td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </Table>
+              <LoadMore
+                hasMore={autoruns.hasMore}
+                isFetching={autoruns.isFetching}
+                onLoadMore={autoruns.loadMore}
+                count={autoruns.totalCount}
+              />
+            </>
+          )}
+        </div>
+      </PanelBody>
+    </Panel>
+  )
+}
+
+/* ── import half ─────────────────────────────────────────────────────── */
+
+interface LookupOption {
+  readonly id: number
+  readonly name: string
+}
+
+function ResolutionControls({
+  item,
+  resolution,
+  engines,
+  resolvers,
+  profiles,
+  onChange,
+}: {
+  readonly item: ImportItem
+  readonly resolution: ItemResolution
+  readonly engines: readonly LookupOption[]
+  readonly resolvers: readonly LookupOption[]
+  readonly profiles: readonly LookupOption[]
+  readonly onChange: (patch: Partial<ItemResolution>) => void
+}) {
+  const hashIssues = item.issues.filter((issue) => {
+    const kind = issueKind(issue)
+    return kind === "not_installed" || kind === "hash_mismatch"
+  })
+  const profileMissing = item.issues.some((issue) => issueKind(issue) === "profile_missing")
+  const engineOverride = item.issues.some((issue) => issueKind(issue) === "engine_override")
+  const bound = resolution.profile?.mode === "bind" ? resolution.profile : null
+
+  if (hashIssues.length === 0 && !profileMissing && !engineOverride) {
+    return <span className="text-dim">—</span>
+  }
+
+  return (
+    <div className="stack-sm">
+      {hashIssues.map((issue, index) => {
+        const type = issuePluginType(issue)
+        const hash = issueOriginHash(issue)
+        const options = type === "engine" ? engines : resolvers
+        const selected =
+          resolution.plugin !== undefined && resolution.plugin.type === type
+            ? String(resolution.plugin.id)
+            : ""
+        return (
+          <Field
+            key={`${type}-${index}`}
+            label={`Map ${type}`}
+            hint={hash === null ? "No origin hash — cannot map this plugin" : `origin hash ${hash.slice(0, 12)}`}
+          >
+            <Select
+              aria-label={`Map ${type} for ${item.name}`}
+              value={selected}
+              disabled={hash === null}
+              onChange={(event) => {
+                if (hash === null || event.target.value === "") return
+                onChange({ plugin: { type, id: Number(event.target.value) }, pluginHash: hash })
+              }}
+            >
+              <option value="">{`Select an installed ${type}…`}</option>
+              {options.map((option) => (
+                <option key={option.id} value={String(option.id)}>
+                  {option.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )
+      })}
+
+      {profileMissing ? (
+        <div className="stack-sm">
+          <Radio
+            name={`profile-${item.name}`}
+            label="Bind to existing profile"
+            checked={bound !== null}
+            onChange={() =>
+              onChange({ profile: { mode: "bind", profileName: profiles[0]?.name ?? "" } })
+            }
+          />
+          {bound !== null ? (
+            <Field label="Profile">
+              <Select
+                aria-label={`Profile for ${item.name}`}
+                value={bound.profileName}
+                onChange={(event) =>
+                  onChange({ profile: { mode: "bind", profileName: event.target.value } })
+                }
+              >
+                <option value="">Select a profile…</option>
+                {profiles.map((profile) => (
+                  <option key={profile.id} value={profile.name}>
+                    {profile.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          ) : null}
+          <Radio
+            name={`profile-${item.name}`}
+            label="Inline config"
+            checked={resolution.profile?.mode === "inline"}
+            onChange={() => onChange({ profile: { mode: "inline" } })}
+          />
+        </div>
+      ) : null}
+
+      {engineOverride ? (
+        <div className="stack-sm">
+          <Radio
+            name={`engine-${item.name}`}
+            label="Keep autorun engine"
+            checked={resolution.engine?.mode === "keep"}
+            onChange={() => onChange({ engine: { mode: "keep" } })}
+          />
+          <Radio
+            name={`engine-${item.name}`}
+            label="Use profile engine"
+            checked={resolution.engine?.mode === "profile"}
+            onChange={() => onChange({ engine: { mode: "profile" } })}
+          />
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function ImportPanel() {
+  const queryClient = useQueryClient()
+  const engines = useEngines()
+  const resolvers = useResolvers()
+  const profiles = useProfiles()
+
+  const [bundle, setBundle] = useState<unknown | null>(null)
+  const [report, setReport] = useState<ImportValidateReport | null>(null)
+  const [resolutions, setResolutions] = useState<Resolutions>({})
+  const [fileError, setFileError] = useState<string | null>(null)
+  const [summary, setSummary] = useState<ImportApplySummary | null>(null)
+
+  const validate = useMutation({
+    mutationFn: (value: unknown) => validateBundle(value),
+    onSuccess: (result) => {
+      setReport(result)
+      setResolutions({})
+    },
+    onError: (error) => setFileError(getErrorMessage(error, "Validation failed")),
+  })
+
+  const apply = useMutation({
+    mutationFn: (body: ApplyBody) => applyImport(body),
+    onSuccess: (result) => {
+      setSummary(result)
+      setBundle(null)
+      setReport(null)
+      setResolutions({})
+      void queryClient.invalidateQueries({ queryKey: queryRoots.profiles })
+      void queryClient.invalidateQueries({ queryKey: queryRoots.autoruns })
+    },
+    onError: (error) => toast.error("Import failed", getErrorMessage(error, "Import failed")),
+  })
+
+  const clearStaged = () => {
+    setBundle(null)
+    setReport(null)
+    setResolutions({})
+  }
+
+  const onFile = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
+    const file = event.target.files?.item(0)
+    event.target.value = ""
+    if (file === null || file === undefined) return
+    setFileError(null)
+    setSummary(null)
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(await file.text())
+    } catch {
+      clearStaged()
+      setFileError(UNREADABLE_FILE)
+      return
+    }
+    if (!isSupportedVersion(parsed)) {
+      clearStaged()
+      setFileError(UNSUPPORTED_VERSION)
+      return
+    }
+    const count = countBundleItems(parsed)
+    if (count > BUNDLE_ITEM_LIMIT) {
+      clearStaged()
+      setFileError(`This bundle has ${count} items — the server accepts up to ${BUNDLE_ITEM_LIMIT}.`)
+      return
+    }
+
+    setBundle(parsed)
+    setReport(null)
+    setResolutions({})
+    validate.mutate(parsed)
+  }
+
+  const setResolution = (name: string, patch: Partial<ItemResolution>) => {
+    setResolutions((current) => {
+      const base = current[name] ?? { included: true }
+      return { ...current, [name]: { ...base, ...patch } }
+    })
+  }
+
+  const canApply = report !== null && bundle !== null && !apply.isPending
+
+  const runApply = () => {
+    if (bundle === null || report === null) return
+    apply.mutate(buildApplyBody(bundle, report.items, resolutions))
+  }
+
+  return (
+    <Panel>
+      <PanelHead title="Import" />
+      <PanelBody>
+        <div className="stack">
+          <Field
+            label="Bundle file"
+            htmlFor="import-bundle"
+            hint="A version 1 JSON bundle of profiles and autoruns."
+          >
+            <input
+              id="import-bundle"
+              className="input"
+              type="file"
+              accept="application/json,.json"
+              onChange={(event) => void onFile(event)}
+            />
+          </Field>
+
+          {fileError !== null ? (
+            <Banner kind="danger" title="Cannot import this file">
+              {fileError}
+            </Banner>
+          ) : null}
+          {summary !== null ? (
+            <Banner kind="info" title="Import complete">
+              {`${summary.profiles_created} profiles created · ${summary.profiles_skipped} skipped · ${summary.autoruns_created} autoruns created.`}
+            </Banner>
+          ) : null}
+
+          {validate.isPending ? <SkeletonRows rows={4} cols={4} /> : null}
+
+          {report !== null ? (
+            report.items.length === 0 ? (
+              <EmptyState title="Nothing to import." text="This bundle contains no profiles or autoruns." />
+            ) : (
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Include</Th>
+                    <Th>Name</Th>
+                    <Th>Kind</Th>
+                    <Th>Status</Th>
+                    <Th>Issues</Th>
+                    <Th>Resolution</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.items.map((item) => {
+                    const resolution = resolutions[item.name] ?? { included: true }
+                    const badge = itemBadge(item)
+                    const rename = suggestedRename(item)
+                    return (
+                      <tr key={`${item.kind}:${item.name}`}>
+                        <Td>
+                          <Checkbox
+                            aria-label={`Include ${item.name}`}
+                            checked={resolution.included}
+                            onChange={() => setResolution(item.name, { included: !resolution.included })}
+                          />
+                        </Td>
+                        <Td>
+                          <div className="stack-sm">
+                            <span>{item.name}</span>
+                            {rename !== null ? <span className="text-dim">{`→ ${rename}`}</span> : null}
+                          </div>
+                        </Td>
+                        <Td>
+                          <Tag>{item.kind}</Tag>
+                        </Td>
+                        <Td>
+                          <Badge variant={BADGE_VARIANT[badge]}>{BADGE_LABELS[badge]}</Badge>
+                        </Td>
+                        <Td>
+                          {item.issues.length === 0 ? (
+                            <span className="text-dim">No issues</span>
+                          ) : (
+                            <div className="stack-sm">
+                              {item.issues.map((issue, index) => (
+                                <Tag key={`${issue.type}-${index}`}>{issueKind(issue)}</Tag>
+                              ))}
+                            </div>
+                          )}
+                        </Td>
+                        <Td>
+                          <ResolutionControls
+                            item={item}
+                            resolution={resolution}
+                            engines={engines}
+                            resolvers={resolvers}
+                            profiles={profiles}
+                            onChange={(patch) => setResolution(item.name, patch)}
+                          />
+                        </Td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </Table>
+            )
+          ) : null}
+        </div>
+      </PanelBody>
+      <PanelFoot>
+        <Button variant="primary" loading={apply.isPending} disabled={!canApply} onClick={runApply}>
+          Apply import
+        </Button>
+      </PanelFoot>
+    </Panel>
+  )
+}
+
+export function ImportExportView() {
+  return (
+    <Page
+      title="Import / Export"
+      description="Move profiles and autoruns between Mirrorr instances as versioned JSON bundles."
+    >
+      <ExportPanel />
+      <ImportPanel />
+    </Page>
+  )
+}

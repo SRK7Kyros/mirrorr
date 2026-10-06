@@ -1,21 +1,19 @@
-import { QueryClientProvider } from "@tanstack/react-query"
-import { RouterProvider } from "@tanstack/react-router"
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
-import "@/app.css"
-import { queryClient } from "@/query-client"
+import { QueryClientProvider } from "@tanstack/react-query"
+import { RouterProvider } from "@tanstack/react-router"
+import { setAuthNavigator } from "@/api/auth"
+import { queryClient } from "@/api/query-client"
 import { router } from "@/router"
+import "@/app.css"
 
-// Scaffold boot: providers + router only. The env boot-guard, auth session
-// seam, realtime manager, event table and notification pipeline wire in here
-// as their waves land (see architecture brief "Scaffold shape").
-const container = document.getElementById("root")
+// The API layer owns no router — the UI injects how to reach the login screen.
+setAuthNavigator({ toLogin: () => void router.navigate({ to: "/login" }) })
 
-if (!container) {
-  throw new Error("Mirrorr web root element #root is missing from the document")
-}
+const rootElement = document.getElementById("root")
+if (rootElement === null) throw new Error("Mirrorr: #root element is missing")
 
-createRoot(container).render(
+createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
