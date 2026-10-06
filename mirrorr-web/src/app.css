@@ -1,14 +1,5 @@
-/*
- * app.css — the single style entry point (imported once by main.tsx).
- * Order is deliberate: token law → reset/type/a11y floor → glass recipes →
- * primitives. Shell layers (§3/§4) are added by the shell wave; nothing here
- * depends on them.
- */
-@import "./styles/fonts.css";
-@import "./styles/tokens.css";
-@import "./styles/base.css";
-@import "./styles/glass.css";
-@import "./styles/ui.css";
-@import "./styles/shell-a.css";
-@import "./styles/shell-b.css";
-@import "./styles/views.css";
+@import "./ui/styles/fonts.css";
+@import "./ui/styles/tokens.css";
+@import "./ui/styles/base.css";
+@import "./ui/styles/components.css";
+@import "./ui/styles/layout.css";

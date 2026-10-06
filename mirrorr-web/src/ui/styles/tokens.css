@@ -1,0 +1,140 @@
+/*
+ * Design tokens — the single source of colour, type, space, radius, motion.
+ * Direction: "Control Room" — a dark broadcast-operations console. Near-black
+ * neutral canvas, layered surfaces, hairline borders, one signal accent
+ * (teal) and a semantic status set. Colour is never invented at a call site;
+ * components consume these names only.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* ── Canvas & surfaces ─────────────────────────────────────────── */
+  --bg: #0a0a0c;
+  --bg-sunken: #070708;
+  --surface-1: #121216;
+  --surface-2: #18181d;
+  --surface-3: #1f1f26;
+  --surface-4: #282830;
+  --surface-hover: #1d1d23;
+  --overlay-scrim: rgba(4, 4, 6, 0.66);
+
+  /* ── Borders ───────────────────────────────────────────────────── */
+  --border: #2a2a32;
+  --border-subtle: #202027;
+  --border-strong: #3a3a45;
+
+  /* ── Text ──────────────────────────────────────────────────────── */
+  /* --text / --text-muted / --text-dim are the three *text* tiers. Each clears
+     WCAG 1.4.3 (4.5:1) on every surface it lands on — enforced by
+     scripts/check-contrast.mjs. --text-faint sits deliberately below the text
+     floor and is for non-text decoration only (scrollbar thumb, separators,
+     disabled labels, icons): never bind it to copy that carries meaning. */
+  --text: #ededf0;
+  --text-muted: #9b9ba6;
+  --text-dim: #909099;
+  --text-faint: #4d4d57;
+  --text-inverse: #0a0a0c;
+
+  /* ── Accent (signal teal) ──────────────────────────────────────── */
+  --accent: #2dd4bf;
+  --accent-hover: #5eead4;
+  --accent-press: #14b8a6;
+  --accent-ink: #04211c;
+  --accent-dim: rgba(45, 212, 191, 0.13);
+  --accent-line: rgba(45, 212, 191, 0.4);
+
+  /* ── Status hues (semantic; never used for chrome) ─────────────── */
+  --success: #3fb950;
+  --success-ink: #06240c;
+  --success-dim: rgba(63, 185, 80, 0.14);
+  --warning: #e3b341;
+  --warning-ink: #241a04;
+  --warning-dim: rgba(227, 179, 65, 0.14);
+  --danger: #f85149;
+  --danger-ink: #2a0705;
+  --danger-dim: rgba(248, 81, 73, 0.15);
+  --info: #58a6ff;
+  --info-dim: rgba(88, 166, 255, 0.14);
+  --secondary: #a371f7;
+  --secondary-ink: #170a2e;
+  --secondary-dim: rgba(163, 113, 247, 0.15);
+  --neutral: #8b949e;
+  --neutral-dim: rgba(139, 148, 158, 0.14);
+
+  /* ── Radii — deliberately varied, not one uniform value ────────── */
+  --r-xs: 3px;
+  --r-sm: 5px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-full: 999px;
+
+  /* ── Space ─────────────────────────────────────────────────────── */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-7: 28px;
+  --s-8: 32px;
+  --s-10: 40px;
+  --s-12: 48px;
+  --s-16: 64px;
+
+  /* ── Type ──────────────────────────────────────────────────────── */
+  --font-ui: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --fs-2xs: 10px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-base: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 19px;
+  --fs-2xl: 24px;
+  --fs-3xl: 30px;
+
+  --lh-tight: 1.2;
+  --lh-snug: 1.35;
+  --lh-normal: 1.55;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  /* ── Elevation ─────────────────────────────────────────────────── */
+  --shadow-xs: 0 1px 1px rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.45);
+  --shadow-md: 0 8px 24px -6px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 24px 60px -12px rgba(0, 0, 0, 0.7);
+  --ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+
+  /* ── Layout ────────────────────────────────────────────────────── */
+  --sidebar-w: 236px;
+  --sidebar-rail-w: 64px;
+  --topbar-h: 56px;
+  --content-max: 1400px;
+  --bottomnav-h: 56px;
+
+  /* ── Motion ────────────────────────────────────────────────────── */
+  --dur-instant: 80ms;
+  --dur-fast: 140ms;
+  --dur-med: 220ms;
+  --dur-slow: 360ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ── Z-index ladder ────────────────────────────────────────────── */
+  --z-sticky: 20;
+  --z-topbar: 30;
+  --z-sidebar: 40;
+  --z-drawer: 60;
+  --z-modal: 70;
+  --z-popover: 75;
+  --z-toast: 90;
+}

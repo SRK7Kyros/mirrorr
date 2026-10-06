@@ -1,83 +1,139 @@
 #!/usr/bin/env bun
 /**
- * check-contrast — recompute WCAG 2.x contrast for every pair in
- * docs/console-design-spec.md §8.2 against the values actually declared in
- * src/styles/tokens.css.
+ * check-contrast — recompute WCAG 2.x contrast for every pair the Control Room
+ * token layer has to guarantee, against the values actually declared in
+ * src/ui/styles/tokens.css.
  *
- * Method (§8.1): WCAG 2.x piecewise sRGB relative luminance,
- * (L1 + 0.05) / (L2 + 0.05). Alpha layers are composited in 8-bit over the
- * ground they sit on, exactly as the browser paints them:
- *   - acrylic worst case = tier white alpha composited over near-black media,
- *     then --glass-tint over that (rows 2-4, 12, 26-27);
- *   - scrim worst case   = scrim composited over pure-white media (rows 8-11);
- *   - alpha text         = the fg alpha composited over its own background
- *     (rows 12, 23).
+ * This gate used to read its pair list from docs/console-design-spec.md §8.2.
+ * That spec was superseded when the client was rebuilt on the dark Control Room
+ * direction, so the pair list below is now owned here: it encodes the floors the
+ * palette must hold, not a spec's prose.
  *
- * Gates per row come from §8.2's own "Use / verdict" column:
- *   min  — must meet the stated floor (text 4.5, large text 3.0, non-text 3.0);
- *   max  — §8.2 states the pair must stay *under* a ceiling (row 20 danger fill
- *          carrying body text is banned; row 26's primary ring alone does not
- *          clear 3:1 and is carried by the keyline) — a regression here would
- *          invalidate the rationale, so it fails the gate.
- * Row 12's nav inactive label is normal-size persistent navigation text, so it
- * is gated at 4.5 like every other text row: WCAG 1.4.3 covers every
- * persistent nav label, and the earlier "dim = decorative, hover-recoverable"
- * reading was a genuine miss (the 80% tint computed 3.99:1). The label tint is
- * now 90% (`color-mix(in srgb, var(--color-text) 90%, transparent)` in
- * ui.css), which computes ~4.60:1 against the worst-case acrylic ground.
- * Every row prints its computed ratio next to §8.2's claim; drift > 0.05 is
- * flagged with "!" (informational).
+ * Method: WCAG 2.x piecewise sRGB relative luminance, (L1 + 0.05) / (L2 + 0.05).
+ * Alpha layers are composited in 8-bit over the ground they sit on, exactly as
+ * the browser paints them:
+ *   - tint fills  = a translucent status/accent fill composited over a surface;
+ *   - scrim       = --overlay-scrim composited over the panel behind it;
+ *   - alpha text  = the fg alpha composited over its own background.
+ *
+ * Gates:
+ *   min  — must meet the stated floor (text 4.5:1 per 1.4.3, large text and
+ *          non-text indicators 3.0:1 per 1.4.11);
+ *   max  — the pair must stay *below* the ceiling. Used for combinations that
+ *          are banned rather than merely weak: #40 asserts --text on the accent
+ *          fill is not readable, which is why --accent-ink exists. A regression
+ *          here means a label silently became unreadable.
+ *   info — measured and printed but not gated, with the reason stated: the
+ *          --text-faint tier (decoration only, documented in tokens.css) and the
+ *          1px border tokens (dividers and control boundaries whose identifying
+ *          text carries the contrast instead).
  *
  * Exit 1 if any gated row misses its floor/ceiling or tokens.css is unreadable.
  */
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
-const TOKENS_FILE = fileURLToPath(new URL("../src/styles/tokens.css", import.meta.url))
+const TOKENS_FILE = fileURLToPath(new URL("../src/ui/styles/tokens.css", import.meta.url))
 
-/** §8.1 grounds. */
-const BLACK_MEDIA = { r: 0, g: 0, b: 0, a: 1 }
-const WHITE_MEDIA = { r: 255, g: 255, b: 255, a: 1 }
-
-/** fg/bg descriptors, resolved against tokens.css. */
 const tok = (name) => ({ kind: "token", name })
-const alphaText = (name, alpha) => ({ kind: "alpha-text", name, alpha })
-const acrylic = (tier) => ({ kind: "acrylic", tier })
-const scrim = (name) => ({ kind: "scrim", name })
+const tint = (name, over) => ({ kind: "tint", name, over })
+const scrim = (over) => ({ kind: "scrim", over })
 
-/**
- * §8.2 rows 1-28, in order, with the spec's own claim and gate.
- * floor/ceiling values follow §8.2's "Use / verdict" column.
- */
+/** The palette's guaranteed pairs, with the ratio this gate measured for them. */
 const PAIRS = [
-  { n: 1, label: "body copy", fg: tok("--color-text"), bg: tok("--color-surface"), claim: 18.42, gate: "min", floor: 4.5 },
-  { n: 2, label: "16px label on chip/nav acrylic", fg: tok("--color-text"), bg: acrylic("--glass-chip"), claim: 5.19, gate: "min", floor: 4.5 },
-  { n: 3, label: "16px label on card acrylic", fg: tok("--color-text"), bg: acrylic("--glass-card"), claim: 6.79, gate: "min", floor: 4.5 },
-  { n: 4, label: "16px label on modal acrylic", fg: tok("--color-text"), bg: acrylic("--glass-modal"), claim: 8.49, gate: "min", floor: 4.5 },
-  { n: 5, label: "16px label on primary button", fg: tok("--color-surface"), bg: tok("--color-primary"), claim: 5.51, gate: "min", floor: 4.5 },
-  { n: 6, label: "body link on surface", fg: tok("--color-primary"), bg: tok("--color-surface"), claim: 5.51, gate: "min", floor: 4.5 },
-  { n: 7, label: "12px label-caps on dark chrome", fg: tok("--color-surface"), bg: tok("--color-secondary"), claim: 11.79, gate: "min", floor: 4.5 },
-  { n: 8, label: "large copy on scrim-45 over media", fg: tok("--color-surface"), bg: scrim("--scrim-45"), claim: 3.0, gate: "min", floor: 3.0 },
-  { n: 9, label: "large copy on scrim-55 over media", fg: tok("--color-surface"), bg: scrim("--scrim-55"), claim: 4.06, gate: "min", floor: 3.0 },
-  { n: 10, label: "normal copy on scrim-65 over media", fg: tok("--color-surface"), bg: scrim("--scrim-65"), claim: 5.74, gate: "min", floor: 4.5 },
-  { n: 11, label: "dense copy on scrim-75 over media", fg: tok("--color-surface"), bg: scrim("--scrim-75"), claim: 8.19, gate: "min", floor: 4.5 },
-  { n: 12, label: "nav inactive label @90% on acrylic", fg: alphaText("--color-text", 0.9), bg: acrylic("--glass-chip"), claim: 4.59, gate: "min", floor: 4.5 },
-  { n: 13, label: "success-deep indicator", fg: tok("--color-success-deep"), bg: tok("--color-surface"), claim: 3.33, gate: "min", floor: 3.0 },
-  { n: 14, label: "warning-deep indicator", fg: tok("--color-warning-deep"), bg: tok("--color-surface"), claim: 3.54, gate: "min", floor: 3.0 },
-  { n: 15, label: "danger indicator", fg: tok("--color-danger"), bg: tok("--color-surface"), claim: 4.38, gate: "min", floor: 3.0 },
-  { n: 16, label: "primary indicator", fg: tok("--color-primary"), bg: tok("--color-surface"), claim: 5.51, gate: "min", floor: 3.0 },
-  { n: 17, label: "secondary indicator", fg: tok("--color-secondary"), bg: tok("--color-surface"), claim: 11.79, gate: "min", floor: 3.0 },
-  { n: 18, label: "text on success fill", fg: tok("--color-text"), bg: tok("--color-success"), claim: 8.48, gate: "min", floor: 4.5 },
-  { n: 19, label: "text on warning fill", fg: tok("--color-text"), bg: tok("--color-warning"), claim: 7.78, gate: "min", floor: 4.5 },
-  { n: 20, label: "text on danger fill (BANNED)", fg: tok("--color-text"), bg: tok("--color-danger"), claim: 4.21, gate: "max", ceiling: 4.5 },
-  { n: 21, label: "destructive label on danger-deep", fg: tok("--color-surface"), bg: tok("--color-danger-deep"), claim: 5.49, gate: "min", floor: 4.5 },
-  { n: 22, label: "helper/placeholder", fg: tok("--color-text-muted"), bg: tok("--color-surface"), claim: 5.1, gate: "min", floor: 4.5 },
-  { n: 23, label: "disabled label @55% (1.4.3 exception)", fg: alphaText("--color-text", 0.55), bg: tok("--color-surface"), claim: 4.06, gate: "info" },
-  { n: 24, label: "error copy", fg: tok("--color-text"), bg: tok("--color-surface"), claim: 18.42, gate: "min", floor: 4.5 },
-  { n: 25, label: "focus ring primary vs surface", fg: tok("--color-primary"), bg: tok("--color-surface"), claim: 5.51, gate: "min", floor: 3.0 },
-  { n: 26, label: "focus ring primary vs acrylic 0.64", fg: tok("--color-primary"), bg: acrylic("--glass-card"), claim: 2.03, gate: "max", ceiling: 3.0 },
-  { n: 27, label: "focus ring keyline vs acrylic 0.64", fg: tok("--color-text"), bg: acrylic("--glass-card"), claim: 6.79, gate: "min", floor: 3.0 },
-  { n: 28, label: "focus ring keyline vs surface", fg: tok("--color-text"), bg: tok("--color-surface"), claim: 18.42, gate: "min", floor: 3.0 },
+  // ---- body text on every surface ----
+  { n: 1, label: "--text on --bg", fg: tok("--text"), bg: tok("--bg"), claim: 16.93, gate: "min", floor: 4.5 },
+  { n: 2, label: "--text on --bg-sunken", fg: tok("--text"), bg: tok("--bg-sunken"), claim: 17.23, gate: "min", floor: 4.5 },
+  { n: 3, label: "--text on --surface-1", fg: tok("--text"), bg: tok("--surface-1"), claim: 15.99, gate: "min", floor: 4.5 },
+  { n: 4, label: "--text on --surface-2", fg: tok("--text"), bg: tok("--surface-2"), claim: 15.14, gate: "min", floor: 4.5 },
+  { n: 5, label: "--text on --surface-3", fg: tok("--text"), bg: tok("--surface-3"), claim: 14.02, gate: "min", floor: 4.5 },
+  { n: 6, label: "--text on --surface-4", fg: tok("--text"), bg: tok("--surface-4"), claim: 12.51, gate: "min", floor: 4.5 },
+  { n: 7, label: "--text on --surface-hover", fg: tok("--text"), bg: tok("--surface-hover"), claim: 14.35, gate: "min", floor: 4.5 },
+
+  // ---- secondary text tiers ----
+  { n: 8, label: "--text-muted on --surface-1", fg: tok("--text-muted"), bg: tok("--surface-1"), claim: 6.79, gate: "min", floor: 4.5 },
+  { n: 9, label: "--text-muted on --surface-2", fg: tok("--text-muted"), bg: tok("--surface-2"), claim: 6.43, gate: "min", floor: 4.5 },
+  { n: 10, label: "--text-muted on --bg", fg: tok("--text-muted"), bg: tok("--bg"), claim: 7.19, gate: "min", floor: 4.5 },
+  { n: 11, label: "--text-dim on --surface-1", fg: tok("--text-dim"), bg: tok("--surface-1"), claim: 5.9, gate: "min", floor: 4.5 },
+  { n: 12, label: "--text-dim on --surface-2", fg: tok("--text-dim"), bg: tok("--surface-2"), claim: 5.59, gate: "min", floor: 4.5 },
+  { n: 13, label: "--text-dim on --surface-3", fg: tok("--text-dim"), bg: tok("--surface-3"), claim: 5.17, gate: "min", floor: 4.5 },
+  { n: 14, label: "--text-dim on --surface-4", fg: tok("--text-dim"), bg: tok("--surface-4"), claim: 4.62, gate: "min", floor: 4.5 },
+  { n: 15, label: "--text-dim on --bg", fg: tok("--text-dim"), bg: tok("--bg"), claim: 6.25, gate: "min", floor: 4.5 },
+
+  // ---- accent as link/label ----
+  { n: 16, label: "--accent link on --surface-1", fg: tok("--accent"), bg: tok("--surface-1"), claim: 10.04, gate: "min", floor: 4.5 },
+  { n: 17, label: "--accent link on --bg", fg: tok("--accent"), bg: tok("--bg"), claim: 10.63, gate: "min", floor: 4.5 },
+  { n: 18, label: "--accent-hover link on --surface-1", fg: tok("--accent-hover"), bg: tok("--surface-1"), claim: 12.63, gate: "min", floor: 4.5 },
+  { n: 19, label: "--accent-ink label on --accent", fg: tok("--accent-ink"), bg: tok("--accent"), claim: 9.1, gate: "min", floor: 4.5 },
+  { n: 20, label: "--accent-ink label on --accent-hover", fg: tok("--accent-ink"), bg: tok("--accent-hover"), claim: 11.45, gate: "min", floor: 4.5 },
+  { n: 21, label: "--text-inverse on --text", fg: tok("--text-inverse"), bg: tok("--text"), claim: 16.93, gate: "min", floor: 4.5 },
+
+  // ---- status indicators as non-text marks ----
+  { n: 22, label: "--success mark on --surface-1", fg: tok("--success"), bg: tok("--surface-1"), claim: 7.36, gate: "min", floor: 3 },
+  { n: 23, label: "--warning mark on --surface-1", fg: tok("--warning"), bg: tok("--surface-1"), claim: 9.6, gate: "min", floor: 3 },
+  { n: 24, label: "--danger mark on --surface-1", fg: tok("--danger"), bg: tok("--surface-1"), claim: 5.57, gate: "min", floor: 3 },
+  { n: 25, label: "--info mark on --surface-1", fg: tok("--info"), bg: tok("--surface-1"), claim: 7.4, gate: "min", floor: 3 },
+  { n: 26, label: "--secondary mark on --surface-1", fg: tok("--secondary"), bg: tok("--surface-1"), claim: 5.57, gate: "min", floor: 3 },
+  { n: 27, label: "--neutral mark on --surface-1", fg: tok("--neutral"), bg: tok("--surface-1"), claim: 6.08, gate: "min", floor: 3 },
+  { n: 28, label: "--success mark on --bg", fg: tok("--success"), bg: tok("--bg"), claim: 7.79, gate: "min", floor: 3 },
+  { n: 29, label: "--danger mark on --bg", fg: tok("--danger"), bg: tok("--bg"), claim: 5.9, gate: "min", floor: 3 },
+  { n: 30, label: "--accent keyline on --surface-2", fg: tok("--accent"), bg: tok("--surface-2"), claim: 9.5, gate: "min", floor: 3 },
+
+  // ---- status ink on its own fill ----
+  { n: 31, label: "--success-ink on --success", fg: tok("--success-ink"), bg: tok("--success"), claim: 6.53, gate: "min", floor: 4.5 },
+  { n: 32, label: "--warning-ink on --warning", fg: tok("--warning-ink"), bg: tok("--warning"), claim: 8.81, gate: "min", floor: 4.5 },
+  { n: 33, label: "--danger-ink on --danger", fg: tok("--danger-ink"), bg: tok("--danger"), claim: 5.54, gate: "min", floor: 4.5 },
+  { n: 34, label: "--secondary-ink on --secondary", fg: tok("--secondary-ink"), bg: tok("--secondary"), claim: 5.59, gate: "min", floor: 4.5 },
+
+  // ---- text over tinted status fills ----
+  { n: 35, label: "--text on accent-dim over surface-1", fg: tok("--text"), bg: tint("--accent-dim", "--surface-1"), claim: 12.69, gate: "min", floor: 4.5 },
+  { n: 36, label: "--text on success-dim over surface-1", fg: tok("--text"), bg: tint("--success-dim", "--surface-1"), claim: 13.07, gate: "min", floor: 4.5 },
+  { n: 37, label: "--text on danger-dim over surface-1", fg: tok("--text"), bg: tint("--danger-dim", "--surface-1"), claim: 13.6, gate: "min", floor: 4.5 },
+
+  // ---- text over the overlay scrim ----
+  { n: 38, label: "--text on scrim over --surface-2", fg: tok("--text"), bg: scrim("--surface-2"), claim: 16.82, gate: "min", floor: 4.5 },
+  { n: 39, label: "--text on scrim over --bg", fg: tok("--text"), bg: scrim("--bg"), claim: 17.33, gate: "min", floor: 4.5 },
+
+  // ---- banned combination ----
+  {
+    n: 40,
+    label: "--text on --accent (BANNED)",
+    fg: tok("--text"),
+    bg: tok("--accent"),
+    claim: 1.59,
+    gate: "max",
+    ceiling: 4.5,
+    note: "accent fills must carry --accent-ink, never --text",
+  },
+
+  // ---- measured but not gated ----
+  {
+    n: 41,
+    label: "--text-faint on --surface-1",
+    fg: tok("--text-faint"),
+    bg: tok("--surface-1"),
+    claim: 2.24,
+    gate: "info",
+    note: "decoration-only tier — never bind it to meaningful copy",
+  },
+  {
+    n: 42,
+    label: "--border on --surface-1",
+    fg: tok("--border"),
+    bg: tok("--surface-1"),
+    claim: 1.31,
+    gate: "info",
+    note: "1px divider — 1.4.11 exempt; the adjacent text carries the contrast",
+  },
+  {
+    n: 43,
+    label: "--border-strong on --surface-2",
+    fg: tok("--border-strong"),
+    bg: tok("--surface-2"),
+    claim: 1.58,
+    gate: "info",
+    note: "control boundary — identified by its label, not the hairline",
+  },
 ]
 
 function parseDeclarations(css) {
@@ -117,7 +173,7 @@ function parseColor(value) {
   throw new Error(`unsupported color value: ${value}`)
 }
 
-/** 8-bit alpha composite, matching how the browser paints tint fills. */
+/** 8-bit alpha composite, matching how the browser paints tint/scrim layers. */
 function composite(fg, bg) {
   return {
     r: Math.round(fg.a * fg.r + (1 - fg.a) * bg.r),
@@ -158,31 +214,22 @@ function color(name) {
   return parseColor(raw)
 }
 
-/** §8.1 ground recipes, resolved from the declared tokens. */
 function ground(spec) {
   if (spec.kind === "token") return color(spec.name)
-  if (spec.kind === "acrylic") {
-    return composite(color("--glass-tint"), composite(color(spec.tier), BLACK_MEDIA))
-  }
-  if (spec.kind === "scrim") return composite(color(spec.name), WHITE_MEDIA)
+  if (spec.kind === "tint") return composite(color(spec.name), color(spec.over))
+  if (spec.kind === "scrim") return composite(color("--overlay-scrim"), color(spec.over))
   throw new Error(`unsupported ground: ${spec.kind}`)
-}
-
-function foreground(spec, bg) {
-  if (spec.kind === "token") return color(spec.name)
-  if (spec.kind === "alpha-text") return composite({ ...color(spec.name), a: spec.alpha }, bg)
-  throw new Error(`unsupported foreground: ${spec.kind}`)
 }
 
 const failures = []
 const drifts = []
 
-console.log("[check-contrast]  #  pair                                    computed      §8.2     gate")
+console.log("[check-contrast]  #  pair                                      computed     pinned   gate")
 for (const pair of PAIRS) {
   let computed
   try {
     const bg = ground(pair.bg)
-    computed = contrast(foreground(pair.fg, bg), bg)
+    computed = contrast(color(pair.fg.name), bg)
   } catch (err) {
     console.error(
       `[check-contrast] FAIL — #${pair.n} ${pair.label}: ${err instanceof Error ? err.message : String(err)}`,
@@ -193,8 +240,7 @@ for (const pair of PAIRS) {
   const drift = Math.abs(computed - pair.claim) > 0.05
   if (drift) drifts.push({ pair, computed })
 
-  // Compared at §8.2's reported 0.01:1 precision (row 8 computes 2.9953 and
-  // §8.2 states it "passes 3.0 exactly").
+  // Compared at the 0.01:1 precision the pinned claims were measured at.
   const reported = Math.round(computed * 100) / 100
 
   let gate
@@ -212,32 +258,35 @@ for (const pair of PAIRS) {
 
   const verdict = !passed ? "FAIL" : gate === "info" ? "info" : "ok"
   console.log(
-    `[check-contrast] ${String(pair.n).padStart(2)}  ${pair.label.padEnd(38)} ` +
+    `[check-contrast] ${String(pair.n).padStart(2)}  ${pair.label.padEnd(40)} ` +
       `${computed.toFixed(2).padStart(6)}:1 ${pair.claim.toFixed(2).padStart(6)}:1  ` +
       `${gate.padEnd(6)} ${verdict}${drift ? " !" : ""}`,
   )
+  if (pair.gate === "info" && pair.note !== undefined) {
+    console.log(`[check-contrast]     — ${pair.note}`)
+  }
   if (!passed) {
     failures.push(
-      `#${pair.n} ${pair.label} — computed ${computed.toFixed(2)}:1, gate ${gate} (§8.2 claims ${pair.claim.toFixed(2)}:1)`,
+      `#${pair.n} ${pair.label} — computed ${computed.toFixed(2)}:1, gate ${gate} (pinned ${pair.claim.toFixed(2)}:1)`,
     )
   }
 }
 
 for (const { pair, computed } of drifts) {
   console.log(
-    `[check-contrast] drift — #${pair.n} ${pair.label}: computed ${computed.toFixed(2)}:1 vs §8.2 ` +
+    `[check-contrast] drift — #${pair.n} ${pair.label}: computed ${computed.toFixed(2)}:1 vs pinned ` +
       `${pair.claim.toFixed(2)}:1 (${Math.abs(computed - pair.claim).toFixed(2)})`,
   )
 }
 
 if (failures.length > 0) {
-  console.error(`[check-contrast] FAIL — ${failures.length} §8.2 pair(s) outside their gate:`)
+  console.error(`[check-contrast] FAIL — ${failures.length} pair(s) outside their gate:`)
   for (const failure of failures) console.error(`  ${failure}`)
   process.exit(1)
 }
 
 const gated = PAIRS.filter((pair) => pair.gate !== "info").length
 console.log(
-  `[check-contrast] ok — ${PAIRS.length} §8.2 pairs checked against tokens.css ` +
+  `[check-contrast] ok — ${PAIRS.length} pairs checked against tokens.css ` +
     `(${gated} gated, ${PAIRS.length - gated} info-only, ${drifts.length} drift-flagged)`,
 )
