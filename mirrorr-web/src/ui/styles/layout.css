@@ -125,27 +125,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-.sidebar-foot {
-  padding: var(--s-3);
-  border-top: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-}
-
-.user-card {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-  padding: var(--s-2);
-  border-radius: var(--r-sm);
-  width: 100%;
-  text-align: left;
-  transition: background var(--dur-fast) var(--ease-out);
-}
-
-.user-card:hover {
-  background: var(--surface-2);
-}
-
+/* Shared identity text — the account surfaces in settings and user lists. */
 .user-meta {
   min-width: 0;
   flex: 1;
@@ -176,6 +156,13 @@
   min-height: 100dvh;
 }
 
+.page-transition {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
 .topbar {
   position: sticky;
   top: 0;
@@ -189,10 +176,6 @@
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
-}
-
-.topbar-menu-btn {
-  display: none;
 }
 
 .crumb {
@@ -444,43 +427,101 @@
   padding: var(--s-4);
 }
 
+/* Floating action button — the mobile home of a view's primary create action. */
+.fab {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  position: fixed;
+  right: var(--s-4);
+  bottom: calc(var(--bottomnav-h) + env(safe-area-inset-bottom, 0px) + var(--s-4));
+  width: 52px;
+  height: 52px;
+  border-radius: var(--r-full);
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-sticky);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.fab:hover {
+  background: var(--accent-hover);
+}
+
 /* ════════════════════════════════════════════════════════════════════
-   Mobile bottom nav
+   Floating mobile navigation — a translucent pill that floats above the
+   content (not a full-bleed fixed bar). The burger at its trailing edge
+   opens only the destinations the pill does not already carry.
    ════════════════════════════════════════════════════════════════════ */
 .bottomnav {
   display: none;
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: calc(var(--bottomnav-h) + env(safe-area-inset-bottom, 0px));
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  background: color-mix(in srgb, var(--surface-1) 94%, transparent);
-  backdrop-filter: blur(14px);
-  border-top: 1px solid var(--border);
+  left: 50%;
+  bottom: calc(var(--s-3) + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  width: min(calc(100% - var(--s-6)), 30rem);
   z-index: var(--z-sidebar);
 }
 
 .bottomnav-inner {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
   height: var(--bottomnav-h);
+  padding: 0 var(--s-1);
+  border-radius: var(--r-full);
+  border: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--surface-2) 86%, transparent);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-lg);
 }
 
 .bottomnav-item {
+  position: relative;
+  flex: 1 1 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: 2px;
+  height: calc(var(--bottomnav-h) - var(--s-2));
+  border-radius: var(--r-full);
   font-size: var(--fs-2xs);
   color: var(--text-dim);
-  transition: color var(--dur-fast) var(--ease-out);
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+
+.bottomnav-pill {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-full);
+  background: var(--accent-dim);
+}
+
+.bottomnav-item > svg,
+.bottomnav-item > span:not(.bottomnav-pill) {
+  position: relative;
+}
+
+.bottomnav-item:hover {
+  color: var(--text);
 }
 
 .bottomnav-item[data-active="true"] {
   color: var(--accent);
+}
+
+.bottomnav-burger {
+  flex: 0 0 auto;
+  width: calc(var(--bottomnav-h) - var(--s-2));
+  color: var(--text-muted);
+}
+
+.bottomnav-burger svg {
+  flex-shrink: 0;
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -493,8 +534,7 @@
 
   .brand-text,
   .nav-item span:not(.nav-count),
-  .nav-section,
-  .user-meta {
+  .nav-section {
     display: none;
   }
 
@@ -510,10 +550,6 @@
 
   .nav-count {
     display: none;
-  }
-
-  .user-card {
-    justify-content: center;
   }
 }
 
@@ -531,11 +567,7 @@
   }
 
   .app-main {
-    padding-bottom: calc(var(--bottomnav-h) + env(safe-area-inset-bottom, 0px));
-  }
-
-  .topbar-menu-btn {
-    display: inline-flex;
+    padding-bottom: calc(var(--bottomnav-h) + env(safe-area-inset-bottom, 0px) + var(--s-16));
   }
 
   .topbar {
@@ -548,6 +580,15 @@
 
   .page-title {
     font-size: var(--fs-xl);
+  }
+
+  /* The primary create action moves from the page head to a thumb-reachable FAB. */
+  .page-actions .btn-create {
+    display: none;
+  }
+
+  .fab {
+    display: inline-flex;
   }
 
   .grid-2,
@@ -567,7 +608,7 @@
   .toast-region {
     left: var(--s-3);
     right: var(--s-3);
-    bottom: calc(var(--bottomnav-h) + var(--s-4));
+    bottom: calc(var(--bottomnav-h) + env(safe-area-inset-bottom, 0px) + var(--s-6));
     width: auto;
   }
 }

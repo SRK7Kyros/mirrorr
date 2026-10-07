@@ -13,6 +13,7 @@ import {
   ErrorPanel,
   IconExternal,
   IconSessions,
+  JsonView,
   Panel,
   PanelBody,
   PanelHead,
@@ -60,19 +61,6 @@ function KeyValue({ label, children }: { readonly label: string; readonly childr
     <div className="row-between">
       <span className="text-dim">{label}</span>
       <span className="mono text-truncate">{children}</span>
-    </div>
-  )
-}
-
-function ConfigBlock({ title, value }: { readonly title: string; readonly value: Record<string, unknown> }) {
-  return (
-    <div className="stack stack-sm">
-      <span className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
-        {title}
-      </span>
-      <pre className="mono" style={{ margin: 0, whiteSpace: "pre-wrap", overflowX: "auto" }}>
-        {JSON.stringify(value, null, 2)}
-      </pre>
     </div>
   )
 }
@@ -276,10 +264,10 @@ export function SessionDetailView({ sessionId }: { readonly sessionId: string })
                   ) : null}
                 </div>
                 {hasResolverConfig && session.resolver_config !== undefined ? (
-                  <ConfigBlock title="Resolver config" value={session.resolver_config} />
+                  <JsonView label="Resolver config" value={session.resolver_config} defaultOpen />
                 ) : null}
                 {hasRetryConfig && session.retry_config !== undefined ? (
-                  <ConfigBlock title="Retry config" value={session.retry_config} />
+                  <JsonView label="Retry config" value={session.retry_config} defaultOpen />
                 ) : null}
               </div>
             </PanelBody>

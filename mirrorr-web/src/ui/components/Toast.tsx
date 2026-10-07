@@ -1,5 +1,7 @@
 import { useSyncExternalStore, type ReactNode } from "react"
+import { AnimatePresence, motion } from "motion/react"
 import { cn } from "@/ui/lib/cn"
+import { toastVariants } from "@/ui/lib/motion"
 import { IconAlert, IconCheck, IconInfo } from "./icons"
 
 export type ToastKind = "success" | "error" | "info"
@@ -81,30 +83,46 @@ const ICONS: Record<ToastKind, ReactNode> = {
 /** Fixed bottom-right toast stack — `.toast-region`. Mount once per app. */
 export function ToastRegion({ className }: { readonly className?: string }) {
   const toasts = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-  if (toasts.length === 0) return null
   return (
     <div className={cn("toast-region", className)} aria-live="polite" aria-atomic="false">
-      {toasts.map((item) => (
-        <div key={item.id} className="toast" data-kind={item.kind} role="status">
-          <span className="toast-icon" aria-hidden="true">
-            {ICONS[item.kind]}
-          </span>
-          <div className="toast-body">
-            <div className="toast-title">{item.title}</div>
-            {item.text !== undefined ? <div className="toast-text">{item.text}</div> : null}
-            {item.action !== undefined ? (
-              <button type="button" className="btn btn-ghost btn-sm" onClick={item.action.onClick}>
-                {item.action.label}
-              </button>
-            ) : null}
-          </div>
-          <button type="button" className="btn btn-ghost btn-icon btn-sm" aria-label="Dismiss" onClick={() => dismiss(item.id)}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M18 6 6 18M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-      ))}
+      <AnimatePresence initial={false}>
+        {toasts.map((item) => (
+          <motion.div
+            key={item.id}
+            layout
+            className="toast"
+            data-kind={item.kind}
+            role="status"
+            variants={toastVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+          >
+            <span className="toast-icon" aria-hidden="true">
+              {ICONS[item.kind]}
+            </span>
+            <div className="toast-body">
+              <div className="toast-title">{item.title}</div>
+              {item.text !== undefined ? <div className="toast-text">{item.text}</div> : null}
+              {item.action !== undefined ? (
+                <button type="button" className="btn btn-ghost btn-sm" onClick={item.action.onClick}>
+                  {item.action.label}
+                </button>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon btn-sm"
+              aria-label="Dismiss"
+              onClick={() => dismiss(item.id)}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </motion.div>
+        ))}
+      </AnimatePresence>
     </div>
   )
 }

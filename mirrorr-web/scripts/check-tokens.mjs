@@ -54,13 +54,13 @@ const PINNED = {
   "--text-faint": "#4d4d57",
   "--text-inverse": "#0a0a0c",
 
-  // ---- accent (signal teal) ----
-  "--accent": "#2dd4bf",
-  "--accent-hover": "#5eead4",
-  "--accent-press": "#14b8a6",
-  "--accent-ink": "#04211c",
-  "--accent-dim": "rgba(45, 212, 191, 0.13)",
-  "--accent-line": "rgba(45, 212, 191, 0.4)",
+  // ---- accent (signal green) ----
+  "--accent": "#00e676",
+  "--accent-hover": "#57ef9e",
+  "--accent-press": "#00b85c",
+  "--accent-ink": "#00220e",
+  "--accent-dim": "rgba(0, 230, 118, 0.14)",
+  "--accent-line": "rgba(0, 230, 118, 0.4)",
 
   // ---- status hues ----
   "--success": "#3fb950",

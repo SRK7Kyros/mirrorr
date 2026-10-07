@@ -1,12 +1,7 @@
-import { useAuthState } from "@/api"
 import { IconDisc } from "@/ui/components"
-import { describeIdentity } from "./identity"
 import { NavList } from "./nav-list"
-import { UserCard } from "./user-card"
 
 export function Sidebar() {
-  const auth = useAuthState()
-  const identity = describeIdentity(auth.auth)
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
@@ -21,9 +16,6 @@ export function Sidebar() {
       <nav className="sidebar-nav" aria-label="Primary">
         <NavList />
       </nav>
-      <div className="sidebar-foot">
-        <UserCard displayName={identity.name} role={identity.role} />
-      </div>
     </aside>
   )
 }

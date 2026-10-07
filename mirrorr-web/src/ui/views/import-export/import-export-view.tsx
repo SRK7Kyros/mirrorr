@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent } from "react"
+import { useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   applyImport,
@@ -38,6 +38,8 @@ import {
   EmptyState,
   ErrorPanel,
   Field,
+  FilePicker,
+  Hash,
   IconDownload,
   LoadMore,
   Panel,
@@ -267,7 +269,16 @@ function ResolutionControls({
           <Field
             key={`${type}-${index}`}
             label={`Map ${type}`}
-            hint={hash === null ? "No origin hash — cannot map this plugin" : `origin hash ${hash.slice(0, 12)}`}
+            hint={
+              hash === null ? (
+                "No origin hash — cannot map this plugin"
+              ) : (
+                <span className="row" style={{ gap: "var(--s-2)" }}>
+                  <span>origin hash</span>
+                  <Hash value={hash} label={`${item.name} origin hash`} />
+                </span>
+              )
+            }
           >
             <Select
               aria-label={`Map ${type} for ${item.name}`}
@@ -356,6 +367,8 @@ function ImportPanel() {
   const [report, setReport] = useState<ImportValidateReport | null>(null)
   const [resolutions, setResolutions] = useState<Resolutions>({})
   const [fileError, setFileError] = useState<string | null>(null)
+  const [fileName, setFileName] = useState<string | null>(null)
+  const [fileSize, setFileSize] = useState<number | null>(null)
   const [summary, setSummary] = useState<ImportApplySummary | null>(null)
 
   const validate = useMutation({
@@ -384,12 +397,13 @@ function ImportPanel() {
     setBundle(null)
     setReport(null)
     setResolutions({})
+    setFileName(null)
+    setFileSize(null)
   }
 
-  const onFile = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
-    const file = event.target.files?.item(0)
-    event.target.value = ""
-    if (file === null || file === undefined) return
+  const handleFile = async (file: File): Promise<void> => {
+    setFileName(file.name)
+    setFileSize(file.size)
     setFileError(null)
     setSummary(null)
 
@@ -426,6 +440,20 @@ function ImportPanel() {
     })
   }
 
+  const includedOf = (item: ImportItem): boolean => (resolutions[item.name] ?? { included: true }).included
+  const allIncluded =
+    report !== null && report.items.length > 0 && report.items.every(includedOf)
+  const setAllIncluded = (included: boolean) => {
+    if (report === null) return
+    setResolutions((current) => {
+      const next: Resolutions = { ...current }
+      for (const item of report.items) {
+        next[item.name] = { ...(next[item.name] ?? { included: true }), included }
+      }
+      return next
+    })
+  }
+
   const canApply = report !== null && bundle !== null && !apply.isPending
 
   const runApply = () => {
@@ -438,17 +466,14 @@ function ImportPanel() {
       <PanelHead title="Import" />
       <PanelBody>
         <div className="stack">
-          <Field
-            label="Bundle file"
-            htmlFor="import-bundle"
-            hint="A version 1 JSON bundle of profiles and autoruns."
-          >
-            <input
-              id="import-bundle"
-              className="input"
-              type="file"
+          <Field label="Bundle file" hint="A version 1 JSON bundle of profiles and autoruns.">
+            <FilePicker
               accept="application/json,.json"
-              onChange={(event) => void onFile(event)}
+              label="Choose a bundle file"
+              fileName={fileName}
+              fileSize={fileSize}
+              onFile={(file) => void handleFile(file)}
+              onClear={clearStaged}
             />
           </Field>
 
@@ -472,7 +497,13 @@ function ImportPanel() {
               <Table>
                 <thead>
                   <tr>
-                    <Th>Include</Th>
+                    <Th className="cell-check">
+                      <Checkbox
+                        aria-label="Include all items"
+                        checked={allIncluded}
+                        onChange={(event) => setAllIncluded(event.target.checked)}
+                      />
+                    </Th>
                     <Th>Name</Th>
                     <Th>Kind</Th>
                     <Th>Status</Th>
@@ -511,9 +542,21 @@ function ImportPanel() {
                             <span className="text-dim">No issues</span>
                           ) : (
                             <div className="stack-sm">
-                              {item.issues.map((issue, index) => (
-                                <Tag key={`${issue.type}-${index}`}>{issueKind(issue)}</Tag>
-                              ))}
+                              {item.issues.map((issue, index) => {
+                                const hash = issueOriginHash(issue)
+                                return (
+                                  <span
+                                    key={`${issue.type}-${index}`}
+                                    className="row"
+                                    style={{ gap: "var(--s-2)" }}
+                                  >
+                                    <Tag>{issueKind(issue)}</Tag>
+                                    {hash !== null ? (
+                                      <Hash value={hash} label={`${item.name} origin hash`} />
+                                    ) : null}
+                                  </span>
+                                )
+                              })}
                             </div>
                           )}
                         </Td>

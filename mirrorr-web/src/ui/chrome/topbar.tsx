@@ -1,21 +1,15 @@
 import { useRouterState } from "@tanstack/react-router"
-import { IconButton, IconMenu } from "@/ui/components"
+import { AccountMenu } from "./account-menu"
 import { describeRoute } from "./breadcrumb"
 import { ConnectionPill } from "./connection-pill"
 import { NotificationBell } from "./notification-bell"
 
-export function TopBar({ onOpenNav }: { readonly onOpenNav: () => void }) {
+export function TopBar() {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const crumb = describeRoute(pathname)
 
   return (
     <header className="topbar">
-      <IconButton
-        className="topbar-menu-btn"
-        label="Open navigation"
-        icon={<IconMenu size={18} />}
-        onClick={onOpenNav}
-      />
       <div className="crumb">
         {crumb.parent !== null ? (
           <>
@@ -31,6 +25,7 @@ export function TopBar({ onOpenNav }: { readonly onOpenNav: () => void }) {
       <div className="topbar-actions">
         <ConnectionPill />
         <NotificationBell />
+        <AccountMenu />
       </div>
     </header>
   )

@@ -21,6 +21,7 @@ import {
   Dialog,
   Field,
   Input,
+  Segmented,
   Select,
   Switch,
   toast,
@@ -304,20 +305,17 @@ export function AutorunFormDialog({
 
           <Field
             label="Config source"
-            htmlFor="autorun-mode"
             hint={live ? "Changes affect a future run, not the current one." : undefined}
           >
-            <Select
-              id="autorun-mode"
-              value={mode}
-              disabled={live}
-              onChange={(event) => setMode(event.target.value === "custom" ? "custom" : "profile")}
-            >
-              <option value="profile" disabled={profiles.length === 0}>
-                Use a profile
-              </option>
-              <option value="custom">Pick engine + resolver</option>
-            </Select>
+            <Segmented
+              ariaLabel="Config source"
+              active={mode}
+              onChange={setMode}
+              items={[
+                { id: "profile", label: "Use a profile", disabled: profiles.length === 0 || live },
+                { id: "custom", label: "Pick engine + resolver", disabled: live },
+              ]}
+            />
           </Field>
 
           {mode === "profile" ? (

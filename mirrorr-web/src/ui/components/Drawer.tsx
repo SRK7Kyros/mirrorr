@@ -1,6 +1,8 @@
 import { useEffect, useRef, type ReactNode } from "react"
 import { createPortal } from "react-dom"
+import { AnimatePresence, motion } from "motion/react"
 import { cn } from "@/ui/lib/cn"
+import { drawerVariants, overlayVariants } from "@/ui/lib/motion"
 import { IconButton } from "./IconButton"
 import { IconX } from "./icons"
 
@@ -15,7 +17,7 @@ export interface DrawerProps {
 
 /** Slide-over panel — `.drawer` (+ `.drawer-left`). Portalled, Escape closes. */
 export function Drawer({ open, onClose, title, side = "right", children, footer }: DrawerProps) {
-  const panelRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
     if (!open) return
@@ -30,27 +32,43 @@ export function Drawer({ open, onClose, title, side = "right", children, footer 
     return () => document.removeEventListener("keydown", onKeyDown)
   }, [open, onClose])
 
-  if (!open) return null
-
   return createPortal(
-    <>
-      <div className="scrim drawer-scrim" onClick={onClose} aria-hidden="true" />
-      <aside
-        ref={panelRef}
-        className={cn("drawer", side === "left" && "drawer-left")}
-        role="dialog"
-        aria-modal="true"
-        aria-label={typeof title === "string" ? title : undefined}
-        tabIndex={-1}
-      >
-        <header className="drawer-head">
-          <h2 className="drawer-title">{title}</h2>
-          <IconButton label="Close" icon={<IconX size={18} />} onClick={onClose} />
-        </header>
-        <div className="drawer-body">{children}</div>
-        {footer !== undefined ? <footer className="panel-foot">{footer}</footer> : null}
-      </aside>
-    </>,
+    <AnimatePresence>
+      {open ? (
+        <motion.div
+          key="scrim"
+          className="scrim drawer-scrim"
+          variants={overlayVariants}
+          initial="hidden"
+          animate="visible"
+          exit="exit"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      ) : null}
+      {open ? (
+        <motion.aside
+          key="drawer"
+          ref={panelRef}
+          className={cn("drawer", side === "left" && "drawer-left")}
+          role="dialog"
+          aria-modal="true"
+          aria-label={typeof title === "string" ? title : undefined}
+          tabIndex={-1}
+          variants={drawerVariants(side)}
+          initial="hidden"
+          animate="visible"
+          exit="exit"
+        >
+          <header className="drawer-head">
+            <h2 className="drawer-title">{title}</h2>
+            <IconButton label="Close" icon={<IconX size={18} />} onClick={onClose} />
+          </header>
+          <div className="drawer-body">{children}</div>
+          {footer !== undefined ? <footer className="panel-foot">{footer}</footer> : null}
+        </motion.aside>
+      ) : null}
+    </AnimatePresence>,
     document.body,
   )
 }

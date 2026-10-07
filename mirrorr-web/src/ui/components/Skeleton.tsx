@@ -1,5 +1,7 @@
 import type { CSSProperties } from "react"
+import { motion } from "motion/react"
 import { cn } from "@/ui/lib/cn"
+import { motionTokens } from "@/ui/lib/motion"
 
 /** Shimmering placeholder block — `.skeleton` from components.css. */
 export function Skeleton({
@@ -18,7 +20,14 @@ export function Skeleton({
 /** A stack of skeleton rows sized for a table body. */
 export function SkeletonRows({ rows = 6, cols = 4 }: { readonly rows?: number; readonly cols?: number }) {
   return (
-    <div className="stack-sm" aria-busy="true" aria-label="Loading">
+    <motion.div
+      className="stack-sm"
+      aria-busy="true"
+      aria-label="Loading"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: motionTokens.duration.fast }}
+    >
       {Array.from({ length: rows }, (_, rowIndex) => (
         <div key={rowIndex} className="row" style={{ gap: "var(--s-4)" }}>
           {Array.from({ length: cols }, (_, colIndex) => (
@@ -26,6 +35,6 @@ export function SkeletonRows({ rows = 6, cols = 4 }: { readonly rows?: number; r
           ))}
         </div>
       ))}
-    </div>
+    </motion.div>
   )
 }

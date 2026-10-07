@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link } from "@tanstack/react-router"
-import { getErrorMessage, isAdmin, useEntityList, useNameMaps, type NameMaps } from "@/api"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import {
+  deleteSession,
+  getErrorMessage,
+  isAdmin,
+  removeFromInfiniteLists,
+  useEntityList,
+  useNameMaps,
+  type NameMaps,
+} from "@/api"
 import { fetchSessionPage } from "@/api/endpoints"
-import { queryKeys, resolveEntityName } from "@/api/query-keys"
+import { queryKeys, queryRoots, resolveEntityName } from "@/api/query-keys"
 import {
   DEFAULT_FILTER,
   FILTER_TOKENS,
@@ -15,13 +24,18 @@ import {
 import type { Session } from "@/api/schemas"
 import { formatDateTime, formatDuration } from "@/api/time"
 import {
+  BulkBar,
   Button,
+  Checkbox,
+  ConfirmDialog,
   EmptyState,
   ErrorPanel,
+  Fab,
   IconPlus,
   IconRefresh,
   IconSearch,
   IconSessions,
+  IconTrash,
   Input,
   LoadMore,
   Panel,
@@ -34,8 +48,9 @@ import {
   Tag,
   Td,
   Th,
+  toast,
 } from "@/ui/components"
-import { useLiveDurationSeconds } from "@/ui/hooks"
+import { useLiveDurationSeconds, useSelection } from "@/ui/hooks"
 import { Page } from "@/ui/views/shared/page"
 import { RemuxProgressBar } from "./remux-progress"
 import { NewSessionDialog } from "./new-session-dialog"
@@ -69,11 +84,15 @@ function SessionRow({
   names,
   showOwner,
   columnCount,
+  selected,
+  onToggle,
 }: {
   readonly session: Session
   readonly names: NameMaps
   readonly showOwner: boolean
   readonly columnCount: number
+  readonly selected: boolean
+  readonly onToggle: (id: number) => void
 }) {
   const duration = useLiveDurationSeconds(session.started_at, session.ended_at)
   const tail = sourceTail(session)
@@ -81,7 +100,14 @@ function SessionRow({
 
   return (
     <>
-      <tr>
+      <tr data-id={session.id} data-selected={selected}>
+        <Td className="cell-check">
+          <Checkbox
+            aria-label={`Select session #${session.id}`}
+            checked={selected}
+            onChange={() => onToggle(session.id)}
+          />
+        </Td>
         <Td>
           <StatusChip status={session.status} />
         </Td>
@@ -133,9 +159,12 @@ function SessionRow({
 }
 
 export function SessionsListView() {
+  const queryClient = useQueryClient()
   const [tokens, setTokens] = useState<readonly FilterToken[]>(() => [...DEFAULT_FILTER])
   const [search, setSearch] = useState("")
   const [createOpen, setCreateOpen] = useState(false)
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const selection = useSelection<number>()
   const names = useNameMaps()
   const showOwner = isAdmin()
 
@@ -171,6 +200,24 @@ export function SessionsListView() {
     })
   }, [list.items, tokens, search])
 
+  const rowIds = useMemo(() => rows.map((session) => session.id), [rows])
+
+  const bulkRemove = useMutation({
+    mutationFn: async (ids: readonly number[]) => {
+      for (const id of ids) await deleteSession(id)
+    },
+    onSuccess: (_data, ids) => {
+      for (const id of ids) {
+        removeFromInfiniteLists(queryClient, queryRoots.sessions, id)
+        queryClient.removeQueries({ queryKey: queryKeys.session(id) })
+      }
+      void queryClient.invalidateQueries({ queryKey: queryRoots.sessions })
+      toast.success("Sessions deleted", `${ids.length} removed`)
+      selection.clear()
+    },
+    onError: (error) => toast.error("Could not delete the sessions", getErrorMessage(error, "Request failed")),
+  })
+
   const tally = useMemo(() => {
     let live = 0
     let recording = 0
@@ -195,18 +242,20 @@ export function SessionsListView() {
     setTokens(next.length === 0 ? ["all"] : next)
   }
 
-  const columnCount = showOwner ? 9 : 8
+  const columnCount = showOwner ? 10 : 9
 
   return (
     <Page
       title="Sessions"
       description="Live and recent capture runs. Status filtering and search apply to the rows loaded so far."
       actions={
-        <Button variant="primary" icon={<IconPlus size={16} />} onClick={() => setCreateOpen(true)}>
+        <Button variant="primary" className="btn-create" icon={<IconPlus size={16} />} onClick={() => setCreateOpen(true)}>
           New session
         </Button>
       }
     >
+      <Fab label="New session" icon={<IconPlus size={22} />} onClick={() => setCreateOpen(true)} />
+
       <Panel>
         <PanelHead
           title="Tally"
@@ -301,6 +350,13 @@ export function SessionsListView() {
               <Table>
                 <thead>
                   <tr>
+                    <Th className="cell-check">
+                      <Checkbox
+                        aria-label="Select all sessions"
+                        checked={selection.allSelected(rowIds)}
+                        onChange={(event) => selection.setMany(event.target.checked ? rowIds : [])}
+                      />
+                    </Th>
                     <Th>Status</Th>
                     <Th>Session</Th>
                     <Th>Engine → Resolver</Th>
@@ -320,12 +376,27 @@ export function SessionsListView() {
                       names={names}
                       showOwner={showOwner}
                       columnCount={columnCount}
+                      selected={selection.has(session.id)}
+                      onToggle={selection.toggle}
                     />
                   ))}
                 </tbody>
               </Table>
             </PanelBody>
           </Panel>
+          {selection.count > 0 ? (
+            <BulkBar count={selection.count} onClear={selection.clear}>
+              <Button
+                size="sm"
+                variant="danger-ghost"
+                icon={<IconTrash size={15} />}
+                loading={bulkRemove.isPending}
+                onClick={() => setBulkDeleteOpen(true)}
+              >
+                Delete selected
+              </Button>
+            </BulkBar>
+          ) : null}
           <LoadMore
             hasMore={hasMore}
             isFetching={isFetching}
@@ -336,6 +407,22 @@ export function SessionsListView() {
           />
         </>
       )}
+
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        title={`Delete ${selection.count} selected session${selection.count === 1 ? "" : "s"}?`}
+        description="A running session stops being tracked; recordings already on disk are not removed."
+        confirmLabel="Delete"
+        danger
+        onConfirm={async () => {
+          try {
+            await bulkRemove.mutateAsync([...selection.selected])
+          } catch {
+            // The mutation's onError surfaces the failure via toast.
+          }
+        }}
+      />
 
       <NewSessionDialog open={createOpen} onClose={() => setCreateOpen(false)} />
     </Page>

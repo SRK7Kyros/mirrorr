@@ -2,6 +2,7 @@ import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { RouterProvider } from "@tanstack/react-router"
+import { MotionConfig } from "motion/react"
 import { setAuthNavigator } from "@/api/auth"
 import { queryClient } from "@/api/query-client"
 import { router } from "@/router"
@@ -15,8 +16,10 @@ if (rootElement === null) throw new Error("Mirrorr: #root element is missing")
 
 createRoot(rootElement).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>
+    <MotionConfig reducedMotion="user">
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </MotionConfig>
   </StrictMode>,
 )
