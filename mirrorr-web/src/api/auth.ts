@@ -51,11 +51,6 @@ export function currentAuth(): AuthResponse | null {
   return state.auth
 }
 
-/** Role gating — `user.role` from `["auth","me"]` hides admin surfaces. */
-export function isAdmin(): boolean {
-  return state.auth?.user?.role === "admin"
-}
-
 /**
  * API-client principal (`client` set, `user` null): views hide the bell,
  * show the persistent banner, and force the 10s polling cadence via

@@ -96,7 +96,10 @@ async def get_auth(
         from mirrorr.api.jwt import ACCESS_TOKEN_COOKIE
         token = request.cookies.get(ACCESS_TOKEN_COOKIE, "")
 
-    return await _resolve_auth(db, api_key, token)
+    auth = await _resolve_auth(db, api_key, token)
+    # Response shaping reads the principal off the request (api.privileged).
+    request.state.is_admin = auth.is_admin
+    return auth
 
 
 async def require_auth(

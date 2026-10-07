@@ -7,8 +7,23 @@ import { defineConfig } from "vite"
 // /api, /ws and /health to the FastAPI core on :8000, and multi-page inputs
 // (desktop index.html + Capacitor mobile.html). Lazy route code-splitting
 // comes from per-route `lazy()` imports in src/routes/, not a Vite plugin.
+const surface = process.env.MIRRORR_SURFACE ?? "standard"
+
+// The admin surface is a separate bundle: only the admin build declares
+// admin.html, so the standard bundle never contains the admin chunk.
+const input: Record<string, string> =
+  surface === "admin"
+    ? { index: path.resolve(import.meta.dirname, "admin.html") }
+    : {
+        main: path.resolve(import.meta.dirname, "index.html"),
+        mobile: path.resolve(import.meta.dirname, "mobile.html"),
+      }
+
 export default defineConfig({
   base: process.env.MIRRORR_BASE ?? "/",
+  // Compile-time surface flag: the standard build drops every admin branch
+  // during bundling rather than hiding it behind a runtime check.
+  define: { __ADMIN__: JSON.stringify(surface === "admin") },
   plugins: [react()],
   resolve: {
     alias: {
@@ -16,12 +31,7 @@ export default defineConfig({
     },
   },
   build: {
-    rollupOptions: {
-      input: {
-        main: path.resolve(import.meta.dirname, "index.html"),
-        mobile: path.resolve(import.meta.dirname, "mobile.html"),
-      },
-    },
+    rollupOptions: { input },
   },
   server: {
     host: "127.0.0.1",

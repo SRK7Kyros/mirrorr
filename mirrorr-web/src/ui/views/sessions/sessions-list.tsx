@@ -4,7 +4,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   deleteSession,
   getErrorMessage,
-  isAdmin,
   removeFromInfiniteLists,
   useEntityList,
   useNameMaps,
@@ -82,14 +81,12 @@ function sourceTail(session: Session): string | null {
 function SessionRow({
   session,
   names,
-  showOwner,
   columnCount,
   selected,
   onToggle,
 }: {
   readonly session: Session
   readonly names: NameMaps
-  readonly showOwner: boolean
   readonly columnCount: number
   readonly selected: boolean
   readonly onToggle: (id: number) => void
@@ -122,21 +119,21 @@ function SessionRow({
           ) : null}
         </Td>
         <Td>
-          {resolveEntityName(session.engine_name, names.engines, session.engine_id)}
+          {resolveEntityName(session.resolver_name, names.resolvers, session.resolver_id)}
           <span className="text-dim" aria-hidden="true">
             {" → "}
           </span>
-          {resolveEntityName(session.resolver_name, names.resolvers, session.resolver_id)}
+          {resolveEntityName(session.engine_name, names.engines, session.engine_id)}
         </Td>
         <Td>{resolveEntityName(session.profile_name, names.profiles, session.profile_id)}</Td>
         <Td>{session.started_at != null ? formatDateTime(session.started_at) : <span className="text-dim">—</span>}</Td>
         <Td num>{duration === null ? <span className="text-dim">—</span> : formatDuration(duration)}</Td>
         <Td>{session.recording === true ? <Tag accent>REC</Tag> : <span className="text-dim">—</span>}</Td>
-        {showOwner ? (
+        {__ADMIN__ ? (
           <Td>
             {session.requester_user_token !== undefined && session.requester_user_token !== "" ? (
               <span className="mono text-truncate" title={session.requester_user_token}>
-                {session.requester_user_token.slice(0, 8)}…
+                {session.requester_user_token}
               </span>
             ) : (
               <span className="text-dim">—</span>
@@ -166,7 +163,6 @@ export function SessionsListView() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
   const selection = useSelection<number>()
   const names = useNameMaps()
-  const showOwner = isAdmin()
 
   const list = useEntityList<Session>({
     queryKey: queryKeys.sessions({ filter: tokens.join("+") }),
@@ -242,7 +238,7 @@ export function SessionsListView() {
     setTokens(next.length === 0 ? ["all"] : next)
   }
 
-  const columnCount = showOwner ? 10 : 9
+  const columnCount = __ADMIN__ ? 10 : 9
 
   return (
     <Page
@@ -359,12 +355,12 @@ export function SessionsListView() {
                     </Th>
                     <Th>Status</Th>
                     <Th>Session</Th>
-                    <Th>Engine → Resolver</Th>
+                    <Th>Resolver → Engine</Th>
                     <Th>Profile</Th>
                     <Th>Started</Th>
                     <Th num>Duration</Th>
                     <Th>Rec</Th>
-                    {showOwner ? <Th>Owner</Th> : null}
+                    {__ADMIN__ ? <Th>Owner</Th> : null}
                     <Th aria-label="Actions" />
                   </tr>
                 </thead>
@@ -374,7 +370,6 @@ export function SessionsListView() {
                       key={session.id}
                       session={session}
                       names={names}
-                      showOwner={showOwner}
                       columnCount={columnCount}
                       selected={selection.has(session.id)}
                       onToggle={selection.toggle}

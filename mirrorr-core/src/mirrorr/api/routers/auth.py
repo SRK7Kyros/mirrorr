@@ -461,6 +461,16 @@ async def get_me(auth: AuthState = Depends(require_auth)):
     )
 
 
+@auth_router.get("/admin-surface", include_in_schema=False)
+async def admin_surface(auth: AuthState = Depends(get_auth)) -> Response:
+    """nginx ``auth_request`` target for the admin bundle: 204 or 403.
+
+    nginx uses this to decide which of the two web builds to hand the browser
+    — the one carrying the admin surfaces, or the one with no trace of them.
+    """
+    return Response(status_code=204 if auth.is_admin else 403)
+
+
 @auth_router.post("/refresh", response_model=AuthResponse)
 async def refresh(
     request: Request,

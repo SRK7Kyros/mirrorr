@@ -1,7 +1,7 @@
 import { useEffect, useMemo, type ReactNode } from "react"
 import { Link } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
-import { ApiError, getErrorMessage, isAdmin, useEntityList, useNameMaps } from "@/api"
+import { ApiError, getErrorMessage, useEntityList, useNameMaps } from "@/api"
 import { fetchAutorun, fetchSessionPage } from "@/api/endpoints"
 import { queryKeys, resolveEntityName, staleTimes } from "@/api/query-keys"
 import { getStatusDescriptor } from "@/api/status"
@@ -61,7 +61,6 @@ function isForbidden(error: unknown): boolean {
 export function AutorunDetailView({ autorunId }: { readonly autorunId: string }) {
   const names = useNameMaps()
   const now = useNowTick(COUNTDOWN_TICK_MS)
-  const showOwner = isAdmin()
 
   const query = useQuery({
     queryKey: queryKeys.autorun(autorunId),
@@ -148,7 +147,6 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
   const hasResolverConfig =
     autorun.resolver_config !== undefined && Object.keys(autorun.resolver_config).length > 0
   const hasRetryConfig = autorun.retry_config !== undefined && Object.keys(autorun.retry_config).length > 0
-  const owner = autorun.requester_user_token
 
   return (
     <Page
@@ -198,12 +196,12 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
             <Stat label="End" value={formatDateTime(autorun.end_time)} />
             <Stat label="Recording" value={autorun.recording === true ? "On" : "Off"} />
             <Stat label="Profile" value={profile} />
-            {showOwner ? (
+            {__ADMIN__ ? (
               <Stat
-                label="Requester token"
+                label="Owner"
                 value={
-                  owner !== undefined && owner !== ""
-                    ? `${owner.slice(0, 8)}…`
+                  autorun.requester_user_token !== undefined && autorun.requester_user_token !== ""
+                    ? autorun.requester_user_token
                     : "—"
                 }
               />

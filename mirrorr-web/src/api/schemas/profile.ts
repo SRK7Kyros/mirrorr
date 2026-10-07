@@ -10,7 +10,6 @@ export const ProfileSchema = z
     resolver_config: z.record(z.string(), z.unknown()).optional(),
     retry_mode: z.string().optional(),
     retry_config: z.record(z.string(), z.unknown()).optional(),
-    requester_user_token: z.string().optional(),
     engine_name: z.string().nullable().optional(),
     resolver_name: z.string().nullable().optional(),
   })

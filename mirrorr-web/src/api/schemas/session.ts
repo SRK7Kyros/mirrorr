@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { adminOnlyFields } from "./privileged"
 
 /**
  * `SessionResponse`. Datetimes are naive UTC strings (never `Z`).
@@ -21,7 +22,7 @@ export const SessionSchema = z
     retry_attempts: z.number().optional(),
     started_at: z.string().nullable().optional(),
     ended_at: z.string().nullable().optional(),
-    requester_user_token: z.string().optional(),
+    ...adminOnlyFields,
     session_urls: z.array(z.record(z.string(), z.string())).optional(),
     attempts: z.array(z.record(z.string(), z.unknown())).optional(),
     engine_name: z.string().nullable().optional(),

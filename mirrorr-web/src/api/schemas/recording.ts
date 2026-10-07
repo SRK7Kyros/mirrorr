@@ -16,7 +16,6 @@ export const RecordingSchema = z
     duration_seconds: z.number(),
     size_bytes: z.number(),
     created_at: z.string(),
-    requester_user_token: z.string().optional(),
     session_id: z.number().nullable().optional(),
     media_served: z.boolean().optional(),
   })

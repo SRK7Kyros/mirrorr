@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import { Link } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
-import { ApiError, getErrorMessage, isAdmin, useNameMaps } from "@/api"
+import { ApiError, getErrorMessage, useNameMaps } from "@/api"
 import { fetchSession } from "@/api/endpoints"
 import { queryKeys, resolveEntityName, staleTimes } from "@/api/query-keys"
 import { getStatusDescriptor } from "@/api/status"
@@ -137,7 +137,6 @@ export function SessionDetailView({ sessionId }: { readonly sessionId: string })
   const retryCount = session.retry_attempts ?? 0
   const hasResolverConfig = session.resolver_config !== undefined && Object.keys(session.resolver_config).length > 0
   const hasRetryConfig = session.retry_config !== undefined && Object.keys(session.retry_config).length > 0
-  const showOwner = isAdmin()
 
   return (
     <Page
@@ -169,12 +168,12 @@ export function SessionDetailView({ sessionId }: { readonly sessionId: string })
             <Stat label="Ended" value={session.ended_at != null ? formatDateTime(session.ended_at) : "—"} />
             <Stat label="Recording" value={session.recording === true ? "On" : "Off"} />
             <Stat label="Retry attempts" value={retryCount} />
-            {showOwner ? (
+            {__ADMIN__ ? (
               <Stat
-                label="Requester token"
+                label="Owner"
                 value={
                   session.requester_user_token !== undefined && session.requester_user_token !== ""
-                    ? `${session.requester_user_token.slice(0, 8)}…`
+                    ? session.requester_user_token
                     : "—"
                 }
               />
