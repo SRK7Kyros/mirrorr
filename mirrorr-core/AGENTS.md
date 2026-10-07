@@ -156,7 +156,7 @@ All models in `src/mirrorr/storage/models.py` using **SQLModel** (SQLAlchemy + P
 | **Autorun** | Scheduled session with `start_time`/`end_time`, `recording`, optional `retry_mode`/`retry_config` overrides, links Profile + Engine | Implemented |
 | **Recording** | Denormalized snapshot of a completed recording (profile/engine/resolver names, path, metadata, `size_bytes`). | Implemented |
 | **Source** | Pydantic model: `url` + optional `headers` dict | Used by Resolver → Engine handoff |
-| **Capabilities** | Pydantic model: `can_record` / `can_playlist` | Used by Engine |
+| **Capabilities** | Pydantic model: `can_record` / `can_stream` | Used by Engine |
 | **NoRetry / RetryAlways / RetryCount / RetryOnExitCode** | Retry mode schemas (Pydantic models). Defined in `src/mirrorr/plugins/retry.py`, used by `EngineInterface.retry_modes` | Implemented |
 | **`build_retry_modes_schema`** | Generates `{mode: {schema, default_params}}` dict for DB/API transport | Implemented |
 | **`get_retry_delay` / `get_retry_max_attempts`** | Helpers that extract retry policy from mode+config | Implemented |

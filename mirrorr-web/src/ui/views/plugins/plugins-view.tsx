@@ -2,8 +2,9 @@ import { useQuery } from "@tanstack/react-query"
 import { motion } from "motion/react"
 import { fetchAllEngines, fetchAllResolvers, getErrorMessage } from "@/api"
 import { queryKeys, staleTimes } from "@/api/query-keys"
-import type { Engine, Resolver } from "@/api/schemas"
+import type { Capabilities, Engine, Resolver } from "@/api/schemas"
 import {
+  Badge,
   EmptyState,
   ErrorPanel,
   Hash,
@@ -25,7 +26,8 @@ interface PluginEntry {
   readonly description?: string
   readonly origin: string
   readonly originHash: string
-  readonly tags: readonly string[]
+  readonly configKeys: readonly string[]
+  readonly capabilities?: Capabilities
 }
 
 /** Property names are the only stable part of a free-form JSON schema. */
@@ -40,7 +42,8 @@ function toEngineEntry(engine: Engine): PluginEntry {
     description: engine.description,
     origin: engine.origin,
     originHash: engine.origin_hash,
-    tags: sortedKeys(engine.capabilities),
+    configKeys: [],
+    capabilities: engine.capabilities ?? {},
   }
 }
 
@@ -51,8 +54,41 @@ function toResolverEntry(resolver: Resolver): PluginEntry {
     description: resolver.description,
     origin: resolver.origin,
     originHash: resolver.origin_hash,
-    tags: sortedKeys(resolver.config_schema),
+    configKeys: sortedKeys(resolver.config_schema),
   }
+}
+
+const CAPABILITY_FLAGS = [
+  { key: "can_stream", label: "Stream" },
+  { key: "can_record", label: "Record" },
+] as const
+
+function EntryMeta({ entry }: { readonly entry: PluginEntry }) {
+  if (entry.capabilities !== undefined) {
+    return (
+      <div className="toolbar">
+        {CAPABILITY_FLAGS.map(({ key, label }) => {
+          const supported = entry.capabilities?.[key] === true
+          return (
+            <Badge
+              key={key}
+              variant={supported ? "accent" : "danger"}
+              title={`${label}: ${supported ? "supported" : "not supported"}`}
+            >
+              {label}
+            </Badge>
+          )
+        })}
+      </div>
+    )
+  }
+  return entry.configKeys.length === 0 ? null : (
+    <div className="toolbar">
+      {entry.configKeys.map((key) => (
+        <Tag key={key}>{key}</Tag>
+      ))}
+    </div>
+  )
 }
 
 export function PluginsView() {
@@ -147,13 +183,7 @@ function PluginPanel({ title, tagsLabel, entries, isLoading, isError, error, onR
                         <Hash value={entry.originHash} label={`${entry.name} origin hash`} />
                       </Td>
                       <Td>
-                        {entry.tags.length > 0 ? (
-                          <div className="toolbar">
-                            {entry.tags.map((tag) => (
-                              <Tag key={tag}>{tag}</Tag>
-                            ))}
-                          </div>
-                        ) : null}
+                        <EntryMeta entry={entry} />
                       </Td>
                     </tr>
                   ))}
@@ -183,13 +213,7 @@ function PluginPanel({ title, tagsLabel, entries, isLoading, isError, error, onR
                       </dd>
                     </div>
                   </dl>
-                  {entry.tags.length > 0 ? (
-                    <div className="toolbar">
-                      {entry.tags.map((tag) => (
-                        <Tag key={tag}>{tag}</Tag>
-                      ))}
-                    </div>
-                  ) : null}
+                  <EntryMeta entry={entry} />
                 </motion.article>
               ))}
             </motion.div>

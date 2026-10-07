@@ -41,7 +41,7 @@ class Source:
 class Capabilities(BaseModel):
     """What an engine can do. Must be a Pydantic model for DB serialization."""
     can_record: bool = False
-    can_playlist: bool = False
+    can_stream: bool = False
 
 
 @dataclass

@@ -240,7 +240,7 @@ The WS event stream mirrors the supervisor's actual state transitions, so **UI m
 
 Engine = media fetcher (e.g. `yt_dlp_piped` — yt-dlp → ffmpeg → HLS). Resolver = URL source (e.g. `static`).
 
-**`EngineResponse`:** `{id, name, description, origin, origin_hash, capabilities: {can_record, can_playlist}, retry_modes_schema}`
+**`EngineResponse`:** `{id, name, description, origin, origin_hash, capabilities: {can_record, can_stream}, retry_modes_schema}`
 
 **`ResolverResponse`:** `{id, name, description, origin, origin_hash, config_schema}`
 
@@ -594,7 +594,7 @@ Remuxing is the most UI-relevant async server flow — it emits **progress event
 | Create | `POST /profiles/` | 200 `ProfileResponse`; **400** duplicate name; **422** invalid engine/resolver or bad `resolver_config` vs `config_schema` |
 | Update | `PUT /profiles/{id}` | 200; excludes unset — client should send whole form or patch? **`exclude_unset` = partial OK**; same validations |
 | Delete | `DELETE /profiles/{id}` | **204**; **400/409 if FK-referenced by autoruns/sessions** — client must pre-empt with "in use by N autoruns" dialog (query lists, count refs) |
-| Engines | `GET /engines/` | Paginated `EngineResponse[]{id,name,description,origin,origin_hash,capabilities:{can_record,can_playlist},retry_modes_schema}` — pure introspection; **no writes ever** |
+| Engines | `GET /engines/` | Paginated `EngineResponse[]{id,name,description,origin,origin_hash,capabilities:{can_record,can_stream},retry_modes_schema}` — pure introspection; **no writes ever** |
 | Resolvers | `GET /resolvers/` | Paginated `ResolverResponse[]{id,name,description,origin,origin_hash,config_schema}` — introspection only |
 
 **Dynamic-form contract (the JS client MUST build forms from these schemas — this is the single most important UI-generic behavior):**
@@ -602,7 +602,7 @@ Remuxing is the most UI-relevant async server flow — it emits **progress event
 - Client renders: typed inputs (string/number/integer/boolean), `enum` → select, `minimum/maximum` → validation bounds, `default` → prefill, `required` → required marker. Nested objects → collapsible group. Unknown property key → free-form key/value editor (must still submit).
 - On submit: build `{...default_params, ...userValues}` → server validates; 🛑 map 422 `loc` back to form fields for inline errors.
 
-**Capability gates (server-enforced, client should reflect):** `engine.capabilities.can_record=false` → disable recording toggles for sessions/autoruns using that engine (tooltip). `can_playlist` → show "playlist" affordance if any.
+**Capability gates (server-enforced, client should reflect):** `engine.capabilities.can_record=false` → disable recording toggles for sessions/autoruns using that engine (tooltip). `can_stream` → show the "stream" affordance if any.
 
 **Affordance summary (profiles/plugins):** ⏳ form loading; 🔄 live capability badges; 🛑 inline 422 mapping; ✅ create/update; 🧹 invalidate engine/resolver list when returning to a form (they can change on plugin reinstall).
 

@@ -43,7 +43,7 @@ Engines implement `EngineInterface`, resolvers implement `ResolverInterface` (AB
 # my_engine.py → drop into ENGINES_DIR, synced to DB at boot (SHA-256 verified, JIT-loaded)
 class MyEngine(EngineInterface):
     name = "my_engine"
-    capabilities = Capabilities(can_record=True, can_playlist=True)
+    capabilities = Capabilities(can_record=True, can_stream=True)
     async def start(self, context, source): ...  # return list[ManagedProcess]
 ```
 

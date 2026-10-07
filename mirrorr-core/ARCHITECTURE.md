@@ -532,7 +532,7 @@ Plugins are Python files dropped into `engines/` or `resolvers/` directories. Th
 class EngineInterface(ABC):
     name: str                    # Unique identifier
     description: str             # Human-readable description
-    capabilities: Capabilities   # can_record, can_playlist
+    capabilities: Capabilities   # can_record, can_stream
     retry_modes: dict[str, type[BaseModel]]  # Available retry strategies
 
     async def start(context: EngineContext, source: Source) -> list[ManagedProcess]

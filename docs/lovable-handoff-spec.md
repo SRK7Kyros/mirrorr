@@ -179,7 +179,7 @@ type Engine = {
   description: string;
   origin: string;
   origin_hash: string;
-  capabilities: { can_record: boolean; can_playlist: boolean };
+  capabilities: { can_record: boolean; can_stream: boolean };
   retry_modes_schema: Record<string, { schema: JsonSchema; default_params: Record<string, unknown> }>;
 };
 
@@ -496,7 +496,7 @@ permanent). 401 → "wrong credentials". On success → `/sessions`.
 ### 7.7 Plugins (Engines & Resolvers)
 
 Read-only cards: name, description, `origin_hash` (copyable), capability badges
-(`can_record`, `can_playlist`). No writes, ever.
+(`can_record`, `can_stream`). No writes, ever.
 
 ### 7.8 Import / Export
 
