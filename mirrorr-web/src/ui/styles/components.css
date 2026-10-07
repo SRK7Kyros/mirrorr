@@ -626,6 +626,23 @@
   text-align: right;
 }
 
+/* Fixed layout: an expanding JSON cell grows the row, not the column widths. */
+.table.table-stable {
+  table-layout: fixed;
+}
+
+.table.table-stable tbody td {
+  vertical-align: top;
+}
+
+.table.table-stable .cell-check {
+  width: 44px;
+}
+
+.table.table-stable .json-view .json-row {
+  flex-wrap: wrap;
+}
+
 .table-row-link {
   color: var(--text);
   font-weight: var(--fw-medium);

@@ -8,13 +8,13 @@ import {
   EmptyState,
   ErrorPanel,
   Hash,
+  JsonView,
   Panel,
   PanelBody,
   PanelHead,
   SkeletonRows,
   Table,
   Td,
-  Tag,
   Th,
 } from "@/ui/components"
 import { staggerContainer, staggerItem } from "@/ui/lib/motion"
@@ -26,13 +26,8 @@ interface PluginEntry {
   readonly description?: string
   readonly origin: string
   readonly originHash: string
-  readonly configKeys: readonly string[]
   readonly capabilities?: Capabilities
-}
-
-/** Property names are the only stable part of a free-form JSON schema. */
-function sortedKeys(record: Record<string, unknown> | undefined): string[] {
-  return record === undefined ? [] : Object.keys(record).sort()
+  readonly configSchema?: Record<string, unknown>
 }
 
 function toEngineEntry(engine: Engine): PluginEntry {
@@ -42,7 +37,6 @@ function toEngineEntry(engine: Engine): PluginEntry {
     description: engine.description,
     origin: engine.origin,
     originHash: engine.origin_hash,
-    configKeys: [],
     capabilities: engine.capabilities ?? {},
   }
 }
@@ -54,7 +48,7 @@ function toResolverEntry(resolver: Resolver): PluginEntry {
     description: resolver.description,
     origin: resolver.origin,
     originHash: resolver.origin_hash,
-    configKeys: sortedKeys(resolver.config_schema),
+    configSchema: resolver.config_schema,
   }
 }
 
@@ -82,13 +76,7 @@ function EntryMeta({ entry }: { readonly entry: PluginEntry }) {
       </div>
     )
   }
-  return entry.configKeys.length === 0 ? null : (
-    <div className="toolbar">
-      {entry.configKeys.map((key) => (
-        <Tag key={key}>{key}</Tag>
-      ))}
-    </div>
-  )
+  return <JsonView value={entry.configSchema ?? {}} />
 }
 
 export function PluginsView() {
@@ -160,13 +148,13 @@ function PluginPanel({ title, tagsLabel, entries, isLoading, isError, error, onR
         ) : (
           <>
             <div className="table-desktop">
-              <Table>
+              <Table className="table-stable">
                 <thead>
                   <tr>
-                    <Th>Name</Th>
-                    <Th>Origin</Th>
-                    <Th>Hash</Th>
-                    <Th>{tagsLabel}</Th>
+                    <Th style={{ width: "26%" }}>Name</Th>
+                    <Th style={{ width: "12%" }}>Origin</Th>
+                    <Th style={{ width: "24%" }}>Hash</Th>
+                    <Th style={{ width: "38%" }}>{tagsLabel}</Th>
                   </tr>
                 </thead>
                 <tbody>
