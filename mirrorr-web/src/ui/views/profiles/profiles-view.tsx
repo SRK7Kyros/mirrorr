@@ -865,7 +865,7 @@ export function ProfilesView() {
           <Panel>
             <PanelBody flush>
               <div className="table-desktop">
-                <Table>
+                <Table className="table-stable">
                   <thead>
                     <tr>
                       <Th className="cell-check">
@@ -875,12 +875,12 @@ export function ProfilesView() {
                           onChange={(event) => selection.setMany(event.target.checked ? rowIds : [])}
                         />
                       </Th>
-                      <Th>Name</Th>
-                      <Th>Engine → Resolver</Th>
-                      <Th>Retry</Th>
-                      <Th>Config</Th>
-                      {showOwnerColumn ? <Th>Owner</Th> : null}
-                      <Th aria-label="Actions" />
+                      <Th style={{ width: "17%" }}>Name</Th>
+                      <Th style={{ width: "21%" }}>Engine → Resolver</Th>
+                      <Th style={{ width: "11%" }}>Retry</Th>
+                      <Th style={{ width: "27%" }}>Config</Th>
+                      {showOwnerColumn ? <Th style={{ width: "12%" }}>Owner</Th> : null}
+                      <Th aria-label="Actions" style={{ width: "108px" }} />
                     </tr>
                   </thead>
                   <tbody>
