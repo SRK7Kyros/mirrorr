@@ -650,6 +650,42 @@
   gap: var(--s-1);
 }
 
+.table.table-stable .capability-stack {
+  align-items: center;
+}
+
+/* Fixed widths so the JSON tree fills the config column as the viewport grows;
+   under the breakpoint they become proportional so the name column survives. */
+.plugin-table thead th:nth-child(3) {
+  width: 150px;
+}
+
+.plugin-table thead th:nth-child(4) {
+  width: 230px;
+}
+
+.plugin-table-engines thead th:nth-child(2) {
+  width: 112px;
+}
+
+.plugin-table-resolvers thead th:nth-child(2) {
+  width: 300px;
+}
+
+@media (max-width: 1180px) {
+  .plugin-table thead th:nth-child(3) {
+    width: 17%;
+  }
+
+  .plugin-table thead th:nth-child(4) {
+    width: 25%;
+  }
+
+  .plugin-table-resolvers thead th:nth-child(2) {
+    width: 33%;
+  }
+}
+
 .table-row-link {
   color: var(--text);
   font-weight: var(--fw-medium);

@@ -57,13 +57,6 @@ const CAPABILITY_FLAGS = [
   { key: "can_record", label: "Record" },
 ] as const
 
-const COLUMN_WIDTH = {
-  capabilities: "112px",
-  config: "42%",
-  origin: "150px",
-  hash: "230px",
-} as const
-
 function EntryMeta({ entry }: { readonly entry: PluginEntry }) {
   if (entry.capabilities !== undefined) {
     return (
@@ -108,7 +101,7 @@ export function PluginsView() {
       <PluginPanel
         title="Engines"
         tagsLabel="Capabilities"
-        metaWidth={COLUMN_WIDTH.capabilities}
+        variant="engines"
         entries={engines.map(toEngineEntry)}
         isLoading={enginesQuery.isLoading}
         isError={enginesQuery.isError}
@@ -118,7 +111,7 @@ export function PluginsView() {
       <PluginPanel
         title="Resolvers"
         tagsLabel="Config"
-        metaWidth={COLUMN_WIDTH.config}
+        variant="resolvers"
         entries={resolvers.map(toResolverEntry)}
         isLoading={resolversQuery.isLoading}
         isError={resolversQuery.isError}
@@ -132,7 +125,7 @@ export function PluginsView() {
 interface PluginPanelProps {
   readonly title: string
   readonly tagsLabel: string
-  readonly metaWidth: string
+  readonly variant: "engines" | "resolvers"
   readonly entries: readonly PluginEntry[]
   readonly isLoading: boolean
   readonly isError: boolean
@@ -140,7 +133,7 @@ interface PluginPanelProps {
   readonly onRetry: () => void
 }
 
-function PluginPanel({ title, tagsLabel, metaWidth, entries, isLoading, isError, error, onRetry }: PluginPanelProps) {
+function PluginPanel({ title, tagsLabel, variant, entries, isLoading, isError, error, onRetry }: PluginPanelProps) {
   return (
     <Panel>
       <PanelHead title={title} />
@@ -158,13 +151,13 @@ function PluginPanel({ title, tagsLabel, metaWidth, entries, isLoading, isError,
         ) : (
           <>
             <div className="table-desktop">
-              <Table className="table-stable">
+              <Table className={`table-stable plugin-table plugin-table-${variant}`}>
                 <thead>
                   <tr>
                     <Th>Name</Th>
-                    <Th style={{ width: metaWidth }}>{tagsLabel}</Th>
-                    <Th style={{ width: COLUMN_WIDTH.origin }}>Origin</Th>
-                    <Th style={{ width: COLUMN_WIDTH.hash }}>Hash</Th>
+                    <Th>{tagsLabel}</Th>
+                    <Th>Origin</Th>
+                    <Th>Hash</Th>
                   </tr>
                 </thead>
                 <tbody>
