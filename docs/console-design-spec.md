@@ -568,7 +568,7 @@ Status vocabulary and actions come from §1.4. All lists use cursor pagination
 | Aspect | Spec |
 |---|---|
 | Data reads | `GET /engines/`, `GET /resolvers/` (`LOOKUP_PAGE_SIZE` 200) — read-only introspection; no writes exist |
-| Panel anatomy | two sections (Engines, Resolvers) of **asymmetric** panels (engine panels wider — they carry `retry_modes_schema`): name, description, `origin` + `origin_hash` on an opaque `secondary` code chip (`label-caps` mono, copy button), capability badges (`can_record`, `can_playlist` — opaque chips), schema preview in a mono block (`label-caps` headings, 14px+ mono body on opaque ground) |
+| Panel anatomy | two sections (Engines, Resolvers) of **asymmetric** panels (engine panels wider — they carry `retry_modes_schema`): name, description, `origin` + `origin_hash` on an opaque `secondary` code chip (`label-caps` mono, copy button), capability badges (`can_record`, `can_stream` — opaque chips), schema preview in a mono block (`label-caps` headings, 14px+ mono body on opaque ground) |
 | Primary action | none (read-only); the loudest control is "Copy hash" (secondary) |
 | Empty | "No plugins discovered on this install." + "Mirrorr discovers engines and resolvers from disk at boot." |
 | Loading | skeleton panels |
@@ -968,7 +968,7 @@ Duplicate: "A resource with that name already exists." (verbatim API detail).
 
 - Engine **`yt_dlp_piped`** — "Pipes yt-dlp into ffmpeg; produces HLS segments."
   `origin: /srv/mirrorr/plugins/engines/yt_dlp_piped` ·
-  `origin_hash: 6e57a1c4d9f2…` · badges: can_record, can_playlist ·
+  `origin_hash: 6e57a1c4d9f2…` · badges: can_record, can_stream ·
   retry modes: `none | always | count (3 · 5.0) | exit_code ([1] · 5.0)`
 - Resolver **`static`** — "Fixed-URL source; one URL per session."
   `origin: /srv/mirrorr/plugins/resolvers/static` · `origin_hash: f1c2b8e04a37…` ·

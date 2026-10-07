@@ -1,5 +1,14 @@
 import { z } from "zod"
 
+export const CapabilitiesSchema = z
+  .object({
+    can_stream: z.boolean().optional(),
+    can_record: z.boolean().optional(),
+  })
+  .passthrough()
+
+export type Capabilities = z.infer<typeof CapabilitiesSchema>
+
 /** `EngineResponse` — lookup source for the name memo-map (limit=200 crawl). */
 export const EngineSchema = z
   .object({
@@ -8,7 +17,7 @@ export const EngineSchema = z
     description: z.string().optional(),
     origin: z.string(),
     origin_hash: z.string(),
-    capabilities: z.record(z.string(), z.unknown()).optional(),
+    capabilities: CapabilitiesSchema.optional(),
     retry_modes_schema: z.record(z.string(), z.unknown()).optional(),
   })
   .passthrough()

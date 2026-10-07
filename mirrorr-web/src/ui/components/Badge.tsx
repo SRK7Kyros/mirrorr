@@ -5,13 +5,15 @@ export interface BadgeProps {
   readonly children: ReactNode
   readonly variant?: "accent" | "neutral" | "danger"
   readonly className?: string
+  readonly title?: string
 }
 
 /** Count badge — `.badge` variants from components.css. */
-export function Badge({ children, variant = "accent", className }: BadgeProps) {
+export function Badge({ children, variant = "accent", className, title }: BadgeProps) {
   return (
     <span
       className={cn("badge", variant === "neutral" && "badge-neutral", variant === "danger" && "badge-danger", className)}
+      title={title}
     >
       {children}
     </span>

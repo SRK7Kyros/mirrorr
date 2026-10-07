@@ -33,7 +33,7 @@ class YtDlpPipedEngine(EngineInterface):
 
     @property
     def capabilities(self) -> Capabilities:
-        return Capabilities(can_playlist=True, can_record=True)
+        return Capabilities(can_stream=True, can_record=True)
 
     async def start(self, context: EngineContext, source: Source) -> list[ManagedProcess]:
         url = source.url
