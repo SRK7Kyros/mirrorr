@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query"
+import { motion } from "motion/react"
 import { fetchAllEngines, fetchAllResolvers, getErrorMessage } from "@/api"
 import { queryKeys, staleTimes } from "@/api/query-keys"
 import type { Engine, Resolver } from "@/api/schemas"
 import {
   EmptyState,
   ErrorPanel,
+  Hash,
   Panel,
   PanelBody,
   PanelHead,
@@ -14,7 +16,7 @@ import {
   Tag,
   Th,
 } from "@/ui/components"
-import { truncate } from "@/ui/lib/format"
+import { staggerContainer, staggerItem } from "@/ui/lib/motion"
 import { Page } from "@/ui/views/shared/page"
 
 interface PluginEntry {
@@ -120,43 +122,78 @@ function PluginPanel({ title, tagsLabel, entries, isLoading, isError, error, onR
         ) : entries.length === 0 ? (
           <EmptyState title={`No ${title.toLowerCase()}`} text="Nothing has been registered yet." />
         ) : (
-          <Table>
-            <thead>
-              <tr>
-                <Th>Name</Th>
-                <Th>Origin</Th>
-                <Th>Hash</Th>
-                <Th>{tagsLabel}</Th>
-              </tr>
-            </thead>
-            <tbody>
+          <>
+            <div className="table-desktop">
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Name</Th>
+                    <Th>Origin</Th>
+                    <Th>Hash</Th>
+                    <Th>{tagsLabel}</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {entries.map((entry) => (
+                    <tr key={entry.id}>
+                      <Td>
+                        <div>{entry.name}</div>
+                        {entry.description !== undefined && entry.description !== "" ? (
+                          <div className="text-dim">{entry.description}</div>
+                        ) : null}
+                      </Td>
+                      <Td>{entry.origin}</Td>
+                      <Td>
+                        <Hash value={entry.originHash} label={`${entry.name} origin hash`} />
+                      </Td>
+                      <Td>
+                        {entry.tags.length > 0 ? (
+                          <div className="toolbar">
+                            {entry.tags.map((tag) => (
+                              <Tag key={tag}>{tag}</Tag>
+                            ))}
+                          </div>
+                        ) : null}
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </div>
+            <motion.div className="cards-mobile" variants={staggerContainer} initial="hidden" animate="visible">
               {entries.map((entry) => (
-                <tr key={entry.id}>
-                  <Td>
-                    <div>{entry.name}</div>
-                    {entry.description !== undefined && entry.description !== "" ? (
-                      <div className="text-dim">{entry.description}</div>
-                    ) : null}
-                  </Td>
-                  <Td>{entry.origin}</Td>
-                  <Td>
-                    <span className="mono" title={entry.originHash}>
-                      {truncate(entry.originHash, 16)}
-                    </span>
-                  </Td>
-                  <Td>
-                    {entry.tags.length > 0 ? (
-                      <div className="toolbar">
-                        {entry.tags.map((tag) => (
-                          <Tag key={tag}>{tag}</Tag>
-                        ))}
-                      </div>
-                    ) : null}
-                  </Td>
-                </tr>
+                <motion.article key={entry.id} className="entity-card" variants={staggerItem}>
+                  <div className="entity-card-head">
+                    <div>
+                      <div className="entity-card-title">{entry.name}</div>
+                      {entry.description !== undefined && entry.description !== "" ? (
+                        <div className="entity-card-desc">{entry.description}</div>
+                      ) : null}
+                    </div>
+                  </div>
+                  <dl className="entity-card-facts">
+                    <div className="entity-card-fact">
+                      <dt>Origin</dt>
+                      <dd>{entry.origin}</dd>
+                    </div>
+                    <div className="entity-card-fact">
+                      <dt>Hash</dt>
+                      <dd>
+                        <Hash value={entry.originHash} label={`${entry.name} origin hash`} />
+                      </dd>
+                    </div>
+                  </dl>
+                  {entry.tags.length > 0 ? (
+                    <div className="toolbar">
+                      {entry.tags.map((tag) => (
+                        <Tag key={tag}>{tag}</Tag>
+                      ))}
+                    </div>
+                  ) : null}
+                </motion.article>
               ))}
-            </tbody>
-          </Table>
+            </motion.div>
+          </>
         )}
       </PanelBody>
     </Panel>

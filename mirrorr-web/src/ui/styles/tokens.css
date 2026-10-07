@@ -2,8 +2,8 @@
  * Design tokens — the single source of colour, type, space, radius, motion.
  * Direction: "Control Room" — a dark broadcast-operations console. Near-black
  * neutral canvas, layered surfaces, hairline borders, one signal accent
- * (teal) and a semantic status set. Colour is never invented at a call site;
- * components consume these names only.
+ * (vivid green) and a semantic status set. Colour is never invented at a call
+ * site; components consume these names only.
  */
 
 :root {
@@ -36,13 +36,13 @@
   --text-faint: #4d4d57;
   --text-inverse: #0a0a0c;
 
-  /* ── Accent (signal teal) ──────────────────────────────────────── */
-  --accent: #2dd4bf;
-  --accent-hover: #5eead4;
-  --accent-press: #14b8a6;
-  --accent-ink: #04211c;
-  --accent-dim: rgba(45, 212, 191, 0.13);
-  --accent-line: rgba(45, 212, 191, 0.4);
+  /* ── Accent (signal green) ─────────────────────────────────────── */
+  --accent: #00e676;
+  --accent-hover: #57ef9e;
+  --accent-press: #00b85c;
+  --accent-ink: #00220e;
+  --accent-dim: rgba(0, 230, 118, 0.14);
+  --accent-line: rgba(0, 230, 118, 0.4);
 
   /* ── Status hues (semantic; never used for chrome) ─────────────── */
   --success: #3fb950;

@@ -20,6 +20,7 @@ import {
   ErrorPanel,
   IconAutoruns,
   IconClock,
+  JsonView,
   Panel,
   PanelBody,
   PanelHead,
@@ -37,19 +38,6 @@ function KeyValue({ label, children }: { readonly label: string; readonly childr
     <div className="row-between">
       <span className="text-dim">{label}</span>
       <span className="mono text-truncate">{children}</span>
-    </div>
-  )
-}
-
-function ConfigBlock({ title, value }: { readonly title: string; readonly value: Record<string, unknown> }) {
-  return (
-    <div className="stack stack-sm">
-      <span className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
-        {title}
-      </span>
-      <pre className="mono" style={{ margin: 0, whiteSpace: "pre-wrap", overflowX: "auto" }}>
-        {JSON.stringify(value, null, 2)}
-      </pre>
     </div>
   )
 }
@@ -253,10 +241,10 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
                   <KeyValue label="Recording">{autorun.recording === true ? "On" : "Off"}</KeyValue>
                 </div>
                 {hasResolverConfig && autorun.resolver_config !== undefined ? (
-                  <ConfigBlock title="Resolver config" value={autorun.resolver_config} />
+                  <JsonView label="Resolver config" value={autorun.resolver_config} defaultOpen />
                 ) : null}
                 {hasRetryConfig && autorun.retry_config !== undefined ? (
-                  <ConfigBlock title="Retry config" value={autorun.retry_config} />
+                  <JsonView label="Retry config" value={autorun.retry_config} defaultOpen />
                 ) : null}
               </div>
             </PanelBody>

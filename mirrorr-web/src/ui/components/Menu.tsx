@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
+import { AnimatePresence, motion } from "motion/react"
 import { cn } from "@/ui/lib/cn"
+import { menuVariants } from "@/ui/lib/motion"
 import { IconButton } from "./IconButton"
 import { IconMoreVertical } from "./icons"
 
@@ -35,6 +37,48 @@ export function MenuLabel({ children }: { readonly children: ReactNode }) {
   return <div className="menu-label">{children}</div>
 }
 
+export interface MenuPopoverProps {
+  readonly open: boolean
+  readonly children: ReactNode
+  /** `down` (default) drops below the trigger; `up` rises above it. */
+  readonly placement?: "down" | "up"
+  readonly align?: "left" | "right"
+  readonly className?: string
+  readonly onClick?: () => void
+}
+
+/**
+ * Animated `.menu` popover — enters and exits from its trigger edge. Shared by
+ * the overflow menu, the account menu and the mobile nav burger.
+ */
+export function MenuPopover({
+  open,
+  children,
+  placement = "down",
+  align = "right",
+  className,
+  onClick,
+}: MenuPopoverProps) {
+  return (
+    <AnimatePresence>
+      {open ? (
+        <motion.div
+          key="menu"
+          className={cn("menu", align === "right" && "menu-end", placement === "up" && "menu-up", className)}
+          role="menu"
+          variants={menuVariants(placement)}
+          initial="hidden"
+          animate="visible"
+          exit="exit"
+          onClick={onClick}
+        >
+          {children}
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  )
+}
+
 export interface DropdownMenuProps {
   readonly children: ReactNode
   readonly label?: string
@@ -43,12 +87,8 @@ export interface DropdownMenuProps {
   readonly className?: string
 }
 
-/**
- * Overflow menu — a `.menu` popover anchored to an icon button. Closes on
- * outside click, Escape, or item selection (each `MenuItem` calls its own
- * `onClick`; the wrapper closes on any click inside).
- */
-export function DropdownMenu({ children, label = "More actions", trigger, align = "right", className }: DropdownMenuProps) {
+/** Outside-click + Escape dismissal for a `.menu-anchor` popover. */
+export function useMenuDismiss() {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
 
@@ -68,8 +108,19 @@ export function DropdownMenu({ children, label = "More actions", trigger, align 
     }
   }, [open])
 
+  return { open, setOpen, wrapRef }
+}
+
+/**
+ * Overflow menu — a `.menu` popover anchored to an icon button. Closes on
+ * outside click, Escape, or item selection (each `MenuItem` calls its own
+ * `onClick`; the wrapper closes on any click inside).
+ */
+export function DropdownMenu({ children, label = "More actions", trigger, align = "right", className }: DropdownMenuProps) {
+  const { open, setOpen, wrapRef } = useMenuDismiss()
+
   return (
-    <div ref={wrapRef} style={{ position: "relative", display: "inline-flex" }} className={className}>
+    <div ref={wrapRef} className={cn("menu-anchor", className)}>
       {trigger !== undefined ? (
         <span onClick={() => setOpen((value) => !value)}>{trigger}</span>
       ) : (
@@ -81,16 +132,9 @@ export function DropdownMenu({ children, label = "More actions", trigger, align 
           onClick={() => setOpen((value) => !value)}
         />
       )}
-      {open ? (
-        <div
-          className="menu"
-          role="menu"
-          style={{ top: "calc(100% + 4px)", [align]: 0 }}
-          onClick={() => setOpen(false)}
-        >
-          {children}
-        </div>
-      ) : null}
+      <MenuPopover open={open} align={align} onClick={() => setOpen(false)}>
+        {children}
+      </MenuPopover>
     </div>
   )
 }

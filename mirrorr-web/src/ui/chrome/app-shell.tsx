@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import { Outlet, useNavigate } from "@tanstack/react-router"
 import { installEventTable } from "@/api"
 import { ToastRegion, toast } from "@/ui/components"
 import { BottomNav } from "./bottom-nav"
 import { ApiClientBanner, HealthBanner } from "./health-banner"
-import { MobileNavDrawer } from "./mobile-nav-drawer"
+import { PageTransition } from "./page-transition"
 import { Sidebar } from "./sidebar"
 import { TopBar } from "./topbar"
 
@@ -19,7 +19,6 @@ function highlightFromPath(to: string): number | undefined {
 
 export function AppShell() {
   const navigate = useNavigate()
-  const [navOpen, setNavOpen] = useState(false)
 
   useEffect(() => {
     return installEventTable({
@@ -49,14 +48,15 @@ export function AppShell() {
       <div className="app">
         <Sidebar />
         <div className="app-main">
-          <TopBar onOpenNav={() => setNavOpen(true)} />
+          <TopBar />
           <ApiClientBanner />
           <HealthBanner />
-          <Outlet />
+          <PageTransition>
+            <Outlet />
+          </PageTransition>
           <BottomNav />
         </div>
       </div>
-      <MobileNavDrawer open={navOpen} onClose={() => setNavOpen(false)} />
       <ToastRegion />
     </>
   )

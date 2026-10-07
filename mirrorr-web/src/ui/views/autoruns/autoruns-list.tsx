@@ -1,8 +1,20 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link } from "@tanstack/react-router"
-import { getErrorMessage, isAdmin, useEntityList, useNameMaps, type NameMaps } from "@/api"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import {
+  deleteAutorun,
+  downloadJson,
+  fetchAutorunExport,
+  getErrorMessage,
+  isAdmin,
+  mergeBundles,
+  removeFromInfiniteLists,
+  useEntityList,
+  useNameMaps,
+  type NameMaps,
+} from "@/api"
 import { fetchAutorunPage } from "@/api/endpoints"
-import { queryKeys, resolveEntityName } from "@/api/query-keys"
+import { queryKeys, queryRoots, resolveEntityName } from "@/api/query-keys"
 import {
   DEFAULT_FILTER,
   FILTER_TOKENS,
@@ -14,14 +26,20 @@ import {
 import type { Autorun } from "@/api/schemas"
 import { formatCountdown, formatDateTime } from "@/api/time"
 import {
+  BulkBar,
   Button,
+  Checkbox,
+  ConfirmDialog,
   EmptyState,
   ErrorPanel,
+  Fab,
   IconAutoruns,
   IconClock,
+  IconDownload,
   IconPlus,
   IconRefresh,
   IconSearch,
+  IconTrash,
   Input,
   LoadMore,
   Panel,
@@ -32,8 +50,9 @@ import {
   Tag,
   Td,
   Th,
+  toast,
 } from "@/ui/components"
-import { useNowTick } from "@/ui/hooks"
+import { useNowTick, useSelection } from "@/ui/hooks"
 import { Page } from "@/ui/views/shared/page"
 import { AutorunActionsMenu } from "./autorun-actions"
 import { AutorunFormDialog } from "./autorun-form-dialog"
@@ -59,18 +78,29 @@ function AutorunRow({
   names,
   showOwner,
   now,
+  selected,
+  onToggle,
 }: {
   readonly autorun: Autorun
   readonly names: NameMaps
   readonly showOwner: boolean
   readonly now: Date
+  readonly selected: boolean
+  readonly onToggle: (id: number) => void
 }) {
   const spent = isSpent(autorun.status)
   const countdown = countdownFor(autorun, now)
   const owner = autorun.requester_user_token
 
   return (
-    <tr className={spent ? "text-muted" : undefined}>
+    <tr data-id={autorun.id} data-selected={selected} className={spent ? "text-muted" : undefined}>
+      <Td className="cell-check">
+        <Checkbox
+          aria-label={`Select ${autorun.user_friendly_name}`}
+          checked={selected}
+          onChange={() => onToggle(autorun.id)}
+        />
+      </Td>
       <Td>
         <StatusChip status={autorun.status} />
       </Td>
@@ -130,9 +160,12 @@ function AutorunRow({
 }
 
 export function AutorunsListView() {
+  const queryClient = useQueryClient()
   const [tokens, setTokens] = useState<readonly FilterToken[]>(() => [...DEFAULT_FILTER])
   const [search, setSearch] = useState("")
   const [createOpen, setCreateOpen] = useState(false)
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const selection = useSelection<number>()
   const names = useNameMaps()
   const showOwner = isAdmin()
   const now = useNowTick()
@@ -170,6 +203,41 @@ export function AutorunsListView() {
     })
   }, [list.items, tokens, search])
 
+  const rowIds = useMemo(() => rows.map((autorun) => autorun.id), [rows])
+  const selectedAutoruns = list.items.filter((autorun) => selection.has(autorun.id))
+
+  const bulkRemove = useMutation({
+    mutationFn: async (ids: readonly number[]) => {
+      for (const id of ids) await deleteAutorun(id)
+    },
+    onSuccess: (_data, ids) => {
+      for (const id of ids) {
+        removeFromInfiniteLists(queryClient, queryRoots.autoruns, id)
+        queryClient.removeQueries({ queryKey: queryKeys.autorun(id) })
+      }
+      void queryClient.invalidateQueries({ queryKey: queryRoots.autoruns })
+      toast.success("Scheduled recordings deleted", `${ids.length} removed`)
+      selection.clear()
+    },
+    onError: (error) => toast.error("Could not delete the recordings", getErrorMessage(error, "Request failed")),
+  })
+
+  const bulkExport = useMutation({
+    mutationFn: async (targets: readonly Autorun[]) => {
+      const bundles = await Promise.all(targets.map((target) => fetchAutorunExport(target.id)))
+      return mergeBundles(bundles)
+    },
+    onSuccess: (bundle, targets) => {
+      if (downloadJson(`autoruns-${targets.length}.json`, bundle)) {
+        toast.success("Scheduled recordings exported", `${targets.length} bundled`)
+        selection.clear()
+      } else {
+        toast.error("Export failed", "The download could not be started.")
+      }
+    },
+    onError: (error) => toast.error("Could not export the recordings", getErrorMessage(error, "Request failed")),
+  })
+
   const toggleToken = (token: FilterToken) => {
     if (token === "all") {
       setTokens(["all"])
@@ -185,11 +253,13 @@ export function AutorunsListView() {
       title="Autoruns"
       description="Scheduled recordings. A scheduled recording runs once at its start time and then retires — status filtering and search apply to the rows loaded so far."
       actions={
-        <Button variant="primary" icon={<IconPlus size={16} />} onClick={() => setCreateOpen(true)}>
+        <Button variant="primary" className="btn-create" icon={<IconPlus size={16} />} onClick={() => setCreateOpen(true)}>
           New scheduled recording
         </Button>
       }
     >
+      <Fab label="New scheduled recording" icon={<IconPlus size={22} />} onClick={() => setCreateOpen(true)} />
+
       <div className="toolbar">
         <div className="row">
           {FILTER_TOKENS.map((token) => (
@@ -256,6 +326,13 @@ export function AutorunsListView() {
               <Table>
                 <thead>
                   <tr>
+                    <Th className="cell-check">
+                      <Checkbox
+                        aria-label="Select all scheduled recordings"
+                        checked={selection.allSelected(rowIds)}
+                        onChange={(event) => selection.setMany(event.target.checked ? rowIds : [])}
+                      />
+                    </Th>
                     <Th>Status</Th>
                     <Th>Scheduled recording</Th>
                     <Th>Window</Th>
@@ -275,12 +352,36 @@ export function AutorunsListView() {
                       names={names}
                       showOwner={showOwner}
                       now={now}
+                      selected={selection.has(autorun.id)}
+                      onToggle={selection.toggle}
                     />
                   ))}
                 </tbody>
               </Table>
             </PanelBody>
           </Panel>
+          {selection.count > 0 ? (
+            <BulkBar count={selection.count} onClear={selection.clear}>
+              <Button
+                size="sm"
+                variant="outline"
+                icon={<IconDownload size={15} />}
+                loading={bulkExport.isPending}
+                onClick={() => bulkExport.mutate(selectedAutoruns)}
+              >
+                Export selected
+              </Button>
+              <Button
+                size="sm"
+                variant="danger-ghost"
+                icon={<IconTrash size={15} />}
+                loading={bulkRemove.isPending}
+                onClick={() => setBulkDeleteOpen(true)}
+              >
+                Delete selected
+              </Button>
+            </BulkBar>
+          ) : null}
           <LoadMore
             hasMore={hasMore}
             isFetching={isFetching}
@@ -291,6 +392,22 @@ export function AutorunsListView() {
           />
         </>
       )}
+
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        title={`Delete ${selection.count} selected scheduled recording${selection.count === 1 ? "" : "s"}?`}
+        description="A scheduled recording that has already run cannot be deleted — only upcoming ones can."
+        confirmLabel="Delete"
+        danger
+        onConfirm={async () => {
+          try {
+            await bulkRemove.mutateAsync([...selection.selected])
+          } catch {
+            // The mutation's onError surfaces the failure via toast.
+          }
+        }}
+      />
 
       <AutorunFormDialog open={createOpen} onClose={() => setCreateOpen(false)} />
     </Page>

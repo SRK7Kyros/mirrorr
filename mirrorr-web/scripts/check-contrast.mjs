@@ -61,11 +61,11 @@ const PAIRS = [
   { n: 15, label: "--text-dim on --bg", fg: tok("--text-dim"), bg: tok("--bg"), claim: 6.25, gate: "min", floor: 4.5 },
 
   // ---- accent as link/label ----
-  { n: 16, label: "--accent link on --surface-1", fg: tok("--accent"), bg: tok("--surface-1"), claim: 10.04, gate: "min", floor: 4.5 },
-  { n: 17, label: "--accent link on --bg", fg: tok("--accent"), bg: tok("--bg"), claim: 10.63, gate: "min", floor: 4.5 },
-  { n: 18, label: "--accent-hover link on --surface-1", fg: tok("--accent-hover"), bg: tok("--surface-1"), claim: 12.63, gate: "min", floor: 4.5 },
-  { n: 19, label: "--accent-ink label on --accent", fg: tok("--accent-ink"), bg: tok("--accent"), claim: 9.1, gate: "min", floor: 4.5 },
-  { n: 20, label: "--accent-ink label on --accent-hover", fg: tok("--accent-ink"), bg: tok("--accent-hover"), claim: 11.45, gate: "min", floor: 4.5 },
+  { n: 16, label: "--accent link on --surface-1", fg: tok("--accent"), bg: tok("--surface-1"), claim: 11.19, gate: "min", floor: 4.5 },
+  { n: 17, label: "--accent link on --bg", fg: tok("--accent"), bg: tok("--bg"), claim: 11.85, gate: "min", floor: 4.5 },
+  { n: 18, label: "--accent-hover link on --surface-1", fg: tok("--accent-hover"), bg: tok("--surface-1"), claim: 12.68, gate: "min", floor: 4.5 },
+  { n: 19, label: "--accent-ink label on --accent", fg: tok("--accent-ink"), bg: tok("--accent"), claim: 10.19, gate: "min", floor: 4.5 },
+  { n: 20, label: "--accent-ink label on --accent-hover", fg: tok("--accent-ink"), bg: tok("--accent-hover"), claim: 11.53, gate: "min", floor: 4.5 },
   { n: 21, label: "--text-inverse on --text", fg: tok("--text-inverse"), bg: tok("--text"), claim: 16.93, gate: "min", floor: 4.5 },
 
   // ---- status indicators as non-text marks ----
@@ -77,7 +77,7 @@ const PAIRS = [
   { n: 27, label: "--neutral mark on --surface-1", fg: tok("--neutral"), bg: tok("--surface-1"), claim: 6.08, gate: "min", floor: 3 },
   { n: 28, label: "--success mark on --bg", fg: tok("--success"), bg: tok("--bg"), claim: 7.79, gate: "min", floor: 3 },
   { n: 29, label: "--danger mark on --bg", fg: tok("--danger"), bg: tok("--bg"), claim: 5.9, gate: "min", floor: 3 },
-  { n: 30, label: "--accent keyline on --surface-2", fg: tok("--accent"), bg: tok("--surface-2"), claim: 9.5, gate: "min", floor: 3 },
+  { n: 30, label: "--accent keyline on --surface-2", fg: tok("--accent"), bg: tok("--surface-2"), claim: 10.6, gate: "min", floor: 3 },
 
   // ---- status ink on its own fill ----
   { n: 31, label: "--success-ink on --success", fg: tok("--success-ink"), bg: tok("--success"), claim: 6.53, gate: "min", floor: 4.5 },
@@ -86,7 +86,7 @@ const PAIRS = [
   { n: 34, label: "--secondary-ink on --secondary", fg: tok("--secondary-ink"), bg: tok("--secondary"), claim: 5.59, gate: "min", floor: 4.5 },
 
   // ---- text over tinted status fills ----
-  { n: 35, label: "--text on accent-dim over surface-1", fg: tok("--text"), bg: tint("--accent-dim", "--surface-1"), claim: 12.69, gate: "min", floor: 4.5 },
+  { n: 35, label: "--text on accent-dim over surface-1", fg: tok("--text"), bg: tint("--accent-dim", "--surface-1"), claim: 12.25, gate: "min", floor: 4.5 },
   { n: 36, label: "--text on success-dim over surface-1", fg: tok("--text"), bg: tint("--success-dim", "--surface-1"), claim: 13.07, gate: "min", floor: 4.5 },
   { n: 37, label: "--text on danger-dim over surface-1", fg: tok("--text"), bg: tint("--danger-dim", "--surface-1"), claim: 13.6, gate: "min", floor: 4.5 },
 
@@ -100,7 +100,7 @@ const PAIRS = [
     label: "--text on --accent (BANNED)",
     fg: tok("--text"),
     bg: tok("--accent"),
-    claim: 1.59,
+    claim: 1.43,
     gate: "max",
     ceiling: 4.5,
     note: "accent fills must carry --accent-ink, never --text",

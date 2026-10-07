@@ -68,6 +68,40 @@ export function useIsCompact(): boolean {
   return compact
 }
 
+/** Multi-select state for list views — a set of ids plus select-all/clear. */
+export function useSelection<T extends number | string>() {
+  const [selected, setSelected] = useState<ReadonlySet<T>>(() => new Set<T>())
+
+  const toggle = useCallback((id: T) => {
+    setSelected((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const setMany = useCallback((ids: readonly T[]) => setSelected(new Set(ids)), [])
+  const clear = useCallback(() => setSelected(new Set<T>()), [])
+  const has = useCallback((id: T) => selected.has(id), [selected])
+  const allSelected = useCallback(
+    (ids: readonly T[]) => ids.length > 0 && ids.every((id) => selected.has(id)),
+    [selected],
+  )
+  const someSelected = useCallback((ids: readonly T[]) => ids.some((id) => selected.has(id)), [selected])
+
+  return {
+    selected,
+    count: selected.size,
+    has,
+    toggle,
+    setMany,
+    clear,
+    allSelected,
+    someSelected,
+  }
+}
+
 /** `?highlight=<id>` → scroll the matching row/card into view + 2s accent ring. */
 export function useHighlightRef(highlightId: number | null | undefined) {
   const done = useRef(false)

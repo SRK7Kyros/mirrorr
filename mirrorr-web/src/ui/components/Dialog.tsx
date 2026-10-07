@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef, type ReactNode } from "react"
 import { createPortal } from "react-dom"
+import { AnimatePresence, motion } from "motion/react"
 import { cn } from "@/ui/lib/cn"
+import { dialogVariants, overlayVariants } from "@/ui/lib/motion"
 import { IconButton } from "./IconButton"
 import { IconX } from "./icons"
 
@@ -75,44 +77,56 @@ export function Dialog({
     }
   }, [open, busy, onClose])
 
-  if (!open) return null
-
   return createPortal(
-    <>
-      <div
-        className="scrim"
-        onClick={() => {
-          if (!busy) onClose()
-        }}
-        aria-hidden="true"
-      />
-      <div
-        ref={dialogRef}
-        className={cn("dialog", size === "lg" && "dialog-lg")}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={description !== undefined ? descId : undefined}
-        tabIndex={-1}
-      >
-        <header className="dialog-head">
-          {icon !== undefined ? icon : null}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <h2 className="dialog-title" id={titleId}>
-              {title}
-            </h2>
-            {description !== undefined ? (
-              <p className="dialog-desc" id={descId}>
-                {description}
-              </p>
-            ) : null}
-          </div>
-          <IconButton label="Close" icon={<IconX size={18} />} onClick={onClose} disabled={busy} />
-        </header>
-        {children !== undefined ? <div className="dialog-body">{children}</div> : null}
-        {footer !== undefined ? <footer className="dialog-foot">{footer}</footer> : null}
-      </div>
-    </>,
+    <AnimatePresence>
+      {open ? (
+        <motion.div
+          key="scrim"
+          className="scrim"
+          variants={overlayVariants}
+          initial="hidden"
+          animate="visible"
+          exit="exit"
+          onClick={() => {
+            if (!busy) onClose()
+          }}
+          aria-hidden="true"
+        />
+      ) : null}
+      {open ? (
+        <motion.div
+          key="dialog"
+          ref={dialogRef}
+          className={cn("dialog", size === "lg" && "dialog-lg")}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          aria-describedby={description !== undefined ? descId : undefined}
+          tabIndex={-1}
+          variants={dialogVariants}
+          initial="hidden"
+          animate="visible"
+          exit="exit"
+        >
+          <header className="dialog-head">
+            {icon !== undefined ? icon : null}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <h2 className="dialog-title" id={titleId}>
+                {title}
+              </h2>
+              {description !== undefined ? (
+                <p className="dialog-desc" id={descId}>
+                  {description}
+                </p>
+              ) : null}
+            </div>
+            <IconButton label="Close" icon={<IconX size={18} />} onClick={onClose} disabled={busy} />
+          </header>
+          {children !== undefined ? <div className="dialog-body">{children}</div> : null}
+          {footer !== undefined ? <footer className="dialog-foot">{footer}</footer> : null}
+        </motion.div>
+      ) : null}
+    </AnimatePresence>,
     document.body,
   )
 }

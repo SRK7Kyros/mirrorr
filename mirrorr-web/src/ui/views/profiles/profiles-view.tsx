@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { motion } from "motion/react"
 import {
   ApiError,
   createProfile,
@@ -8,6 +9,7 @@ import {
   fetchProfileExport,
   getErrorMessage,
   isAdmin,
+  mergeBundles,
   removeFromInfiniteLists,
   updateProfile,
   useEntityList,
@@ -18,14 +20,18 @@ import {
 import { fetchAllEngines, fetchAllResolvers, fetchProfilePage } from "@/api/endpoints"
 import { queryKeys, queryRoots, resolveEntityName, staleTimes } from "@/api/query-keys"
 import type { Engine, Profile, Resolver } from "@/api/schemas"
-import { humanize, showingLabel, truncate } from "@/ui/lib/format"
+import { humanize, showingLabel } from "@/ui/lib/format"
+import { staggerContainer, staggerItem } from "@/ui/lib/motion"
 import {
   Banner,
+  BulkBar,
   Button,
+  Checkbox,
   ConfirmDialog,
   Dialog,
   EmptyState,
   ErrorPanel,
+  Fab,
   Field,
   IconButton,
   IconDownload,
@@ -36,6 +42,7 @@ import {
   IconSearch,
   IconTrash,
   Input,
+  JsonView,
   LoadMore,
   Panel,
   PanelBody,
@@ -49,6 +56,7 @@ import {
   Th,
   toast,
 } from "@/ui/components"
+import { useSelection } from "@/ui/hooks"
 import { Page } from "@/ui/views/shared/page"
 
 /**
@@ -289,24 +297,27 @@ function SchemaForm({
   )
 }
 
-function configSummary(config: Record<string, unknown> | undefined): string {
-  const entries = Object.entries(config ?? {})
-  if (entries.length === 0) return "—"
-  return truncate(entries.map(([key, value]) => `${key}=${String(value)}`).join(", "), 48)
-}
-
 interface ProfileRowProps {
   readonly profile: Profile
   readonly names: NameMaps
   readonly showOwner: boolean
+  readonly selected: boolean
+  readonly onToggle: (id: number) => void
   readonly onEdit: (profile: Profile) => void
   readonly onDelete: (profile: Profile) => void
   readonly onExport: (profile: Profile) => void
 }
 
-function ProfileRow({ profile, names, showOwner, onEdit, onDelete, onExport }: ProfileRowProps) {
+function ProfileRow({ profile, names, showOwner, selected, onToggle, onEdit, onDelete, onExport }: ProfileRowProps) {
   return (
-    <tr data-id={profile.id}>
+    <tr data-id={profile.id} data-selected={selected}>
+      <Td className="cell-check">
+        <Checkbox
+          aria-label={`Select ${profile.name}`}
+          checked={selected}
+          onChange={() => onToggle(profile.id)}
+        />
+      </Td>
       <Td>
         <span className="text-truncate" title={profile.name}>
           {profile.name}
@@ -327,9 +338,7 @@ function ProfileRow({ profile, names, showOwner, onEdit, onDelete, onExport }: P
         )}
       </Td>
       <Td>
-        <span className="mono text-truncate" title={JSON.stringify(profile.resolver_config ?? {})}>
-          {configSummary(profile.resolver_config)}
-        </span>
+        <JsonView value={profile.resolver_config ?? {}} />
       </Td>
       {showOwner ? (
         <Td>
@@ -362,6 +371,84 @@ function ProfileRow({ profile, names, showOwner, onEdit, onDelete, onExport }: P
         </div>
       </Td>
     </tr>
+  )
+}
+
+function ProfileCard({ profile, names, showOwner, selected, onToggle, onEdit, onDelete, onExport }: ProfileRowProps) {
+  return (
+    <motion.article className="entity-card" variants={staggerItem}>
+      <div className="entity-card-head">
+        <div className="row" style={{ gap: "var(--s-2)", minWidth: 0 }}>
+          <span className="entity-card-check">
+            <Checkbox
+              aria-label={`Select ${profile.name}`}
+              checked={selected}
+              onChange={() => onToggle(profile.id)}
+            />
+          </span>
+          <div className="entity-card-title" title={profile.name}>
+            {profile.name}
+          </div>
+        </div>
+        <div className="entity-card-actions">
+          <IconButton
+            label={`Export profile ${profile.name}`}
+            icon={<IconDownload size={15} />}
+            onClick={() => onExport(profile)}
+          />
+          <IconButton
+            label={`Edit profile ${profile.name}`}
+            icon={<IconEdit size={15} />}
+            onClick={() => onEdit(profile)}
+          />
+          <IconButton
+            label={`Delete profile ${profile.name}`}
+            icon={<IconTrash size={15} />}
+            onClick={() => onDelete(profile)}
+          />
+        </div>
+      </div>
+      <dl className="entity-card-facts">
+        <div className="entity-card-fact">
+          <dt>Engine → Resolver</dt>
+          <dd>
+            {resolveEntityName(profile.engine_name, names.engines, profile.default_engine_id)}
+            <span className="text-dim" aria-hidden="true">
+              {" → "}
+            </span>
+            {resolveEntityName(profile.resolver_name, names.resolvers, profile.resolver_id)}
+          </dd>
+        </div>
+        <div className="entity-card-fact">
+          <dt>Retry</dt>
+          <dd>
+            {profile.retry_mode !== undefined && profile.retry_mode !== "" ? (
+              <Tag accent>{humanize(profile.retry_mode)}</Tag>
+            ) : (
+              <span className="text-dim">No retry</span>
+            )}
+          </dd>
+        </div>
+        <div className="entity-card-fact">
+          <dt>Config</dt>
+          <dd>
+            <JsonView value={profile.resolver_config ?? {}} />
+          </dd>
+        </div>
+        {showOwner ? (
+          <div className="entity-card-fact">
+            <dt>Owner</dt>
+            <dd className="mono" title={profile.requester_user_token}>
+              {profile.requester_user_token !== undefined && profile.requester_user_token !== "" ? (
+                `${profile.requester_user_token.slice(0, 8)}…`
+              ) : (
+                <span className="text-dim">—</span>
+              )}
+            </dd>
+          </div>
+        ) : null}
+      </dl>
+    </motion.article>
   )
 }
 
@@ -616,6 +703,8 @@ export function ProfilesView() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Profile | null>(null)
   const [pending, setPending] = useState<Profile | null>(null)
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const selection = useSelection<number>()
   const showOwner = isAdmin()
   const names = useNameMaps()
 
@@ -647,6 +736,8 @@ export function ProfilesView() {
     )
   }, [list.items, search])
 
+  const rowIds = useMemo(() => rows.map((profile) => profile.id), [rows])
+
   const remove = useMutation({
     mutationFn: (id: number) => deleteProfile(id),
     onSuccess: (_data, id) => {
@@ -667,6 +758,40 @@ export function ProfilesView() {
     onError: (error) => toast.error("Could not export the profile", getErrorMessage(error, "Request failed")),
   })
 
+  const bulkRemove = useMutation({
+    mutationFn: async (ids: readonly number[]) => {
+      for (const id of ids) await deleteProfile(id)
+    },
+    onSuccess: (_data, ids) => {
+      for (const id of ids) {
+        removeFromInfiniteLists(queryClient, queryRoots.profiles, id)
+        queryClient.removeQueries({ queryKey: queryKeys.profile(id) })
+      }
+      void queryClient.invalidateQueries({ queryKey: queryRoots.profiles })
+      toast.success("Profiles deleted", `${ids.length} removed`)
+      selection.clear()
+    },
+    onError: (error) => toast.error("Could not delete the profiles", getErrorMessage(error, "Request failed")),
+  })
+
+  const bulkExport = useMutation({
+    mutationFn: async (targets: readonly Profile[]) => {
+      const bundles = await Promise.all(targets.map((target) => fetchProfileExport(target.id)))
+      return mergeBundles(bundles)
+    },
+    onSuccess: (bundle, targets) => {
+      if (downloadJson(`profiles-${targets.length}.json`, bundle)) {
+        toast.success("Profiles exported", `${targets.length} bundled`)
+        selection.clear()
+      } else {
+        toast.error("Export failed", "The download could not be started.")
+      }
+    },
+    onError: (error) => toast.error("Could not export the profiles", getErrorMessage(error, "Request failed")),
+  })
+
+  const selectedProfiles = list.items.filter((profile) => selection.has(profile.id))
+
   const openCreate = (): void => {
     setEditing(null)
     setDialogOpen(true)
@@ -677,14 +802,14 @@ export function ProfilesView() {
   }
 
   const showOwnerColumn = showOwner
-  const columnCount = showOwnerColumn ? 6 : 5
+  const columnCount = showOwnerColumn ? 7 : 6
 
   return (
     <Page
       title="Profiles"
       description="Reusable engine + resolver + retry presets. Start a session or autorun from one."
       actions={
-        <Button variant="primary" icon={<IconPlus size={16} />} onClick={openCreate}>
+        <Button variant="primary" className="btn-create" icon={<IconPlus size={16} />} onClick={openCreate}>
           New profile
         </Button>
       }
@@ -739,33 +864,81 @@ export function ProfilesView() {
         <>
           <Panel>
             <PanelBody flush>
-              <Table>
-                <thead>
-                  <tr>
-                    <Th>Name</Th>
-                    <Th>Engine → Resolver</Th>
-                    <Th>Retry</Th>
-                    <Th>Config</Th>
-                    {showOwnerColumn ? <Th>Owner</Th> : null}
-                    <Th aria-label="Actions" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((profile) => (
-                    <ProfileRow
-                      key={profile.id}
-                      profile={profile}
-                      names={names}
-                      showOwner={showOwnerColumn}
-                      onEdit={openEdit}
-                      onDelete={setPending}
-                      onExport={(target) => exportProfile.mutate(target)}
-                    />
-                  ))}
-                </tbody>
-              </Table>
+              <div className="table-desktop">
+                <Table>
+                  <thead>
+                    <tr>
+                      <Th className="cell-check">
+                        <Checkbox
+                          aria-label="Select all profiles"
+                          checked={selection.allSelected(rowIds)}
+                          onChange={(event) => selection.setMany(event.target.checked ? rowIds : [])}
+                        />
+                      </Th>
+                      <Th>Name</Th>
+                      <Th>Engine → Resolver</Th>
+                      <Th>Retry</Th>
+                      <Th>Config</Th>
+                      {showOwnerColumn ? <Th>Owner</Th> : null}
+                      <Th aria-label="Actions" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((profile) => (
+                      <ProfileRow
+                        key={profile.id}
+                        profile={profile}
+                        names={names}
+                        showOwner={showOwnerColumn}
+                        selected={selection.has(profile.id)}
+                        onToggle={selection.toggle}
+                        onEdit={openEdit}
+                        onDelete={setPending}
+                        onExport={(target) => exportProfile.mutate(target)}
+                      />
+                    ))}
+                  </tbody>
+                </Table>
+              </div>
+              <motion.div className="cards-mobile" variants={staggerContainer} initial="hidden" animate="visible">
+                {rows.map((profile) => (
+                  <ProfileCard
+                    key={profile.id}
+                    profile={profile}
+                    names={names}
+                    showOwner={showOwnerColumn}
+                    selected={selection.has(profile.id)}
+                    onToggle={selection.toggle}
+                    onEdit={openEdit}
+                    onDelete={setPending}
+                    onExport={(target) => exportProfile.mutate(target)}
+                  />
+                ))}
+              </motion.div>
             </PanelBody>
           </Panel>
+          {selection.count > 0 ? (
+            <BulkBar count={selection.count} onClear={selection.clear}>
+              <Button
+                size="sm"
+                variant="outline"
+                icon={<IconDownload size={15} />}
+                loading={bulkExport.isPending}
+                onClick={() => bulkExport.mutate(selectedProfiles)}
+              >
+                Export selected
+              </Button>
+              <Button
+                size="sm"
+                variant="danger-ghost"
+                icon={<IconTrash size={15} />}
+                loading={bulkRemove.isPending}
+                onClick={() => setBulkDeleteOpen(true)}
+              >
+                Delete selected
+              </Button>
+            </BulkBar>
+          ) : null}
           <LoadMore
             hasMore={hasMore}
             isFetching={isFetching}
@@ -776,6 +949,8 @@ export function ProfilesView() {
           />
         </>
       )}
+
+      <Fab label="New profile" icon={<IconPlus size={22} />} onClick={openCreate} />
 
       <ProfileDialog
         open={dialogOpen}
@@ -798,6 +973,22 @@ export function ProfilesView() {
           if (pending === null) return
           try {
             await remove.mutateAsync(pending.id)
+          } catch {
+            // The mutation's onError surfaces the failure via toast.
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        title={`Delete ${selection.count} selected profile${selection.count === 1 ? "" : "s"}?`}
+        description="Profiles in use by autoruns or sessions cannot be deleted — remove those references first."
+        confirmLabel="Delete"
+        danger
+        onConfirm={async () => {
+          try {
+            await bulkRemove.mutateAsync([...selection.selected])
           } catch {
             // The mutation's onError surfaces the failure via toast.
           }

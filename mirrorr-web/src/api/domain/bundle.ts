@@ -142,6 +142,17 @@ export function buildApplyBody(
   return body
 }
 
+/** Merge export bundles into one `version: 1` bundle (bulk export). */
+export function mergeBundles(bundles: readonly unknown[]): unknown {
+  const profiles: unknown[] = []
+  const autoruns: unknown[] = []
+  for (const bundle of bundles) {
+    profiles.push(...entriesOf(bundle, "profiles"))
+    autoruns.push(...entriesOf(bundle, "autoruns"))
+  }
+  return { version: 1, profiles, autoruns }
+}
+
 export type IssueKind =
   | "not_installed"
   | "hash_mismatch"

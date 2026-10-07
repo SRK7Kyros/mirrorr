@@ -59,3 +59,10 @@ export const MOBILE_TABS: readonly NavItem[] = [
   { to: "/recordings", label: "Recordings", icon: <IconRecordings size={20} /> },
   { to: "/profiles", label: "Profiles", icon: <IconProfiles size={20} /> },
 ]
+
+/** Burger destinations — the surfaces the bottom bar does not already carry. */
+export const MOBILE_OVERFLOW: readonly NavItem[] = [
+  { to: "/plugins", label: "Plugins", icon: <IconPlugins size={18} /> },
+  { to: "/import-export", label: "Import / Export", icon: <IconImportExport size={18} /> },
+  { to: "/settings", label: "Settings", icon: <IconSettings size={18} /> },
+]

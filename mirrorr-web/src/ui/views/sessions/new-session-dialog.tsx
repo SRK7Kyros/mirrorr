@@ -7,6 +7,7 @@ import {
   Button,
   Dialog,
   Field,
+  Segmented,
   Select,
   Switch,
   toast,
@@ -79,17 +80,16 @@ export function NewSessionDialog({
       <div className="stack">
         {error !== null ? <Banner kind="danger" title={error} /> : null}
 
-        <Field label="Source" htmlFor="new-session-mode">
-          <Select
-            id="new-session-mode"
-            value={mode}
-            onChange={(event) => setMode(event.target.value === "custom" ? "custom" : "profile")}
-          >
-            <option value="profile" disabled={profiles.length === 0}>
-              Use a profile
-            </option>
-            <option value="custom">Pick engine + resolver</option>
-          </Select>
+        <Field label="Source">
+          <Segmented
+            ariaLabel="Session source"
+            active={mode}
+            onChange={setMode}
+            items={[
+              { id: "profile", label: "Use a profile", disabled: profiles.length === 0 },
+              { id: "custom", label: "Pick engine + resolver" },
+            ]}
+          />
         </Field>
 
         {mode === "profile" ? (
