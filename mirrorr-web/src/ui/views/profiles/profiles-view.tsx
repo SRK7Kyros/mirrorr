@@ -8,7 +8,6 @@ import {
   downloadJson,
   fetchProfileExport,
   getErrorMessage,
-  isAdmin,
   mergeBundles,
   removeFromInfiniteLists,
   updateProfile,
@@ -300,7 +299,6 @@ function SchemaForm({
 interface ProfileRowProps {
   readonly profile: Profile
   readonly names: NameMaps
-  readonly showOwner: boolean
   readonly selected: boolean
   readonly onToggle: (id: number) => void
   readonly onEdit: (profile: Profile) => void
@@ -308,7 +306,7 @@ interface ProfileRowProps {
   readonly onExport: (profile: Profile) => void
 }
 
-function ProfileRow({ profile, names, showOwner, selected, onToggle, onEdit, onDelete, onExport }: ProfileRowProps) {
+function ProfileRow({ profile, names, selected, onToggle, onEdit, onDelete, onExport }: ProfileRowProps) {
   return (
     <tr data-id={profile.id} data-selected={selected}>
       <Td className="cell-check">
@@ -324,11 +322,11 @@ function ProfileRow({ profile, names, showOwner, selected, onToggle, onEdit, onD
         </span>
       </Td>
       <Td>
-        {resolveEntityName(profile.engine_name, names.engines, profile.default_engine_id)}
+        {resolveEntityName(profile.resolver_name, names.resolvers, profile.resolver_id)}
         <span className="text-dim" aria-hidden="true">
           {" → "}
         </span>
-        {resolveEntityName(profile.resolver_name, names.resolvers, profile.resolver_id)}
+        {resolveEntityName(profile.engine_name, names.engines, profile.default_engine_id)}
       </Td>
       <Td>
         {profile.retry_mode !== undefined && profile.retry_mode !== "" ? (
@@ -340,17 +338,6 @@ function ProfileRow({ profile, names, showOwner, selected, onToggle, onEdit, onD
       <Td>
         <JsonView value={profile.resolver_config ?? {}} />
       </Td>
-      {showOwner ? (
-        <Td>
-          {profile.requester_user_token !== undefined && profile.requester_user_token !== "" ? (
-            <span className="mono text-truncate" title={profile.requester_user_token}>
-              {profile.requester_user_token.slice(0, 8)}…
-            </span>
-          ) : (
-            <span className="text-dim">—</span>
-          )}
-        </Td>
-      ) : null}
       <Td actions>
         <div className="row" style={{ gap: "var(--s-2)" }}>
           <IconButton
@@ -374,7 +361,7 @@ function ProfileRow({ profile, names, showOwner, selected, onToggle, onEdit, onD
   )
 }
 
-function ProfileCard({ profile, names, showOwner, selected, onToggle, onEdit, onDelete, onExport }: ProfileRowProps) {
+function ProfileCard({ profile, names, selected, onToggle, onEdit, onDelete, onExport }: ProfileRowProps) {
   return (
     <motion.article className="entity-card" variants={staggerItem}>
       <div className="entity-card-head">
@@ -410,13 +397,13 @@ function ProfileCard({ profile, names, showOwner, selected, onToggle, onEdit, on
       </div>
       <dl className="entity-card-facts">
         <div className="entity-card-fact">
-          <dt>Engine → Resolver</dt>
+          <dt>Resolver → Engine</dt>
           <dd>
-            {resolveEntityName(profile.engine_name, names.engines, profile.default_engine_id)}
+            {resolveEntityName(profile.resolver_name, names.resolvers, profile.resolver_id)}
             <span className="text-dim" aria-hidden="true">
               {" → "}
             </span>
-            {resolveEntityName(profile.resolver_name, names.resolvers, profile.resolver_id)}
+            {resolveEntityName(profile.engine_name, names.engines, profile.default_engine_id)}
           </dd>
         </div>
         <div className="entity-card-fact">
@@ -435,18 +422,6 @@ function ProfileCard({ profile, names, showOwner, selected, onToggle, onEdit, on
             <JsonView value={profile.resolver_config ?? {}} />
           </dd>
         </div>
-        {showOwner ? (
-          <div className="entity-card-fact">
-            <dt>Owner</dt>
-            <dd className="mono" title={profile.requester_user_token}>
-              {profile.requester_user_token !== undefined && profile.requester_user_token !== "" ? (
-                `${profile.requester_user_token.slice(0, 8)}…`
-              ) : (
-                <span className="text-dim">—</span>
-              )}
-            </dd>
-          </div>
-        ) : null}
       </dl>
     </motion.article>
   )
@@ -705,7 +680,6 @@ export function ProfilesView() {
   const [pending, setPending] = useState<Profile | null>(null)
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
   const selection = useSelection<number>()
-  const showOwner = isAdmin()
   const names = useNameMaps()
 
   const enginesQuery = useQuery({
@@ -801,8 +775,7 @@ export function ProfilesView() {
     setDialogOpen(true)
   }
 
-  const showOwnerColumn = showOwner
-  const columnCount = showOwnerColumn ? 7 : 6
+  const columnCount = 6
 
   return (
     <Page
@@ -875,11 +848,10 @@ export function ProfilesView() {
                           onChange={(event) => selection.setMany(event.target.checked ? rowIds : [])}
                         />
                       </Th>
-                      <Th style={{ width: "17%" }}>Name</Th>
-                      <Th style={{ width: "21%" }}>Engine → Resolver</Th>
-                      <Th style={{ width: "11%" }}>Retry</Th>
-                      <Th style={{ width: "27%" }}>Config</Th>
-                      {showOwnerColumn ? <Th style={{ width: "12%" }}>Owner</Th> : null}
+                      <Th style={{ width: "20%" }}>Name</Th>
+                      <Th style={{ width: "24%" }}>Resolver → Engine</Th>
+                      <Th style={{ width: "12%" }}>Retry</Th>
+                      <Th style={{ width: "32%" }}>Config</Th>
                       <Th aria-label="Actions" style={{ width: "108px" }} />
                     </tr>
                   </thead>
@@ -889,7 +861,6 @@ export function ProfilesView() {
                         key={profile.id}
                         profile={profile}
                         names={names}
-                        showOwner={showOwnerColumn}
                         selected={selection.has(profile.id)}
                         onToggle={selection.toggle}
                         onEdit={openEdit}
@@ -906,7 +877,6 @@ export function ProfilesView() {
                     key={profile.id}
                     profile={profile}
                     names={names}
-                    showOwner={showOwnerColumn}
                     selected={selection.has(profile.id)}
                     onToggle={selection.toggle}
                     onEdit={openEdit}

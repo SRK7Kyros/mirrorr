@@ -8,7 +8,6 @@ export interface Identity {
   readonly name: string
   readonly role: string
   readonly isApiClient: boolean
-  readonly isAdmin: boolean
 }
 
 export function describeIdentity(auth: AuthResponse | null): Identity {
@@ -18,12 +17,11 @@ export function describeIdentity(auth: AuthResponse | null): Identity {
       name: user.display_name !== "" ? user.display_name : user.username,
       role: user.role,
       isApiClient: false,
-      isAdmin: user.role === "admin",
     }
   }
   const client = auth?.client ?? null
   if (client !== null) {
-    return { name: client.name, role: "api client", isApiClient: true, isAdmin: false }
+    return { name: client.name, role: "api client", isApiClient: true }
   }
-  return { name: "Account", role: "", isApiClient: false, isAdmin: false }
+  return { name: "Account", role: "", isApiClient: false }
 }

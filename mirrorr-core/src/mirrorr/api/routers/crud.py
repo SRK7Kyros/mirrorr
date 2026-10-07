@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from mirrorr.api.dependencies import _get_db_session, require_auth, AuthState
+from mirrorr.api.privileged import PrivilegedRoute
 from mirrorr.api.auth import subscribe_requester
 from mirrorr.api.schemas import (
     CreateSessionRequest,
@@ -400,7 +401,7 @@ _PROFILE_OPTIONS = (
 
 # ── Sessions ──────────────────────────────────────────────────────────
 
-sessions_router = APIRouter(prefix="/sessions")
+sessions_router = APIRouter(prefix="/sessions", route_class=PrivilegedRoute)
 
 
 @sessions_router.get("/", response_model=SessionListResponse)
@@ -506,7 +507,7 @@ crud_routers.include_router(sessions_router)
 
 # ── Autoruns ───────────────────────────────────────────────────────────
 
-autoruns_router = APIRouter(prefix="/autoruns")
+autoruns_router = APIRouter(prefix="/autoruns", route_class=PrivilegedRoute)
 
 
 @autoruns_router.get("/", response_model=AutorunListResponse)
@@ -701,7 +702,7 @@ async def save_session_as_profile(session_id: int, req: SaveProfileRequest, db: 
 
 # ── Recordings ─────────────────────────────────────────────────────────
 
-recordings_router = APIRouter(prefix="/recordings")
+recordings_router = APIRouter(prefix="/recordings", route_class=PrivilegedRoute)
 
 
 @recordings_router.get("/", response_model=RecordingListResponse)
@@ -757,7 +758,7 @@ crud_routers.include_router(recordings_router)
 
 # ── Profiles ───────────────────────────────────────────────────────────
 
-profiles_router = APIRouter(prefix="/profiles")
+profiles_router = APIRouter(prefix="/profiles", route_class=PrivilegedRoute)
 
 
 @profiles_router.get("/", response_model=ProfileListResponse)

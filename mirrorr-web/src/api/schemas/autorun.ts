@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { adminOnlyFields } from "./privileged"
 
 /**
  * `AutorunResponse`. `start_time`/`end_time`/`next_run_at`/`last_run_at` are
@@ -20,7 +21,7 @@ export const AutorunSchema = z
     start_time: z.string(),
     end_time: z.string(),
     recording: z.boolean().optional(),
-    requester_user_token: z.string().optional(),
+    ...adminOnlyFields,
     engine_name: z.string().nullable().optional(),
     resolver_name: z.string().nullable().optional(),
     profile_name: z.string().nullable().optional(),

@@ -6,7 +6,6 @@ import {
   downloadJson,
   fetchAutorunExport,
   getErrorMessage,
-  isAdmin,
   mergeBundles,
   removeFromInfiniteLists,
   useEntityList,
@@ -76,21 +75,18 @@ function countdownFor(autorun: Autorun, now: Date): string | null {
 function AutorunRow({
   autorun,
   names,
-  showOwner,
   now,
   selected,
   onToggle,
 }: {
   readonly autorun: Autorun
   readonly names: NameMaps
-  readonly showOwner: boolean
   readonly now: Date
   readonly selected: boolean
   readonly onToggle: (id: number) => void
 }) {
   const spent = isSpent(autorun.status)
   const countdown = countdownFor(autorun, now)
-  const owner = autorun.requester_user_token
 
   return (
     <tr data-id={autorun.id} data-selected={selected} className={spent ? "text-muted" : undefined}>
@@ -133,19 +129,19 @@ function AutorunRow({
         )}
       </Td>
       <Td>
-        {resolveEntityName(autorun.engine_name, names.engines, autorun.engine_id)}
+        {resolveEntityName(autorun.resolver_name, names.resolvers, autorun.resolver_id)}
         <span className="text-dim" aria-hidden="true">
           {" → "}
         </span>
-        {resolveEntityName(autorun.resolver_name, names.resolvers, autorun.resolver_id)}
+        {resolveEntityName(autorun.engine_name, names.engines, autorun.engine_id)}
       </Td>
       <Td>{resolveEntityName(autorun.profile_name, names.profiles, autorun.profile_id)}</Td>
       <Td>{autorun.recording === true ? <Tag accent>REC</Tag> : <span className="text-dim">—</span>}</Td>
-      {showOwner ? (
+      {__ADMIN__ ? (
         <Td>
-          {owner !== undefined && owner !== "" ? (
-            <span className="mono text-truncate" title={owner}>
-              {owner.slice(0, 8)}…
+          {autorun.requester_user_token !== undefined && autorun.requester_user_token !== "" ? (
+            <span className="mono text-truncate" title={autorun.requester_user_token}>
+              {autorun.requester_user_token}
             </span>
           ) : (
             <span className="text-dim">—</span>
@@ -167,7 +163,6 @@ export function AutorunsListView() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
   const selection = useSelection<number>()
   const names = useNameMaps()
-  const showOwner = isAdmin()
   const now = useNowTick()
 
   const list = useEntityList<Autorun>({
@@ -337,10 +332,10 @@ export function AutorunsListView() {
                     <Th>Scheduled recording</Th>
                     <Th>Window</Th>
                     <Th>Countdown</Th>
-                    <Th>Engine → Resolver</Th>
+                    <Th>Resolver → Engine</Th>
                     <Th>Profile</Th>
                     <Th>Rec</Th>
-                    {showOwner ? <Th>Owner</Th> : null}
+                    {__ADMIN__ ? <Th>Owner</Th> : null}
                     <Th aria-label="Actions" />
                   </tr>
                 </thead>
@@ -350,7 +345,6 @@ export function AutorunsListView() {
                       key={autorun.id}
                       autorun={autorun}
                       names={names}
-                      showOwner={showOwner}
                       now={now}
                       selected={selection.has(autorun.id)}
                       onToggle={selection.toggle}

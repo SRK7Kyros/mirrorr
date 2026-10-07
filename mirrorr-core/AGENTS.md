@@ -192,6 +192,7 @@ mirrorr-core/
 │   │   ├── auth.py              # Auth infrastructure: password hashing, user/client resolution, subscription/notification helpers
 │   │   ├── jwt.py               # JWT token creation and validation
 │   │   ├── dependencies.py      # DB session DI, AuthState (client + user + is_admin), require_auth/require_admin
+│   │   ├── privileged.py        # Admin-only field declarations + per-principal response/OpenAPI stripping
 │   │   ├── schemas.py           # Pydantic request/response models
 │   │   ├── ws.py                # WebSocket event mirroring + notification push
 │   │   └── routers/
@@ -259,6 +260,7 @@ Runtime state (gitignored, created under `base_dir`): `content/`, `plugins/`, `b
 - **All dependencies are passed, never global**: `MirrorrSettings` is passed to every subsystem. No module-level singletons for settings, DB engine, or session factory. The only singleton is the NATS event bus (`bus`).
 - **Event mapping lives in the CRUD router**: `event_map` dict maps model classes to their `(created, updated, deleted)` event tuples. Domain models do NOT carry event references.
 - **Supervisor-owned fields are protected**: `PUT /sessions/{id}` strips `status`, `recording`, `retry_attempts`, `started_at`, `ended_at`. Clients must use dedicated control endpoints.
+- **Admin-only fields are declared once**: `api/privileged.py` holds the single field→model map; `PrivilegedRoute` strips those fields from every response and `strip_openapi` removes them from the schema served to a non-admin. Extend by adding to the map — never by branching on `is_admin` in a route. The browser half is a second build (`admin.html`), not a runtime role check.
 
 ### Import Conventions
 - Settings: `MirrorrSettings` passed via constructor. No module-level import of a settings singleton.
@@ -326,6 +328,7 @@ Runtime state (gitignored, created under `base_dir`): `content/`, `plugins/`, `b
 | `src/mirrorr/api/routers/import_export.py` | Bundle-based import/export. |
 | `src/mirrorr/api/routers/logs.py` | Session logs + recording progress endpoints. |
 | `src/mirrorr/api/dependencies.py` | DB session DI, `AuthState` (client, user, is_admin), `require_auth`/`require_admin`/`get_auth`/`ws_auth` dependencies. |
+| `src/mirrorr/api/privileged.py` | `PRIVILEGED_FIELDS` (field → model map), `PrivilegedRoute` (response stripping), `strip_openapi` (schema stripping). Single source of truth for admin-only data. |
 | `src/mirrorr/api/ws.py` | WebSocket event mirroring (user-filtered via JWT/API key) + real-time notification push (`/ws/notifications`). |
 | `src/mirrorr/default_plugins/engines/yt_dlp_piped.py` | Example engine: `yt-dlp` piped to `ffmpeg` → HLS output. |
 | `src/mirrorr/default_plugins/resolvers/static.py` | Example resolver: passthrough URL + headers from config. |

@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from mirrorr.event_bus.nats import bus
 from loguru import logger
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.concurrency import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -15,6 +15,9 @@ from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Mount
+from fastapi.openapi.docs import get_swagger_ui_html
+from mirrorr.api.dependencies import AuthState, require_auth
+from mirrorr.api.privileged import strip_openapi
 from mirrorr.api.routers.crud import crud_routers, session_control_router
 from mirrorr.api.routers.auth import auth_router, notifications_router
 from mirrorr.api.routers.import_export import import_export_router
@@ -30,7 +33,9 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-API = FastAPI(lifespan=lifespan, redirect_slashes=False)
+# FastAPI's own schema/docs routes are public and would describe admin-only
+# fields to everyone. They are disabled here and served per-principal below.
+API = FastAPI(lifespan=lifespan, redirect_slashes=False, openapi_url=None, docs_url=None, redoc_url=None)
 
 
 @API.get("/favicon.ico")
@@ -237,6 +242,18 @@ API.include_router(auth_router)
 API.include_router(notifications_router)
 API.include_router(import_export_router)
 API.include_router(ws_router)
+
+
+@API.get("/openapi.json", include_in_schema=False)
+async def openapi_document(auth: AuthState = Depends(require_auth)):
+    """The API description, minus the fields this principal cannot receive."""
+    spec = API.openapi()
+    return JSONResponse(spec if auth.is_admin else strip_openapi(spec))
+
+
+@API.get("/docs", include_in_schema=False)
+async def api_docs(_auth: AuthState = Depends(require_auth)):
+    return get_swagger_ui_html(openapi_url="/openapi.json", title="Mirrorr API")
 
 
 @API.exception_handler(ValidationError)
