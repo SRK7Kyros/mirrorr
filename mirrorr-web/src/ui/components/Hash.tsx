@@ -1,26 +1,24 @@
 import { useEffect, useRef, useState } from "react"
 import { copyText } from "@/ui/lib/clipboard"
 import { cn } from "@/ui/lib/cn"
-import { truncate } from "@/ui/lib/format"
 import { IconCheck, IconCopy } from "./icons"
 import { toast } from "./Toast"
 
 export interface HashProps {
-  /** The full value copied on click — never truncated. */
+  /** The full value — copied on click, ellipsised by CSS to the space available. */
   readonly value: string
-  /** Visible characters before the ellipsis (default 12). */
-  readonly chars?: number
   /** Human name for the value, used in the toast and the accessible label. */
   readonly label?: string
   readonly className?: string
 }
 
 /**
- * Inline copyable identifier. A mono, ellipsised value that copies on click:
- * the copy glyph fades in on hover/focus, a tick plus the accent hue confirms
- * the copy, and a toast names what was copied.
+ * Inline copyable identifier. The mono value fills whatever width it is given
+ * and ellipsises to fit; clicking copies it, the copy glyph fades in on
+ * hover/focus, a tick plus the accent hue confirms the copy, and a toast names
+ * what was copied.
  */
-export function Hash({ value, chars = 12, label = "Value", className }: HashProps) {
+export function Hash({ value, label = "Value", className }: HashProps) {
   const [copied, setCopied] = useState(false)
   const timer = useRef<number | null>(null)
 
@@ -52,7 +50,7 @@ export function Hash({ value, chars = 12, label = "Value", className }: HashProp
       aria-label={`Copy ${label}`}
       onClick={() => void copy()}
     >
-      <code className="hash-text">{truncate(value, chars)}</code>
+      <code className="hash-text">{value}</code>
       <span className="hash-icon" aria-hidden="true">
         {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
       </span>

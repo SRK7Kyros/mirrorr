@@ -45,7 +45,7 @@ function JsonNode({ label, value, defaultOpen }: JsonNodeProps) {
   const empty = entries.length === 0
   const preview = entries.slice(0, 4).map(([key]) => key).join(", ")
   const rest = entries.length - 4
-  const brace = array
+  const collapsed = array
     ? `[${entries.length}]`
     : empty
       ? "{}"
@@ -68,14 +68,17 @@ function JsonNode({ label, value, defaultOpen }: JsonNodeProps) {
           </span>
         )}
         {label !== null ? <span className="json-key">{label}</span> : null}
-        <span className="json-brace">{brace}</span>
+        <span className="json-brace">{open ? (array ? "[" : "{") : collapsed}</span>
       </button>
       {open && !empty ? (
-        <div className="json-children">
-          {entries.map(([key, child]) => (
-            <JsonNode key={key} label={key} value={child} defaultOpen={false} />
-          ))}
-        </div>
+        <>
+          <div className="json-children">
+            {entries.map(([key, child]) => (
+              <JsonNode key={key} label={key} value={child} defaultOpen={false} />
+            ))}
+          </div>
+          <span className="json-brace json-brace-close">{array ? "]" : "}"}</span>
+        </>
       ) : null}
     </div>
   )
