@@ -1374,6 +1374,7 @@ kbd {
 }
 
 .hash-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1382,6 +1383,7 @@ kbd {
 
 .hash-icon {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   opacity: 0;
   transform: translateX(-2px);
@@ -1522,7 +1524,7 @@ kbd {
 }
 
 .json-key {
-  color: var(--text-muted);
+  color: var(--text);
   white-space: nowrap;
 }
 
@@ -1531,6 +1533,11 @@ kbd {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-faint);
+}
+
+.json-brace-close {
+  display: block;
+  padding-left: calc(12px + var(--s-1));
 }
 
 .json-prim {
