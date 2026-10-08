@@ -303,6 +303,10 @@
   gap: var(--s-4);
 }
 
+.page-section + .page-section {
+  margin-top: var(--s-8);
+}
+
 .page-head {
   display: flex;
   align-items: flex-start;
