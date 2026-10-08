@@ -142,7 +142,7 @@ samp {
 
 /* ── Selection ─────────────────────────────────────────────────────── */
 ::selection {
-  background: var(--accent-dim);
+  background: var(--selection-bg);
   color: var(--text);
 }
 

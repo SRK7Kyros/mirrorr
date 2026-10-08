@@ -43,6 +43,9 @@
   --accent-ink: #00220e;
   --accent-dim: rgba(0, 230, 118, 0.14);
   --accent-line: rgba(0, 230, 118, 0.4);
+  /* Text-selection fill. The 0.14 dim wash was invisible over --bg-sunken;
+     at 0.38 the composited fill keeps --text at ~6.9:1. */
+  --selection-bg: rgba(0, 230, 118, 0.38);
 
   /* ── Status hues (semantic; never used for chrome) ─────────────── */
   --success: #3fb950;

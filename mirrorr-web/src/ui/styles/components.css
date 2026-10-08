@@ -176,6 +176,32 @@
   gap: var(--s-1);
 }
 
+/* Map-shaped object editor (schema-form.tsx) — key/value rows for a schema
+   that declares `additionalProperties` rather than a fixed property set. */
+.map-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.map-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.map-row .map-key {
+  flex: 0 1 34%;
+}
+
+.map-row .map-value {
+  flex: 1 1 auto;
+}
+
+summary.field-label {
+  cursor: pointer;
+}
+
 .input,
 .textarea,
 .select {

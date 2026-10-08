@@ -89,14 +89,15 @@ const PAIRS = [
   { n: 35, label: "--text on accent-dim over surface-1", fg: tok("--text"), bg: tint("--accent-dim", "--surface-1"), claim: 12.25, gate: "min", floor: 4.5 },
   { n: 36, label: "--text on success-dim over surface-1", fg: tok("--text"), bg: tint("--success-dim", "--surface-1"), claim: 13.07, gate: "min", floor: 4.5 },
   { n: 37, label: "--text on danger-dim over surface-1", fg: tok("--text"), bg: tint("--danger-dim", "--surface-1"), claim: 13.6, gate: "min", floor: 4.5 },
+  { n: 38, label: "--text on selection fill over --surface-4 (lightest ground)", fg: tok("--text"), bg: tint("--selection-bg", "--surface-4"), claim: 5.19, gate: "min", floor: 4.5 },
 
   // ---- text over the overlay scrim ----
-  { n: 38, label: "--text on scrim over --surface-2", fg: tok("--text"), bg: scrim("--surface-2"), claim: 16.82, gate: "min", floor: 4.5 },
-  { n: 39, label: "--text on scrim over --bg", fg: tok("--text"), bg: scrim("--bg"), claim: 17.33, gate: "min", floor: 4.5 },
+  { n: 39, label: "--text on scrim over --surface-2", fg: tok("--text"), bg: scrim("--surface-2"), claim: 16.82, gate: "min", floor: 4.5 },
+  { n: 40, label: "--text on scrim over --bg", fg: tok("--text"), bg: scrim("--bg"), claim: 17.33, gate: "min", floor: 4.5 },
 
   // ---- banned combination ----
   {
-    n: 40,
+    n: 41,
     label: "--text on --accent (BANNED)",
     fg: tok("--text"),
     bg: tok("--accent"),
@@ -108,7 +109,7 @@ const PAIRS = [
 
   // ---- measured but not gated ----
   {
-    n: 41,
+    n: 42,
     label: "--text-faint on --surface-1",
     fg: tok("--text-faint"),
     bg: tok("--surface-1"),
@@ -117,7 +118,7 @@ const PAIRS = [
     note: "decoration-only tier — never bind it to meaningful copy",
   },
   {
-    n: 42,
+    n: 43,
     label: "--border on --surface-1",
     fg: tok("--border"),
     bg: tok("--surface-1"),
@@ -126,7 +127,7 @@ const PAIRS = [
     note: "1px divider — 1.4.11 exempt; the adjacent text carries the contrast",
   },
   {
-    n: 43,
+    n: 44,
     label: "--border-strong on --surface-2",
     fg: tok("--border-strong"),
     bg: tok("--surface-2"),
