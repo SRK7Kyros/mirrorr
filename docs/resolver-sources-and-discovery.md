@@ -283,7 +283,7 @@ plus "Save current config as source". Picking one sets `resolver_id` +
 ## 7. Events, permissions, import/export
 
 - **Events** (`event_bus/event.py`): `ResolverSourceCreated/Updated/Deleted`
-  (`source.created|updated|deleted`, `id: int`), emitted via `_safe_emit` like profiles.
+  (`resolver_source.created|updated|deleted`, `id: int`), emitted via `_safe_emit` like profiles.
   Add `SOURCE` to `ResourceType` and a handler branch if notifications are wanted.
 - **Permissions**: sources are user-scoped exactly like profiles
   (`requester_user_token` + `_get_paginated_for_user` + `_require_owner_or_admin`).
