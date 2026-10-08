@@ -61,6 +61,7 @@ const PINNED = {
   "--accent-ink": "#00220e",
   "--accent-dim": "rgba(0, 230, 118, 0.14)",
   "--accent-line": "rgba(0, 230, 118, 0.4)",
+  "--selection-bg": "rgba(0, 230, 118, 0.38)",
 
   // ---- status hues ----
   "--success": "#3fb950",

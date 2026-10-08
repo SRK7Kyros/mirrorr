@@ -1,6 +1,8 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { humanize } from "@/ui/lib/format"
 import { Field } from "./Field"
+import { IconButton } from "./IconButton"
+import { IconTrash } from "./icons"
 import { Input } from "./Input"
 import { Select } from "./Select"
 import { Switch } from "./Switch"
@@ -34,6 +36,20 @@ function schemaType(schema: JsonSchema): string {
   return typeof type === "string" ? type : ""
 }
 
+/**
+ * The value schema of a map-shaped object (`additionalProperties`), or `null`
+ * when the schema forbids extra keys. A bare `{"type": "object"}` — or
+ * `additionalProperties: true` — allows any value, which `{}` expresses.
+ */
+function schemaMapValue(schema: JsonSchema): JsonSchema | null {
+  const additional = schema["additionalProperties"]
+  if (additional === false) return null
+  if (additional !== null && typeof additional === "object" && !Array.isArray(additional)) {
+    return additional as JsonSchema
+  }
+  return {}
+}
+
 export function schemaLabel(name: string, schema: JsonSchema): string {
   const title = schema["title"]
   return typeof title === "string" && title !== "" ? title : humanize(name)
@@ -59,6 +75,139 @@ export function defaultsFromSchema(schema: JsonSchema | undefined): Record<strin
   return out
 }
 
+/** Coerce a map row's text to the type its value schema declares. */
+function coerceMapValue(text: string, valueSchema: JsonSchema): unknown {
+  const type = schemaType(valueSchema)
+  if (type === "integer" || type === "number") {
+    const num = Number(text)
+    return text !== "" && Number.isFinite(num) ? num : text
+  }
+  if (type === "boolean") return text === "true"
+  return text
+}
+
+interface MapRow {
+  readonly id: number
+  readonly key: string
+  readonly value: string
+}
+
+let mapRowSeq = 0
+function nextMapRowId(): number {
+  mapRowSeq += 1
+  return mapRowSeq
+}
+
+function blankRow(): MapRow {
+  return { id: nextMapRowId(), key: "", value: "" }
+}
+
+/** The editor always trails one empty row, so the next entry is always in reach. */
+function normalizeRows(rows: readonly MapRow[]): MapRow[] {
+  return rows.some((row) => row.key.trim() === "") ? [...rows] : [...rows, blankRow()]
+}
+
+function mapRowsFromValue(value: unknown): MapRow[] {
+  return normalizeRows(
+    Object.entries(asObject(value)).map(([key, item]) => ({
+      id: nextMapRowId(),
+      key,
+      value: item === undefined || item === null ? "" : String(item),
+    })),
+  )
+}
+
+/**
+ * Key/value editor for a map-shaped object — a `dict[str, str]` such as a
+ * resolver's request headers, which no single text input can express. Rows
+ * commit on every edit; blank keys are dropped from the emitted object, and
+ * filling the last row spawns a fresh blank one, so there is no "add" button.
+ */
+function MapField({
+  label,
+  hint,
+  required,
+  value,
+  valueSchema,
+  onChange,
+}: {
+  readonly label: string
+  readonly hint?: string | undefined
+  readonly required: boolean
+  readonly value: unknown
+  readonly valueSchema: JsonSchema
+  readonly onChange: (next: unknown) => void
+}) {
+  const incoming = JSON.stringify(asObject(value))
+  const emitted = useRef(incoming)
+  const [rows, setRows] = useState<MapRow[]>(() => mapRowsFromValue(value))
+
+  // Re-seed when the value arrives from outside (resolver switch, source
+  // pick, discovery "Use"), but never when it is the echo of our own edit.
+  useEffect(() => {
+    if (incoming === emitted.current) return
+    emitted.current = incoming
+    setRows(mapRowsFromValue(value))
+  }, [incoming, value])
+
+  function commit(next: readonly MapRow[]): void {
+    setRows(normalizeRows(next))
+    const out: Record<string, unknown> = {}
+    for (const row of next) {
+      const key = row.key.trim()
+      if (key === "") continue
+      out[key] = coerceMapValue(row.value, valueSchema)
+    }
+    emitted.current = JSON.stringify(out)
+    onChange(out)
+  }
+
+  return (
+    <div className="field" role="group" aria-label={label}>
+      <div className="field-label">
+        {label}
+        {required ? (
+          <span className="field-req" aria-hidden="true">
+            *
+          </span>
+        ) : null}
+      </div>
+      {hint !== undefined ? <span className="field-hint">{hint}</span> : null}
+      <div className="map-rows">
+        {rows.map((row, index) => (
+          <div className="map-row" key={row.id}>
+            <Input
+              className="map-key"
+              aria-label={`${label} — key ${index + 1}`}
+              placeholder="Key"
+              value={row.key}
+              onChange={(event) =>
+                commit(rows.map((item) => (item.id === row.id ? { ...item, key: event.target.value } : item)))
+              }
+            />
+            <Input
+              className="map-value"
+              aria-label={`${label} — value ${index + 1}`}
+              placeholder="Value"
+              value={row.value}
+              onChange={(event) =>
+                commit(rows.map((item) => (item.id === row.id ? { ...item, value: event.target.value } : item)))
+              }
+            />
+            <IconButton
+              label={`Remove ${label} entry ${index + 1}`}
+              icon={<IconTrash size={16} />}
+              variant="danger-ghost"
+              size="sm"
+              onClick={() => commit(rows.filter((item) => item.id !== row.id))}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 /** JSON textarea for untyped fields and keys the schema does not declare. */
 function JsonField({
   label,
@@ -75,11 +224,24 @@ function JsonField({
 }) {
   const [text, setText] = useState(() => JSON.stringify(value ?? {}, null, 2))
   const [error, setError] = useState<string | null>(null)
+  const emitted = useRef(text)
+  const incoming = JSON.stringify(value ?? {}, null, 2)
   const id = `${idPrefix}-json`
+
+  // Keep the buffer in step with a value that changed elsewhere, without
+  // clobbering what the user is mid-way through typing.
+  useEffect(() => {
+    if (incoming === emitted.current) return
+    emitted.current = incoming
+    setText(incoming)
+    setError(null)
+  }, [incoming])
 
   function commit(): void {
     try {
-      onChange(JSON.parse(text) as unknown)
+      const parsed = JSON.parse(text) as unknown
+      emitted.current = JSON.stringify(parsed, null, 2)
+      onChange(parsed)
       setError(null)
     } catch {
       setError("Invalid JSON")
@@ -197,17 +359,29 @@ function SchemaField({
   }
 
   if (type === "object") {
-    return (
-      <details className="field" open>
-        <summary className="field-label" style={{ cursor: "pointer" }}>
-          {label}
-        </summary>
-        {hint !== undefined ? <span className="field-hint">{hint}</span> : null}
-        <div className="stack-sm" style={{ marginTop: "var(--s-2)" }}>
+    if (Object.keys(schemaProperties(schema)).length > 0) {
+      return (
+        <details className="field" open>
+          <summary className="field-label">{label}</summary>
+          {hint !== undefined ? <span className="field-hint">{hint}</span> : null}
           <SchemaForm schema={schema} value={asObject(value)} onChange={onChange} idPrefix={id} />
-        </div>
-      </details>
-    )
+        </details>
+      )
+    }
+    const mapValue = schemaMapValue(schema)
+    if (mapValue !== null) {
+      return (
+        <MapField
+          label={label}
+          hint={hint}
+          required={required}
+          value={value}
+          valueSchema={mapValue}
+          onChange={onChange}
+        />
+      )
+    }
+    return <JsonField label={label} hint={hint} value={value} onChange={onChange} idPrefix={id} />
   }
 
   return <JsonField label={label} hint={hint} value={value} onChange={onChange} idPrefix={id} />
