@@ -30,17 +30,20 @@ def _extract_db_fields(instance: ResolverInterface, module_hash: str) -> dict[st
         "origin": instance.name,
         "origin_hash": module_hash,
         "config_schema": instance.config_model.model_json_schema(),
+        "search_schema": instance.discovery_model.model_json_schema() if instance.discovery_model else {},
     }
 
 
 def _schema_changed(instance: ResolverInterface, existing: Resolver | None, module_hash: str) -> bool:
     if existing is None:
         return False
-    new_schema = instance.config_model.model_json_schema()
+    new_config = instance.config_model.model_json_schema()
+    new_search = instance.discovery_model.model_json_schema() if instance.discovery_model else {}
     return (
         existing.origin_hash != module_hash
-        or existing.config_schema != new_schema
-        or bool(existing.config_schema == {} and new_schema.get("properties"))
+        or existing.config_schema != new_config
+        or existing.search_schema != new_search
+        or bool(existing.config_schema == {} and new_config.get("properties"))
     )
 
 

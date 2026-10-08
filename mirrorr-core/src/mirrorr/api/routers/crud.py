@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from datetime import datetime, timezone
 
 from sqlalchemy import func
@@ -24,6 +25,8 @@ from mirrorr.api.schemas import (
     CreateProfileRequest,
     UpdateProfileRequest,
     SaveProfileRequest,
+    CreateResolverSourceRequest,
+    UpdateResolverSourceRequest,
     SessionResponse,
     AutorunResponse,
     RecordingResponse,
@@ -36,9 +39,13 @@ from mirrorr.api.schemas import (
     ProfileListResponse,
     EngineListResponse,
     ResolverListResponse,
+    ResolverSourceResponse,
+    ResolverSourceListResponse,
+    DiscoveryRequest,
+    DiscoveryResponse,
     DeleteResultResponse,
 )
-from mirrorr.storage.models import Session, Autorun, Recording, Profile, Engine, Resolver
+from mirrorr.storage.models import Session, Autorun, Recording, Profile, Engine, Resolver, ResolverSource
 from mirrorr.storage.enums import SessionStatus, ResourceType, AutorunStatus
 from mirrorr.storage import crud
 from mirrorr.storage.models import EventSubscription, Notification
@@ -361,6 +368,13 @@ def _serialize_profile(p: Profile) -> dict:
     }
 
 
+def _serialize_source(p: ResolverSource) -> dict:
+    return {
+        **p.model_dump(mode="json"),
+        "resolver_name": _name_of(getattr(p, "resolver", None)),
+    }
+
+
 def _media_served() -> bool:
     """Whether recording media files are statically served by this install.
 
@@ -397,6 +411,7 @@ _PROFILE_OPTIONS = (
     selectinload(Profile.default_engine),
     selectinload(Profile.resolver),
 )
+_SOURCE_OPTIONS = (selectinload(ResolverSource.resolver),)
 
 
 # ── Sessions ──────────────────────────────────────────────────────────
@@ -857,6 +872,106 @@ async def delete_profile(id: int, db: AsyncSession = Depends(_get_db_session), a
 
 crud_routers.include_router(profiles_router)
 
+# ── Resolver sources ───────────────────────────────────────────────────
+
+sources_router = APIRouter(prefix="/sources", route_class=PrivilegedRoute)
+
+
+@sources_router.get("/", response_model=ResolverSourceListResponse)
+async def get_all_sources(
+    db: AsyncSession = Depends(_get_db_session),
+    auth: AuthState = Depends(require_auth),
+    cursor: int | None = Query(None, description="ID of last item from previous page"),
+    limit: int = Query(50, ge=1, le=200, description="Items per page"),
+    include_total: bool = Query(False, description="Include a total row count in the response"),
+):
+    total = None
+    if auth.is_admin:
+        result = await crud.get_all_paginated(db, ResolverSource, cursor=cursor, limit=limit, options=_SOURCE_OPTIONS)
+        if include_total:
+            total = await crud.count(db, ResolverSource)
+    else:
+        result = await _get_paginated_for_user(
+            db, ResolverSource, auth.user.username, cursor=cursor, limit=limit, options=_SOURCE_OPTIONS,
+            include_total=include_total,
+        )
+        total = result.get("total") if isinstance(result, dict) else None
+    data = _paginate_response(result)
+    if isinstance(data.get("items"), list):
+        data["items"] = [_serialize_source(i) for i in data["items"]]
+    return {**data, "total": total}
+
+
+@sources_router.get("/{id}", response_model=ResolverSourceResponse)
+async def get_source(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+    item = await crud.get_by_id(db, ResolverSource, id, options=_SOURCE_OPTIONS)
+    if not item:
+        raise HTTPException(status_code=404, detail="Source not found")
+    if not _require_owner_or_admin(auth, item):
+        raise HTTPException(status_code=403, detail="Not your source")
+    return _serialize_source(item)
+
+
+@sources_router.post("/", response_model=ResolverSourceResponse)
+async def create_source(item: CreateResolverSourceRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+    if not await crud.get_by_id(db, Resolver, item.resolver_id):
+        raise HTTPException(status_code=400, detail=f"Resolver {item.resolver_id} not found")
+    if not auth.user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = ResolverSource.model_validate(item.model_dump())
+    payload.requester_user_token = auth.user.username
+    try:
+        obj = await crud.create(db, payload)
+    except IntegrityError:
+        raise HTTPException(status_code=400, detail="A resource with that name already exists.")
+    await subscribe_requester(db, payload.requester_user_token, ResourceType.SOURCE, obj.id)
+    await _safe_emit(MirrorrEvent.RESOLVER_SOURCE_CREATED(id=obj.id))
+    enriched = await crud.get_by_id(db, ResolverSource, obj.id, options=_SOURCE_OPTIONS)
+    return _serialize_source(enriched) if enriched else obj
+
+
+@sources_router.put("/{id}", response_model=ResolverSourceResponse)
+async def update_source(id: int, item: UpdateResolverSourceRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+    existing = await crud.get_by_id(db, ResolverSource, id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Source not found")
+    if not _require_owner_or_admin(auth, existing):
+        raise HTTPException(status_code=403, detail="Not your source")
+    if not auth.user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    data = item.model_dump(exclude_unset=True)
+    if data.get("resolver_id") is not None and not await crud.get_by_id(db, Resolver, data["resolver_id"]):
+        raise HTTPException(status_code=400, detail=f"Resolver {data['resolver_id']} not found")
+    payload = ResolverSource.model_validate({**existing.model_dump(), **data})
+    payload.requester_user_token = auth.user.username
+    try:
+        obj = await crud.update(db, ResolverSource, id, payload)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Source not found")
+    except IntegrityError:
+        raise HTTPException(status_code=400, detail="A resource with that name already exists.")
+    await subscribe_requester(db, payload.requester_user_token, ResourceType.SOURCE, id)
+    await _safe_emit(MirrorrEvent.RESOLVER_SOURCE_UPDATED(id=id))
+    enriched = await crud.get_by_id(db, ResolverSource, id, options=_SOURCE_OPTIONS)
+    return _serialize_source(enriched) if enriched else obj
+
+
+@sources_router.delete("/{id}", response_model=DeleteResultResponse)
+async def delete_source(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+    obj = await crud.get_by_id(db, ResolverSource, id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not _require_owner_or_admin(auth, obj):
+        raise HTTPException(status_code=403, detail="Not your source")
+    counts = await _count_related_records(db, ResourceType.SOURCE, id)
+    await _cleanup_related_records(db, ResourceType.SOURCE, id)
+    await _safe_delete(db, ResolverSource, id)
+    await _safe_emit(MirrorrEvent.RESOLVER_SOURCE_DELETED(id=id))
+    return DeleteResultResponse(status="deleted", deleted=counts)
+
+
+crud_routers.include_router(sources_router)
+
 # ── Engines ────────────────────────────────────────────────────────────
 
 engines_router = APIRouter(prefix="/engines")
@@ -913,6 +1028,47 @@ async def get_resolver(id: int, db: AsyncSession = Depends(_get_db_session), _au
     if not item:
         raise HTTPException(status_code=404, detail="Resolver not found")
     return item
+
+
+@resolvers_router.post("/{id}/discover", response_model=DiscoveryResponse)
+async def discover_resolver(
+    id: int,
+    body: DiscoveryRequest,
+    db: AsyncSession = Depends(_get_db_session),
+    _auth: AuthState = Depends(require_auth),
+):
+    resolver = await crud.get_by_id(db, Resolver, id)
+    if not resolver:
+        raise HTTPException(status_code=404, detail="Resolver not found")
+
+    from pydantic import ValidationError
+
+    from mirrorr.di import container
+    from mirrorr.plugins.interfaces import ResolverContext
+    from mirrorr.startup.ensure_resolvers import load_resolver_jit
+
+    settings = container.settings
+    interface = load_resolver_jit(settings.resolvers_dir, resolver.origin, resolver.origin_hash)
+    model = interface.discovery_model
+    if model is None:
+        raise HTTPException(status_code=404, detail="Resolver has no discovery")
+
+    try:
+        params = model(**body.params)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=e.errors())
+
+    scratch = settings.base_dir / "cache" / "discovery" / resolver.origin
+    scratch.mkdir(parents=True, exist_ok=True)
+    context = ResolverContext(bus=container.event_bus, session_folder=scratch)
+    page = await (
+        interface.search(body.query, params, body.cursor, context)
+        if body.query
+        else interface.browse(params, body.cursor, context)
+    )
+    if page is None:
+        return {"items": [], "next_cursor": None}
+    return {"items": [asdict(i) for i in page.items], "next_cursor": page.next_cursor}
 
 
 crud_routers.include_router(resolvers_router)

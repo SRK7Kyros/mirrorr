@@ -40,4 +40,5 @@ class ResourceType(str, PyEnum):
     PROFILE = "profile"
     AUTORUN = "autorun"
     RECORDING = "recording"
+    SOURCE = "source"
     USER = "user"

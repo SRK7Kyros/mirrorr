@@ -107,6 +107,21 @@ class SaveProfileRequest(BaseModel):
     name: str
 
 
+# ── Resolver sources ───────────────────────────────────────────────────
+
+
+class CreateResolverSourceRequest(BaseModel):
+    name: str
+    resolver_id: int
+    resolver_config: dict[str, Any] = Field(default_factory=dict)
+
+
+class UpdateResolverSourceRequest(BaseModel):
+    name: str | None = None
+    resolver_id: int | None = None
+    resolver_config: dict[str, Any] | None = None
+
+
 class CreateClientRequest(BaseModel):
     name: str = Field(max_length=128)
 
@@ -244,6 +259,7 @@ class ResolverResponse(BaseModel):
     origin: str
     origin_hash: str
     config_schema: dict[str, Any] = Field(default_factory=dict)
+    search_schema: dict[str, Any] = Field(default_factory=dict)
 
 
 class PaginatedResponse(BaseModel):
@@ -295,6 +311,43 @@ class EngineListResponse(BaseModel):
 
 class ResolverListResponse(BaseModel):
     items: list[ResolverResponse]
+    next_cursor: int | None = None
+    has_more: bool = False
+    total: int | None = None
+
+
+class DiscoveryRequest(BaseModel):
+    query: str | None = None
+    params: dict[str, Any] = Field(default_factory=dict)
+    cursor: str | None = None
+
+
+class DiscoveryItemResponse(BaseModel):
+    id: str
+    title: str
+    config: dict[str, Any] = Field(default_factory=dict)
+    subtitle: str | None = None
+    image: str | None = None
+    description: str | None = None
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class DiscoveryResponse(BaseModel):
+    items: list[DiscoveryItemResponse] = Field(default_factory=list)
+    next_cursor: str | None = None
+
+
+class ResolverSourceResponse(BaseModel):
+    id: int
+    name: str
+    resolver_id: int
+    resolver_config: dict[str, Any] = Field(default_factory=dict)
+    requester_user_token: str = ""
+    resolver_name: str | None = None
+
+
+class ResolverSourceListResponse(BaseModel):
+    items: list[ResolverSourceResponse]
     next_cursor: int | None = None
     has_more: bool = False
     total: int | None = None
