@@ -1758,3 +1758,72 @@ kbd {
   align-items: center;
 }
 
+
+/* ════════════════════════════════════════════════════════════════════
+   Discovery — the resolver catalog overlay
+   ════════════════════════════════════════════════════════════════════ */
+.drawer-wide {
+  width: min(1100px, 92vw);
+}
+
+/* Opened from inside a dialog, so it must stack above it. */
+.drawer-scrim-raised {
+  z-index: calc(var(--z-modal) + 1);
+}
+
+.drawer-raised {
+  z-index: calc(var(--z-modal) + 2);
+}
+
+.discovery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--s-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.discovery-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+
+.discovery-card-image {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--r-sm);
+  background: var(--bg-sunken);
+}
+
+.discovery-card-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+}
+
+.discovery-card-title {
+  font-size: var(--fs-base);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.discovery-card-subtitle {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.discovery-card-desc {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}

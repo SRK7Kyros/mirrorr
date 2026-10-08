@@ -27,6 +27,8 @@ export const queryKeys = {
   recordings: (params: ListParams = {}) => ["recordings", params] as const,
   profiles: (params: ListParams = {}) => ["profiles", params] as const,
   profile: (id: number | string) => ["profile", id] as const,
+  sources: (params: ListParams = {}) => ["sources", params] as const,
+  source: (id: number | string) => ["source", id] as const,
   engines: ["engines"] as const,
   resolvers: ["resolvers"] as const,
   notifications: ["notifications"] as const,
@@ -43,6 +45,7 @@ export const queryRoots = {
   autoruns: ["autoruns"],
   recordings: ["recordings"],
   profiles: ["profiles"],
+  sources: ["sources"],
 } as const
 
 /** staleTime table (contract §Query keys & caching). */
