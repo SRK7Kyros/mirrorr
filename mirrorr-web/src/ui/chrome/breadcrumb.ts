@@ -14,7 +14,7 @@ const SECTION_LABELS: Record<string, string> = {
   sessions: "Sessions",
   autoruns: "Autoruns",
   recordings: "Recordings",
-  profiles: "Profiles",
+  profiles: "Presets",
   plugins: "Plugins",
   "import-export": "Import / Export",
   settings: "Settings",

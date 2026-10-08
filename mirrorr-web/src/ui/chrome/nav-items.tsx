@@ -44,7 +44,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
   {
     label: "Configure",
     items: [
-      { to: "/profiles", label: "Profiles", icon: <IconProfiles size={18} /> },
+      { to: "/profiles", label: "Presets", icon: <IconProfiles size={18} /> },
       { to: "/plugins", label: "Plugins", icon: <IconPlugins size={18} /> },
       { to: "/import-export", label: "Import / Export", icon: <IconImportExport size={18} /> },
       { to: "/settings", label: "Settings", icon: <IconSettings size={18} /> },
@@ -57,7 +57,7 @@ export const MOBILE_TABS: readonly NavItem[] = [
   { to: "/sessions", label: "Sessions", icon: <IconSessions size={20} />, exact: true },
   { to: "/autoruns", label: "Autoruns", icon: <IconAutoruns size={20} />, exact: true },
   { to: "/recordings", label: "Recordings", icon: <IconRecordings size={20} /> },
-  { to: "/profiles", label: "Profiles", icon: <IconProfiles size={20} /> },
+  { to: "/profiles", label: "Presets", icon: <IconProfiles size={20} /> },
 ]
 
 /** Burger destinations — the surfaces the bottom bar does not already carry. */

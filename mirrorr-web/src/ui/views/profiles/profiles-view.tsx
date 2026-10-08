@@ -57,9 +57,8 @@ import {
   toast,
 } from "@/ui/components"
 import { useSelection } from "@/ui/hooks"
-import { Page } from "@/ui/views/shared/page"
+import { Page, Section } from "@/ui/views/shared/page"
 import { SourcePicker } from "@/ui/views/shared/source-picker"
-import { ProfilesTabs, type ProfilesTab } from "./profiles-tabs"
 import { SourcesPanel } from "./sources-panel"
 
 /**
@@ -455,15 +454,15 @@ function ProfileDialog({
 }
 
 export function ProfilesView() {
-  const [tab, setTab] = useState<ProfilesTab>("profiles")
-  return tab === "profiles" ? (
-    <ProfilesPanel tab={tab} onTab={setTab} />
-  ) : (
-    <SourcesPanel tab={tab} onTab={setTab} />
+  return (
+    <Page title="Presets" description="Reusable profiles and saved resolver configs.">
+      <ProfilesPanel />
+      <SourcesPanel />
+    </Page>
   )
 }
 
-function ProfilesPanel({ tab, onTab }: { readonly tab: ProfilesTab; readonly onTab: (tab: ProfilesTab) => void }) {
+function ProfilesPanel() {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState("")
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -569,7 +568,7 @@ function ProfilesPanel({ tab, onTab }: { readonly tab: ProfilesTab; readonly onT
   const columnCount = 6
 
   return (
-    <Page
+    <Section
       title="Profiles"
       description="Reusable engine + resolver + retry presets. Start a session or autorun from one."
       actions={
@@ -579,7 +578,6 @@ function ProfilesPanel({ tab, onTab }: { readonly tab: ProfilesTab; readonly onT
       }
     >
       <div className="toolbar">
-        <ProfilesTabs tab={tab} onTab={onTab} />
         <span className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
           {showingLabel(rows.length)}
         </span>
@@ -756,6 +754,6 @@ function ProfilesPanel({ tab, onTab }: { readonly tab: ProfilesTab; readonly onT
           }
         }}
       />
-    </Page>
+    </Section>
   )
 }
