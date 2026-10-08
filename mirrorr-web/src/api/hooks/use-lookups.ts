@@ -1,8 +1,8 @@
 import { useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { queryKeys, staleTimes, fetchAllLookupPages } from "@/api/query-keys"
-import { fetchAllEngines, fetchAllResolvers, fetchProfilePage } from "@/api/endpoints"
-import type { Engine, Profile, Resolver } from "@/api/schemas"
+import { fetchAllEngines, fetchAllResolvers, fetchSourcePage, fetchProfilePage } from "@/api/endpoints"
+import type { Engine, Profile, Resolver, ResolverSource } from "@/api/schemas"
 
 /**
  * Lookup hooks — engines / resolvers / profiles are small, long-lived
@@ -39,6 +39,15 @@ function useProfilesLookup(): Profile[] {
 
 export function useProfiles(): Profile[] {
   return useProfilesLookup()
+}
+
+export function useSources(): ResolverSource[] {
+  const query = useQuery({
+    queryKey: queryKeys.sources({ lookup: true }),
+    queryFn: () => fetchAllLookupPages((cursor) => fetchSourcePage(cursor)),
+    staleTime: staleTimes.lookup,
+  })
+  return query.data ?? []
 }
 
 export interface NameMaps {

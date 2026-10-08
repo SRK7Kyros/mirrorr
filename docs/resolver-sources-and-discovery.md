@@ -1,6 +1,8 @@
 # Resolver Sources & Interactive Discovery
 
-Design spec — **draft for review**. Status: not implemented.
+Design spec — **implemented** (P1–P4 + P5 pickers). Import/export bundles deferred (§7).
+Core landed as `cb49cec`; web landed as the matching `mirrorr-web` commit. Deviations
+from the draft are noted inline and summarised in §8.
 Scope: `mirrorr-core` (models, API, plugin contract) + `mirrorr-web` (views, panel).
 
 ---
@@ -209,17 +211,23 @@ body: { "query": "…"?, "params": {…}, "cursor": "…"? }
 `SchemaForm`, `SchemaField`, `JsonField` and the `schema*` helpers currently live
 **inside** `src/ui/views/profiles/profiles-view.tsx` (lines ~68–297). Extract them to
 `src/ui/components/schema-form.tsx` so the source dialog and the discovery panel can
-reuse them. `profiles-view.tsx` imports them back. Pure move, no behaviour change.
+reuse them. `profiles-view.tsx` imports them back. Pure move, with one deliberate
+addition: `SchemaField` had **no `type === "string"` branch**, so a plain text field
+(e.g. `StaticConfig.url`) fell through to the JSON textarea. The extraction adds a
+text `Input` branch, so text config fields and text discovery filters render as
+inputs instead of raw JSON.
 
 ### 6.2 New view + route + nav
 
 Sources live **inside the Profiles tab** (§9.1), so there is no new top-level nav
 entry and no `/sources` route of its own.
 
-- `src/ui/views/profiles/profiles-view.tsx` — gains a segmented toggle
-  **Profiles | Sources** at the top; the Sources segment renders the list.
-- `src/ui/views/sources/sources-view.tsx` — list (table ≥640px / cards <640px,
+- `src/ui/views/profiles/profiles-view.tsx` — `ProfilesView` owns the tab state and
+  switches between `ProfilesPanel` and `SourcesPanel`; the segmented toggle
+  (**Profiles | Sources**) lives in `src/ui/views/profiles/profiles-tabs.tsx`.
+- `src/ui/views/profiles/sources-panel.tsx` — list (table ≥640px / cards <640px,
   mirroring profiles), `SourceDialog` for create/edit, delete via `BulkBar`/row action.
+  Implemented beside the profiles view rather than in a separate `views/sources/` dir.
 - `src/api/query-keys.ts` — `sources`/`source` keys, `queryRoots.sources`, reuse
   `staleTimes`.
 - `src/api/endpoints/index.ts` — `fetchSourcePage/fetchSource/createSource/updateSource/deleteSource`
@@ -228,7 +236,7 @@ entry and no `/sources` route of its own.
 
 ### 6.3 The discovery panel
 
-`src/ui/views/discovery/discovery-panel.tsx` — a **large panel, not a modal**:
+`src/ui/views/profiles/discovery-drawer.tsx` — a **large panel, not a modal**:
 full-height, near-full-width on desktop (e.g. right-side sheet `w-[min(1100px,92vw)]`),
 full-screen sheet on mobile. Scrollable body; header fixed.
 
@@ -245,20 +253,23 @@ full-screen sheet on mobile. Scrollable body; header fixed.
 ```
 
 - **Filters inline in the search row**, rendered from `resolver.search_schema`
-  with a compact variant of `SchemaField` (selects → chips, text → small inputs).
-  A "filters" popover holds overflow when the schema is large.
+  with `SchemaForm` (a `Select` for `enum`, a text `Input` for `string`). No
+  overflow popover — the drawer body scrolls, which is sufficient.
 - **Catalog vs search**: if `discovery_has_catalog`, the body opens with
   `browse` results; typing a query switches to `search` results ("replaces the
   mosaics"). If not, the body is empty until a query arrives (search-only).
-- **Mosaic card** (`discovery-card.tsx`): `image` (with placeholder), `title`,
-  `subtitle`, `description`, `meta` badges, and two actions —
-  **Use** (fills the open form's `resolver_config`) and **Save as source**
-  (`POST /sources`).
+- **Mosaic card**: `image` (when present), `title`, `subtitle`, `description`, and
+  one action — **Use**, which fills the open form's `resolver_config`. A
+  **Save as source** action on the card was dropped as redundant: the panel is
+  reached from the source form, which owns saving. (No separate
+  `discovery-card.tsx`; the card is markup inside the drawer.)
 - **Scroll, not pages**: `useInfiniteQuery` with `getNextPageParam` (the existing
   cursor contract) + an intersection-observer sentinel. Debounced (~250 ms) search
   input; requests cancelled via AbortController on new keystrokes.
-- Entered from: the `SourceDialog` ("Discover"), and the resolver section of the
-  Profile / Session / Autorun dialogs.
+- Entered from the `SourceDialog` — a **Browse `<resolver>`…** button, shown only
+  when the chosen resolver declares a `search_schema`. Wiring a Discover entry into
+  the resolver section of the Profile / Session / Autorun dialogs is a follow-up;
+  those dialogs carry the `SourcePicker` (load a saved source) instead.
 
 ### 6.4 Source picker in the other dialogs
 
@@ -285,13 +296,20 @@ plus "Save current config as source". Picking one sets `resolver_id` +
 
 ## 8. Phasing
 
-| Phase | Deliverable | Verifiable by |
+| Phase | Deliverable | Status |
 |---|---|---|
-| **P1 — core model + CRUD** | `ResolverSource` model, `ResourceType.SOURCE`, schemas, `/sources` router, events | `pytest` CRUD tests; `curl /sources` |
-| **P2 — plugin contract** | `DiscoveryItem`/`DiscoveryPage`, optional `ResolverInterface` methods, `search_schema` column + extractor, `POST /resolvers/{id}/discover` | a fixture resolver implementing `search`; endpoint test |
-| **P3 — web foundations** | extract `schema-form.tsx`; sources view + route + nav + query keys + endpoints | `bun run typecheck`, unit tests |
-| **P4 — discovery panel** | panel + card + inline filters + infinite scroll | Playwright (route-fulfilled `/api/**`) at 375/1280 |
-| **P5 — pickers + bundles** | source picker in profile/session/autorun dialogs; sources in import/export | manual + unit |
+| **P1 — core model + CRUD** | `ResolverSource` model, `ResourceType.SOURCE`, schemas, `/sources` router, events | ✅ done (`cb49cec`) |
+| **P2 — plugin contract** | `DiscoveryItem`/`DiscoveryPage`, optional `ResolverInterface` methods, `search_schema` column + extractor, `POST /resolvers/{id}/discover` | ✅ done (`cb49cec`) |
+| **P3 — web foundations** | extract `schema-form.tsx` (+ `string` branch); sources sub-tab + query keys + endpoints | ✅ done |
+| **P4 — discovery panel** | overlay drawer + cards + inline filters + infinite scroll | ✅ done |
+| **P5 — pickers** | source picker in the profile / session / autorun dialogs | ✅ done |
+| **P5b — import/export bundles** | `sources` array in bundles (§7) | ⏳ deferred |
+
+Verified: core `pytest` (incl. `tests/test_resolver_discovery.py`); web `typecheck` /
+80 unit tests / `build` / `check:tokens` 97 / `check:contrast` 43; and a
+route-fulfilled Playwright pass at 375 + 1280 (`.omo/verify-sources.mjs`) exercising
+the Sources tab, source create, discovery catalog + search + Use, and the profile
+dialog's `SourcePicker` — 0 console errors, 0 failed requests.
 
 Each phase keeps the existing gates green: core `pytest`; web `typecheck` / `test:unit`
 / `build` / `check-tokens` / `check-contrast`.

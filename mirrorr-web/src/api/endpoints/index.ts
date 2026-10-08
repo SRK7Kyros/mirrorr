@@ -2,16 +2,20 @@ import { ApiError, apiFetch } from "@/api/client"
 import { PAGE_SIZE, type CursorPage } from "@/api/query-keys"
 import {
   AutorunSchema,
+  DiscoveryPageSchema,
   EngineSchema,
   ProfileSchema,
   RecordingSchema,
   ResolverSchema,
+  ResolverSourceSchema,
   SessionSchema,
   cursorPageSchema,
   type Autorun,
+  type DiscoveryPage,
   type Engine,
   type Profile,
   type Resolver,
+  type ResolverSource,
   type Session,
 } from "@/api/schemas"
 import { z } from "zod"
@@ -153,6 +157,42 @@ export function updateProfile(id: number, body: ProfileBody): Promise<Profile> {
 }
 export function deleteProfile(id: number): Promise<void> {
   return apiFetch<void>(`/profiles/${id}`, { method: "DELETE" })
+}
+
+/* ── sources ──────────────────────────────────────────────────────── */
+export function fetchSourcePage(cursor: number | undefined, limit = PAGE_SIZE) {
+  return fetchPageOf("/sources/", ResolverSourceSchema, cursor, limit)
+}
+export interface SourceBody {
+  readonly name?: string
+  readonly resolver_id?: number
+  readonly resolver_config?: Record<string, unknown>
+}
+export function createSource(body: SourceBody): Promise<ResolverSource> {
+  return apiFetch<unknown>("/sources/", { body }).then((raw) => parseOrWarn(ResolverSourceSchema.parse, raw))
+}
+export function fetchSource(id: number | string): Promise<ResolverSource> {
+  return apiFetch<unknown>(`/sources/${id}`).then((raw) => parseOrWarn(ResolverSourceSchema.parse, raw))
+}
+export function updateSource(id: number, body: SourceBody): Promise<ResolverSource> {
+  return apiFetch<unknown>(`/sources/${id}`, { method: "PUT", body }).then((raw) =>
+    parseOrWarn(ResolverSourceSchema.parse, raw),
+  )
+}
+export function deleteSource(id: number): Promise<void> {
+  return apiFetch<void>(`/sources/${id}`, { method: "DELETE" })
+}
+
+/* ── resolver discovery ───────────────────────────────────────────── */
+export interface DiscoveryBody {
+  readonly query?: string
+  readonly params?: Record<string, unknown>
+  readonly cursor?: string | null
+}
+export function discoverResolver(id: number | string, body: DiscoveryBody): Promise<DiscoveryPage> {
+  return apiFetch<unknown>(`/resolvers/${id}/discover`, { method: "POST", body }).then((raw) =>
+    parseOrWarn(DiscoveryPageSchema.parse, raw),
+  )
 }
 
 /* ── plugins (lookups) ────────────────────────────────────────────── */

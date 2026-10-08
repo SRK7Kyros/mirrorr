@@ -21,11 +21,14 @@ import {
   Dialog,
   Field,
   Input,
+  SchemaForm,
   Segmented,
   Select,
   Switch,
+  defaultsFromSchema,
   toast,
 } from "@/ui/components"
+import { SourcePicker } from "@/ui/views/shared/source-picker"
 
 /** Slug grammar enforced live in the wizard (spec §5.5). */
 const SLUG_RE = /^[a-zA-Z0-9_-]+$/
@@ -99,6 +102,7 @@ export function AutorunFormDialog({
   const [profileId, setProfileId] = useState("")
   const [engineId, setEngineId] = useState("")
   const [resolverId, setResolverId] = useState("")
+  const [resolverConfig, setResolverConfig] = useState<Record<string, unknown>>({})
   const [recording, setRecording] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [slugError, setSlugError] = useState<string | null>(null)
@@ -128,6 +132,7 @@ export function AutorunFormDialog({
       setProfileId("")
       setEngineId("")
       setResolverId("")
+      setResolverConfig({})
       setRecording(true)
       return
     }
@@ -141,6 +146,7 @@ export function AutorunFormDialog({
     setProfileId(existingProfile !== null && existingProfile !== undefined ? String(existingProfile) : "")
     setEngineId(String(autorun.engine_id))
     setResolverId(String(autorun.resolver_id))
+    setResolverConfig(autorun.resolver_config ?? {})
     setRecording(autorun.recording !== false)
   }, [open, autorun, profiles.length])
 
@@ -153,7 +159,13 @@ export function AutorunFormDialog({
     autorun !== undefined &&
     endLocal !== "" &&
     new Date(endLocal).getTime() < parseNaiveUtc(autorun.end_time).getTime()
+  const resolver = resolvers.find((item) => String(item.id) === resolverId)
   const canSubmit = mode === "profile" ? profileId !== "" : engineId !== "" && resolverId !== ""
+
+  function changeResolver(nextId: string): void {
+    setResolverId(nextId)
+    setResolverConfig(defaultsFromSchema(resolvers.find((item) => String(item.id) === nextId)?.config_schema))
+  }
 
   const save = useMutation({
     mutationFn: (body: AutorunBody) =>
@@ -187,7 +199,7 @@ export function AutorunFormDialog({
       recording,
       ...(mode === "profile"
         ? { profile_id: Number(profileId) }
-        : { engine_id: Number(engineId), resolver_id: Number(resolverId) }),
+        : { engine_id: Number(engineId), resolver_id: Number(resolverId), resolver_config: resolverConfig }),
     })
   }
 
@@ -356,18 +368,46 @@ export function AutorunFormDialog({
                   id="autorun-resolver"
                   value={resolverId}
                   disabled={live}
-                  onChange={(event) => setResolverId(event.target.value)}
+                  onChange={(event) => changeResolver(event.target.value)}
                 >
                   <option value="">Select a resolver…</option>
-                  {resolvers.map((resolver) => (
-                    <option key={resolver.id} value={String(resolver.id)}>
-                      {resolver.name}
+                  {resolvers.map((item) => (
+                    <option key={item.id} value={String(item.id)}>
+                      {item.name}
                     </option>
                   ))}
                 </Select>
               </Field>
             </div>
           )}
+
+          {!live && mode === "custom" ? (
+            <>
+              <SourcePicker
+                idPrefix="autorun"
+                resolverId={resolverId}
+                onPick={(source) => {
+                  setResolverId(String(source.resolver_id))
+                  setResolverConfig(source.resolver_config ?? {})
+                }}
+              />
+              <section className="stack-sm">
+                <h3 className="panel-title">Resolver config</h3>
+                {resolver === undefined ? (
+                  <p className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
+                    Pick a resolver to configure it.
+                  </p>
+                ) : (
+                  <SchemaForm
+                    schema={resolver.config_schema}
+                    value={resolverConfig}
+                    onChange={setResolverConfig}
+                    idPrefix="autorun-resolver-config"
+                  />
+                )}
+              </section>
+            </>
+          ) : null}
 
           <Switch
             label="Record this scheduled run"

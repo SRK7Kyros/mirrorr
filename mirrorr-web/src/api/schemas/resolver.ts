@@ -9,6 +9,8 @@ export const ResolverSchema = z
     origin: z.string(),
     origin_hash: z.string(),
     config_schema: z.record(z.string(), z.unknown()).optional(),
+    /** JSON Schema of the discovery filter model — `{}` when the resolver has none. */
+    search_schema: z.record(z.string(), z.unknown()).optional(),
   })
   .passthrough()
 

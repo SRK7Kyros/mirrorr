@@ -45,18 +45,22 @@ import {
   LoadMore,
   Panel,
   PanelBody,
+  SchemaForm,
   Select,
   SkeletonRows,
-  Switch,
   Table,
   Tag,
   Td,
-  Textarea,
   Th,
+  asObject,
+  defaultsFromSchema,
   toast,
 } from "@/ui/components"
 import { useSelection } from "@/ui/hooks"
 import { Page } from "@/ui/views/shared/page"
+import { SourcePicker } from "@/ui/views/shared/source-picker"
+import { ProfilesTabs, type ProfilesTab } from "./profiles-tabs"
+import { SourcesPanel } from "./sources-panel"
 
 /**
  * Profiles — the one resource here with create + update + delete (spec §5.8).
@@ -64,237 +68,6 @@ import { Page } from "@/ui/views/shared/page"
  * the retry params from the engine's `retry_modes_schema`, both plain JSON
  * Schemas, so no plugin-specific fields are hardcoded.
  */
-
-type JsonSchema = Record<string, unknown>
-
-function asObject(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {}
-}
-
-function schemaProperties(schema: JsonSchema | undefined): Record<string, JsonSchema> {
-  return asObject(schema?.["properties"]) as Record<string, JsonSchema>
-}
-
-function schemaRequired(schema: JsonSchema | undefined): readonly string[] {
-  const required = schema?.["required"]
-  return Array.isArray(required) ? required.filter((item): item is string => typeof item === "string") : []
-}
-
-function schemaType(schema: JsonSchema): string {
-  const type = schema["type"]
-  return typeof type === "string" ? type : ""
-}
-
-function schemaLabel(name: string, schema: JsonSchema): string {
-  const title = schema["title"]
-  return typeof title === "string" && title !== "" ? title : humanize(name)
-}
-
-function schemaHint(schema: JsonSchema): string | undefined {
-  const description = schema["description"]
-  return typeof description === "string" && description !== "" ? description : undefined
-}
-
-function pick(source: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  for (const key of keys) out[key] = source[key]
-  return out
-}
-
-/** Seed a config object from the schema's declared `default`s. */
-function defaultsFromSchema(schema: JsonSchema | undefined): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  for (const [key, field] of Object.entries(schemaProperties(schema))) {
-    if (field["default"] !== undefined) out[key] = field["default"]
-  }
-  return out
-}
-
-/** JSON textarea for untyped fields and keys the schema does not declare. */
-function JsonField({
-  label,
-  hint,
-  value,
-  onChange,
-  idPrefix,
-}: {
-  readonly label: string
-  readonly hint?: string | undefined
-  readonly value: unknown
-  readonly onChange: (next: unknown) => void
-  readonly idPrefix: string
-}) {
-  const [text, setText] = useState(() => JSON.stringify(value ?? {}, null, 2))
-  const [error, setError] = useState<string | null>(null)
-  const id = `${idPrefix}-json`
-
-  function commit(): void {
-    try {
-      onChange(JSON.parse(text) as unknown)
-      setError(null)
-    } catch {
-      setError("Invalid JSON")
-    }
-  }
-
-  return (
-    <Field label={label} htmlFor={id} hint={hint ?? "JSON"} error={error}>
-      <Textarea
-        id={id}
-        rows={3}
-        spellCheck={false}
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        onBlur={commit}
-      />
-    </Field>
-  )
-}
-
-function SchemaField({
-  name,
-  schema,
-  required,
-  value,
-  onChange,
-  idPrefix,
-}: {
-  readonly name: string
-  readonly schema: JsonSchema
-  readonly required: boolean
-  readonly value: unknown
-  readonly onChange: (next: unknown) => void
-  readonly idPrefix: string
-}) {
-  const id = `${idPrefix}-${name}`
-  const label = schemaLabel(name, schema)
-  const hint = schemaHint(schema)
-  const type = schemaType(schema)
-  const options = Array.isArray(schema["enum"]) ? (schema["enum"] as readonly unknown[]) : null
-
-  if (options !== null) {
-    return (
-      <Field label={label} htmlFor={id} required={required} hint={hint}>
-        <Select
-          id={id}
-          value={value === undefined || value === null ? "" : String(value)}
-          onChange={(event) =>
-            onChange(options.find((option) => String(option) === event.target.value) ?? event.target.value)
-          }
-        >
-          <option value="">Select…</option>
-          {options.map((option) => (
-            <option key={String(option)} value={String(option)}>
-              {String(option)}
-            </option>
-          ))}
-        </Select>
-      </Field>
-    )
-  }
-
-  if (type === "boolean") {
-    return (
-      <Field label={label} hint={hint}>
-        <Switch checked={value === true} onChange={(event) => onChange(event.target.checked)} />
-      </Field>
-    )
-  }
-
-  if (type === "integer" || type === "number") {
-    return (
-      <Field label={label} htmlFor={id} required={required} hint={hint}>
-        <Input
-          id={id}
-          type="number"
-          value={typeof value === "number" ? String(value) : ""}
-          min={typeof schema["minimum"] === "number" ? schema["minimum"] : undefined}
-          max={typeof schema["maximum"] === "number" ? schema["maximum"] : undefined}
-          onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))}
-        />
-      </Field>
-    )
-  }
-
-  if (type === "array") {
-    return (
-      <Field label={label} htmlFor={id} required={required} hint={hint ?? "Comma-separated values"}>
-        <Input
-          id={id}
-          value={Array.isArray(value) ? value.join(", ") : ""}
-          onChange={(event) =>
-            onChange(
-              event.target.value
-                .split(",")
-                .map((part) => part.trim())
-                .filter((part) => part !== ""),
-            )
-          }
-        />
-      </Field>
-    )
-  }
-
-  if (type === "object") {
-    return (
-      <details className="field" open>
-        <summary className="field-label" style={{ cursor: "pointer" }}>
-          {label}
-        </summary>
-        {hint !== undefined ? <span className="field-hint">{hint}</span> : null}
-        <div className="stack-sm" style={{ marginTop: "var(--s-2)" }}>
-          <SchemaForm schema={schema} value={asObject(value)} onChange={onChange} idPrefix={id} />
-        </div>
-      </details>
-    )
-  }
-
-  return <JsonField label={label} hint={hint} value={value} onChange={onChange} idPrefix={id} />
-}
-
-function SchemaForm({
-  schema,
-  value,
-  onChange,
-  idPrefix,
-}: {
-  readonly schema: JsonSchema | undefined
-  readonly value: Record<string, unknown>
-  readonly onChange: (next: Record<string, unknown>) => void
-  readonly idPrefix: string
-}) {
-  const properties = schemaProperties(schema)
-  const required = schemaRequired(schema)
-  const keys = Object.keys(properties)
-  const extras = Object.keys(value).filter((key) => !(key in properties))
-  if (keys.length === 0 && extras.length === 0) return null
-
-  return (
-    <div className="stack">
-      {keys.map((key) => (
-        <SchemaField
-          key={key}
-          name={key}
-          schema={properties[key]}
-          required={required.includes(key)}
-          value={value[key]}
-          idPrefix={idPrefix}
-          onChange={(next) => onChange({ ...value, [key]: next })}
-        />
-      ))}
-      {extras.length > 0 ? (
-        <JsonField
-          label="Additional fields"
-          value={pick(value, extras)}
-          idPrefix={idPrefix}
-          onChange={(next) => onChange({ ...pick(value, keys), ...asObject(next) })}
-        />
-      ) : null}
-    </div>
-  )
-}
 
 interface ProfileRowProps {
   readonly profile: Profile
@@ -602,6 +375,15 @@ function ProfileDialog({
           </Field>
         </div>
 
+        <SourcePicker
+          idPrefix="profile"
+          resolverId={resolverId}
+          onPick={(source) => {
+            setResolverId(String(source.resolver_id))
+            setResolverConfig(source.resolver_config ?? {})
+          }}
+        />
+
         <section className="stack-sm">
           <h3 className="panel-title">Resolver config</h3>
           {schemasLoading ? (
@@ -673,6 +455,15 @@ function ProfileDialog({
 }
 
 export function ProfilesView() {
+  const [tab, setTab] = useState<ProfilesTab>("profiles")
+  return tab === "profiles" ? (
+    <ProfilesPanel tab={tab} onTab={setTab} />
+  ) : (
+    <SourcesPanel tab={tab} onTab={setTab} />
+  )
+}
+
+function ProfilesPanel({ tab, onTab }: { readonly tab: ProfilesTab; readonly onTab: (tab: ProfilesTab) => void }) {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState("")
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -788,6 +579,7 @@ export function ProfilesView() {
       }
     >
       <div className="toolbar">
+        <ProfilesTabs tab={tab} onTab={onTab} />
         <span className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
           {showingLabel(rows.length)}
         </span>

@@ -7,11 +7,14 @@ import {
   Button,
   Dialog,
   Field,
+  SchemaForm,
   Segmented,
   Select,
   Switch,
+  defaultsFromSchema,
   toast,
 } from "@/ui/components"
+import { SourcePicker } from "@/ui/views/shared/source-picker"
 
 export function NewSessionDialog({
   open,
@@ -29,6 +32,7 @@ export function NewSessionDialog({
   const [profileId, setProfileId] = useState("")
   const [engineId, setEngineId] = useState("")
   const [resolverId, setResolverId] = useState("")
+  const [resolverConfig, setResolverConfig] = useState<Record<string, unknown>>({})
   const [recording, setRecording] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -36,6 +40,10 @@ export function NewSessionDialog({
     if (!open) return
     setError(null)
     setMode(profiles.length > 0 ? "profile" : "custom")
+    setEngineId("")
+    setResolverId("")
+    setResolverConfig({})
+    setRecording(false)
   }, [open, profiles.length])
 
   const create = useMutation({
@@ -48,14 +56,20 @@ export function NewSessionDialog({
     onError: (caught) => setError(getErrorMessage(caught, "Could not start the session")),
   })
 
+  const resolver = resolvers.find((item) => String(item.id) === resolverId)
   const canSubmit = mode === "profile" ? profileId !== "" : engineId !== "" && resolverId !== ""
+
+  function changeResolver(nextId: string): void {
+    setResolverId(nextId)
+    setResolverConfig(defaultsFromSchema(resolvers.find((item) => String(item.id) === nextId)?.config_schema))
+  }
 
   const submit = () => {
     setError(null)
     const body: SessionCreateBody =
       mode === "profile"
         ? { profile_id: Number(profileId), recording }
-        : { engine_id: Number(engineId), resolver_id: Number(resolverId), recording }
+        : { engine_id: Number(engineId), resolver_id: Number(resolverId), resolver_config: resolverConfig, recording }
     create.mutate(body)
   }
 
@@ -119,16 +133,35 @@ export function NewSessionDialog({
               <Select
                 id="new-session-resolver"
                 value={resolverId}
-                onChange={(event) => setResolverId(event.target.value)}
+                onChange={(event) => changeResolver(event.target.value)}
               >
                 <option value="">Select a resolver…</option>
-                {resolvers.map((resolver) => (
-                  <option key={resolver.id} value={String(resolver.id)}>
-                    {resolver.name}
+                {resolvers.map((item) => (
+                  <option key={item.id} value={String(item.id)}>
+                    {item.name}
                   </option>
                 ))}
               </Select>
             </Field>
+            <SourcePicker
+              idPrefix="new-session"
+              resolverId={resolverId}
+              onPick={(source) => {
+                setResolverId(String(source.resolver_id))
+                setResolverConfig(source.resolver_config ?? {})
+              }}
+            />
+            {resolver === undefined ? null : (
+              <section className="stack-sm">
+                <h3 className="panel-title">Resolver config</h3>
+                <SchemaForm
+                  schema={resolver.config_schema}
+                  value={resolverConfig}
+                  onChange={setResolverConfig}
+                  idPrefix="new-session-resolver-config"
+                />
+              </section>
+            )}
           </>
         )}
 
