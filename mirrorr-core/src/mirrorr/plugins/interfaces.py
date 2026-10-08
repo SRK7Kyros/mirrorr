@@ -63,6 +63,25 @@ class ResolverContext:
     session_folder: Path
 
 
+@dataclass
+class DiscoveryItem:
+    """One discovery result — the shape the UI's result card fills."""
+    id: str
+    title: str
+    config: dict[str, Any]
+    subtitle: str | None = None
+    image: str | None = None
+    description: str | None = None
+    meta: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class DiscoveryPage:
+    """A page of discovery results. ``next_cursor`` is opaque; None ends the run."""
+    items: list[DiscoveryItem]
+    next_cursor: str | None = None
+
+
 # ── Plugin ABCs ───────────────────────────────────────────────────────
 
 
@@ -203,3 +222,27 @@ class ResolverInterface(ABC, Generic[ConfigT]):
     async def stop(self, context: ResolverContext) -> None:
         """Called when the supervisor shuts down. Override to clean up."""
         ...
+
+    # ── Optional discovery ────────────────────────────────────────────
+    @property
+    def discovery_model(self) -> type[BaseModel] | None:
+        """Pydantic model of the inline filter params the discovery panel
+        exposes. None means the resolver has no discovery."""
+        return None
+
+    @property
+    def discovery_has_catalog(self) -> bool:
+        """True opens the panel on a browsable catalog; False is search-only."""
+        return False
+
+    async def browse(
+        self, params: BaseModel, cursor: str | None, context: ResolverContext
+    ) -> DiscoveryPage | None:
+        """Catalog page. Only called when discovery_has_catalog is True."""
+        return None
+
+    async def search(
+        self, query: str, params: BaseModel, cursor: str | None, context: ResolverContext
+    ) -> DiscoveryPage | None:
+        """Search page. ``query`` is the user's text; ``params`` the inline filters."""
+        return None

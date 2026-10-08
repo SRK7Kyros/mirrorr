@@ -189,10 +189,29 @@ class Resolver(SQLModel, table=True):
     origin: str
     origin_hash: str
     config_schema: dict[str, Any] = Field(default_factory=dict, sa_column=Column(SAJSON))
+    search_schema: dict[str, Any] = Field(default_factory=dict, sa_column=Column(SAJSON))
 
     profiles: list[Profile] = Relationship(back_populates="resolver")
     sessions: list[Session] = Relationship(back_populates="resolver")
     autoruns: list[Autorun] = Relationship(back_populates="resolver")
+    sources: list["ResolverSource"] = Relationship(back_populates="resolver")
+
+
+class ResolverSource(SQLModel, table=True):
+    """A named, saved resolver config.
+
+    Just a resolver + its config with a name, reusable anywhere a resolver is
+    configured (profiles, sessions, autoruns). It is live: loading one fills the
+    consumer's resolver section, it is not a link to a running thing."""
+    __tablename__ = "resolver_sources"
+
+    id: int = Field(default=None, primary_key=True)
+    name: str
+    resolver_id: int = Field(foreign_key="resolvers.id")
+    resolver_config: dict[str, Any] = Field(default_factory=dict, sa_column=Column(SAJSON))
+    requester_user_token: str = Field(default="")
+
+    resolver: Resolver = Relationship(back_populates="sources")
 
 
 # ═══════════════════════════════════════════════════════════════════════

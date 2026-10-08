@@ -96,6 +96,21 @@ class ProfileDeleted(BaseEvent):
     subject: ClassVar[str] = "profile.deleted"
     id: int
 
+
+class ResolverSourceCreated(BaseEvent):
+    subject: ClassVar[str] = "resolver_source.created"
+    id: int
+
+
+class ResolverSourceUpdated(BaseEvent):
+    subject: ClassVar[str] = "resolver_source.updated"
+    id: int
+
+
+class ResolverSourceDeleted(BaseEvent):
+    subject: ClassVar[str] = "resolver_source.deleted"
+    id: int
+
 class MirrorrEvent:
     """Global catalog of all Mirrorr event types."""
     SESSION_CREATED = SessionCreated
@@ -117,3 +132,7 @@ class MirrorrEvent:
     PROFILE_CREATED = ProfileCreated
     PROFILE_UPDATED = ProfileUpdated
     PROFILE_DELETED = ProfileDeleted
+
+    RESOLVER_SOURCE_CREATED = ResolverSourceCreated
+    RESOLVER_SOURCE_UPDATED = ResolverSourceUpdated
+    RESOLVER_SOURCE_DELETED = ResolverSourceDeleted
