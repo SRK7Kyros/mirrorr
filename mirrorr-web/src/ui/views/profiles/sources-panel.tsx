@@ -52,9 +52,8 @@ import {
   toast,
 } from "@/ui/components"
 import { useSelection } from "@/ui/hooks"
-import { Page } from "@/ui/views/shared/page"
+import { Section } from "@/ui/views/shared/page"
 import { DiscoveryDrawer } from "./discovery-drawer"
-import { ProfilesTabs, type ProfilesTab } from "./profiles-tabs"
 
 /**
  * Sources — the "resolver-only profile". A saved `(resolver_id, resolver_config)`
@@ -320,7 +319,7 @@ function SourceDialog({ open, onClose, source, resolvers, schemasLoading, existi
   )
 }
 
-export function SourcesPanel({ tab, onTab }: { readonly tab: ProfilesTab; readonly onTab: (tab: ProfilesTab) => void }) {
+export function SourcesPanel() {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState("")
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -391,7 +390,7 @@ export function SourcesPanel({ tab, onTab }: { readonly tab: ProfilesTab; readon
   const columnCount = 5
 
   return (
-    <Page
+    <Section
       title="Sources"
       description="Saved resolver configs. Pick one wherever a resolver asks for a config."
       actions={
@@ -401,7 +400,6 @@ export function SourcesPanel({ tab, onTab }: { readonly tab: ProfilesTab; readon
       }
     >
       <div className="toolbar">
-        <ProfilesTabs tab={tab} onTab={onTab} />
         <span className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
           {showingLabel(rows.length)}
         </span>
@@ -565,6 +563,6 @@ export function SourcesPanel({ tab, onTab }: { readonly tab: ProfilesTab; readon
           }
         }}
       />
-    </Page>
+    </Section>
   )
 }
