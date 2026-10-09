@@ -118,6 +118,12 @@ def test_acquire_spawns_reuses_and_reaps(tmp_path):
             lease2.close()
             assert url2 == url
             assert json.loads(_get(f"{url2}/__companion__"))["pid"] == info["pid"]
+
+            # Overlapping leases must not wedge the reap (regression: a racy
+            # refcount used to drift and never reach zero).
+            overlapping = await asyncio.gather(*[acquire(spec, logs) for _ in range(16)])
+            for _, held in overlapping:
+                held.close()
         finally:
             lease.close()
 

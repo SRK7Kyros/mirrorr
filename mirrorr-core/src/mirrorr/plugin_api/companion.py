@@ -4,18 +4,22 @@ A resolver that cannot hand the engine a usable ``Source`` on its own (say, an
 HLS proxy that unwraps image-wrapped segments) declares a :class:`CompanionSpec`.
 The process is spawned once, shared by every session whose spec matches (same
 class, same code, same config), and kept alive by a lease each session holds.
-It self-reaps once no lease has been held for ``IDLE_TTL`` seconds, so a crashed
-session cannot leak one.
 
-The base owns only the standardized surface: ``/health``, the identity probe
-``/__companion__``, and the ``/__companion__/lease`` keep-alive. Subclasses
-implement ``handle`` for their content routes and are launched as
-``python <their module file> --mirrorr-companion <name> ...``.
+The lease is a *shared* ``flock`` on a lock file: a session holds it for as long
+as it needs the companion, and the kernel drops it the moment the holder's fd
+closes or the holder dies. The companion exits once no shared lock has been held
+for ``IDLE_TTL`` seconds — the count lives in the kernel, so it cannot drift and
+a crashed session cannot leak a process.
+
+The base owns only the standardized surface: ``/health`` and the identity probe
+``/__companion__``. Subclasses implement ``handle`` for their content routes and
+are launched as ``python <their module file> --mirrorr-companion <name> ...``.
 """
 
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import importlib.util
 import json
@@ -73,14 +77,13 @@ class Companion(ABC):
     config_model: ClassVar[type[BaseModel]]
     IDLE_TTL: ClassVar[float] = 30.0
 
-    def __init__(self, config: BaseModel, host: str, port: int) -> None:
+    def __init__(self, config: BaseModel, host: str, port: int, lock_path: Path) -> None:
         self.config = config
         self.host = host
         self.port = port
+        self.lock_path = lock_path
         self.started_at = time.time()
         self.code_hash = _source_hash(type(self))
-        self._leases = 0
-        self._idle_since = time.time()
 
     # ── contract ──────────────────────────────────────────────────────
 
@@ -107,40 +110,43 @@ class Companion(ABC):
     def script_path(cls) -> Path:
         return Path(sys.modules[cls.__module__].__file__)
 
-    # ── lease + self-reap ─────────────────────────────────────────────
+    # ── self-reap ─────────────────────────────────────────────────────
 
-    def lease(self, req: BaseHTTPRequestHandler) -> None:
-        """Hold the connection open until the client closes it."""
-        self._leases += 1
-        req.send_response(200)
-        req.send_header("Content-Type", "text/plain")
-        req.send_header("Content-Length", "1")
-        req.end_headers()
-        req.wfile.write(b"\n")
-        req.wfile.flush()
-        try:
-            while req.connection.recv(1):
-                pass
-        except OSError:
-            pass
-        finally:
-            self._leases -= 1
-            self._idle_since = time.time()
+    def _reap(self, server: ThreadingHTTPServer, lock_fd: int) -> None:
+        """Exit once no session has held a shared lock for ``IDLE_TTL``.
 
-    def _reap(self, server: ThreadingHTTPServer) -> None:
+        A session's lease is a shared ``flock`` on ``lock_path``; we probe it by
+        trying to take the exclusive lock. Succeeding means no session holds the
+        companion, so we exit after a grace period. Holding the exclusive lock
+        across ``shutdown`` makes the final check atomic — a session arriving in
+        that window is refused rather than handed a process about to die.
+        """
+        deadline: float | None = None
         while True:
             time.sleep(1.0)
-            if self._leases == 0 and time.time() - self._idle_since > self.IDLE_TTL:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                deadline = None  # a session holds the companion
+                continue
+            if deadline is None:
+                deadline = time.monotonic() + self.IDLE_TTL
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            elif time.monotonic() >= deadline:
                 server.shutdown()
                 return
+            else:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
 
     # ── entrypoint ────────────────────────────────────────────────────
 
     def serve(self) -> None:
+        self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_fd = os.open(self.lock_path, os.O_RDWR | os.O_CREAT, 0o600)
         handler = type("Handler", (_Handler,), {"companion": self})
         server = ThreadingHTTPServer((self.host, self.port), handler)
         server.daemon_threads = True
-        threading.Thread(target=self._reap, args=(server,), daemon=True).start()
+        threading.Thread(target=self._reap, args=(server, lock_fd), daemon=True).start()
         print(f"{self.name} on http://{self.host}:{self.port}", flush=True)
         server.serve_forever()
 
@@ -151,8 +157,11 @@ class Companion(ABC):
         parser.add_argument("--host", default="127.0.0.1")
         parser.add_argument("--port", type=int, required=True)
         parser.add_argument("--config", default="{}")
+        parser.add_argument("--lock", type=Path, required=True)
         args = parser.parse_args()
-        cls(cls.config_model.model_validate_json(args.config), args.host, args.port).serve()
+        cls(
+            cls.config_model.model_validate_json(args.config), args.host, args.port, args.lock
+        ).serve()
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -177,6 +186,4 @@ class _Handler(BaseHTTPRequestHandler):
         if url.path == "/__companion__":
             body = json.dumps(self.companion.identity()).encode()
             return self.send(200, body, "application/json")
-        if url.path == "/__companion__/lease":
-            return self.companion.lease(self)
         return self.companion.handle(self, url.path, urllib.parse.parse_qs(url.query))
