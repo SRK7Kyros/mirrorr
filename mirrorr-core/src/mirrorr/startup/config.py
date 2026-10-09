@@ -83,6 +83,9 @@ class MirrorrSettings(BaseModel):
             Defaults to "./engines/" (relative to working dir).
         - **resolvers_dir**: Directory that holds resolver plugin .py files.
             Defaults to "./resolvers/" (relative to working dir).
+        - **sync_default_plugins**: Copy the bundled default plugins into the
+            plugin dirs on boot (only when missing or changed).
+            Defaults to True; set False to manage plugins entirely yourself.
         - **nats_server_dir**: Directory for the local NATS server binary.
             Defaults to "./nats-server/" (relative to working dir).
         - **binaries_dir**: Parent dir for downloaded binaries (NATS, ffmpeg).
@@ -122,6 +125,7 @@ class MirrorrSettings(BaseModel):
     engines_dir: Path = Path(".")
     resolvers_dir: Path = Path(".")
     companions_dir: Path = Path(".")
+    sync_default_plugins: bool = True  # copy bundled built-ins into the plugin dirs on boot
 
     # ── binaries / state ───────────────────────────────────────────────
     nats_server_dir: Path = Path(".")
@@ -257,6 +261,7 @@ class MirrorrSettings(BaseModel):
             ENGINES_DIR: Path | None = None
             RESOLVERS_DIR: Path | None = None
             COMPANIONS_DIR: Path | None = None
+            SYNC_DEFAULT_PLUGINS: bool = True
 
             NATS_SERVER_DIR: Path | None = None
             BINARIES_DIR: Path | None = None
@@ -331,6 +336,7 @@ class MirrorrSettings(BaseModel):
         for field_name in (
             "base_dir", "content_dir", "autoruns_dir", "recordings_dir",
             "plugins_dir", "engines_dir", "resolvers_dir", "companions_dir",
+            "sync_default_plugins",
             "nats_server_dir", "binaries_dir", "db_file", "nats_port", "use_system_ffmpeg",
             "use_system_nats", "api_host", "api_port", "dev_serve_files",
             "dev_reset_database", "dev_seed_admin", "jwt_secret_key",

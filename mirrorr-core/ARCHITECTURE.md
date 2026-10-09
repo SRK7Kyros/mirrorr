@@ -791,6 +791,7 @@ Frontend ←── WS ───→ Backend ←── NATS ───→ Superviso
 | `PLUGINS_DIR` | `{BASE_DIR}/plugins` | Plugin directory |
 | `ENGINES_DIR` | `{PLUGINS_DIR}/engines` | Engine plugins |
 | `RESOLVERS_DIR` | `{PLUGINS_DIR}/resolvers` | Resolver plugins |
+| `SYNC_DEFAULT_PLUGINS` | `true` | Copy the bundled built-in plugins into the plugin dirs on boot (only when missing/changed) |
 | `DB_FILE` | `{BASE_DIR}/mirrorr_data.db` | SQLite database path |
 | `HLS_WINDOW` | `7200` | Sliding HLS manifest duration (seconds) |
 | `SEGMENT_DURATION` | `10` | Individual HLS segment duration (seconds) |

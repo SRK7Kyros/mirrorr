@@ -130,6 +130,7 @@ All paths default relative to `base_dir`. `MirrorrSettings.create_from_env()` re
 | `recordings_dir` | `{content_dir}/recordings` | Permanent recording storage |
 | `engines_dir` | `{base_dir}/plugins/engines` | Engine plugin .py files |
 | `resolvers_dir` | `{base_dir}/plugins/resolvers` | Resolver plugin .py files |
+| `sync_default_plugins` | `True` | Copy the bundled built-ins into the plugin dirs on boot (only when missing/changed); `False` = manage plugins yourself |
 | `companions_dir` | `{base_dir}/companions` | Companion process log dir (companions are spawned on demand, never installed) |
 | `nats_server_dir` | `{base_dir}/nats-server` | Local NATS binary |
 | `binaries_dir` | `{base_dir}/binaries` | Downloaded binaries |
@@ -255,7 +256,7 @@ Runtime state (gitignored, created under `base_dir`): `content/`, `plugins/`, `b
 - **`async/await`** throughout. The entire DB layer, API, NATS client, and event handlers are async.
 
 ### Architecture Patterns
-- **Plugins are interfaces**: Engines implement `EngineInterface`, Resolvers implement `ResolverInterface` (both ABCs in `src/mirrorr/plugin_api/interfaces.py`). Default plugins live in `src/mirrorr/default_plugins/` and are synced into `{engines_dir}` / `{resolvers_dir}` at boot (rewritten only when missing or changed); operator plugins live in those dirs directly.
+- **Plugins are interfaces**: Engines implement `EngineInterface`, Resolvers implement `ResolverInterface` (both ABCs in `src/mirrorr/plugin_api/interfaces.py`). Default plugins live in `src/mirrorr/default_plugins/` and are synced into `{engines_dir}` / `{resolvers_dir}` at boot (rewritten only when missing or changed); operator plugins live in those dirs directly. Set `sync_default_plugins=False` (`SYNC_DEFAULT_PLUGINS=false`) to skip the built-ins entirely — the dirs are still created, and boot still requires at least one engine and one resolver.
 - **Plugins are stateless**: They are loaded JIT via `importlib`, instantiated, used, and discarded. No persistent state in plugins.
 - **Plugins are hash-verified**: `ensure_plugins.py` provides a generic `sync_plugins_db()` that `ensure_engines.py` and `ensure_resolvers.py` call with plugin-specific extractors. JIT loaders verify hashes before execution.
 - **Plugins declare schemas for their config**: Resolvers expose `config_model → model_json_schema()`. Engines expose `retry_modes → dict[str, type[BaseModel]]` → serialized via `build_retry_modes_schema()`. Both are stored as JSON columns on their DB rows.
