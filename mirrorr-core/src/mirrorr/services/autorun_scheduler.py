@@ -85,6 +85,7 @@ async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) 
                     db.add(autorun)
 
                     session = Session(
+                        id=await crud.next_free_id(db, Session),
                         profile_id=autorun.profile_id,
                         autorun_id=autorun.id,
                         engine_id=autorun.engine_id,

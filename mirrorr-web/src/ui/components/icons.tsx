@@ -155,6 +155,12 @@ export const IconTrash = makeIcon(
   </>,
 )
 export const IconPlay = makeIcon(<path d="M6 4l14 8-14 8z" />)
+export const IconPause = makeIcon(
+  <>
+    <rect x="7" y="5" width="3.5" height="14" rx="1.25" />
+    <rect x="13.5" y="5" width="3.5" height="14" rx="1.25" />
+  </>,
+)
 export const IconStop = makeIcon(<rect x="6" y="6" width="12" height="12" rx="1.5" />)
 export const IconEdit = makeIcon(
   <>

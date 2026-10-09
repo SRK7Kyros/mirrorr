@@ -28,7 +28,11 @@ export interface StatusDescriptor {
   readonly dot: StatusDot
   /** Chip suffix icon for completed (✓) / failed (✕). */
   readonly icon?: "check" | "cross"
-  /** Row actions (sessions) — `delete` absent ⇒ never rendered, not disabled. */
+  /**
+   * Row actions (sessions) — `delete` absent ⇒ never rendered, not disabled.
+   * Live statuses carry `stop` only: deleting a running session *is* stopping
+   * it, so the two never appear side by side.
+   */
   readonly sessionActions: readonly RowAction[]
   /** Row actions (autoruns). */
   readonly autorunActions: readonly RowAction[]
@@ -50,14 +54,14 @@ export const STATUS_MAP = {
     label: "Running",
     tone: "success",
     dot: "static",
-    sessionActions: ["stop", "enable-recording", "delete"],
+    sessionActions: ["stop", "enable-recording"],
     autorunActions: ["edit", "delete"],
   },
   recording: {
     label: "Recording",
     tone: "danger",
     dot: "pulse",
-    sessionActions: ["stop", "disable-recording", "delete"],
+    sessionActions: ["stop", "disable-recording"],
     autorunActions: ["edit", "delete"],
   },
   terminating: {

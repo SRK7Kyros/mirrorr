@@ -807,9 +807,9 @@ summary.field-label {
 }
 
 /* ════════════════════════════════════════════════════════════════════
-   Session cards — a grid of capture runs, each leading with a
-   hover-to-preview player over its HLS playlist (the sessions table's
-   successor).
+   Media cards — a grid of capture runs / recordings, each leading with a
+   hover-to-preview player (the sessions table's successor). Shared by the
+   sessions and recordings grids; `.session-*` is the historical name.
    ════════════════════════════════════════════════════════════════════ */
 .session-grid-head {
   display: flex;
@@ -832,6 +832,7 @@ summary.field-label {
   border-radius: var(--r-lg);
   background: var(--surface-2);
   overflow: hidden;
+  cursor: pointer;
   transition:
     border-color var(--dur-fast) var(--ease-out),
     box-shadow var(--dur-fast) var(--ease-out);
@@ -847,14 +848,14 @@ summary.field-label {
   box-shadow: 0 0 0 1px var(--accent-dim);
 }
 
-.session-card-preview {
+.session-preview-box {
   position: relative;
   aspect-ratio: 16 / 9;
   background: var(--bg-sunken);
   overflow: hidden;
 }
 
-.session-card-preview-fill {
+.session-preview-box-fill {
   display: block;
 }
 
@@ -895,25 +896,53 @@ summary.field-label {
   color: var(--danger);
 }
 
-.session-card-play {
+.session-preview-toggle {
   position: absolute;
-  inset: 0;
+  top: 50%;
+  left: 50%;
   display: grid;
   place-items: center;
-  color: var(--text);
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-full);
   background: var(--overlay-scrim);
-  transition: opacity var(--dur-fast) var(--ease-out);
+  color: var(--text);
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
 }
 
-.session-card:hover .session-card-play,
-.session-card:focus-within .session-card-play {
-  opacity: 0;
+.session-preview-toggle:hover {
+  background: var(--surface-3);
+  transform: translate(-50%, -50%) scale(1.06);
 }
 
-.session-card-play:focus-visible {
-  opacity: 1;
+.session-preview-toggle:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: -4px;
+  outline-offset: 2px;
+}
+
+.session-record-toggle[aria-pressed="true"] {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--danger-ink);
+}
+
+.session-record-toggle[aria-pressed="true"]:hover:not(:disabled) {
+  background: var(--danger);
+  filter: brightness(1.08);
+}
+
+.session-danger-icon:hover:not(:disabled),
+.session-danger-icon:focus-visible:not(:disabled),
+.session-danger-icon:active:not(:disabled) {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--danger-ink);
 }
 
 .session-card-body {
@@ -929,9 +958,14 @@ summary.field-label {
   gap: var(--s-2);
 }
 
-.session-card-id {
+.session-card-title {
   font-weight: var(--fw-semibold);
   color: var(--text);
+  min-width: 0;
+}
+
+.session-card-id {
+  flex: none;
 }
 
 .session-card-spacer {
@@ -1412,7 +1446,12 @@ summary.field-label {
    Feedback — skeleton, spinner, empty, banner, progress
    ════════════════════════════════════════════════════════════════════ */
 .skeleton {
-  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%);
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 25%,
+    var(--surface-3) 50%,
+    var(--surface-2) 75%
+  );
   background-size: 200% 100%;
   border-radius: var(--r-sm);
   animation: shimmer 1.4s linear infinite;
@@ -1999,7 +2038,6 @@ kbd {
   display: flex;
   align-items: center;
 }
-
 
 /* ════════════════════════════════════════════════════════════════════
    Discovery — the resolver catalog overlay

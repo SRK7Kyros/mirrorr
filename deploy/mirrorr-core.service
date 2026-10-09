@@ -16,6 +16,11 @@ ExecStart=/bin/bash __REPO_ROOT__/deploy/run-core.sh --host 127.0.0.1 --port 800
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=30
+# SIGTERM only the main process, so core can stop its supervisors in order and
+# they get a chance to finalize; systemd SIGKILLs survivors after the timeout.
+# The default (control-group) SIGTERMs the whole cgroup at once, killing each
+# supervisor outright and leaving its session row stuck ACTIVE.
+KillMode=mixed
 
 [Install]
 WantedBy=multi-user.target

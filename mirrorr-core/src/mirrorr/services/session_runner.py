@@ -43,11 +43,11 @@ async def runner(
             f"Supervisor created for session <green>{session_id}</green>"
         )
 
-        # Monitor the cross-platform shutdown event and emit a stop into the ProcessBus
+        # Monitor the cross-platform shutdown event and latch a stop
         async def _watch_shutdown():
             await asyncio.get_running_loop().run_in_executor(None, shutdown_event.wait)
             logger.info(f"Session {session_id}: shutdown event received")
-            await supervisor.bus.emit("session.stop_requested")
+            supervisor.request_stop()
 
         if shutdown_event:
             asyncio.create_task(_watch_shutdown())

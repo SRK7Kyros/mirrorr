@@ -1,11 +1,10 @@
-import { z } from "zod"
-import { adminOnlyFields } from "./privileged"
+import { z } from "zod";
+import { adminOnlyFields } from "./privileged";
 
 /**
  * `SessionResponse`. Datetimes are naive UTC strings (never `Z`).
  * Non-guaranteed fields (contract §Zod validation) are `.optional()`:
- * `engine_name`, `resolver_name`, `profile_name`, `recording_progress`,
- * `session_folder`.
+ * `engine_name`, `resolver_name`, `profile_name`, `recording_progress`.
  */
 export const SessionSchema = z
   .object({
@@ -28,9 +27,9 @@ export const SessionSchema = z
     engine_name: z.string().nullable().optional(),
     resolver_name: z.string().nullable().optional(),
     profile_name: z.string().nullable().optional(),
+    autorun_name: z.string().nullable().optional(),
     recording_progress: z.record(z.string(), z.unknown()).nullable().optional(),
-    session_folder: z.string().nullable().optional(),
   })
-  .passthrough()
+  .passthrough();
 
-export type Session = z.infer<typeof SessionSchema>
+export type Session = z.infer<typeof SessionSchema>;
