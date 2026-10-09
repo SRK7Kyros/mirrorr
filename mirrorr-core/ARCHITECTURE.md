@@ -747,7 +747,7 @@ Frontend ←── WS ───→ Backend ←── NATS ───→ Superviso
 
 ```
  1. setup_logging()                     — Loguru formatting
- 2. _ensure_plugin_dirs()               — Create dirs, copy default plugins
+ 2. _ensure_plugin_dirs()               — Create dirs, sync bundled default plugins
  3. settings.ensure_directories()       — Create content/autoruns/recordings dirs
  4. Validate plugins exist              — RuntimeError if no engines or resolvers
  5. create_db_engine(settings)          — Async SQLAlchemy engine (WAL mode)
