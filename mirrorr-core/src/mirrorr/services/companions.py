@@ -1,6 +1,6 @@
 """Companion process discovery, spawning, and leasing.
 
-A companion is a standalone program (see ``mirrorr.plugins.companion``) shared
+A companion is a standalone program (see ``mirrorr.plugin_api.companion``) shared
 by resolvers. Rather than a registry — which would re-introduce the
 synchronization drift the declaration model had — the live process table is the
 source of truth: :func:`scan` finds running companions by their marker, and
@@ -21,7 +21,7 @@ from pathlib import Path
 from loguru import logger
 from psutil import process_iter
 
-from mirrorr.plugins.companion import MARKER, CompanionSpec
+from mirrorr.plugin_api.companion import MARKER, CompanionSpec
 from mirrorr.services.managed_process import ManagedProcess
 
 

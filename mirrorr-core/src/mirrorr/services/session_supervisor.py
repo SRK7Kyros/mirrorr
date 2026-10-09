@@ -7,7 +7,7 @@ from typing import Any
 
 from loguru import logger
 
-from mirrorr.plugins.interfaces import (
+from mirrorr.plugin_api.interfaces import (
     EngineInterface,
     EngineContext,
     ResolverInterface,

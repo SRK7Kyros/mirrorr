@@ -5,7 +5,7 @@ import os
 import shutil
 import subprocess
 
-from mirrorr.plugins.interfaces import (
+from mirrorr.plugin_api.interfaces import (
     EngineInterface, Capabilities, Source, EngineContext,
 )
 from mirrorr.services.managed_process import ManagedProcess

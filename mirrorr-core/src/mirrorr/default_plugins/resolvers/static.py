@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Type
 
-from mirrorr.plugins.interfaces import ResolverInterface, ResolverContext, Source
+from mirrorr.plugin_api.interfaces import ResolverInterface, ResolverContext, Source
 from pydantic import BaseModel
 
 

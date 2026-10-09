@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import JSON as SAJSON
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel, TypeDecorator, Enum as SQLEnum
 
-from mirrorr.plugins.interfaces import Capabilities
+from mirrorr.plugin_api.interfaces import Capabilities
 from mirrorr.storage.enums import AutorunStatus, SessionStatus, UserRole
 
 

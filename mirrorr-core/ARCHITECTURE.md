@@ -141,7 +141,7 @@ src/
 │   └── handlers/
 │       └── handlers.py        # Process registry, lifecycle handlers, notifications
 │
-├── plugins/                   # Plugin interfaces (imported by plugin authors)
+├── plugin_api/                # Plugin interfaces (imported by plugin authors)
 │   ├── __init__.py            # Re-exports everything
 │   ├── interfaces.py          # EngineInterface, ResolverInterface ABCs, Source, Capabilities
 │   └── retry.py               # Retry mode schemas + utilities
@@ -187,7 +187,7 @@ src/
 | `di.py` | Holds application-wide singletons (settings, session_factory, event_bus). Avoids scattered module globals. |
 | `api/` | HTTP/WS layer. Validates requests, authenticates, delegates to services, returns responses. |
 | `event_bus/` | Decoupled messaging. Services emit events; handlers react. WS relay forwards to frontend. |
-| `plugins/` | Canonical import point for plugin authors. No DB or API dependencies. |
+| `plugin_api/` | Canonical import point for plugin authors. No DB or API dependencies. |
 | `services/` | Core business logic. Session orchestration, scheduling, recording, process management. |
 | `storage/` | Database models and operations. SQLModel + SQLAlchemy async. |
 | `startup/` | Bootstrap. Ensures all infrastructure exists (DB, ffmpeg, NATS, plugins). |
@@ -923,9 +923,9 @@ npx tsc --noEmit            # Type checking
 | `event_bus/nats.py` | 89 |
 | `event_bus/protocol.py` | 42 |
 | `event_bus/handlers/handlers.py` | 165 |
-| `plugins/__init__.py` | 35 |
-| `plugins/interfaces.py` | 173 |
-| `plugins/retry.py` | 70 |
+| `plugin_api/__init__.py` | 35 |
+| `plugin_api/interfaces.py` | 173 |
+| `plugin_api/retry.py` | 70 |
 | `services/session_supervisor.py` | 314 |
 | `services/session_runner.py` | 80 |
 | `services/session_lifecycle.py` | 246 |
