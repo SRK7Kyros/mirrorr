@@ -235,6 +235,7 @@ class SessionSupervisor:
         self.resolver_ctx = ResolverContext(
             bus=self.bus,
             session_folder=self.session_folder,
+            companions_dir=self.settings.companions_dir,
         )
 
         # 1. Connect NATS early so status updates emit WS events

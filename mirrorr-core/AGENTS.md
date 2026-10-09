@@ -130,6 +130,7 @@ All paths default relative to `base_dir`. `MirrorrSettings.create_from_env()` re
 | `recordings_dir` | `{content_dir}/recordings` | Permanent recording storage |
 | `engines_dir` | `{base_dir}/plugins/engines` | Engine plugin .py files |
 | `resolvers_dir` | `{base_dir}/plugins/resolvers` | Resolver plugin .py files |
+| `companions_dir` | `{base_dir}/companions` | Companion process log dir (companions are spawned on demand, never installed) |
 | `nats_server_dir` | `{base_dir}/nats-server` | Local NATS binary |
 | `binaries_dir` | `{base_dir}/binaries` | Downloaded binaries |
 | `db_file` | `{base_dir}/mirrorr_data.db` | SQLite database |
@@ -159,6 +160,7 @@ All models in `src/mirrorr/storage/models.py` using **SQLModel** (SQLAlchemy + P
 | **Source** | Pydantic model: `url` + optional `headers` dict | Used by Resolver → Engine handoff |
 | **Capabilities** | Pydantic model: `can_record` / `can_stream` | Used by Engine |
 | **DiscoveryItem / DiscoveryPage** | Dataclasses (`src/mirrorr/plugins/interfaces.py`): one discovery result (`id`, `title`, `config`, optional `subtitle`/`image`/`description`/`meta`) and a page of them with an opaque `next_cursor`. | Implemented |
+| **Companion / CompanionSpec** | A resolver's optional companion process (`ResolverInterface.companion`) — a `Companion` subclass + its config, declared in `src/mirrorr/plugins/companion.py`. The core spawns it on demand and shares it across sessions (`src/mirrorr/services/companions.py`). | Implemented |
 | **NoRetry / RetryAlways / RetryCount / RetryOnExitCode** | Retry mode schemas (Pydantic models). Defined in `src/mirrorr/plugins/retry.py`, used by `EngineInterface.retry_modes` | Implemented |
 | **`build_retry_modes_schema`** | Generates `{mode: {schema, default_params}}` dict for DB/API transport | Implemented |
 | **`get_retry_delay` / `get_retry_max_attempts`** | Helpers that extract retry policy from mode+config | Implemented |
@@ -188,6 +190,7 @@ mirrorr-core/
 │   │   └── resolvers/static.py          # Passthrough URL + headers from config
 │   ├── plugins/                 # Canonical plugin interfaces (imported by plugin authors)
 │   │   ├── interfaces.py        # EngineInterface, ResolverInterface ABCs, Source, Capabilities, DiscoveryItem/DiscoveryPage
+│   │   ├── companion.py         # Companion ABC + CompanionSpec + sibling() loader (companion process base)
 │   │   └── retry.py             # Retry schemas (NoRetry/RetryAlways/RetryCount/RetryOnExitCode) + helpers
 │   ├── api/                     # FastAPI web server
 │   │   ├── api.py               # App init, exception handlers, router registration
@@ -211,6 +214,7 @@ mirrorr-core/
 │   │       └── handlers.py      # Process registry + lifecycle handlers + notification creation
 │   ├── services/                # Process supervisors and background tasks
 │   │   ├── managed_process.py   # Subprocess wrapper + event-driven lifecycle + telemetry
+│   │   ├── companions.py        # Companion discovery/spawn/lease (scan the process table; no registry)
 │   │   ├── process_bus.py       # In-process async event bus (pub/sub)
 │   │   ├── session_supervisor.py# Per-session orchestrator (runs in own OS process)
 │   │   ├── session_runner.py    # Subprocess entry points (runner, main)
@@ -256,6 +260,7 @@ Runtime state (gitignored, created under `base_dir`): `content/`, `plugins/`, `b
 - **Plugins are hash-verified**: `ensure_plugins.py` provides a generic `sync_plugins_db()` that `ensure_engines.py` and `ensure_resolvers.py` call with plugin-specific extractors. JIT loaders verify hashes before execution.
 - **Plugins declare schemas for their config**: Resolvers expose `config_model → model_json_schema()`. Engines expose `retry_modes → dict[str, type[BaseModel]]` → serialized via `build_retry_modes_schema()`. Both are stored as JSON columns on their DB rows.
 - **Resolvers may expose discovery**: Optional `ResolverInterface` members — `discovery_model` (Pydantic filter model, synced to `Resolver.search_schema` by the resolver extractor), `discovery_has_catalog`, and `async browse(params, cursor, context)` / `async search(query, params, cursor, context)` returning `DiscoveryPage`. `POST /resolvers/{id}/discover` runs `browse` when no query is given and `search` when one is; both return items a source can be saved from.
+- **Resolvers may declare a companion process**: Optional `ResolverInterface.companion` returns a `CompanionSpec` (a `Companion` subclass + its session-independent config). The resolver loads the companion module with `sibling(__file__, "<module>")` (a sibling `.py` in `resolvers/`), returns the spec, and in `resolve` calls `await acquire(spec, context.companions_dir)` for `(base_url, lease)`, holding the lease on `self` and closing it in `stop`. There is no registry: `services/companions.py` discovers live companions by scanning the process table for the `--mirrorr-companion` marker and probing `/__companion__` (identity = name + source hash + config), reuses a match, or spawns one via `ManagedProcess` (detached, `start_new_session`) and arbitrates a spawn race by lowest pid. Companions self-reap after `IDLE_TTL` with no lease. Companion names must be globally unique (`_companion_validator` in `ensure_resolvers.py`).
 - **Sources are the "resolver-only profile"**: `ResolverSource` is just a named `(resolver_id, resolver_config)` pair, served by a dedicated `/sources` router in `crud.py` (ownership-scoped, `PrivilegedRoute`, cursor pagination) with `resolver_source.{created,updated,deleted}` events. It is live config to load, not a link to a running thing.
 - **Retry modes are engine-driven**: Each engine inherits a default `{none, always, count}` retry set via `EngineInterface.retry_modes`. Engines can override this property to customize available modes. The supervisor reads `Session.effective_retry_mode()` + `Session.effective_retry_config()` (session override → profile default → hardcoded default) and loops `_run_attempt()` until success, stop, or exhaustion.
 - **Events are typed Pydantic models**: Each event is a class with a `ClassVar[str]` subject. Register handlers with `@bus.on(MirrorrEvent.EVENT_NAME)`.
@@ -307,6 +312,8 @@ Runtime state (gitignored, created under `base_dir`): `content/`, `plugins/`, `b
 | `src/mirrorr/storage/models.py` | All domain models (SQLModel tables + backward-compat re-exports), incl. `ResolverSource`. |
 | `src/mirrorr/storage/enums.py` | `SessionStatus`, `AutorunStatus`, `UserRole`, `ResourceType` (incl. `source`). |
 | `src/mirrorr/plugins/interfaces.py` | `EngineInterface`/`ResolverInterface` ABCs + `Source`/`Capabilities` + `DiscoveryItem`/`DiscoveryPage`. |
+| `src/mirrorr/plugins/companion.py` | `Companion` ABC (base for companion processes: `/health` + `/__companion__` identity/lease + self-reap), `CompanionSpec`, `sibling()` loader. |
+| `src/mirrorr/services/companions.py` | `scan()` (process-table discovery) + `acquire()` (reuse or spawn via `ManagedProcess`, race-arbitrated) + `Lease`. |
 | `src/mirrorr/plugins/retry.py` | Retry schemas (`NoRetry`/`RetryAlways`/`RetryCount`/`RetryOnExitCode`) + `build_retry_modes_schema` + delay/attempt helpers. |
 | `src/mirrorr/storage/database.py` | `create_db_engine(settings)` → `(engine, session_factory)`. |
 | `src/mirrorr/event_bus/nats.py` | `NatsRegistry` singleton (`bus`): connect, emit, on(), start_subscriptions(). |

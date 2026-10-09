@@ -30,7 +30,7 @@ class ManagedProcess:
         self,
         name: str,
         command: list[str],
-        bus: ProcessBus,
+        bus: ProcessBus | None = None,
         *,
         stdin: int | None = None,
         stdout: int | None = asyncio.subprocess.PIPE,
@@ -237,10 +237,11 @@ class ManagedProcess:
         if log_file:
             log_file.write(f"{datetime.now(timezone.utc).isoformat()} | {line}\n")
             log_file.flush()
-        await self.bus.emit(
-            f"proc.{self.name}.{stream_name}",
-            ProcessOutput(line=line, name=self.name, stream=stream_name),
-        )
+        if self.bus is not None:
+            await self.bus.emit(
+                f"proc.{self.name}.{stream_name}",
+                ProcessOutput(line=line, name=self.name, stream=stream_name),
+            )
 
     async def _wait_for_exit(self) -> None:
         """Wait for the process to exit and publish the exit event."""
@@ -264,7 +265,8 @@ class ManagedProcess:
             self._telemetry_task.cancel()
 
         exit_event = ProcessExit(returncode=returncode, name=self.name, intentional=self._intentionally_stopped)
-        await self.bus.emit(f"proc.{self.name}.exit", exit_event)
+        if self.bus is not None:
+            await self.bus.emit(f"proc.{self.name}.exit", exit_event)
 
         if self._intentionally_stopped:
             logger.opt(colors=True).info(f"[<cyan>{self.name}</cyan>] Exited (code {returncode}, stopped intentionally)")
@@ -290,11 +292,12 @@ class ManagedProcess:
                 try:
                     cpu = ps_proc.cpu_percent(interval=None)
                     mem = ps_proc.memory_info()
-                    await self.bus.emit(f"proc.{self.name}.telemetry", {
-                        "cpu_percent": cpu,
-                        "rss_bytes": mem.rss,
-                        "vms_bytes": mem.vms,
-                    })
+                    if self.bus is not None:
+                        await self.bus.emit(f"proc.{self.name}.telemetry", {
+                            "cpu_percent": cpu,
+                            "rss_bytes": mem.rss,
+                            "vms_bytes": mem.vms,
+                        })
                 except Exception as e:
                     logger.debug(f"[{self.name}] telemetry sample failed: {e}")
                 await asyncio.sleep(self._telemetry_interval)

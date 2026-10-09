@@ -94,6 +94,7 @@ async def sync_plugins_db(
     schema_changed: Callable[[Any, T | None, str], bool],
     plugin_label: str,
     session_factory: async_sessionmaker,
+    validate: Callable[[Any], None] | None = None,
 ) -> None:
     """Sync filesystem plugins to DB. Call at app startup.
 
@@ -105,6 +106,7 @@ async def sync_plugins_db(
         schema_changed: (instance, existing_db_row, module_hash) → True if DB needs update.
         plugin_label: Human-readable label for log messages (e.g. "engine", "resolver").
         session_factory: Async session factory.
+        validate: Optional per-instance check; raising aborts the sync (boot).
     """
     logger.info(f"Syncing {plugin_label}s from filesystem...")
     async with session_factory() as session:
@@ -136,6 +138,8 @@ async def sync_plugins_db(
                 ):
                     try:
                         instance = attr()
+                        if validate is not None:
+                            validate(instance)
                         logger.opt(colors=True).info(
                             f"Loaded {plugin_label}: <b><yellow>{instance.name}</yellow></b> "
                             f"from <b><yellow>{file_path.name}</yellow></b>"
