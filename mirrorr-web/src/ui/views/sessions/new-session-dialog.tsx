@@ -94,14 +94,14 @@ export function NewSessionDialog({
       <div className="stack">
         {error !== null ? <Banner kind="danger" title={error} /> : null}
 
-        <Field label="Source">
+        <Field label="Start from">
           <Segmented
-            ariaLabel="Session source"
+            ariaLabel="Start from"
             active={mode}
             onChange={setMode}
             items={[
-              { id: "profile", label: "Use a profile", disabled: profiles.length === 0 },
-              { id: "custom", label: "Pick engine + resolver" },
+              { id: "profile", label: "A profile", disabled: profiles.length === 0 },
+              { id: "custom", label: "Engine + resolver" },
             ]}
           />
         </Field>

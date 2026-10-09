@@ -316,16 +316,16 @@ export function AutorunFormDialog({
           </div>
 
           <Field
-            label="Config source"
+            label="Start from"
             hint={live ? "Changes affect a future run, not the current one." : undefined}
           >
             <Segmented
-              ariaLabel="Config source"
+              ariaLabel="Start from"
               active={mode}
               onChange={setMode}
               items={[
-                { id: "profile", label: "Use a profile", disabled: profiles.length === 0 || live },
-                { id: "custom", label: "Pick engine + resolver", disabled: live },
+                { id: "profile", label: "A profile", disabled: profiles.length === 0 || live },
+                { id: "custom", label: "Engine + resolver", disabled: live },
               ]}
             />
           </Field>
