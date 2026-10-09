@@ -807,6 +807,222 @@ summary.field-label {
 }
 
 /* ════════════════════════════════════════════════════════════════════
+   Session cards — a grid of capture runs, each leading with a
+   hover-to-preview player over its HLS playlist (the sessions table's
+   successor).
+   ════════════════════════════════════════════════════════════════════ */
+.session-grid-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: 0 var(--s-1);
+}
+
+.session-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--s-4);
+  align-items: start;
+}
+
+.session-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+  overflow: hidden;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.session-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+}
+
+.session-card[data-selected="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-dim);
+}
+
+.session-card-preview {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: var(--bg-sunken);
+  overflow: hidden;
+}
+
+.session-card-preview-fill {
+  display: block;
+}
+
+.session-preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity var(--dur-med) var(--ease-out);
+}
+
+.session-preview[data-active="true"] {
+  opacity: 1;
+}
+
+.session-card-overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  background: linear-gradient(to top, var(--overlay-scrim), transparent);
+  pointer-events: none;
+}
+
+.session-card-flag {
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.session-card-flag[data-live="true"] {
+  color: var(--danger);
+}
+
+.session-card-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text);
+  background: var(--overlay-scrim);
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.session-card:hover .session-card-play,
+.session-card:focus-within .session-card-play {
+  opacity: 0;
+}
+
+.session-card-play:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: -4px;
+}
+
+.session-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4) var(--s-4);
+}
+
+.session-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.session-card-id {
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+}
+
+.session-card-spacer {
+  flex: 1;
+}
+
+.session-card-source {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.session-card-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  font-size: var(--fs-sm);
+}
+
+.session-card-none {
+  font-size: var(--fs-sm);
+}
+
+.session-card-urls {
+  margin-top: var(--s-1);
+}
+
+/* ── URL list (shared: session card + session detail) ── */
+.url-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.url-list-item {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+}
+
+.url-list-label {
+  flex: none;
+  width: 4.5rem;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.url-list-value {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-width: 0;
+  font-size: var(--fs-2xs);
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.url-list-value:hover {
+  color: var(--accent);
+}
+
+.url-copy {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.url-copy:hover {
+  border-color: var(--border);
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+/* ════════════════════════════════════════════════════════════════════
    Tabs / segmented
    ════════════════════════════════════════════════════════════════════ */
 .tabs {

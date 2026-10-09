@@ -7,11 +7,9 @@ import { queryKeys, resolveEntityName, staleTimes } from "@/api/query-keys"
 import { getStatusDescriptor } from "@/api/status"
 import { isLive } from "@/api/domain/filter-grammar"
 import { formatDateTime, formatDuration } from "@/api/time"
-import { humanize } from "@/ui/lib/format"
 import {
   EmptyState,
   ErrorPanel,
-  IconExternal,
   IconSessions,
   JsonView,
   Panel,
@@ -26,6 +24,7 @@ import { useLiveDurationSeconds } from "@/ui/hooks"
 import { Page } from "@/ui/views/shared/page"
 import { RemuxProgressBar } from "./remux-progress"
 import { SessionActionsMenu } from "./session-actions"
+import { SessionUrls, toSessionUrls } from "./session-urls"
 
 interface AttemptView {
   readonly index: number
@@ -62,16 +61,6 @@ function KeyValue({ label, children }: { readonly label: string; readonly childr
       <span className="text-dim">{label}</span>
       <span className="mono text-truncate">{children}</span>
     </div>
-  )
-}
-
-function SourceValue({ value }: { readonly value: string }) {
-  if (!/^https?:/i.test(value)) return <span className="mono text-truncate">{value}</span>
-  return (
-    <a className="row" style={{ gap: "var(--s-1)" }} href={value} target="_blank" rel="noreferrer">
-      <span className="mono text-truncate">{value}</span>
-      <IconExternal size={13} />
-    </a>
   )
 }
 
@@ -129,7 +118,7 @@ export function SessionDetailView({ sessionId }: { readonly sessionId: string })
   const engine = resolveEntityName(session.engine_name, names.engines, session.engine_id)
   const resolver = resolveEntityName(session.resolver_name, names.resolvers, session.resolver_id)
   const profile = resolveEntityName(session.profile_name, names.profiles, session.profile_id)
-  const urls = session.session_urls ?? []
+  const urls = toSessionUrls(session.session_urls)
   const attempts = (session.attempts ?? [])
     .map((raw, index) => toAttemptView(raw, index))
     .sort((a, b) => b.index - a.index)
@@ -233,18 +222,7 @@ export function SessionDetailView({ sessionId }: { readonly sessionId: string })
                   Live URLs not configured (operator must set <span className="mono">web_url</span>).
                 </p>
               ) : (
-                <div className="stack">
-                  {urls.map((entry, index) => (
-                    <div key={index} className="stack stack-sm">
-                      {Object.entries(entry).map(([key, value]) => (
-                        <div key={key} className="row-between">
-                          <span className="text-dim">{humanize(key)}</span>
-                          <SourceValue value={value} />
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                </div>
+                <SessionUrls urls={urls} />
               )}
             </PanelBody>
           </Panel>
