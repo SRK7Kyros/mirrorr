@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -47,6 +47,28 @@ def _schema_changed(instance: ResolverInterface, existing: Resolver | None, modu
     )
 
 
+def _companion_validator() -> Callable[[ResolverInterface], None]:
+    """Reject two resolvers declaring the same companion name.
+
+    Companions are shared by identity, so the name must be globally unique —
+    a collision is a boot error, not a silent override."""
+    seen: dict[str, str] = {}
+
+    def validate(resolver: ResolverInterface) -> None:
+        spec = resolver.companion
+        if spec is None:
+            return
+        owner = seen.get(spec.companion.name)
+        if owner is not None:
+            raise ValueError(
+                f"Companion name {spec.companion.name!r} is declared by both "
+                f"{owner!r} and {resolver.name!r}; companion names must be unique"
+            )
+        seen[spec.companion.name] = resolver.name
+
+    return validate
+
+
 async def sync_resolvers_db(resolvers_dir: Path, session_factory: async_sessionmaker) -> None:
     """Syncs filesystem resolver plugins to DB. Call this at app startup."""
     await sync_plugins_db(
@@ -57,4 +79,5 @@ async def sync_resolvers_db(resolvers_dir: Path, session_factory: async_sessionm
         schema_changed=_schema_changed,
         plugin_label="resolver",
         session_factory=session_factory,
+        validate=_companion_validator(),
     )

@@ -13,11 +13,12 @@ wheels/
 dev_testing/
 dev_scripts/
 
-# Runtime state (base_dir defaults to CWD)
-binaries/
-content/
-plugins/
-nats-server/
+# Runtime state (base_dir defaults to CWD) — root-anchored so they never
+# shadow source packages such as src/mirrorr/plugins/
+/binaries/
+/content/
+/plugins/
+/nats-server/
 *.db
 *.db-shm
 *.db-wal

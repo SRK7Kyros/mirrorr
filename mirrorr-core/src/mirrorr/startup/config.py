@@ -121,6 +121,7 @@ class MirrorrSettings(BaseModel):
     plugins_dir: Path = Path(".")
     engines_dir: Path = Path(".")
     resolvers_dir: Path = Path(".")
+    companions_dir: Path = Path(".")
 
     # ── binaries / state ───────────────────────────────────────────────
     nats_server_dir: Path = Path(".")
@@ -172,6 +173,7 @@ class MirrorrSettings(BaseModel):
             "plugins_dir": str(self.plugins_dir),
             "engines_dir": str(self.engines_dir),
             "resolvers_dir": str(self.resolvers_dir),
+            "companions_dir": str(self.companions_dir),
             "nats_server_dir": str(self.nats_server_dir),
             "binaries_dir": str(self.binaries_dir),
             "db_file": str(self.db_file),
@@ -194,6 +196,8 @@ class MirrorrSettings(BaseModel):
             self.engines_dir = self.plugins_dir / "engines"
         if self.resolvers_dir == Path("."):
             self.resolvers_dir = self.plugins_dir / "resolvers"
+        if self.companions_dir == Path("."):
+            self.companions_dir = b / "companions"
         if self.nats_server_dir == Path("."):
             self.nats_server_dir = b / "nats-server"
         if self.binaries_dir == Path("."):
@@ -204,7 +208,7 @@ class MirrorrSettings(BaseModel):
         # Ensure all resolved paths are absolute
         for field_name in (
             "content_dir", "autoruns_dir", "recordings_dir",
-            "plugins_dir", "engines_dir", "resolvers_dir",
+            "plugins_dir", "engines_dir", "resolvers_dir", "companions_dir",
             "nats_server_dir", "binaries_dir", "db_file",
         ):
             setattr(self, field_name, getattr(self, field_name).resolve())
@@ -252,6 +256,7 @@ class MirrorrSettings(BaseModel):
             PLUGINS_DIR: Path | None = None
             ENGINES_DIR: Path | None = None
             RESOLVERS_DIR: Path | None = None
+            COMPANIONS_DIR: Path | None = None
 
             NATS_SERVER_DIR: Path | None = None
             BINARIES_DIR: Path | None = None
@@ -289,6 +294,7 @@ class MirrorrSettings(BaseModel):
                     "PLUGINS_DIR": self.PLUGINS_DIR,
                     "ENGINES_DIR": self.ENGINES_DIR,
                     "RESOLVERS_DIR": self.RESOLVERS_DIR,
+                    "COMPANIONS_DIR": self.COMPANIONS_DIR,
                     "NATS_SERVER_DIR": self.NATS_SERVER_DIR,
                     "BINARIES_DIR": self.BINARIES_DIR,
                     "DB_FILE": self.DB_FILE,
@@ -309,6 +315,8 @@ class MirrorrSettings(BaseModel):
                     self.ENGINES_DIR = self.PLUGINS_DIR / "engines"
                 if self.RESOLVERS_DIR is None:
                     self.RESOLVERS_DIR = self.PLUGINS_DIR / "resolvers"
+                if self.COMPANIONS_DIR is None:
+                    self.COMPANIONS_DIR = b / "companions"
                 if self.NATS_SERVER_DIR is None:
                     self.NATS_SERVER_DIR = b / "nats-server"
                 if self.BINARIES_DIR is None:
@@ -322,8 +330,8 @@ class MirrorrSettings(BaseModel):
         mapping: dict[str, Any] = {}
         for field_name in (
             "base_dir", "content_dir", "autoruns_dir", "recordings_dir",
-            "plugins_dir", "engines_dir", "resolvers_dir", "nats_server_dir",
-            "binaries_dir", "db_file", "nats_port", "use_system_ffmpeg",
+            "plugins_dir", "engines_dir", "resolvers_dir", "companions_dir",
+            "nats_server_dir", "binaries_dir", "db_file", "nats_port", "use_system_ffmpeg",
             "use_system_nats", "api_host", "api_port", "dev_serve_files",
             "dev_reset_database", "dev_seed_admin", "jwt_secret_key",
             "hls_window", "segment_duration", "autorun_check_interval",
@@ -353,6 +361,7 @@ class MirrorrSettings(BaseModel):
             self.recordings_dir,
             self.engines_dir,
             self.resolvers_dir,
+            self.companions_dir,
             self.nats_server_dir,
             self.binaries_dir,
             self.db_file.parent,

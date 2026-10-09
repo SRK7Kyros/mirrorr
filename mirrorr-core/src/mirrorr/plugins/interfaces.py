@@ -14,6 +14,7 @@ from typing import Any, Generic, Type, TypeVar
 
 from pydantic import BaseModel
 
+from mirrorr.plugins.companion import CompanionSpec
 from mirrorr.plugins.retry import (
     NoRetry,
     RetryAlways,
@@ -61,6 +62,7 @@ class ResolverContext:
     """Runtime environment provided to a resolver by the supervisor."""
     bus: ProcessBus
     session_folder: Path
+    companions_dir: Path = Path(".")
 
 
 @dataclass
@@ -222,6 +224,13 @@ class ResolverInterface(ABC, Generic[ConfigT]):
     async def stop(self, context: ResolverContext) -> None:
         """Called when the supervisor shuts down. Override to clean up."""
         ...
+
+    @property
+    def companion(self) -> CompanionSpec | None:
+        """Optional companion process this resolver needs (e.g. a proxy).
+
+        Acquire it in ``resolve`` and close the lease in ``stop``."""
+        return None
 
     # ── Optional discovery ────────────────────────────────────────────
     @property
