@@ -43,11 +43,11 @@ class ChangePasswordRequest(BaseModel):
 
 class CreateSessionRequest(BaseModel):
     profile_id: int | None = None
-    engine_id: int
-    resolver_id: int
-    resolver_config: dict[str, Any] = Field(default_factory=dict)
-    retry_mode: str = "none"
-    retry_config: dict[str, Any] = Field(default_factory=dict)
+    engine_id: int | None = None
+    resolver_id: int | None = None
+    resolver_config: dict[str, Any] | None = None
+    retry_mode: str | None = None
+    retry_config: dict[str, Any] | None = None
     recording: bool = False
 
 
@@ -58,11 +58,11 @@ class CreateAutorunRequest(BaseModel):
     user_friendly_name: str
     snake_case_name: str = Field(pattern=r'^[a-zA-Z0-9_-]+$')
     profile_id: int | None = None
-    engine_id: int
-    resolver_id: int
-    resolver_config: dict[str, Any] = Field(default_factory=dict)
-    retry_mode: str = "none"
-    retry_config: dict[str, Any] = Field(default_factory=dict)
+    engine_id: int | None = None
+    resolver_id: int | None = None
+    resolver_config: dict[str, Any] | None = None
+    retry_mode: str | None = None
+    retry_config: dict[str, Any] | None = None
     start_time: datetime
     end_time: datetime
     recording: bool = True

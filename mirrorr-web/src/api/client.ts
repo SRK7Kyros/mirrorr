@@ -75,10 +75,14 @@ function defaultMessage(status: number): string {
 function joinDetailMessages(detail: readonly unknown[]): string {
   const messages: string[] = []
   for (const entry of detail) {
-    if (entry !== null && typeof entry === "object") {
-      const msg = (entry as { msg?: unknown }).msg
-      if (typeof msg === "string") messages.push(msg)
-    }
+    if (entry === null || typeof entry !== "object") continue
+    const record = entry as { loc?: unknown; msg?: unknown }
+    if (typeof record.msg !== "string") continue
+    const loc = Array.isArray(record.loc)
+      ? record.loc.filter((part): part is string => typeof part === "string")
+      : []
+    const field = loc.filter((part) => !FORM_LOC_FIELDS.has(part)).at(-1)
+    messages.push(field === undefined ? record.msg : `${field}: ${record.msg}`)
   }
   return messages.join("; ")
 }

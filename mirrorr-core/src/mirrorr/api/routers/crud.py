@@ -454,28 +454,57 @@ async def get_session(id: int, db: AsyncSession = Depends(_get_db_session), auth
     return _serialize_session(item)
 
 
+def _resolve_capture_target(
+    profile: Profile | None,
+    engine_id: int | None,
+    resolver_id: int | None,
+    resolver_config: dict[str, Any] | None,
+    retry_mode: str | None,
+    retry_config: dict[str, Any] | None,
+) -> tuple[int, int, dict[str, Any], str, dict[str, Any]]:
+    """Resolve the engine, resolver and policy a capture runs with.
+
+    A profile supplies whatever the request leaves unset, so a caller may start
+    from a profile alone; a bare request must still name an engine and resolver.
+    """
+    if profile is None:
+        if engine_id is None or resolver_id is None:
+            raise HTTPException(status_code=422, detail="Provide a profile, or an engine and a resolver")
+        return engine_id, resolver_id, resolver_config or {}, retry_mode or "none", retry_config or {}
+    return (
+        engine_id if engine_id is not None else profile.default_engine_id,
+        resolver_id if resolver_id is not None else profile.resolver_id,
+        resolver_config if resolver_config is not None else profile.resolver_config,
+        retry_mode if retry_mode is not None else profile.retry_mode,
+        retry_config if retry_config is not None else profile.retry_config,
+    )
+
+
 @sessions_router.post("/", response_model=SessionResponse)
 async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    # Validate FK references exist
-    engine = await crud.get_by_id(db, Engine, item.engine_id)
-    if not engine:
-        raise HTTPException(status_code=400, detail=f"Engine {item.engine_id} not found")
-    resolver = await crud.get_by_id(db, Resolver, item.resolver_id)
-    if not resolver:
-        raise HTTPException(status_code=400, detail=f"Resolver {item.resolver_id} not found")
+    profile = None
     if item.profile_id is not None:
         profile = await crud.get_by_id(db, Profile, item.profile_id)
         if not profile:
             raise HTTPException(status_code=400, detail=f"Profile {item.profile_id} not found")
+    engine_id, resolver_id, resolver_config, retry_mode, retry_config = _resolve_capture_target(
+        profile, item.engine_id, item.resolver_id, item.resolver_config, item.retry_mode, item.retry_config
+    )
+    engine = await crud.get_by_id(db, Engine, engine_id)
+    if not engine:
+        raise HTTPException(status_code=400, detail=f"Engine {engine_id} not found")
+    resolver = await crud.get_by_id(db, Resolver, resolver_id)
+    if not resolver:
+        raise HTTPException(status_code=400, detail=f"Resolver {resolver_id} not found")
     if not auth.user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     payload = Session(
         profile_id=item.profile_id,
-        engine_id=item.engine_id,
-        resolver_id=item.resolver_id,
-        resolver_config=item.resolver_config,
-        retry_mode=item.retry_mode,
-        retry_config=item.retry_config,
+        engine_id=engine_id,
+        resolver_id=resolver_id,
+        resolver_config=resolver_config,
+        retry_mode=retry_mode,
+        retry_config=retry_config,
         recording=item.recording,
         requester_user_token=auth.user.username,
     )
@@ -562,28 +591,31 @@ async def get_autorun(id: int, db: AsyncSession = Depends(_get_db_session), auth
 
 @autoruns_router.post("/", response_model=AutorunResponse)
 async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    # Validate FK references exist
-    engine = await crud.get_by_id(db, Engine, item.engine_id)
-    if not engine:
-        raise HTTPException(status_code=400, detail=f"Engine {item.engine_id} not found")
-    resolver = await crud.get_by_id(db, Resolver, item.resolver_id)
-    if not resolver:
-        raise HTTPException(status_code=400, detail=f"Resolver {item.resolver_id} not found")
+    profile = None
     if item.profile_id is not None:
         profile = await crud.get_by_id(db, Profile, item.profile_id)
         if not profile:
             raise HTTPException(status_code=400, detail=f"Profile {item.profile_id} not found")
+    engine_id, resolver_id, resolver_config, retry_mode, retry_config = _resolve_capture_target(
+        profile, item.engine_id, item.resolver_id, item.resolver_config, item.retry_mode, item.retry_config
+    )
+    engine = await crud.get_by_id(db, Engine, engine_id)
+    if not engine:
+        raise HTTPException(status_code=400, detail=f"Engine {engine_id} not found")
+    resolver = await crud.get_by_id(db, Resolver, resolver_id)
+    if not resolver:
+        raise HTTPException(status_code=400, detail=f"Resolver {resolver_id} not found")
     if not auth.user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     payload = Autorun(
         user_friendly_name=item.user_friendly_name,
         snake_case_name=item.snake_case_name,
         profile_id=item.profile_id,
-        engine_id=item.engine_id,
-        resolver_id=item.resolver_id,
-        resolver_config=item.resolver_config,
-        retry_mode=item.retry_mode,
-        retry_config=item.retry_config,
+        engine_id=engine_id,
+        resolver_id=resolver_id,
+        resolver_config=resolver_config,
+        retry_mode=retry_mode,
+        retry_config=retry_config,
         start_time=item.start_time.replace(tzinfo=None) if item.start_time.tzinfo else item.start_time,
         end_time=item.end_time.replace(tzinfo=None) if item.end_time.tzinfo else item.end_time,
         recording=item.recording,
