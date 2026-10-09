@@ -37,7 +37,7 @@ Runtime state (`content/`, `plugins/`, `binaries/`, `nats-server/`, `*.db*`) is 
 
 ## Plugin layout
 
-Engines implement `EngineInterface`, resolvers implement `ResolverInterface` (ABCs in `src/mirrorr/plugins/interfaces.py`; retry schemas in `src/mirrorr/plugins/retry.py`).
+Engines implement `EngineInterface`, resolvers implement `ResolverInterface` (ABCs in `src/mirrorr/plugin_api/interfaces.py`; retry schemas in `src/mirrorr/plugin_api/retry.py`).
 
 ```python
 # my_engine.py → drop into ENGINES_DIR, synced to DB at boot (SHA-256 verified, JIT-loaded)

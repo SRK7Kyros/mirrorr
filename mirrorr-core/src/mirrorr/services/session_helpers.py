@@ -95,7 +95,7 @@ async def load_session_from_db(
     session_id: int,
 ) -> tuple[Session, "EngineInterface", "ResolverInterface"]:  # ty: ignore[unresolved-reference] — runtime import inside function
     """Load the session from DB, JIT-load plugins, return components."""
-    from mirrorr.plugins.interfaces import EngineInterface, ResolverInterface
+    from mirrorr.plugin_api.interfaces import EngineInterface, ResolverInterface
     from mirrorr.storage.database import create_db_engine
     from mirrorr.startup.ensure_engines import load_engine_jit
     from mirrorr.startup.ensure_resolvers import load_resolver_jit

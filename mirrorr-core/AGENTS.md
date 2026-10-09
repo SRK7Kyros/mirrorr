@@ -146,7 +146,7 @@ All paths default relative to `base_dir`. `MirrorrSettings.create_from_env()` re
 ---
 
 ## 4. Domain Models
-All models in `src/mirrorr/storage/models.py` using **SQLModel** (SQLAlchemy + Pydantic). Enums (`SessionStatus`, `AutorunStatus`, `UserRole`, `ResourceType`) live in `src/mirrorr/storage/enums.py`. Plugin ABCs (`EngineInterface`, `ResolverInterface`, `Source`, `Capabilities`) live in `src/mirrorr/plugins/interfaces.py`; retry schemas + helpers in `src/mirrorr/plugins/retry.py`.
+All models in `src/mirrorr/storage/models.py` using **SQLModel** (SQLAlchemy + Pydantic). Enums (`SessionStatus`, `AutorunStatus`, `UserRole`, `ResourceType`) live in `src/mirrorr/storage/enums.py`. Plugin ABCs (`EngineInterface`, `ResolverInterface`, `Source`, `Capabilities`) live in `src/mirrorr/plugin_api/interfaces.py`; retry schemas + helpers in `src/mirrorr/plugin_api/retry.py`.
 
 | Model | Purpose | Status |
 |---|---|---|
@@ -159,9 +159,9 @@ All models in `src/mirrorr/storage/models.py` using **SQLModel** (SQLAlchemy + P
 | **Recording** | Denormalized snapshot of a completed recording (profile/engine/resolver names, path, metadata, `size_bytes`). | Implemented |
 | **Source** | Pydantic model: `url` + optional `headers` dict | Used by Resolver → Engine handoff |
 | **Capabilities** | Pydantic model: `can_record` / `can_stream` | Used by Engine |
-| **DiscoveryItem / DiscoveryPage** | Dataclasses (`src/mirrorr/plugins/interfaces.py`): one discovery result (`id`, `title`, `config`, optional `subtitle`/`image`/`description`/`meta`) and a page of them with an opaque `next_cursor`. | Implemented |
-| **Companion / CompanionSpec** | A resolver's optional companion process (`ResolverInterface.companion`) — a `Companion` subclass + its config, declared in `src/mirrorr/plugins/companion.py`. The core spawns it on demand and shares it across sessions (`src/mirrorr/services/companions.py`). | Implemented |
-| **NoRetry / RetryAlways / RetryCount / RetryOnExitCode** | Retry mode schemas (Pydantic models). Defined in `src/mirrorr/plugins/retry.py`, used by `EngineInterface.retry_modes` | Implemented |
+| **DiscoveryItem / DiscoveryPage** | Dataclasses (`src/mirrorr/plugin_api/interfaces.py`): one discovery result (`id`, `title`, `config`, optional `subtitle`/`image`/`description`/`meta`) and a page of them with an opaque `next_cursor`. | Implemented |
+| **Companion / CompanionSpec** | A resolver's optional companion process (`ResolverInterface.companion`) — a `Companion` subclass + its config, declared in `src/mirrorr/plugin_api/companion.py`. The core spawns it on demand and shares it across sessions (`src/mirrorr/services/companions.py`). | Implemented |
+| **NoRetry / RetryAlways / RetryCount / RetryOnExitCode** | Retry mode schemas (Pydantic models). Defined in `src/mirrorr/plugin_api/retry.py`, used by `EngineInterface.retry_modes` | Implemented |
 | **`build_retry_modes_schema`** | Generates `{mode: {schema, default_params}}` dict for DB/API transport | Implemented |
 | **`get_retry_delay` / `get_retry_max_attempts`** | Helpers that extract retry policy from mode+config | Implemented |
 | **SessionStatus** | Enum (`src/mirrorr/storage/enums.py`): `active`, `recording`, `terminating`, `remuxing`, `finalizing`, `completed`, `failed` | Implemented |
@@ -188,7 +188,7 @@ mirrorr-core/
 │   ├── default_plugins/         # Bundled plugins shipped with the package
 │   │   ├── engines/yt_dlp_piped.py      # yt-dlp → pipe → ffmpeg → HLS
 │   │   └── resolvers/static.py          # Passthrough URL + headers from config
-│   ├── plugins/                 # Canonical plugin interfaces (imported by plugin authors)
+│   ├── plugin_api/              # Canonical plugin interfaces (imported by plugin authors)
 │   │   ├── interfaces.py        # EngineInterface, ResolverInterface ABCs, Source, Capabilities, DiscoveryItem/DiscoveryPage
 │   │   ├── companion.py         # Companion ABC + CompanionSpec + sibling() loader (companion process base)
 │   │   └── retry.py             # Retry schemas (NoRetry/RetryAlways/RetryCount/RetryOnExitCode) + helpers
@@ -255,7 +255,7 @@ Runtime state (gitignored, created under `base_dir`): `content/`, `plugins/`, `b
 - **`async/await`** throughout. The entire DB layer, API, NATS client, and event handlers are async.
 
 ### Architecture Patterns
-- **Plugins are interfaces**: Engines implement `EngineInterface`, Resolvers implement `ResolverInterface` (both ABCs in `src/mirrorr/plugins/interfaces.py`). Default plugins live in `src/mirrorr/default_plugins/`; user plugins are copied to `{engines_dir}` / `{resolvers_dir}` at boot.
+- **Plugins are interfaces**: Engines implement `EngineInterface`, Resolvers implement `ResolverInterface` (both ABCs in `src/mirrorr/plugin_api/interfaces.py`). Default plugins live in `src/mirrorr/default_plugins/`; user plugins are copied to `{engines_dir}` / `{resolvers_dir}` at boot.
 - **Plugins are stateless**: They are loaded JIT via `importlib`, instantiated, used, and discarded. No persistent state in plugins.
 - **Plugins are hash-verified**: `ensure_plugins.py` provides a generic `sync_plugins_db()` that `ensure_engines.py` and `ensure_resolvers.py` call with plugin-specific extractors. JIT loaders verify hashes before execution.
 - **Plugins declare schemas for their config**: Resolvers expose `config_model → model_json_schema()`. Engines expose `retry_modes → dict[str, type[BaseModel]]` → serialized via `build_retry_modes_schema()`. Both are stored as JSON columns on their DB rows.
@@ -276,14 +276,14 @@ Runtime state (gitignored, created under `base_dir`): `content/`, `plugins/`, `b
 - Database: `from mirrorr.storage.database import create_db_engine` → called with settings, returns `(engine, session_factory)`.
 - Models: `from mirrorr.storage.models import Session, Profile, ...`
 - Enums: `from mirrorr.storage.enums import SessionStatus, ...`
-- Plugin ABCs: `from mirrorr.plugins.interfaces import EngineInterface, ...`
+- Plugin ABCs: `from mirrorr.plugin_api.interfaces import EngineInterface, ...`
 - Events: `from mirrorr.event_bus.nats import bus` and `from mirrorr.event_bus.event import MirrorrEvent`.
 - CRUD: `from mirrorr.storage.crud import get_all, get_by_id, create, update, delete`
 
 ### File Organization
 - **`src/mirrorr/`** contains all core application code (API, event bus, services, storage, startup, core).
 - **`src/mirrorr/default_plugins/`** contains bundled plugins shipped with the package.
-- **`src/mirrorr/plugins/`** contains the canonical plugin interfaces (`interfaces.py`, `retry.py`) imported by plugin authors.
+- **`src/mirrorr/plugin_api/`** contains the canonical plugin interfaces (`interfaces.py`, `retry.py`) imported by plugin authors.
 - **`src/mirrorr/static_files/`** contains bundled player pages served by the API (`player.html`, `outplayer.html`, `vlc.html`).
 - **User plugin dirs** (`plugins/engines/`, `plugins/resolvers/`) are created at runtime relative to `base_dir`.
 - **Dev file serving**: `dev_serve_files=True` mounts `content_dir` as static files (dev only); production serves `/content/` via nginx (`deploy/`).
@@ -311,10 +311,10 @@ Runtime state (gitignored, created under `base_dir`): `content/`, `plugins/`, `b
 | `src/mirrorr/startup/config.py` | `MirrorrSettings` (Pydantic model) + `create_from_env()` factory. Includes `web_url`, `dev_serve_files`, `nats_url`. |
 | `src/mirrorr/storage/models.py` | All domain models (SQLModel tables + backward-compat re-exports), incl. `ResolverSource`. |
 | `src/mirrorr/storage/enums.py` | `SessionStatus`, `AutorunStatus`, `UserRole`, `ResourceType` (incl. `source`). |
-| `src/mirrorr/plugins/interfaces.py` | `EngineInterface`/`ResolverInterface` ABCs + `Source`/`Capabilities` + `DiscoveryItem`/`DiscoveryPage`. |
-| `src/mirrorr/plugins/companion.py` | `Companion` ABC (base for companion processes: `/health` + `/__companion__` identity/lease + self-reap), `CompanionSpec`, `sibling()` loader. |
+| `src/mirrorr/plugin_api/interfaces.py` | `EngineInterface`/`ResolverInterface` ABCs + `Source`/`Capabilities` + `DiscoveryItem`/`DiscoveryPage`. |
+| `src/mirrorr/plugin_api/companion.py` | `Companion` ABC (base for companion processes: `/health` + `/__companion__` identity/lease + self-reap), `CompanionSpec`, `sibling()` loader. |
 | `src/mirrorr/services/companions.py` | `scan()` (process-table discovery) + `acquire()` (reuse or spawn via `ManagedProcess`, race-arbitrated) + `Lease`. |
-| `src/mirrorr/plugins/retry.py` | Retry schemas (`NoRetry`/`RetryAlways`/`RetryCount`/`RetryOnExitCode`) + `build_retry_modes_schema` + delay/attempt helpers. |
+| `src/mirrorr/plugin_api/retry.py` | Retry schemas (`NoRetry`/`RetryAlways`/`RetryCount`/`RetryOnExitCode`) + `build_retry_modes_schema` + delay/attempt helpers. |
 | `src/mirrorr/storage/database.py` | `create_db_engine(settings)` → `(engine, session_factory)`. |
 | `src/mirrorr/event_bus/nats.py` | `NatsRegistry` singleton (`bus`): connect, emit, on(), start_subscriptions(). |
 | `src/mirrorr/event_bus/event.py` | Event class definitions. Each has a NATS subject string. |

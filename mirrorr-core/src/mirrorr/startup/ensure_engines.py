@@ -6,8 +6,8 @@ from typing import Any
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from mirrorr.storage.models import Engine
-from mirrorr.plugins.interfaces import EngineInterface, Capabilities
-from mirrorr.plugins.retry import build_retry_modes_schema
+from mirrorr.plugin_api.interfaces import EngineInterface, Capabilities
+from mirrorr.plugin_api.retry import build_retry_modes_schema
 from mirrorr.startup.ensure_plugins import load_plugin_jit, sync_plugins_db
 
 

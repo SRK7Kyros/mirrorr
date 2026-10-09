@@ -4,8 +4,8 @@ This package is the canonical import point for plugin authors.
 Re-exports everything from interfaces.py and retry.py for convenience.
 """
 
-from mirrorr.plugins.companion import Companion, CompanionSpec
-from mirrorr.plugins.interfaces import (
+from mirrorr.plugin_api.companion import Companion, CompanionSpec
+from mirrorr.plugin_api.interfaces import (
     Capabilities,
     EngineContext,
     EngineInterface,
@@ -13,7 +13,7 @@ from mirrorr.plugins.interfaces import (
     ResolverInterface,
     Source,
 )
-from mirrorr.plugins.retry import (
+from mirrorr.plugin_api.retry import (
     NoRetry,
     RetryAlways,
     RetryCount,

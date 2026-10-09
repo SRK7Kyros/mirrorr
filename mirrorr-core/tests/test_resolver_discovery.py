@@ -5,7 +5,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from mirrorr.plugins.interfaces import (
+from mirrorr.plugin_api.interfaces import (
     DiscoveryItem,
     DiscoveryPage,
     ResolverContext,

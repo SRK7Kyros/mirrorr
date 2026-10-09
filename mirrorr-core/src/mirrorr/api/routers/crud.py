@@ -1044,7 +1044,7 @@ async def discover_resolver(
     from pydantic import ValidationError
 
     from mirrorr.di import container
-    from mirrorr.plugins.interfaces import ResolverContext
+    from mirrorr.plugin_api.interfaces import ResolverContext
     from mirrorr.startup.ensure_resolvers import load_resolver_jit
 
     settings = container.settings

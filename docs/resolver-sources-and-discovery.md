@@ -72,7 +72,7 @@ class ResolverSource(SQLModel, table=True):
 
 ---
 
-## 4. Plugin contract (`mirrorr-core/src/mirrorr/plugins/interfaces.py`)
+## 4. Plugin contract (`mirrorr-core/src/mirrorr/plugin_api/interfaces.py`)
 
 Discovery is **optional methods on `ResolverInterface`** (same style as
 `EngineInterface`'s optional `retry_modes` / `should_retry`), not a separate ABC —
@@ -332,7 +332,7 @@ Each phase keeps the existing gates green: core `pytest`; web `typecheck` / `tes
 ## 10. Reference (existing code this builds on)
 
 - Models: `storage/models.py` — `Profile` (148–163), `Session` (109–145), `Autorun` (78–106), `Resolver` (183–195).
-- Plugin ABCs: `plugins/interfaces.py` — `ResolverInterface` (172–205), `Source` (33–38), `ResolverContext` (59–63).
+- Plugin ABCs: `plugin_api/interfaces.py` — `ResolverInterface` (172–205), `Source` (33–38), `ResolverContext` (59–63).
 - Sync: `startup/ensure_resolvers.py` — `_extract_db_fields` (26–33), `sync_resolvers_db` (47–57); generic `startup/ensure_plugins.py`.
 - Routers: `api/routers/crud.py` (profiles 790–855, `_serialize_profile` 356–361, `_create_profile_from_entity` 631–664); `api/api.py` `include_router(crud_routers)`.
 - Events/enums: `event_bus/event.py` (`ProfileCreated` 85–87); `storage/enums.py` `ResourceType`.

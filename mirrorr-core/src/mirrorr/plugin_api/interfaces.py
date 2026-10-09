@@ -14,8 +14,8 @@ from typing import Any, Generic, Type, TypeVar
 
 from pydantic import BaseModel
 
-from mirrorr.plugins.companion import CompanionSpec
-from mirrorr.plugins.retry import (
+from mirrorr.plugin_api.companion import CompanionSpec
+from mirrorr.plugin_api.retry import (
     NoRetry,
     RetryAlways,
     RetryCount,
@@ -158,7 +158,7 @@ class EngineInterface(ABC):
         using the session's retry_mode + retry_config. Engines can override
         this to implement any custom retry logic (e.g. backoff, per-error
         classification, adaptive retries)."""
-        from mirrorr.plugins.retry import (
+        from mirrorr.plugin_api.retry import (
             get_retry_max_attempts,
             get_retry_delay,
             get_retryable_exit_codes,

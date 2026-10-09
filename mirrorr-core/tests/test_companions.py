@@ -8,15 +8,15 @@ import urllib.request
 import pytest
 from pydantic import BaseModel
 
-from mirrorr.plugins.companion import Companion, CompanionSpec, sibling
-from mirrorr.plugins.interfaces import ResolverContext, ResolverInterface, Source
+from mirrorr.plugin_api.companion import Companion, CompanionSpec, sibling
+from mirrorr.plugin_api.interfaces import ResolverContext, ResolverInterface, Source
 from mirrorr.services.companions import acquire, scan
 from mirrorr.startup.ensure_resolvers import _companion_validator
 
 _ECHO_MODULE = '''\
 from pydantic import BaseModel
 
-from mirrorr.plugins.companion import Companion
+from mirrorr.plugin_api.companion import Companion
 
 
 class EchoConfig(BaseModel):
