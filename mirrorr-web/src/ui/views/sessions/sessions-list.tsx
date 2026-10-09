@@ -7,10 +7,9 @@ import {
   removeFromInfiniteLists,
   useEntityList,
   useNameMaps,
-  type NameMaps,
 } from "@/api"
 import { fetchSessionPage } from "@/api/endpoints"
-import { queryKeys, queryRoots, resolveEntityName } from "@/api/query-keys"
+import { queryKeys, queryRoots } from "@/api/query-keys"
 import {
   DEFAULT_FILTER,
   FILTER_TOKENS,
@@ -21,7 +20,6 @@ import {
   type FilterToken,
 } from "@/api/domain/filter-grammar"
 import type { Session } from "@/api/schemas"
-import { formatDateTime, formatDuration } from "@/api/time"
 import {
   BulkBar,
   Button,
@@ -40,20 +38,14 @@ import {
   Panel,
   PanelBody,
   PanelHead,
-  SkeletonRows,
+  Skeleton,
   Stat,
-  StatusChip,
-  Table,
-  Tag,
-  Td,
-  Th,
   toast,
 } from "@/ui/components"
-import { useLiveDurationSeconds, useSelection } from "@/ui/hooks"
+import { useSelection } from "@/ui/hooks"
 import { Page } from "@/ui/views/shared/page"
-import { RemuxProgressBar } from "./remux-progress"
 import { NewSessionDialog } from "./new-session-dialog"
-import { SessionActionsMenu } from "./session-actions"
+import { SessionCard } from "./session-card"
 
 const FILTER_LABELS: Record<FilterToken, string> = {
   scheduled: "Scheduled",
@@ -62,96 +54,23 @@ const FILTER_LABELS: Record<FilterToken, string> = {
   all: "All",
 }
 
-/** Source URL tail for the ID cell (spec §5.3 "derived title" — decision 11.3). */
-function sourceTail(session: Session): string | null {
-  for (const entry of session.session_urls ?? []) {
-    for (const value of Object.values(entry)) {
-      if (!/^https?:/i.test(value)) continue
-      try {
-        const tail = new URL(value).pathname.split("/").filter(Boolean).pop()
-        if (tail !== undefined && tail !== "") return decodeURIComponent(tail)
-      } catch {
-        // Not a parsable URL — keep looking.
-      }
-    }
-  }
-  return null
-}
-
-function SessionRow({
-  session,
-  names,
-  columnCount,
-  selected,
-  onToggle,
-}: {
-  readonly session: Session
-  readonly names: NameMaps
-  readonly columnCount: number
-  readonly selected: boolean
-  readonly onToggle: (id: number) => void
-}) {
-  const duration = useLiveDurationSeconds(session.started_at, session.ended_at)
-  const tail = sourceTail(session)
-  const remuxing = session.status === "remuxing" || session.status === "finalizing"
-
+/** Card-shaped shimmer for the first paint, matching the grid it replaces. */
+function SkeletonCards({ count = 6 }: { readonly count?: number }) {
   return (
-    <>
-      <tr data-id={session.id} data-selected={selected}>
-        <Td className="cell-check">
-          <Checkbox
-            aria-label={`Select session #${session.id}`}
-            checked={selected}
-            onChange={() => onToggle(session.id)}
-          />
-        </Td>
-        <Td>
-          <StatusChip status={session.status} />
-        </Td>
-        <Td>
-          <Link className="table-row-link" to="/sessions/$sessionId" params={{ sessionId: String(session.id) }}>
-            <span className="mono tnum">#{session.id}</span>
-          </Link>
-          {tail !== null ? (
-            <div className="text-dim text-truncate" title={tail}>
-              {tail}
-            </div>
-          ) : null}
-        </Td>
-        <Td>
-          {resolveEntityName(session.resolver_name, names.resolvers, session.resolver_id)}
-          <span className="text-dim" aria-hidden="true">
-            {" → "}
-          </span>
-          {resolveEntityName(session.engine_name, names.engines, session.engine_id)}
-        </Td>
-        <Td>{resolveEntityName(session.profile_name, names.profiles, session.profile_id)}</Td>
-        <Td>{session.started_at != null ? formatDateTime(session.started_at) : <span className="text-dim">—</span>}</Td>
-        <Td num>{duration === null ? <span className="text-dim">—</span> : formatDuration(duration)}</Td>
-        <Td>{session.recording === true ? <Tag accent>REC</Tag> : <span className="text-dim">—</span>}</Td>
-        {__ADMIN__ ? (
-          <Td>
-            {session.requester_user_token !== undefined && session.requester_user_token !== "" ? (
-              <span className="mono text-truncate" title={session.requester_user_token}>
-                {session.requester_user_token}
-              </span>
-            ) : (
-              <span className="text-dim">—</span>
-            )}
-          </Td>
-        ) : null}
-        <Td actions>
-          <SessionActionsMenu session={session} />
-        </Td>
-      </tr>
-      {remuxing ? (
-        <tr>
-          <td colSpan={columnCount}>
-            <RemuxProgressBar sessionId={session.id} className="stack stack-sm" />
-          </td>
-        </tr>
-      ) : null}
-    </>
+    <div className="session-grid" aria-busy="true" aria-label="Loading sessions">
+      {Array.from({ length: count }, (_, index) => (
+        <div key={index} className="session-card">
+          <div className="session-card-preview">
+            <Skeleton width="100%" height="100%" className="session-card-preview-fill" />
+          </div>
+          <div className="session-card-body">
+            <Skeleton width="40%" />
+            <Skeleton width="72%" />
+            <Skeleton width="58%" />
+          </div>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -177,7 +96,7 @@ export function SessionsListView() {
     void loadAll()
   }, [autoExhaust, hasMore, loadingAll, isFetching, loadAll])
 
-  const rows = useMemo(() => {
+  const cards = useMemo(() => {
     const term = search.trim().toLowerCase()
     return list.items.filter((session) => {
       if (!matchesFilter(session.status, tokens)) return false
@@ -196,7 +115,7 @@ export function SessionsListView() {
     })
   }, [list.items, tokens, search])
 
-  const rowIds = useMemo(() => rows.map((session) => session.id), [rows])
+  const cardIds = useMemo(() => cards.map((session) => session.id), [cards])
 
   const bulkRemove = useMutation({
     mutationFn: async (ids: readonly number[]) => {
@@ -238,12 +157,10 @@ export function SessionsListView() {
     setTokens(next.length === 0 ? ["all"] : next)
   }
 
-  const columnCount = __ADMIN__ ? 10 : 9
-
   return (
     <Page
       title="Sessions"
-      description="Live and recent capture runs. Status filtering and search apply to the rows loaded so far."
+      description="Live and recent capture runs. Hover a card to preview its stream; status filtering and search apply to the cards loaded so far."
       actions={
         <Button variant="primary" className="btn-create" icon={<IconPlus size={16} />} onClick={() => setCreateOpen(true)}>
           New session
@@ -310,14 +227,10 @@ export function SessionsListView() {
       </div>
 
       {list.isLoading ? (
-        <Panel>
-          <PanelBody>
-            <SkeletonRows rows={8} cols={6} />
-          </PanelBody>
-        </Panel>
+        <SkeletonCards />
       ) : list.isError ? (
         <ErrorPanel message={getErrorMessage(list.error, "Could not load sessions")} onRetry={list.refetch} />
-      ) : rows.length === 0 ? (
+      ) : cards.length === 0 ? (
         <EmptyState
           icon={<IconSessions size={22} />}
           title={list.items.length === 0 ? "No sessions yet." : "Nothing matches this filter"}
@@ -341,44 +254,29 @@ export function SessionsListView() {
         />
       ) : (
         <>
-          <Panel>
-            <PanelBody flush>
-              <Table>
-                <thead>
-                  <tr>
-                    <Th className="cell-check">
-                      <Checkbox
-                        aria-label="Select all sessions"
-                        checked={selection.allSelected(rowIds)}
-                        onChange={(event) => selection.setMany(event.target.checked ? rowIds : [])}
-                      />
-                    </Th>
-                    <Th>Status</Th>
-                    <Th>Session</Th>
-                    <Th>Resolver → Engine</Th>
-                    <Th>Profile</Th>
-                    <Th>Started</Th>
-                    <Th num>Duration</Th>
-                    <Th>Rec</Th>
-                    {__ADMIN__ ? <Th>Owner</Th> : null}
-                    <Th aria-label="Actions" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((session) => (
-                    <SessionRow
-                      key={session.id}
-                      session={session}
-                      names={names}
-                      columnCount={columnCount}
-                      selected={selection.has(session.id)}
-                      onToggle={selection.toggle}
-                    />
-                  ))}
-                </tbody>
-              </Table>
-            </PanelBody>
-          </Panel>
+          <div className="session-grid-head">
+            <Checkbox
+              aria-label="Select all sessions"
+              checked={selection.allSelected(cardIds)}
+              onChange={(event) => selection.setMany(event.target.checked ? cardIds : [])}
+            />
+            <span className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
+              {cards.length} session{cards.length === 1 ? "" : "s"}
+            </span>
+          </div>
+
+          <div className="session-grid">
+            {cards.map((session) => (
+              <SessionCard
+                key={session.id}
+                session={session}
+                names={names}
+                selected={selection.has(session.id)}
+                onToggle={selection.toggle}
+              />
+            ))}
+          </div>
+
           {selection.count > 0 ? (
             <BulkBar count={selection.count} onClear={selection.clear}>
               <Button
@@ -398,7 +296,7 @@ export function SessionsListView() {
             onLoadMore={list.loadMore}
             onLoadAll={() => void loadAll()}
             loadingAll={loadingAll}
-            count={rows.length}
+            count={cards.length}
           />
         </>
       )}
