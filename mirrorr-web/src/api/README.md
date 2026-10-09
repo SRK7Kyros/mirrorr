@@ -25,28 +25,28 @@ built on top of it.
 
 ## Directory map
 
-| Path | Responsibility |
-|---|---|
-| `client.ts` | `apiFetch`, `ApiError`, single-flight token refresh, 422 → field errors, proactive refresh. |
-| `config.ts` | `getApiUrl()` — the only place `VITE_API_URL` is read. |
-| `auth.ts` | Session store + `login`/`register`/`logout`/`changePassword`, API-client principal, navigation seam. |
-| `schemas/` | Zod schemas + inferred types for every entity and envelope. |
-| `endpoints/index.ts` | Typed REST wrappers: sessions, autoruns, recordings, profiles, plugins, import/export. |
-| `endpoints/settings.ts` | Users, registration approval, API clients. |
-| `query-keys.ts` | Query-key factories, stale-time table, cursor pagination + sort/merge helpers. |
-| `query-client.ts` | The single `QueryClient` (retry 1, 30 s staleTime, no focus refetch). |
-| `polling.ts` | Refetch intervals derived from auth principal + socket health. |
-| `hooks/` | `useEntityList`, lookups, auth/realtime/notification hooks. |
-| `realtime/manager.ts` | Two WebSockets (`events`, `notifications`) with backoff, close-code handling and a polling fallback. |
-| `realtime/event-table.ts` | Frame → cache-write routing; coalesced invalidation; remux-progress subscription. |
-| `entity-store.ts` | Five pure merge rules so WS/mutation/refetch writes are arrival-order independent. |
-| `status.ts` | `STATUS_MAP` — the single source of truth for status → label / tone / dot / actions. |
-| `time.ts` | Naive-UTC discipline + display formatters. |
-| `domain/errors.ts` | `getErrorMessage` — one shared `ApiError`-aware message extractor. |
-| `domain/dirty.ts` | Form dirty-tracking (diff/snapshot field maps). |
-| `domain/bundle.ts` | Import/export bundle inspection + apply-body construction. |
-| `domain/filter-grammar.ts` | `scheduled / live / spent / all` filter tokens + status matchers. |
-| `index.ts` | Barrel re-exporting the whole surface (schemas & query-keys namespaced). |
+| Path                       | Responsibility                                                                                       |
+| -------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `client.ts`                | `apiFetch`, `ApiError`, single-flight token refresh, 422 → field errors, proactive refresh.          |
+| `config.ts`                | `getApiUrl()` — the only place `VITE_API_URL` is read.                                               |
+| `auth.ts`                  | Session store + `login`/`register`/`logout`/`changePassword`, API-client principal, navigation seam. |
+| `schemas/`                 | Zod schemas + inferred types for every entity and envelope.                                          |
+| `endpoints/index.ts`       | Typed REST wrappers: sessions, autoruns, recordings, profiles, plugins, import/export.               |
+| `endpoints/settings.ts`    | Users, registration approval, API clients.                                                           |
+| `query-keys.ts`            | Query-key factories, stale-time table, cursor pagination + sort/merge helpers.                       |
+| `query-client.ts`          | The single `QueryClient` (retry 1, 30 s staleTime, no focus refetch).                                |
+| `polling.ts`               | Refetch intervals derived from auth principal + socket health.                                       |
+| `hooks/`                   | `useEntityList`, lookups, auth/realtime/notification hooks.                                          |
+| `realtime/manager.ts`      | Two WebSockets (`events`, `notifications`) with backoff, close-code handling and a polling fallback. |
+| `realtime/event-table.ts`  | Frame → cache-write routing; coalesced invalidation; remux-progress subscription.                    |
+| `entity-store.ts`          | Five pure merge rules so WS/mutation/refetch writes are arrival-order independent.                   |
+| `status.ts`                | `STATUS_MAP` — the single source of truth for status → label / tone / dot / actions.                 |
+| `time.ts`                  | Naive-UTC discipline + display formatters.                                                           |
+| `domain/errors.ts`         | `getErrorMessage` — one shared `ApiError`-aware message extractor.                                   |
+| `domain/dirty.ts`          | Form dirty-tracking (diff/snapshot field maps).                                                      |
+| `domain/bundle.ts`         | Import/export bundle inspection + apply-body construction.                                           |
+| `domain/filter-grammar.ts` | `scheduled / live / spent / all` filter tokens + status matchers.                                    |
+| `index.ts`                 | Barrel re-exporting the whole surface (schemas & query-keys namespaced).                             |
 
 ---
 
@@ -70,12 +70,14 @@ built on top of it.
   (when the last refresh is > 1 h old); `stopProactiveRefresh()` clears both.
 
 ```ts
-import { apiFetch, ApiError } from "@/api/client"
+import { apiFetch, ApiError } from "@/api/client";
 
 try {
-  const raw = await apiFetch<unknown>("/sessions/1")
+  const raw = await apiFetch<unknown>("/sessions/1");
 } catch (error) {
-  if (error instanceof ApiError && error.status === 404) { /* … */ }
+  if (error instanceof ApiError && error.status === 404) {
+    /* … */
+  }
 }
 ```
 
@@ -88,7 +90,7 @@ A tiny external store (`getAuthState`, `subscribeAuth`) drives both the route
 guard and the chrome.
 
 ```ts
-import { login, logout, ensureAuthMe, isApiClientPrincipal } from "@/api/auth"
+import { login, logout, ensureAuthMe, isApiClientPrincipal } from "@/api/auth";
 ```
 
 - `ensureAuthMe()` — boot/guard flow: resolves on a session, `401` → anonymous
@@ -119,17 +121,17 @@ section there, never an `isAdmin()` branch in shared code.
 
 Every server response is validated on first parse. Entity shapes:
 
-| Schema | Key fields |
-|---|---|
-| `SessionSchema` | `id`, `status`, `engine_id`, `resolver_id`, `profile_id?`, `recording?`, `started_at?`, `ended_at?`, `session_urls?`, `recording_progress?`, denormalized `*_name?`. |
-| `AutorunSchema` | `id`, `user_friendly_name`, `snake_case_name`, `status`, `start_time`, `end_time`, `next_run_at?`, `last_run_at?`, denormalized `*_name?`. |
-| `RecordingSchema` | `id`, names, `disk_path`, `content_url`, `duration_seconds`, `size_bytes`, `created_at`. |
-| `ProfileSchema` | `id`, `name`, `default_engine_id`, `resolver_id`, `resolver_config?`, `retry_mode?`. |
-| `EngineSchema` / `ResolverSchema` | `id`, `name`, `origin`, `origin_hash`, `capabilities?` / `config_schema?`. |
-| `UserSchema` | `id`, `username`, `role`, `display_name`. |
-| `AuthResponseSchema` | `user?`, `client?`, `access_token?`, `refresh_token?`. |
-| `NotificationSchema` | `id`, `resource_type`, `resource_id`, `event_type`, `title`, `body?`, `read?`, `created_at`. |
-| `cursorPageSchema(item)` | `{ items, next_cursor?, has_more, total? }`. |
+| Schema                            | Key fields                                                                                                                                                           |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SessionSchema`                   | `id`, `status`, `engine_id`, `resolver_id`, `profile_id?`, `recording?`, `started_at?`, `ended_at?`, `session_urls?`, `recording_progress?`, denormalized `*_name?`. |
+| `AutorunSchema`                   | `id`, `user_friendly_name`, `snake_case_name`, `status`, `start_time`, `end_time`, `next_run_at?`, `last_run_at?`, denormalized `*_name?`.                           |
+| `RecordingSchema`                 | `id`, names, `content_url`, `duration_seconds`, `size_bytes`, `created_at`.                                                                                          |
+| `ProfileSchema`                   | `id`, `name`, `default_engine_id`, `resolver_id`, `resolver_config?`, `retry_mode?`.                                                                                 |
+| `EngineSchema` / `ResolverSchema` | `id`, `name`, `origin`, `origin_hash`, `capabilities?` / `config_schema?`.                                                                                           |
+| `UserSchema`                      | `id`, `username`, `role`, `display_name`.                                                                                                                            |
+| `AuthResponseSchema`              | `user?`, `client?`, `access_token?`, `refresh_token?`.                                                                                                               |
+| `NotificationSchema`              | `id`, `resource_type`, `resource_id`, `event_type`, `title`, `body?`, `read?`, `created_at`.                                                                         |
+| `cursorPageSchema(item)`          | `{ items, next_cursor?, has_more, total? }`.                                                                                                                         |
 
 All entity schemas are `.passthrough()` so unknown server fields survive; the
 non-guaranteed fields are `.optional()` and callers must treat them as possibly
@@ -141,27 +143,31 @@ One function per route. Lists take `(cursor, limit = 50)` and return a
 `CursorPage<T>`.
 
 ### Sessions
-| Function | Route |
-|---|---|
-| `fetchSessionPage(cursor, limit)` | `GET /sessions/` |
-| `fetchSession(id)` | `GET /sessions/{id}` |
-| `createSession(body)` | `POST /sessions/` |
-| `stopSession(id)` | `POST /sessions/{id}/stop` |
+
+| Function                          | Route                                             |
+| --------------------------------- | ------------------------------------------------- |
+| `fetchSessionPage(cursor, limit)` | `GET /sessions/`                                  |
+| `fetchSession(id)`                | `GET /sessions/{id}`                              |
+| `createSession(body)`             | `POST /sessions/`                                 |
+| `stopSession(id)`                 | `POST /sessions/{id}/stop`                        |
 | `setSessionRecording(id, enable)` | `POST /sessions/{id}/recording/{enable\|disable}` |
-| `deleteSession(id)` | `DELETE /sessions/{id}` |
-| `saveSessionAsProfile(id, name)` | `POST /sessions/{id}/save-as-profile` |
+| `deleteSession(id)`               | `DELETE /sessions/{id}`                           |
+| `saveSessionAsProfile(id, name)`  | `POST /sessions/{id}/save-as-profile`             |
 
 ### Autoruns
+
 `fetchAutorunPage`, `fetchAutorun(id)`, `createAutorun(body)`,
 `updateAutorun(id, body)`, `deleteAutorun(id)`, `saveAutorunAsProfile(id, name)`
 — `GET/POST /autoruns/`, `GET/PUT/DELETE /autoruns/{id}`,
 `POST /autoruns/{id}/save-as-profile`.
 
 ### Recordings & profiles
+
 `fetchRecordingPage`, `deleteRecording(id)`; `fetchProfilePage`,
 `fetchProfile(id)`, `createProfile`, `updateProfile`, `deleteProfile`.
 
 ### Plugins & import/export
+
 `fetchEnginePage` / `fetchResolverPage` (+ `fetchAllEngines` /
 `fetchAllResolvers` crawl helpers), `fetchProfileExport(id)`,
 `fetchAutorunExport(id)`, `validateBundle(bundle)`, `applyImport(body)`,
@@ -169,6 +175,7 @@ One function per route. Lists take `(cursor, limit = 50)` and return a
 `probeMediaUrl(url)`.
 
 ### Settings (`endpoints/settings.ts`)
+
 `fetchUsers`, `deleteUser(username)`, `fetchRegistrationRequests`,
 `approveRegistrationRequest(id)`, `denyRegistrationRequest(id, reason)`,
 `createUser(username, password, displayName)` (register-pending → approve, which
@@ -178,12 +185,12 @@ avoids the cookie-hijack of a direct admin register), `fetchClients`,
 ## Query keys & caching (`query-keys.ts`)
 
 ```ts
-queryKeys.sessions(params)   // ["sessions", params]
-queryKeys.session(id)        // ["session", id]
-queryKeys.autoruns(params) / autorun(id)
-queryKeys.recordings(params) / profiles(params) / profile(id)
-queryKeys.engines / resolvers / notifications / users / clients
-queryRoots.sessions          // ["sessions"] — for list-wide invalidation
+queryKeys.sessions(params); // ["sessions", params]
+queryKeys.session(id); // ["session", id]
+queryKeys.autoruns(params) / autorun(id);
+queryKeys.recordings(params) / profiles(params) / profile(id);
+queryKeys.engines / resolvers / notifications / users / clients;
+queryRoots.sessions; // ["sessions"] — for list-wide invalidation
 ```
 
 `staleTimes` centralises per-resource staleness (lists `0`, lookups `300 s`,
@@ -197,9 +204,13 @@ users/clients `30 s`). Helpers: `getNextPageParam`, `mergedSortedByIdDesc`,
 const sessions = useEntityList<Session>({
   queryKey: queryKeys.sessions(),
   fetchPage: (cursor) => fetchSessionPage(cursor),
-})
-sessions.items; sessions.isLoading; sessions.hasMore
-sessions.loadMore(); sessions.loadAll(); sessions.refetch()
+});
+sessions.items;
+sessions.isLoading;
+sessions.hasMore;
+sessions.loadMore();
+sessions.loadAll();
+sessions.refetch();
 ```
 
 - `useEntityList` — cursor-paginated list with the polling cadence from
@@ -228,6 +239,7 @@ coalesced invalidation, and `session.{id}.remux.progress` streams to
 ## Entity merge rules (`entity-store.ts`)
 
 Pure list reductions, arrival-order independent:
+
 1. mutation response inserts only missing ids;
 2. authoritative snapshots replace field-by-field (later wins) and clear
    pending actions;
@@ -238,9 +250,9 @@ Pure list reductions, arrival-order independent:
 ## Domain modules
 
 - **`status.ts`** — `STATUS_MAP` maps every server status to `{ label, tone,
-  dot, icon?, sessionActions, autorunActions }`. `getStatusDescriptor(status)`
+dot, icon?, sessionActions, autorunActions }`. `getStatusDescriptor(status)`
   logs a warning and returns `unknown` for unrecognised strings. Tones are
-  token *names* (`primary | secondary | success | warning | danger | neutral`),
+  token _names_ (`primary | secondary | success | warning | danger | neutral`),
   never hex — the stylesheet owns colour.
 - **`time.ts`** — `parseNaiveUtc` / `toNaiveUtc` (always append/strip `Z`),
   `formatDateTime`, `formatRelativeTime`, `formatCountdown`, `formatBytes`,

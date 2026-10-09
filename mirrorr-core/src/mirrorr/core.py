@@ -41,6 +41,10 @@ class MirrorrCore:
         self._uvicorn_server: uvicorn.Server | None = None
         self._scheduler_task: asyncio.Task | None = None
         self._scheduler_stop: asyncio.Event | None = None
+        self._housekeeping_task: asyncio.Task | None = None
+        self._housekeeping_stop: asyncio.Event | None = None
+        self._watchdog_task: asyncio.Task | None = None
+        self._watchdog_stop: asyncio.Event | None = None
 
     def _signal_shutdown(self) -> None:
         """Called by the signal handler. Tells uvicorn to shut down."""
@@ -216,6 +220,11 @@ class MirrorrCore:
             event_bus=bus,
         )
 
+        # 8a. Reconcile sessions left mid-flight by the previous process
+        from mirrorr.services.session_lifecycle import fail_orphaned_sessions
+
+        await fail_orphaned_sessions(self.settings)
+
         # 8. Autorun scheduler
         from mirrorr.services.autorun_scheduler import autorun_scheduler_loop
 
@@ -224,6 +233,22 @@ class MirrorrCore:
             autorun_scheduler_loop(
                 self.settings, self._session_factory, self._scheduler_stop
             )
+        )
+
+        # 9. Orphaned content-folder housekeeping
+        from mirrorr.services.housekeeping import housekeeping_loop
+
+        self._housekeeping_stop = asyncio.Event()
+        self._housekeeping_task = asyncio.create_task(
+            housekeeping_loop(self.settings, self._session_factory, self._housekeeping_stop)
+        )
+
+        # 10. Supervisor liveness watchdog
+        from mirrorr.event_bus.handlers.handlers import supervisor_watchdog_loop
+
+        self._watchdog_stop = asyncio.Event()
+        self._watchdog_task = asyncio.create_task(
+            supervisor_watchdog_loop(self._watchdog_stop)
         )
 
         logger.success("MirrorrCore boot complete.")
@@ -292,6 +317,25 @@ class MirrorrCore:
                 await asyncio.wait_for(self._scheduler_task, timeout=5.0)
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 self._scheduler_task.cancel()
+
+        # 0.1. Stop the housekeeping sweep
+        if self._housekeeping_stop:
+            self._housekeeping_stop.set()
+        if self._housekeeping_task:
+            try:
+                await asyncio.wait_for(self._housekeeping_task, timeout=5.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                self._housekeeping_task.cancel()
+
+        # 0.2. Stop the watchdog first — it must not see the supervisor
+        # teardown below and fail sessions that are stopping cleanly.
+        if self._watchdog_stop:
+            self._watchdog_stop.set()
+        if self._watchdog_task:
+            try:
+                await asyncio.wait_for(self._watchdog_task, timeout=5.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                self._watchdog_task.cancel()
 
         # 0.5. Kill all running supervisor processes
         from mirrorr.event_bus.handlers.handlers import kill_all_supervisors

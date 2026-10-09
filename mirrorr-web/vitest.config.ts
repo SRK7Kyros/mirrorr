@@ -4,6 +4,9 @@ import { defineConfig } from "vitest/config"
 
 export default defineConfig({
   plugins: [react()],
+  // Must match vite.config.ts: the admin-only schema fields branch on this
+  // compile-time constant, so tests would throw on an undefined global.
+  define: { __ADMIN__: "false" },
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "./src"),

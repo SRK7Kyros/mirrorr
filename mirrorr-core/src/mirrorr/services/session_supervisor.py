@@ -24,6 +24,8 @@ from mirrorr.startup.config import MirrorrSettings
 from mirrorr.event_bus.event import MirrorrEvent
 from nats.aio.client import Client as NATS
 
+_HEARTBEAT_INTERVAL = 60.0
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # SessionSupervisor class
@@ -56,6 +58,10 @@ class SessionSupervisor:
         self.settings = settings
 
         self.bus = ProcessBus()
+        # Latched stop request. Stateful on purpose: a stop that lands while
+        # an attempt is still bootstrapping (resolve/engine start) must not be
+        # lost the way a one-shot bus message is.
+        self._stop = asyncio.Event()
         self.processes: list[ManagedProcess] = []
         self._nc: NATS | None = None
         self.engine_ctx: EngineContext | None = None
@@ -100,6 +106,10 @@ class SessionSupervisor:
 
     # ── public ────────────────────────────────────────────────────────
 
+    def request_stop(self) -> None:
+        """Latch a stop request; observed by the current or next attempt."""
+        self._stop.set()
+
     async def run(self) -> None:
         """Run the session to completion, with retry logic if configured."""
         retry_config = {
@@ -107,6 +117,7 @@ class SessionSupervisor:
             "params": self.session.retry_config,
         }
         attempt = 0
+        heartbeat = asyncio.create_task(self._heartbeat())
 
         try:
             while True:
@@ -217,8 +228,19 @@ class SessionSupervisor:
                 await self._finalize_session()
                 return
         finally:
+            heartbeat.cancel()
             # Always disconnect NATS last, after all status updates
             await self._disconnect_nats()
+
+    async def _heartbeat(self) -> None:
+        """Log liveness so a silent supervisor is distinguishable from a dead one."""
+        while True:
+            await asyncio.sleep(_HEARTBEAT_INTERVAL)
+            running = [proc.pid for proc in self.processes if proc.running]
+            logger.info(
+                f"Session {self.session_id}: heartbeat "
+                f"(attempt {self.session.retry_attempts}, live pids={running})"
+            )
 
     async def _run_attempt(self) -> tuple[str, EngineCrashed | EngineDone | None]:
         """Single resolve→start→wait cycle. Returns (outcome, signal)."""
@@ -240,6 +262,12 @@ class SessionSupervisor:
 
         # 1. Connect NATS early so status updates emit WS events
         await self._connect_nats()
+
+        # A stop latched while bootstrapping must abort before we start
+        # anything (the control channel only exists after _connect_nats).
+        if self._stop.is_set():
+            logger.info("stop requested before start — skipping attempt")
+            return "stopped", None
 
         await update_session(
             self.settings, self.session_id,
@@ -280,14 +308,15 @@ class SessionSupervisor:
             await self.bus.emit("engine.crashed", crash)
             return "crashed", crash
 
-        # 3. Subscribe BEFORE starting processes (C4 fix)
+        # 3. Subscribe BEFORE starting processes (C4 fix). Stop is a latched
+        # Event, not a bus message, so a stop emitted during bootstrap (before
+        # this point) is still observed here.
         done_q = self.bus.subscribe("engine.done")
         crash_q = self.bus.subscribe("engine.crashed")
-        stop_q = self.bus.subscribe("session.stop_requested")
 
         done_task = asyncio.create_task(done_q.get())
         crash_task = asyncio.create_task(crash_q.get())
-        stop_task = asyncio.create_task(stop_q.get())
+        stop_task = asyncio.create_task(self._stop.wait())
 
         for proc in self.processes:
             await proc.start()
@@ -413,7 +442,7 @@ class SessionSupervisor:
         if command == "stop":
             logger.info(f"received stop command")
             await update_session(self.settings, self.session_id, status=SessionStatus.TERMINATING, nc=self._nc)
-            await self.bus.emit("session.stop_requested")
+            self.request_stop()
         elif command == "enable_recording":
             if not self.session.recording:
                 self.session.recording = True

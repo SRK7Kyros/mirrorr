@@ -1,23 +1,28 @@
-import { useState } from "react"
-import { Link } from "@tanstack/react-router"
+import { useState, type MouseEvent } from "react"
+import { Link, useNavigate } from "@tanstack/react-router"
 import type { NameMaps } from "@/api"
 import { isLive } from "@/api/domain/filter-grammar"
 import { resolveEntityName } from "@/api/query-keys"
 import type { Session } from "@/api/schemas"
 import { formatDateTime, formatDuration } from "@/api/time"
-import { Checkbox, IconPlay, StatusChip, Tag } from "@/ui/components"
+import { Checkbox, StatusChip } from "@/ui/components"
 import { useLiveDurationSeconds } from "@/ui/hooks"
 import { cn } from "@/ui/lib/cn"
 import { RemuxProgressBar } from "./remux-progress"
-import { SessionActionsMenu } from "./session-actions"
-import { SessionPreview } from "./session-preview"
+import { SessionPreviewPlayer } from "./session-preview-player"
+import { SessionRecordingButton } from "./session-recording-button"
+import { SessionStopDeleteButton } from "./session-stop-delete-button"
+import { sessionTitle } from "./session-title"
 import { SessionUrls, pickPlayableUrl, toSessionUrls } from "./session-urls"
 
+/** Descendants that own their own click — a card click must not hijack them. */
+const INTERACTIVE = "a, button, input, label, [role='menu'], [role='menuitem']"
+
 /**
- * One capture run as a media card: a hover-to-preview player over the session's
- * HLS playlist, its live metadata, and every URL it publishes. The card leads
- * with the preview — hovering plays a muted snippet of the underlying stream
- * before the card is ever opened.
+ * One capture run as a media card: a preview player over the session's HLS
+ * playlist, its live metadata, and every URL it publishes. Hovering previews
+ * the stream where a pointer exists; tapping the play button previews it
+ * anywhere, and clicking the rest of the card opens the session.
  */
 export function SessionCard({
   session,
@@ -30,7 +35,8 @@ export function SessionCard({
   readonly selected: boolean
   readonly onToggle: (id: number) => void
 }) {
-  const [previewing, setPreviewing] = useState(false)
+  const [hovering, setHovering] = useState(false)
+  const navigate = useNavigate()
   const duration = useLiveDurationSeconds(session.started_at, session.ended_at)
   const live = isLive(session.status)
   const remuxing = session.status === "remuxing" || session.status === "finalizing"
@@ -38,20 +44,23 @@ export function SessionCard({
   const playable = pickPlayableUrl(urls)
   const link = { to: "/sessions/$sessionId" as const, params: { sessionId: String(session.id) } }
 
+  function openDetail(event: MouseEvent<HTMLElement>) {
+    if ((event.target as HTMLElement).closest(INTERACTIVE) !== null) return
+    if (window.getSelection()?.toString() !== "") return
+    void navigate(link)
+  }
+
   return (
     <article
       className={cn("session-card", live && "session-card-live")}
       data-selected={selected}
-      onMouseEnter={() => setPreviewing(true)}
-      onMouseLeave={() => setPreviewing(false)}
-      onFocusCapture={() => setPreviewing(true)}
-      onBlurCapture={() => setPreviewing(false)}
+      onClick={openDetail}
+      onMouseEnter={() => setHovering(true)}
+      onMouseLeave={() => setHovering(false)}
+      onFocusCapture={() => setHovering(true)}
+      onBlurCapture={() => setHovering(false)}
     >
-      <div className="session-card-preview">
-        <SessionPreview src={playable} active={previewing} loop={!live} />
-        <Link className="session-card-play" aria-label={`Open session #${session.id}`} {...link}>
-          <IconPlay size={26} />
-        </Link>
+      <SessionPreviewPlayer src={playable} loop={!live} hovering={hovering} label={`session #${session.id}`}>
         <div className="session-card-overlay">
           <StatusChip status={session.status} />
           {live ? (
@@ -62,7 +71,7 @@ export function SessionCard({
             <span className="session-card-flag tnum">{formatDuration(duration)}</span>
           ) : null}
         </div>
-      </div>
+      </SessionPreviewPlayer>
 
       <div className="session-card-body">
         <div className="session-card-head">
@@ -71,12 +80,13 @@ export function SessionCard({
             checked={selected}
             onChange={() => onToggle(session.id)}
           />
-          <Link className="session-card-id mono tnum" {...link}>
-            #{session.id}
+          <Link className="session-card-title text-truncate" {...link}>
+            {sessionTitle(session, names)}
           </Link>
+          <span className="session-card-id mono tnum text-dim">#{session.id}</span>
           <span className="session-card-spacer" />
-          {session.recording === true ? <Tag accent>REC</Tag> : null}
-          <SessionActionsMenu session={session} />
+          <SessionRecordingButton session={session} />
+          <SessionStopDeleteButton session={session} />
         </div>
 
         <div className="session-card-source">

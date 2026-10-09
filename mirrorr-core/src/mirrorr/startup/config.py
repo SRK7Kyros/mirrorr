@@ -138,6 +138,7 @@ class MirrorrSettings(BaseModel):
 
     # ── scheduler ────────────────────────────────────────────────────
     autorun_check_interval: int = 10  # seconds between autorun schedule checks
+    housekeeping_interval: int = 600  # seconds between orphaned-folder sweeps
 
     # ── web exposure ─────────────────────────────────────────────────
     web_url: str = ""  # required: e.g. https://your-domain.duckdns.org

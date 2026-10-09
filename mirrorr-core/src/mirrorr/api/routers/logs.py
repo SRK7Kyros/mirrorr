@@ -60,7 +60,8 @@ async def get_session_logs(
     Reads ``<session_folder>/logs/<name>.<stream>.log``. Returns up to
     ``limit`` lines starting at ``offset``; ``next_offset`` points past the
     returned lines so the client can poll incrementally (``eof`` True means
-    the file is fully read).
+    the file is fully read). Absolute server paths are stripped from the
+    returned lines.
     """
     session = await _resolve_own_session(db, session_id, auth)
 
@@ -80,7 +81,7 @@ async def get_session_logs(
         session_id=session_id,
         stream=stream,
         name=file.stem.split(".")[0],
-        lines=lines,
+        lines=_redact_paths(lines),
         next_offset=next_offset,
         eof=eof,
     )
@@ -136,3 +137,23 @@ def _read_tail(file: Path, offset: int, limit: int) -> tuple[list[str], int, boo
     next_offset = start + len(chunk)
     eof = next_offset >= len(lines)
     return chunk, next_offset, eof
+
+
+def _redact_paths(lines: list[str]) -> list[str]:
+    """Strip the server's content root from process output.
+
+    ffmpeg and yt-dlp print absolute filesystem paths in their diagnostics,
+    and a client must never receive them. The content root collapses to its
+    public URL path, so ``<base_dir>/content/speedcubing/stream.m3u8`` reads back as
+    ``/content/speedcubing/stream.m3u8``.
+    """
+    try:
+        from mirrorr.di import container
+
+        root = str(container.settings.base_dir)
+    except Exception:
+        # DI not booted (unit tests, CLI helpers) — nothing to redact against.
+        return lines
+    if not root:
+        return lines
+    return [line.replace(root, "") for line in lines]

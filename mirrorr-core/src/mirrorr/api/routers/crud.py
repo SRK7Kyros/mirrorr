@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from urllib.parse import urlparse
 
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -344,6 +345,13 @@ def _name_of(obj) -> str | None:
     return getattr(obj, "name", None)
 
 
+def _autorun_name(obj) -> str | None:
+    """Autoruns title themselves with `user_friendly_name`, not `name`."""
+    if obj is None:
+        return None
+    return getattr(obj, "user_friendly_name", None)
+
+
 def _session_urls(s: Session) -> list[dict[str, str]]:
     """Live URLs for a session, derived from its folder and the public base.
 
@@ -367,12 +375,14 @@ def _session_urls(s: Session) -> list[dict[str, str]]:
 
 
 def _serialize_session(s: Session) -> dict:
+    # `session_folder` is a server filesystem path — never expose it to a client.
     return {
-        **s.model_dump(mode="json"),
+        **s.model_dump(mode="json", exclude={"session_folder"}),
         "session_urls": _session_urls(s),
         "engine_name": _name_of(getattr(s, "engine", None)),
         "resolver_name": _name_of(getattr(s, "resolver", None)),
         "profile_name": _name_of(getattr(s, "profile", None)),
+        "autorun_name": _autorun_name(getattr(s, "autorun", None)),
     }
 
 
@@ -400,25 +410,32 @@ def _serialize_source(p: ResolverSource) -> dict:
     }
 
 
-def _media_served() -> bool:
-    """Whether recording media files are statically served by this install.
+def _media_served(recording: Recording) -> bool:
+    """Whether this install serves the recording's media over HTTP.
 
-    Files are mounted (and auto-indexed) only when ``dev_serve_files`` is on;
-    ``web_url`` merely forms the public base for the ``content_url`` link. Safe
-    to call in any context — returns False if the DI container isn't booted.
+    True when uvicorn mounts the content dir (``dev_serve_files``, dev only) or
+    the exact file behind ``content_url`` is present under the served content
+    root — in production nginx serves ``/content/`` straight from that root, so
+    a present file means a working URL. Safe to call in any context — returns
+    False if the DI container isn't booted.
     """
     try:
         from mirrorr.di import container
 
-        return bool(container.settings.dev_serve_files)
+        settings = container.settings
     except Exception:  # noqa: broad-except — not configured / subprocess
         return False
+    if settings.dev_serve_files:
+        return True
+    name = PurePosixPath(urlparse(recording.content_url).path).name
+    return bool(name) and (Path(recording.disk_path) / name).is_file()
 
 
 def _serialize_recording(r: Recording) -> dict:
+    # `disk_path` is a server filesystem path — never expose it to a client.
     return {
-        **r.model_dump(mode="json"),
-        "media_served": _media_served(),
+        **r.model_dump(mode="json", exclude={"disk_path"}),
+        "media_served": _media_served(r),
     }
 
 
@@ -426,6 +443,7 @@ _SESSION_OPTIONS = (
     selectinload(Session.engine),
     selectinload(Session.resolver),
     selectinload(Session.profile),
+    selectinload(Session.autorun),
 )
 _AUTORUN_OPTIONS = (
     selectinload(Autorun.engine),
@@ -524,6 +542,7 @@ async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(
     if not auth.user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     payload = Session(
+        id=await crud.next_free_id(db, Session),
         profile_id=item.profile_id,
         engine_id=engine_id,
         resolver_id=resolver_id,
@@ -1146,6 +1165,8 @@ async def _send_control(session_id: int, command: str, timeout: float = 5.0) -> 
     """
     from asyncio import TimeoutError as _TimeoutError
 
+    from nats.errors import NoRespondersError
+
     event = MirrorrEvent.SESSION_STOP_REQUESTED(id=session_id, command=command)
     try:
         nc = await get_control_nc()
@@ -1155,7 +1176,9 @@ async def _send_control(session_id: int, command: str, timeout: float = 5.0) -> 
             timeout=timeout,
         )
         reply = json.loads(msg.data.decode())
-    except _TimeoutError:
+    except (_TimeoutError, NoRespondersError):
+        # Either nobody answered in time or nobody is subscribed at all — both
+        # mean no supervisor is running for this session.
         raise HTTPException(status_code=504, detail=f"Session supervisor {session_id} is not responding")
     except Exception as e:
         logger.error(f"Control command '{command}' failed for session {session_id}: {type(e).__name__}: {e}")
@@ -1178,7 +1201,20 @@ async def _require_session_owner(session_id: int, auth: AuthState, db: AsyncSess
 @session_control_router.post("/{session_id}/stop")
 async def stop_session(session_id: int, auth: AuthState = Depends(require_auth), db: AsyncSession = Depends(_get_db_session)):
     await _require_session_owner(session_id, auth, db)
-    return await _send_control(session_id, "stop")
+    try:
+        return await _send_control(session_id, "stop")
+    except HTTPException as e:
+        if e.status_code != 504:
+            raise
+        # No supervisor is listening, so no reply will ever arrive. Record the
+        # stop ourselves instead of leaving the session un-stoppable.
+        from mirrorr.di import container
+        from mirrorr.event_bus.handlers.handlers import _kill_supervisor
+        from mirrorr.services.session_lifecycle import update_session
+
+        await _kill_supervisor(session_id)
+        await update_session(container.settings, session_id, status=SessionStatus.FAILED)
+        return {"status": "stopped"}
 
 
 @session_control_router.post("/{session_id}/recording/enable")

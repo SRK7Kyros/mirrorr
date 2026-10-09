@@ -184,8 +184,8 @@ class SessionResponse(BaseModel):
     engine_name: str | None = None
     resolver_name: str | None = None
     profile_name: str | None = None
+    autorun_name: str | None = None
     recording_progress: dict[str, Any] | None = None
-    session_folder: str | None = None
 
 
 class AutorunResponse(BaseModel):
@@ -214,7 +214,6 @@ class RecordingResponse(BaseModel):
     id: int
     user_friendly_name: str
     snake_case_name: str
-    disk_path: str
     content_url: str
     profile_name: str
     engine_name: str

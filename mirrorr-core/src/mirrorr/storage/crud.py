@@ -138,3 +138,13 @@ async def delete(db: AsyncSession, model: type[T], id: int) -> None:
     except Exception as e:
         await db.rollback()
         raise
+
+
+async def next_free_id(db: AsyncSession, model: type[T]) -> int:
+    """Smallest positive primary key unused by `model`. Ids are recycled, so a
+    deleted row frees its id for the next create instead of leaving a gap."""
+    used = set((await db.exec(select(model.id))).all())
+    candidate = 1
+    while candidate in used:
+        candidate += 1
+    return candidate

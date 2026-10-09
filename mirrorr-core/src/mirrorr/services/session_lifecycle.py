@@ -45,6 +45,7 @@ from typing import Any, TYPE_CHECKING
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from mirrorr.event_bus.event import MirrorrEvent
@@ -155,15 +156,17 @@ async def update_session(
                         diff[key] = (old_val, new_val)
                         setattr(session, key, new_val)
 
-                # ── Auto-set timestamps based on status transitions ──────
+                # ── Auto-set timestamps ──────────────────────────────────
+                # started_at marks the first time the session is seen running.
+                # It cannot hang off the status diff: a session row is created
+                # already ACTIVE, so its first ACTIVE update is a no-op diff.
+                if session.status in (SessionStatus.ACTIVE, SessionStatus.RECORDING):
+                    if not session.started_at:
+                        session.started_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                        diff["started_at"] = (None, session.started_at)
+
                 if "status" in diff:
                     new_status = diff["status"][1]
-
-                    # Set started_at when transitioning to an active state
-                    if new_status in (SessionStatus.ACTIVE, SessionStatus.RECORDING):
-                        if not session.started_at:
-                            session.started_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                            diff["started_at"] = (None, session.started_at)
 
                     # Set ended_at when reaching a terminal state
                     if new_status in (SessionStatus.COMPLETED, SessionStatus.FAILED):
@@ -194,6 +197,42 @@ async def update_session(
         await _emit_session_diff(nc, session_id, diff, autorun_id)
 
     return diff
+
+
+# Statuses that imply a supervisor should be alive. Supervisors are child
+# processes of the core, so none can survive a restart — a row still in one of
+# these at boot, or after its supervisor died, has nobody left to drive it.
+# Shared with the liveness watchdog in event_bus.handlers.
+LIVE_STATUSES = (
+    SessionStatus.ACTIVE,
+    SessionStatus.RECORDING,
+    SessionStatus.TERMINATING,
+    SessionStatus.REMUXING,
+    SessionStatus.FINALIZING,
+)
+
+
+async def fail_orphaned_sessions(
+    settings: MirrorrSettings,
+    nc: NATS | None = None,
+) -> list[int]:
+    """Fail every session left mid-flight by a previous core process.
+
+    Without this a restarted core shows sessions stuck as running that no
+    supervisor is serving, and stopping one times out because its control
+    command has no subscriber.
+    """
+    async with _get_session_factory(settings) as session_factory:
+        async with session_factory() as db:
+            orphaned = list(
+                (await db.exec(select(Session.id).where(Session.status.in_(LIVE_STATUSES)))).all()
+            )
+
+    for session_id in orphaned:
+        await update_session(settings, session_id, status=SessionStatus.FAILED, nc=nc)
+    if orphaned:
+        logger.warning(f"Failed {len(orphaned)} orphaned session(s) left by a previous run: {orphaned}")
+    return orphaned
 
 
 async def delete_session(

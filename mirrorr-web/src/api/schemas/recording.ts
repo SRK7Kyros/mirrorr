@@ -1,4 +1,4 @@
-import { z } from "zod"
+import { z } from "zod";
 
 /** `RecordingResponse` — denormalized snapshot; name fields are guaranteed here. */
 export const RecordingSchema = z
@@ -6,7 +6,6 @@ export const RecordingSchema = z
     id: z.number(),
     user_friendly_name: z.string(),
     snake_case_name: z.string(),
-    disk_path: z.string(),
     content_url: z.string(),
     profile_name: z.string(),
     engine_name: z.string(),
@@ -19,6 +18,6 @@ export const RecordingSchema = z
     session_id: z.number().nullable().optional(),
     media_served: z.boolean().optional(),
   })
-  .passthrough()
+  .passthrough();
 
-export type Recording = z.infer<typeof RecordingSchema>
+export type Recording = z.infer<typeof RecordingSchema>;
