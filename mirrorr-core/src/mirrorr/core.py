@@ -58,9 +58,20 @@ class MirrorrCore:
         changed, so an upgrade that touches a built-in propagates on the next
         boot. Operator plugins are separate files and are never touched.
 
+        Set ``sync_default_plugins=False`` (``SYNC_DEFAULT_PLUGINS=false``) to
+        skip the built-ins entirely and manage the plugin dirs yourself; the
+        dirs are still created.
+
         ``shutil.copy2`` is blocking; run it in a worker thread so the asyncio
         event loop is not frozen.
         """
+        sync = self.settings.sync_default_plugins
+        if not sync:
+            logger.info(
+                f"Default plugin sync disabled (sync_default_plugins=False) — "
+                f"using only the plugins in {self.settings.engines_dir} / "
+                f"{self.settings.resolvers_dir}"
+            )
         for plugin_dir, default_dir in [
             (self.settings.engines_dir, _PACKAGE_ROOT / "default_plugins" / "engines"),
             (
@@ -69,7 +80,7 @@ class MirrorrCore:
             ),
         ]:
             plugin_dir.mkdir(parents=True, exist_ok=True)
-            if default_dir.exists():
+            if sync and default_dir.exists():
                 await asyncio.to_thread(self._copy_default_plugins, default_dir, plugin_dir)
 
     @staticmethod

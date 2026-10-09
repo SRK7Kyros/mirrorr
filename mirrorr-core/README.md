@@ -47,7 +47,7 @@ class MyEngine(EngineInterface):
     async def start(self, context, source): ...  # return list[ManagedProcess]
 ```
 
-Bundled defaults in `src/mirrorr/default_plugins/`: `engines/yt_dlp_piped.py` (yt-dlp → ffmpeg pipe → HLS), `resolvers/static.py` (fixed URL + headers passthrough). Example: point a profile at resolver `static` with config `{"url": "https://example.com/live.m3u8"}` and engine `yt_dlp_piped`.
+Bundled defaults in `src/mirrorr/default_plugins/`: `engines/yt_dlp_piped.py` (yt-dlp → ffmpeg pipe → HLS), `resolvers/static.py` (fixed URL + headers passthrough). Example: point a profile at resolver `static` with config `{"url": "https://example.com/live.m3u8"}` and engine `yt_dlp_piped`. They are synced into the plugin dirs on boot (rewritten only when missing or changed); set `SYNC_DEFAULT_PLUGINS=false` to keep Mirrorr out of the plugin dirs entirely.
 
 ## API surface
 
