@@ -106,8 +106,8 @@ import { login, logout, ensureAuthMe, isApiClientPrincipal } from "@/api/auth"
 ### Admin surface
 
 No module here decides whether a caller is an admin. `GET /auth/admin-surface`
-answers `204`/`403` for nginx, which then serves either `dev/admin` (the build
-whose entry is `admin.html`) or `dev/web`. The standard build contains no admin
+answers `204`/`403` for nginx, which then serves either `run/admin` (the build
+whose entry is `admin.html`) or `run/web`. The standard build contains no admin
 component, string or role check; the API independently withholds admin-only
 response fields (see `mirrorr-core/src/mirrorr/api/privileged.py`) and omits
 them from the OpenAPI document it serves to a non-admin. Admin UI reaches the

@@ -2,8 +2,10 @@
 /**
  * deploy-web — build both surfaces and publish them next to the core.
  *
- * The standard build lands in ../dev/web (`location /` -> root dev/web) and the
- * admin build in ../dev/admin, which nginx gates behind the API's admin check.
+ * The standard build lands in <deploy root>/web (`location /` -> root run/web)
+ * and the admin build in <deploy root>/admin, which nginx gates behind the API's
+ * admin check. The deploy root is `run/` when MIRRORR_DEPLOY_ROOT is set (see
+ * deploy/deploy.sh) and falls back to `../dev` for a bare local build.
  * Both are plain file syncs: no nginx reload and no service restart. rsync
  * copies first and prunes stale fingerprinted assets afterwards, so a live page
  * never points at a file that has already been removed.
@@ -16,11 +18,15 @@ import { join, resolve } from "node:path";
 const appDir = resolve(import.meta.dir, "..");
 const distDir = join(appDir, "dist");
 
+const deployRoot = process.env.MIRRORR_DEPLOY_ROOT
+  ? resolve(process.env.MIRRORR_DEPLOY_ROOT)
+  : resolve(appDir, "..", "dev");
+
 const SURFACES = [
-  { surface: "standard", base: "/", target: resolve(appDir, "..", "dev", "web") },
+  { surface: "standard", base: "/", target: join(deployRoot, "web") },
   // Vite names an emitted HTML file after its source, so the admin entry
   // arrives as admin.html and is published under the conventional index.html.
-  { surface: "admin", base: "/admin/", target: resolve(appDir, "..", "dev", "admin"), entry: "admin.html" },
+  { surface: "admin", base: "/admin/", target: join(deployRoot, "admin"), entry: "admin.html" },
 ];
 
 function step(cmd, env) {
