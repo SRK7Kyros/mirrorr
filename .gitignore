@@ -4,10 +4,5 @@
 .tmp-*
 .token-optimizer/
 
-# dev runtime state + deployed web build output (rebuilt from mirrorr-web/dist)
-dev/core/
-dev/web/
-dev/admin/
-
-# pre-rewrite legacy snapshot (staged by the greenfield migration plan)
-dev/web-legacy-backup/
+# runtime state + deployed web build output (rebuilt by deploy/deploy.sh)
+run/
