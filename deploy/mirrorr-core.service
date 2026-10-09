@@ -10,6 +10,7 @@ WorkingDirectory=__REPO_ROOT__/mirrorr-core
 Environment=HOME=__RUN_HOME__
 Environment=BASE_DIR=__REPO_ROOT__/run/core
 Environment=MIRRORR_ENV=production
+Environment=WEB_URL=https://__SERVER_NAME__
 # --dev-seed-admin only ever creates the admin user if it is missing.
 ExecStart=/bin/bash __REPO_ROOT__/deploy/run-core.sh --host 127.0.0.1 --port 8000 --dev-seed-admin
 Restart=on-failure

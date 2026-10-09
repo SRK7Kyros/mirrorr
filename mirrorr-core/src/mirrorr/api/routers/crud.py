@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 from datetime import datetime, timezone
+from pathlib import Path
 
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -46,6 +47,7 @@ from mirrorr.api.schemas import (
     DeleteResultResponse,
 )
 from mirrorr.storage.models import Session, Autorun, Recording, Profile, Engine, Resolver, ResolverSource
+from mirrorr.services.session_helpers import build_session_urls
 from mirrorr.storage.enums import SessionStatus, ResourceType, AutorunStatus
 from mirrorr.storage import crud
 from mirrorr.storage.models import EventSubscription, Notification
@@ -342,9 +344,32 @@ def _name_of(obj) -> str | None:
     return getattr(obj, "name", None)
 
 
+def _session_urls(s: Session) -> list[dict[str, str]]:
+    """Live URLs for a session, derived from its folder and the public base.
+
+    Recomputed on read so the list follows ``web_url`` and the files actually
+    on disk, rather than the snapshot captured when the attempt first ran.
+    """
+    stored = s.session_urls or []
+    folder = getattr(s, "session_folder", None)
+    if not folder:
+        return stored
+    try:
+        from mirrorr.di import container
+
+        settings = container.settings
+    except Exception:  # noqa: BLE001 — DI not booted (subprocess/tests)
+        return stored
+    path = Path(folder)
+    if not path.is_dir():
+        return stored
+    return build_session_urls(path, path / "segments", settings) or stored
+
+
 def _serialize_session(s: Session) -> dict:
     return {
         **s.model_dump(mode="json"),
+        "session_urls": _session_urls(s),
         "engine_name": _name_of(getattr(s, "engine", None)),
         "resolver_name": _name_of(getattr(s, "resolver", None)),
         "profile_name": _name_of(getattr(s, "profile", None)),
