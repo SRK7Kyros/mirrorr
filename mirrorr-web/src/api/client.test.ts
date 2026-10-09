@@ -102,7 +102,7 @@ describe("apiFetch", () => {
       username: "Field required",
       password: "At least 8 characters",
     })
-    expect(apiError.message).toBe("Field required; At least 8 characters")
+    expect(apiError.message).toBe("username: Field required; password: At least 8 characters")
   })
 
   it("parses the custom {detail, errors} shape", async () => {
