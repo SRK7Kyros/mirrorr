@@ -49,39 +49,17 @@ class MirrorrCore:
 
     # ── plugin management ──────────────────────────────────────────────
 
-    def restore_default_plugins(self) -> None:
-        """Copy bundled default plugin files from ``src/default_plugins/``
-        into *dest_dir*. Called only when *dest_dir* does not yet exist, or explicitly by the caller.
-        """
-        import shutil
-
-        defaults_dir = _PACKAGE_ROOT / "default_plugins"
-        logger.info(f"Restoring default plugins from {defaults_dir}")
-        if not defaults_dir.exists():
-            logger.warning(f"Default plugins directory not found at {defaults_dir}")
-            return
-        default_engines_dir = defaults_dir / "engines"
-        default_resolvers_dir = defaults_dir / "resolvers"
-        for plugin_dir, default_dir in [
-            (self.settings.engines_dir, default_engines_dir),
-            (self.settings.resolvers_dir, default_resolvers_dir),
-        ]:
-            if not plugin_dir.exists():
-                plugin_dir.mkdir(parents=True, exist_ok=True)
-                for py_file in default_dir.glob("*.py"):
-                    if py_file.name.startswith("_"):
-                        continue
-                    shutil.copy2(py_file, plugin_dir / py_file.name)
-                    logger.info(
-                        f"Copied default plugin: {py_file.name} -> {plugin_dir / py_file.name}"
-                    )
-
     async def _ensure_plugin_dirs(self) -> None:
-        """Create plugin dirs if missing and populate with defaults.
+        """Create the plugin dirs and keep the bundled default plugins in sync.
 
-        The ``shutil.copy2`` calls are blocking file I/O; run them in a
-        worker thread so the asyncio event loop is not frozen during the
-        one-time first-boot copy.
+        The built-in plugins ship inside the package (``default_plugins/``) and
+        are copied into the runtime plugin dirs. The copy is content-based: a
+        built-in is (re)written only when it is missing or its packaged version
+        changed, so an upgrade that touches a built-in propagates on the next
+        boot. Operator plugins are separate files and are never touched.
+
+        ``shutil.copy2`` is blocking; run it in a worker thread so the asyncio
+        event loop is not frozen.
         """
         for plugin_dir, default_dir in [
             (self.settings.engines_dir, _PACKAGE_ROOT / "default_plugins" / "engines"),
@@ -90,23 +68,23 @@ class MirrorrCore:
                 _PACKAGE_ROOT / "default_plugins" / "resolvers",
             ),
         ]:
-            if not plugin_dir.exists():
-                plugin_dir.mkdir(parents=True, exist_ok=True)
-                if default_dir.exists():
-                    await asyncio.to_thread(self._copy_default_plugins, default_dir, plugin_dir)
+            plugin_dir.mkdir(parents=True, exist_ok=True)
+            if default_dir.exists():
+                await asyncio.to_thread(self._copy_default_plugins, default_dir, plugin_dir)
 
     @staticmethod
     def _copy_default_plugins(default_dir, plugin_dir) -> None:
-        """Blocking helper — copy default plugin .py files. Run via to_thread."""
+        """Blocking helper — sync default plugin .py files. Run via to_thread."""
         import shutil
 
         for py_file in default_dir.glob("*.py"):
             if py_file.name.startswith("_"):
                 continue
-            shutil.copy2(py_file, plugin_dir / py_file.name)
-            logger.info(
-                f"Copied default plugin: {py_file.name} -> {plugin_dir / py_file.name}"
-            )
+            dest = plugin_dir / py_file.name
+            if dest.exists() and dest.read_bytes() == py_file.read_bytes():
+                continue
+            shutil.copy2(py_file, dest)
+            logger.info(f"Copied default plugin: {py_file.name} -> {dest}")
 
     # ── boot sequence ──────────────────────────────────────────────────
 
