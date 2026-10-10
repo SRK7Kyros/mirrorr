@@ -4,13 +4,13 @@ After=network.target
 
 [Service]
 Type=simple
-User=opc
-Group=opc
+User=__RUN_USER__
+Group=__RUN_USER__
 WorkingDirectory=__REPO_ROOT__/mirrorr-core
 Environment=HOME=__RUN_HOME__
 Environment=BASE_DIR=__RUN_ROOT__/core
 Environment=MIRRORR_ENV=production
-Environment=WEB_URL=https://__SERVER_NAME__
+Environment=WEB_URL=__WEB_URL__
 # --dev-seed-admin only ever creates the admin user if it is missing.
 ExecStart=/bin/bash __REPO_ROOT__/deploy/run-core.sh --host 127.0.0.1 --port 8000 --dev-seed-admin
 Restart=on-failure
