@@ -3,6 +3,3 @@
 .omo/
 .tmp-*
 .token-optimizer/
-
-# runtime state + deployed web build output (rebuilt by deploy/deploy.sh)
-run/
