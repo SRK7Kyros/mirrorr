@@ -8,7 +8,7 @@ User=opc
 Group=opc
 WorkingDirectory=__REPO_ROOT__/mirrorr-core
 Environment=HOME=__RUN_HOME__
-Environment=BASE_DIR=__REPO_ROOT__/run/core
+Environment=BASE_DIR=__RUN_ROOT__/core
 Environment=MIRRORR_ENV=production
 Environment=WEB_URL=https://__SERVER_NAME__
 # --dev-seed-admin only ever creates the admin user if it is missing.

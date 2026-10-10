@@ -16,7 +16,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RUN="$ROOT/run"
+# Runtime root lives OUTSIDE the repo (the repo is source-only). See AGENTS.md.
+RUN="__RUN_ROOT__"
 PLUGINS="$(cd "$ROOT/.." && pwd)/mirrorr-plugins"
 
 say() { printf '\n\033[1;32m== %s ==\033[0m\n' "$*"; }
