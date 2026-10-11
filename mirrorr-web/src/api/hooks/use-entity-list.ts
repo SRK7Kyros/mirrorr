@@ -64,7 +64,7 @@ export interface EntityListResult<T> {
   readonly isFetching: boolean
   readonly totalCount: number
   readonly loadMore: () => void
-  readonly loadAll: () => Promise<void>
+  readonly loadAll: () => Promise<T[]>
   readonly loadingAll: boolean
   readonly refetch: () => void
 }
@@ -101,14 +101,17 @@ export function useEntityList<T extends { id: number }>(options: {
     if (query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage()
   }, [query])
 
-  const loadAll = useCallback(async () => {
+  const loadAll = useCallback(async (): Promise<T[]> => {
     setLoadingAll(true)
     try {
+      let pages = query.data?.pages
       for (;;) {
         const result = await query.fetchNextPage()
+        pages = result.data?.pages
         const last = result.data?.pages.at(-1)
         if (last === undefined || !last.has_more) break
       }
+      return mergedSortedByIdDesc(pages)
     } finally {
       setLoadingAll(false)
     }

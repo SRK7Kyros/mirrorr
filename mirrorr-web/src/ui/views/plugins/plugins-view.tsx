@@ -57,22 +57,30 @@ const CAPABILITY_FLAGS = [
   { key: "can_record", label: "Record" },
 ] as const
 
+function CapabilityBadges({ entry }: { readonly entry: PluginEntry }) {
+  return (
+    <>
+      {CAPABILITY_FLAGS.map(({ key, label }) => {
+        const supported = entry.capabilities?.[key] === true
+        return (
+          <Badge
+            key={key}
+            variant={supported ? "accent" : "danger"}
+            title={`${label}: ${supported ? "supported" : "not supported"}`}
+          >
+            {label}
+          </Badge>
+        )
+      })}
+    </>
+  )
+}
+
 function EntryMeta({ entry }: { readonly entry: PluginEntry }) {
   if (entry.capabilities !== undefined) {
     return (
       <div className="capability-stack">
-        {CAPABILITY_FLAGS.map(({ key, label }) => {
-          const supported = entry.capabilities?.[key] === true
-          return (
-            <Badge
-              key={key}
-              variant={supported ? "accent" : "danger"}
-              title={`${label}: ${supported ? "supported" : "not supported"}`}
-            >
-              {label}
-            </Badge>
-          )
-        })}
+        <CapabilityBadges entry={entry} />
       </div>
     )
   }
@@ -191,6 +199,11 @@ function PluginPanel({ title, tagsLabel, variant, entries, isLoading, isError, e
                         <div className="entity-card-desc">{entry.description}</div>
                       ) : null}
                     </div>
+                    {entry.capabilities !== undefined ? (
+                      <div className="capability-row">
+                        <CapabilityBadges entry={entry} />
+                      </div>
+                    ) : null}
                   </div>
                   <dl className="entity-card-facts">
                     <div className="entity-card-fact">
@@ -204,7 +217,9 @@ function PluginPanel({ title, tagsLabel, variant, entries, isLoading, isError, e
                       </dd>
                     </div>
                   </dl>
-                  <EntryMeta entry={entry} />
+                  {entry.configSchema !== undefined ? (
+                    <JsonView value={entry.configSchema ?? {}} />
+                  ) : null}
                 </motion.article>
               ))}
             </motion.div>

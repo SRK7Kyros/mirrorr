@@ -206,6 +206,9 @@ summary.field-label {
 .textarea,
 .select {
   width: 100%;
+  /* Safari gives native date/time controls an intrinsic minimum width from
+     their localized value; without this they cannot shrink to their column. */
+  min-width: 0;
   background: var(--bg-sunken);
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
@@ -676,6 +679,15 @@ summary.field-label {
   gap: var(--s-1);
 }
 
+/* The narrow-screen card shows the badges beside the title instead of under the
+   facts, where a vertical stack added two rows of height to every card. */
+.capability-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  flex-shrink: 0;
+}
+
 .table.table-stable .capability-stack {
   align-items: center;
 }
@@ -742,6 +754,12 @@ summary.field-label {
   background: var(--surface-2);
 }
 
+/* The desktop row tints on selection; on a narrow screen the card carries it. */
+.entity-card[data-selected="true"] {
+  background: var(--accent-dim);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
 .entity-card-head {
   display: flex;
   align-items: flex-start;
@@ -761,28 +779,38 @@ summary.field-label {
   color: var(--text-muted);
 }
 
+/* `.tag` is nowrap, so a long slug would widen the card past the screen. */
+.entity-card-desc .tag {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .entity-card-facts {
   display: flex;
   flex-direction: column;
   gap: var(--s-2);
 }
 
+/* Label above value. A long value — the origin hash — cannot be right-aligned
+   in a label/value row: it is wider than the space left of it, so it fills the
+   row and reads left-aligned anyway, which made Hash and Origin disagree.
+   Stacking gives both the full width and the same alignment. */
 .entity-card-fact {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--s-3);
+  flex-direction: column;
+  gap: 2px;
   font-size: var(--fs-sm);
 }
 
 .entity-card-fact dt {
   color: var(--text-dim);
-  flex-shrink: 0;
 }
 
 .entity-card-fact dd {
   color: var(--text);
-  text-align: right;
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -1194,6 +1222,10 @@ summary.field-label {
 .dialog-body {
   padding: 0 var(--s-5) var(--s-4);
   overflow-y: auto;
+  /* Vertical only. Safari sizes native date/time inputs from their localized
+     value, which can make the body wider than the dialog and turn it into a
+     horizontal scroller on a phone. */
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: var(--s-4);
