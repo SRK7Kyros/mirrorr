@@ -1,6 +1,6 @@
 import { Link, useMatchRoute } from "@tanstack/react-router"
 import { motion } from "motion/react"
-import { IconMenu, MenuPopover, useMenuDismiss } from "@/ui/components"
+import { IconMenu, menuAnchorClass, menuItemClass, MenuPopover, useMenuDismiss } from "@/ui/components"
 import { springs } from "@/ui/lib/motion"
 import { MOBILE_OVERFLOW, MOBILE_TABS } from "./nav-items"
 
@@ -27,7 +27,7 @@ export function BottomNav() {
             </Link>
           )
         })}
-        <div className="menu-anchor" ref={wrapRef}>
+        <div className={menuAnchorClass} ref={wrapRef}>
           <button
             type="button"
             className="bottomnav-item bottomnav-burger"
@@ -40,7 +40,7 @@ export function BottomNav() {
           </button>
           <MenuPopover open={open} placement="up" onClick={() => setOpen(false)}>
             {MOBILE_OVERFLOW.map((item) => (
-              <Link key={item.to} to={item.to} role="menuitem" className="menu-item">
+              <Link key={item.to} to={item.to} role="menuitem" className={menuItemClass}>
                 {item.icon}
                 <span>{item.label}</span>
               </Link>

@@ -66,7 +66,7 @@ describe("MenuPopover", () => {
         <span>item</span>
       </MenuPopover>,
     )
-    expect(screen.getByRole("menu").className).toContain("menu-up")
+    expect(screen.getByRole("menu").className).toContain("bottom-[calc(100%_+_var(--s-2))]")
   })
 
   it("renders nothing while closed", () => {

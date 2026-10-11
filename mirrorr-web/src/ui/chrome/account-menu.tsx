@@ -4,6 +4,7 @@ import {
   Avatar,
   IconLogout,
   IconSettings,
+  menuAnchorClass,
   MenuItem,
   MenuPopover,
   MenuSeparator,
@@ -18,10 +19,10 @@ export function AccountMenu() {
   const { open, setOpen, wrapRef } = useMenuDismiss()
 
   return (
-    <div className="menu-anchor" ref={wrapRef}>
+    <div className={menuAnchorClass} ref={wrapRef}>
       <button
         type="button"
-        className="account-btn"
+        className="inline-flex p-0 rounded-full transition-[box-shadow] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:shadow-[0_0_0_2px_var(--border-strong)]"
         aria-label="Account menu"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -30,9 +31,11 @@ export function AccountMenu() {
         <Avatar name={identity.name} small />
       </button>
       <MenuPopover open={open} onClick={() => setOpen(false)}>
-        <div className="menu-identity">
-          <div className="menu-identity-name">{identity.name}</div>
-          {identity.role !== "" ? <div className="menu-identity-role">{identity.role}</div> : null}
+        <div className="py-2 px-3">
+          <div className="text-base font-medium text-ink truncate">{identity.name}</div>
+          {identity.role !== "" ? (
+            <div className="text-xs text-ink-dim [font-family:var(--font-mono)]">{identity.role}</div>
+          ) : null}
         </div>
         <MenuSeparator />
         <MenuItem icon={<IconSettings size={16} />} onClick={() => void navigate({ to: "/settings" })}>
