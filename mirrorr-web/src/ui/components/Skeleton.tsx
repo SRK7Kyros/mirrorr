@@ -3,7 +3,6 @@ import { motion } from "motion/react"
 import { cn } from "@/ui/lib/cn"
 import { motionTokens } from "@/ui/lib/motion"
 
-/** Shimmering placeholder block — `.skeleton` from components.css. */
 export function Skeleton({
   width,
   height = 14,
@@ -14,10 +13,9 @@ export function Skeleton({
   readonly className?: string
 }) {
   const style: CSSProperties = { width, height }
-  return <span className={cn("skeleton", className)} style={style} aria-hidden="true" />
+  return <span className={cn("skeleton-shimmer", className)} style={style} aria-hidden="true" />
 }
 
-/** A stack of skeleton rows sized for a table body. */
 export function SkeletonRows({ rows = 6, cols = 4 }: { readonly rows?: number; readonly cols?: number }) {
   return (
     <motion.div

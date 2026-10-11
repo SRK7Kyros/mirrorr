@@ -163,16 +163,16 @@ function MapField({
   }
 
   return (
-    <div className="field" role="group" aria-label={label}>
-      <div className="field-label">
+    <div className="flex flex-col gap-2 min-w-0" role="group" aria-label={label}>
+      <div className="flex items-center gap-2 text-sm font-medium text-ink-muted">
         {label}
         {required ? (
-          <span className="field-req" aria-hidden="true">
+          <span className="text-danger" aria-hidden="true">
             *
           </span>
         ) : null}
       </div>
-      {hint !== undefined ? <span className="field-hint">{hint}</span> : null}
+      {hint !== undefined ? <span className="text-sm text-ink-dim">{hint}</span> : null}
       <div className="map-rows">
         {rows.map((row, index) => (
           <div className="map-row" key={row.id}>
@@ -368,9 +368,9 @@ function SchemaField({
   if (type === "object") {
     if (Object.keys(schemaProperties(schema)).length > 0) {
       return (
-        <details className="field" open>
-          <summary className="field-label">{label}</summary>
-          {hint !== undefined ? <span className="field-hint">{hint}</span> : null}
+        <details className="flex flex-col gap-2 min-w-0" open>
+          <summary className="flex items-center gap-2 text-sm font-medium text-ink-muted cursor-pointer">{label}</summary>
+          {hint !== undefined ? <span className="text-sm text-ink-dim">{hint}</span> : null}
           <SchemaForm schema={schema} value={asObject(value)} onChange={onChange} idPrefix={id} />
         </details>
       )

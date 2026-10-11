@@ -400,7 +400,7 @@ function ProfileDialog({
             />
           )}
           {fieldErrors.resolver_config !== undefined ? (
-            <span className="field-error" role="alert">
+            <span className="flex items-center gap-1 text-sm text-danger" role="alert">
               {fieldErrors.resolver_config}
             </span>
           ) : null}
@@ -441,7 +441,7 @@ function ProfileDialog({
                 />
               ) : null}
               {fieldErrors.retry_config !== undefined ? (
-                <span className="field-error" role="alert">
+                <span className="flex items-center gap-1 text-sm text-danger" role="alert">
                   {fieldErrors.retry_config}
                 </span>
               ) : null}

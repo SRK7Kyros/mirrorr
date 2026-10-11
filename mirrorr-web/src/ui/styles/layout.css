@@ -359,7 +359,7 @@
   max-width: 340px;
 }
 
-.toolbar-search .input {
+.toolbar-search input {
   padding-left: var(--s-8);
 }
 

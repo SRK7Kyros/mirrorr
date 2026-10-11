@@ -173,3 +173,114 @@
     transform: rotate(360deg);
   }
 }
+
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/*
+ * Component classes migrated out of components.css (POC phase 2).
+ *
+ * These are the parts of the design system that are shaped like CSS rather
+ * than like utilities — pseudo-elements, a data-URI background, sibling-driven
+ * state. They live in `@layer components`, so a Tailwind utility can still
+ * override them, and they stay ordinary classes rather than registered
+ * utilities (a registered `@utility` would also trip the collision guard,
+ * which counts every selector in this directory as authored CSS).
+ * Declarations are copied VERBATIM from components.css so the pixel gate stays
+ * at zero; each was consumed by exactly one migrated component.
+ */
+@layer components {
+  /* Native <select> chevron (was `.select` background-image). */
+  .select-chevron {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239b9ba6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right var(--s-3) center;
+  }
+
+  /* Checkbox / radio box (was `.check input`). */
+  .check-input {
+    appearance: none;
+    width: 17px;
+    height: 17px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-xs);
+    background: var(--bg-sunken);
+    display: grid;
+    place-content: center;
+    transition: all var(--dur-fast) var(--ease-out);
+    flex-shrink: 0;
+
+    &:checked {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    &:checked::after {
+      content: "";
+      width: 9px;
+      height: 9px;
+      background: var(--accent-ink);
+      clip-path: polygon(14% 44%, 0 65%, 40% 100%, 100% 16%, 84% 0%, 39% 62%);
+    }
+
+    &[type="radio"] {
+      border-radius: var(--r-full);
+    }
+
+    &[type="radio"]:checked::after {
+      clip-path: none;
+      border-radius: var(--r-full);
+      width: 7px;
+      height: 7px;
+    }
+  }
+
+  /* Switch rail + thumb (was `.switch-track`); checked state is peer-driven. */
+  .switch-track {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    border-radius: var(--r-full);
+    background: var(--surface-4);
+    border: 1px solid var(--border-strong);
+    transition: all var(--dur-fast) var(--ease-out);
+    flex-shrink: 0;
+
+    &:is(.peer:checked ~ *) {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    &:is(.peer:checked ~ *)::after {
+      transform: translateX(16px);
+      background: var(--accent-ink);
+    }
+
+    &:is(.peer:focus-visible ~ *) {
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+
+    &::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 14px;
+      height: 14px;
+      border-radius: var(--r-full);
+      background: var(--text-muted);
+      transition: all var(--dur-med) var(--ease-spring);
+    }
+  }
+
+  /* Skeleton shimmer (was `.skeleton`). */
+  .skeleton-shimmer {
+    background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%);
+    background-size: 200% 100%;
+    border-radius: var(--r-sm);
+    animation: shimmer 1.4s linear infinite;
+  }
+}
