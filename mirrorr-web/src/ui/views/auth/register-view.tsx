@@ -43,21 +43,21 @@ export function RegisterView() {
   }
 
   return (
-    <div className="auth">
-      <div className="auth-card">
-        <div className="auth-brand">
-          <span className="brand-mark">
+    <div className="grid place-items-center min-h-dvh px-4 pt-6 pb-6 bg-canvas">
+      <div className="w-full max-w-[400px] flex flex-col gap-4">
+        <div className="flex items-center justify-center gap-3 mb-2">
+          <span className="grid place-content-center w-7 h-7 rounded-sm text-brand-ink shrink-0 [background:linear-gradient(140deg,var(--accent)_0%,var(--accent-press)_100%)]">
             <IconDisc size={18} />
           </span>
           <div>
-            <div className="brand-name">Mirrorr</div>
-            <div className="brand-sub">Control Room</div>
+            <div className="text-md font-bold tracking-[-0.02em]">Mirrorr</div>
+            <div className="text-2xs text-ink-dim uppercase tracking-[0.08em] [font-family:var(--font-mono)]">Control Room</div>
           </div>
         </div>
         <Panel>
           <PanelBody>
             {pending ? (
-              <div className="stack">
+              <div className="flex flex-col gap-4">
                 <Banner kind="info" title="Registration submitted">
                   An administrator must approve <strong>{username.trim()}</strong> before you can sign in.
                 </Banner>
@@ -66,7 +66,7 @@ export function RegisterView() {
                 </Link>
               </div>
             ) : (
-              <form className="stack" onSubmit={(event) => void onSubmit(event)} noValidate>
+              <form className="flex flex-col gap-4" onSubmit={(event) => void onSubmit(event)} noValidate>
                 {error !== null ? <Banner kind="danger" title={error} /> : null}
                 <Field label="Username" htmlFor="register-username" required error={fieldErrors.username ?? null}>
                   <Input
@@ -120,7 +120,7 @@ export function RegisterView() {
             )}
           </PanelBody>
         </Panel>
-        <div className="auth-links">
+        <div className="flex justify-center gap-2 text-sm text-ink-muted">
           <span>{authStatus.status?.has_users === false ? "Already set up?" : "Have an account?"}</span>
           <Link to="/login">Sign in</Link>
         </div>

@@ -146,7 +146,7 @@ function AutorunRow({
         {countdown === null ? (
           <span className="text-dim">—</span>
         ) : (
-          <span className="row" style={{ gap: "var(--s-1)" }}>
+          <span className="flex items-center gap-3" style={{ gap: "var(--s-1)" }}>
             <IconClock size={14} />
             {countdown}
           </span>
@@ -200,7 +200,7 @@ function AutorunCard({
   return (
     <article className="entity-card" data-selected={selected}>
       <div className="entity-card-head">
-        <div className="row" style={{ gap: "var(--s-2)", minWidth: 0, alignItems: "flex-start" }}>
+        <div className="flex items-center gap-3" style={{ gap: "var(--s-2)", minWidth: 0, alignItems: "flex-start" }}>
           <span className="entity-card-check">
             <Checkbox
               aria-label={`Select ${autorun.user_friendly_name}`}
@@ -226,7 +226,7 @@ function AutorunCard({
         </div>
       </div>
 
-      <div className="row" style={{ gap: "var(--s-2)" }}>
+      <div className="flex items-center gap-3" style={{ gap: "var(--s-2)" }}>
         <StatusChip status={autorun.status} />
         {autorun.recording === true ? <Tag accent>REC</Tag> : null}
       </div>
@@ -247,7 +247,7 @@ function AutorunCard({
             {countdown === null ? (
               <span className="text-dim">—</span>
             ) : (
-              <span className="row" style={{ gap: "var(--s-1)" }}>
+              <span className="flex items-center gap-3" style={{ gap: "var(--s-1)" }}>
                 <IconClock size={14} />
                 {countdown}
               </span>
@@ -429,15 +429,15 @@ export function AutorunsListView() {
       title="Autoruns"
       description="Scheduled recordings, soonest first. A scheduled recording runs once at its start time and then retires — status filtering and search apply to the rows loaded so far."
       actions={
-        <Button variant="primary" className="btn-create" icon={<IconPlus size={16} />} onClick={() => setCreateOpen(true)}>
+        <Button variant="primary" className="max-sm:hidden" icon={<IconPlus size={16} />} onClick={() => setCreateOpen(true)}>
           New scheduled recording
         </Button>
       }
     >
       <Fab label="New scheduled recording" icon={<IconPlus size={22} />} onClick={() => setCreateOpen(true)} />
 
-      <div className="toolbar">
-        <div className="row">
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-3">
           {FILTER_TOKENS.map((token) => (
             <Button
               key={token}
@@ -450,9 +450,9 @@ export function AutorunsListView() {
             </Button>
           ))}
         </div>
-        <div className="toolbar-spacer" />
-        <div className="toolbar-search">
-          <span className="toolbar-search-icon" aria-hidden="true">
+        <div className="flex-1" />
+        <div className="relative flex-1 min-w-[200px] max-w-[340px] [&_input]:pl-8">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none" aria-hidden="true">
             <IconSearch size={15} />
           </span>
           <Input

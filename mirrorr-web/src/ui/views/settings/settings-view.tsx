@@ -88,19 +88,19 @@ function AccountSection() {
     <Panel>
       <PanelHead title="Account" />
       <PanelBody>
-        <div className="stack">
-          <div className="row">
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center gap-3">
             <Avatar name={displayName} />
-            <div className="user-meta">
-              <div className="user-name">{displayName}</div>
-              {handle !== "" ? <div className="user-role">{handle}</div> : null}
+            <div className="min-w-0 flex-1">
+              <div className="text-base font-medium text-ink truncate">{displayName}</div>
+              {handle !== "" ? <div className="text-xs text-ink-dim [font-family:var(--font-mono)]">{handle}</div> : null}
             </div>
             <Tag accent>{role}</Tag>
           </div>
 
           <hr className="divider" />
 
-          <form className="stack" onSubmit={(event) => void onSubmit(event)} noValidate>
+          <form className="flex flex-col gap-4" onSubmit={(event) => void onSubmit(event)} noValidate>
             <h3>Change password</h3>
             {error !== null ? <Banner kind="danger" title={error} /> : null}
             <Field
@@ -140,7 +140,7 @@ function AccountSection() {
                 onChange={(event) => setConfirm(event.target.value)}
               />
             </Field>
-            <div className="row">
+            <div className="flex items-center gap-3">
               <Button
                 type="submit"
                 variant="primary"
@@ -154,7 +154,7 @@ function AccountSection() {
 
           <hr className="divider" />
 
-          <div className="row-between">
+          <div className="flex items-center justify-between gap-3">
             <span className="text-muted">End this session on every device.</span>
             <Button
               variant="outline"

@@ -34,7 +34,7 @@ export function NotificationDrawer({
       onClose={onClose}
       title="Notifications"
       footer={
-        <div className="row-between">
+        <div className="flex items-center justify-between gap-3">
           <span className="text-dim">{unread > 0 ? `${unread} unread` : "All caught up"}</span>
           <Button
             size="sm"
@@ -54,18 +54,18 @@ export function NotificationDrawer({
           text="Session and autorun events land here."
         />
       ) : (
-        <div className="stack-sm">
+        <div className="flex flex-col gap-2">
           {items.map((item) => (
             <Panel key={item.id}>
-              <PanelBody className="stack stack-sm">
-                <div className="row-between">
+              <PanelBody className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-3">
                   <strong>{item.title}</strong>
                   {item.read !== true ? <Badge variant="accent">New</Badge> : null}
                 </div>
                 {item.body !== undefined && item.body !== "" ? <div className="text-muted">{item.body}</div> : null}
-                <div className="row-between">
+                <div className="flex items-center justify-between gap-3">
                   <span className="text-dim">{formatRelativeTime(item.created_at)}</span>
-                  <span className="row">
+                  <span className="flex items-center gap-3">
                     {item.read !== true ? (
                       <IconButton
                         label="Mark read"

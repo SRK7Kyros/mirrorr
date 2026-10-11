@@ -37,7 +37,7 @@ export function PanelHead({ title, actions, children, className }: PanelHeadProp
     <header className={cn(panelHeadClass, className)}>
       {title !== undefined ? <h2 className={panelTitleClass}>{title}</h2> : null}
       {children}
-      {actions !== undefined ? <div className="row">{actions}</div> : null}
+      {actions !== undefined ? <div className="flex items-center gap-3">{actions}</div> : null}
     </header>
   )
 }

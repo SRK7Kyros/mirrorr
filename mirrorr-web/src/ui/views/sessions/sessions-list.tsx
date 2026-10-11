@@ -181,7 +181,7 @@ export function SessionsListView() {
       actions={
         <Button
           variant="primary"
-          className="btn-create"
+          className="max-sm:hidden"
           icon={<IconPlus size={16} />}
           onClick={() => setCreateOpen(true)}
         >
@@ -205,7 +205,7 @@ export function SessionsListView() {
           }
         />
         <PanelBody>
-          <div className="stat-grid">
+          <div className="grid grid-cols-3 gap-3">
             <Stat
               label="Live"
               value={
@@ -226,8 +226,8 @@ export function SessionsListView() {
         </PanelBody>
       </Panel>
 
-      <div className="toolbar">
-        <div className="row">
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-3">
           {FILTER_TOKENS.map((token) => (
             <Button
               key={token}
@@ -240,9 +240,9 @@ export function SessionsListView() {
             </Button>
           ))}
         </div>
-        <div className="toolbar-spacer" />
-        <div className="toolbar-search">
-          <span className="toolbar-search-icon" aria-hidden="true">
+        <div className="flex-1" />
+        <div className="relative flex-1 min-w-[200px] max-w-[340px] [&_input]:pl-8">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none" aria-hidden="true">
             <IconSearch size={15} />
           </span>
           <Input
@@ -285,7 +285,7 @@ export function SessionsListView() {
           }
           action={
             list.items.length === 0 ? (
-              <div className="row">
+              <div className="flex items-center gap-3">
                 <Button
                   variant="primary"
                   icon={<IconPlus size={16} />}

@@ -112,7 +112,7 @@ function ProfileRow({ profile, names, selected, onToggle, onEdit, onDelete, onEx
         <JsonView value={profile.resolver_config ?? {}} />
       </Td>
       <Td actions>
-        <div className="row" style={{ gap: "var(--s-2)" }}>
+        <div className="flex items-center gap-3" style={{ gap: "var(--s-2)" }}>
           <IconButton
             label={`Export profile ${profile.name}`}
             icon={<IconDownload size={15} />}
@@ -138,7 +138,7 @@ function ProfileCard({ profile, names, selected, onToggle, onEdit, onDelete, onE
   return (
     <motion.article className="entity-card" variants={staggerItem}>
       <div className="entity-card-head">
-        <div className="row" style={{ gap: "var(--s-2)", minWidth: 0 }}>
+        <div className="flex items-center gap-3" style={{ gap: "var(--s-2)", minWidth: 0 }}>
           <span className="entity-card-check">
             <Checkbox
               aria-label={`Select ${profile.name}`}
@@ -339,7 +339,7 @@ function ProfileDialog({
         </>
       }
     >
-      <form id="profile-form" className="stack" onSubmit={onSubmit}>
+      <form id="profile-form" className="flex flex-col gap-4" onSubmit={onSubmit}>
         {error !== null ? <Banner kind="danger" title={error} /> : null}
 
         <Field label="Name" htmlFor="profile-name" required error={nameError}>
@@ -352,7 +352,7 @@ function ProfileDialog({
           />
         </Field>
 
-        <div className="grid-2">
+        <div className="grid grid-cols-2 gap-5 max-sm:grid-cols-1">
           <Field label="Engine" htmlFor="profile-engine" required error={engineError}>
             <Select id="profile-engine" value={engineId} onChange={(event) => changeEngine(event.target.value)}>
               <option value="">Select an engine…</option>
@@ -384,7 +384,7 @@ function ProfileDialog({
           }}
         />
 
-        <section className="stack-sm">
+        <section className="flex flex-col gap-2">
           <h3 className={panelTitleClass}>Resolver config</h3>
           {schemasLoading ? (
             <SkeletonRows rows={3} cols={2} />
@@ -407,7 +407,7 @@ function ProfileDialog({
           ) : null}
         </section>
 
-        <section className="stack-sm">
+        <section className="flex flex-col gap-2">
           <h3 className={panelTitleClass}>Retry policy</h3>
           {engine === undefined ? (
             <p className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
@@ -573,18 +573,18 @@ function ProfilesPanel() {
       title="Profiles"
       description="Reusable engine + resolver + retry presets. Start a session or autorun from one."
       actions={
-        <Button variant="primary" className="btn-create" icon={<IconPlus size={16} />} onClick={openCreate}>
+        <Button variant="primary" className="max-sm:hidden" icon={<IconPlus size={16} />} onClick={openCreate}>
           New profile
         </Button>
       }
     >
-      <div className="toolbar">
+      <div className="flex items-center gap-2 flex-wrap">
         <span className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
           {showingLabel(rows.length)}
         </span>
-        <div className="toolbar-spacer" />
-        <div className="toolbar-search">
-          <span className="toolbar-search-icon" aria-hidden="true">
+        <div className="flex-1" />
+        <div className="relative flex-1 min-w-[200px] max-w-[340px] [&_input]:pl-8">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none" aria-hidden="true">
             <IconSearch size={15} />
           </span>
           <Input

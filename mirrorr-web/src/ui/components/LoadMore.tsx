@@ -18,7 +18,7 @@ export function LoadMore({ hasMore, isFetching, onLoadMore, onLoadAll, loadingAl
   if (!hasMore) return null
   return (
     <div className="flex justify-center p-4">
-      <div className="row">
+      <div className="flex items-center gap-3">
         <Button variant="outline" onClick={onLoadMore} disabled={isFetching} icon={isFetching ? <Spinner /> : undefined}>
           Load more
         </Button>

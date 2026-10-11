@@ -186,7 +186,7 @@ export function AutorunActionsMenu({ autorun }: { readonly autorun: Autorun }) {
           </>
         }
       >
-        <div className="stack">
+        <div className="flex flex-col gap-4">
           {saveError !== null ? <Banner kind="danger" title={saveError} /> : null}
           <Field
             label="Profile name"

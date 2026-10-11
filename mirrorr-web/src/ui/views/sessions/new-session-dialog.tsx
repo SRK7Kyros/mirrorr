@@ -120,7 +120,7 @@ export function NewSessionDialog({
         </>
       }
     >
-      <div className="stack">
+      <div className="flex flex-col gap-4">
         {error !== null ? <Banner kind="danger" title={error} /> : null}
 
         <Field label="Start from">
@@ -140,7 +140,7 @@ export function NewSessionDialog({
           />
         </Field>
 
-        <TabPanel panelId="new-session-mode" active={mode} className="stack">
+        <TabPanel panelId="new-session-mode" active={mode} className="flex flex-col gap-4">
           {mode === "profile" ? (
             <Field
               label="Profile"
@@ -200,7 +200,7 @@ export function NewSessionDialog({
                 }}
               />
               {resolver === undefined ? null : (
-                <section className="stack-sm">
+                <section className="flex flex-col gap-2">
                   <h3 className={panelTitleClass}>Resolver config</h3>
                   <SchemaForm
                     schema={resolver.config_schema}

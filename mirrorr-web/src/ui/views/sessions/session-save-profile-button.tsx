@@ -80,7 +80,7 @@ export function SessionSaveProfileButton({
           </>
         }
       >
-        <div className="stack">
+        <div className="flex flex-col gap-4">
           {error !== null ? <Banner kind="danger" title={error} /> : null}
           <Field
             label="Profile name"

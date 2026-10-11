@@ -109,7 +109,7 @@ function ExportPanel() {
     <Panel>
       <PanelHead title="Export" />
       <PanelBody>
-        <div className="stack-sm">
+        <div className="flex flex-col gap-2">
           <h3 className={panelTitleClass}>Profiles</h3>
           {profiles.length === 0 ? (
             <p className="text-dim">No profiles to export.</p>
@@ -158,7 +158,7 @@ function ExportPanel() {
         </div>
       </PanelBody>
       <PanelBody>
-        <div className="stack-sm">
+        <div className="flex flex-col gap-2">
           <h3 className={panelTitleClass}>Autoruns</h3>
           {autoruns.isLoading ? (
             <SkeletonRows rows={4} cols={3} />
@@ -260,7 +260,7 @@ function ResolutionControls({
   }
 
   return (
-    <div className="stack-sm">
+    <div className="flex flex-col gap-2">
       {hashIssues.map((issue, index) => {
         const type = issuePluginType(issue)
         const hash = issueOriginHash(issue)
@@ -275,7 +275,7 @@ function ResolutionControls({
               hash === null ? (
                 "No origin hash — cannot map this plugin"
               ) : (
-                <span className="row" style={{ gap: "var(--s-2)" }}>
+                <span className="flex items-center gap-3" style={{ gap: "var(--s-2)" }}>
                   <span>origin hash</span>
                   <Hash value={hash} label={`${item.name} origin hash`} />
                 </span>
@@ -308,7 +308,7 @@ function ResolutionControls({
       })}
 
       {profileMissing ? (
-        <div className="stack-sm">
+        <div className="flex flex-col gap-2">
           <Radio
             name={`profile-${item.name}`}
             label="Bind to existing profile"
@@ -345,7 +345,7 @@ function ResolutionControls({
       ) : null}
 
       {engineOverride ? (
-        <div className="stack-sm">
+        <div className="flex flex-col gap-2">
           <Radio
             name={`engine-${item.name}`}
             label="Keep autorun engine"
@@ -488,7 +488,7 @@ function ImportPanel() {
     <Panel>
       <PanelHead title="Import" />
       <PanelBody>
-        <div className="stack">
+        <div className="flex flex-col gap-4">
           <Field label="Bundle file" hint="A version 1 JSON bundle of profiles and autoruns.">
             <FilePicker
               accept="application/json,.json"
@@ -501,7 +501,7 @@ function ImportPanel() {
           </Field>
 
           <Field label="Paste JSON" hint="Or paste a version 1 bundle straight from your clipboard.">
-            <div className="stack-sm">
+            <div className="flex flex-col gap-2">
               <Textarea
                 rows={4}
                 aria-label="Pasted bundle JSON"
@@ -516,7 +516,7 @@ function ImportPanel() {
           </Field>
 
           <Field label="Direct file URL" hint="Any http(s) URL that returns the bundle JSON directly.">
-            <div className="stack-sm">
+            <div className="flex flex-col gap-2">
               <Input
                 type="url"
                 aria-label="Bundle URL"
@@ -541,7 +541,7 @@ function ImportPanel() {
           ) : null}
           {summary !== null ? (
             <Banner kind="info" title="Import complete">
-              <div className="stack-sm">
+              <div className="flex flex-col gap-2">
                 <span>
                   {`${summary.profiles_created} profiles created · ${summary.profiles_skipped} skipped · ${summary.autoruns_created} autoruns created.`}
                 </span>
@@ -603,7 +603,7 @@ function ImportPanel() {
                           />
                         </Td>
                         <Td>
-                          <div className="stack-sm">
+                          <div className="flex flex-col gap-2">
                             <span>{item.name}</span>
                             {rename !== null ? <span className="text-dim">{`→ ${rename}`}</span> : null}
                           </div>
@@ -618,13 +618,13 @@ function ImportPanel() {
                           {item.issues.length === 0 ? (
                             <span className="text-dim">No issues</span>
                           ) : (
-                            <div className="stack-sm">
+                            <div className="flex flex-col gap-2">
                               {item.issues.map((issue, index) => {
                                 const hash = issueOriginHash(issue)
                                 return (
                                   <span
                                     key={`${issue.type}-${index}`}
-                                    className="row"
+                                    className="flex items-center gap-3"
                                     style={{ gap: "var(--s-2)" }}
                                   >
                                     <Tag>{issueKind(issue)}</Tag>

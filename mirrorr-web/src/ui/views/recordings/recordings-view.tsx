@@ -104,7 +104,7 @@ export function RecordingsView({ highlight }: { readonly highlight?: number }) {
         </Button>
       }
     >
-      <div className="toolbar">
+      <div className="flex items-center gap-2 flex-wrap">
         <span className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
           {showingLabel(rows.length)}
         </span>

@@ -36,7 +36,7 @@ import { AutorunActionsMenu } from "./autorun-actions"
 
 function KeyValue({ label, children }: { readonly label: string; readonly children: ReactNode }) {
   return (
-    <div className="row-between">
+    <div className="flex items-center justify-between gap-3">
       <span className="text-dim">{label}</span>
       <span className="mono text-truncate">{children}</span>
     </div>
@@ -183,11 +183,11 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
           }
         />
         <PanelBody>
-          <div className="grid-3">
+          <div className="grid grid-cols-3 gap-4 max-sm:grid-cols-1">
             <Stat
               label="Countdown"
               value={
-                <span className="row" style={{ gap: "var(--s-1)" }}>
+                <span className="flex items-center gap-3" style={{ gap: "var(--s-1)" }}>
                   {!spent ? <IconClock size={14} /> : null}
                   {countdown}
                 </span>
@@ -214,12 +214,12 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
         </PanelBody>
       </Panel>
 
-      <div className="grid-2">
-        <div className="stack">
+      <div className="grid grid-cols-2 gap-5 max-sm:grid-cols-1">
+        <div className="flex flex-col gap-4">
           <Panel>
             <PanelHead title="Schedule" actions={getStatusDescriptor(autorun.status).label} />
             <PanelBody>
-              <div className="stack stack-sm">
+              <div className="flex flex-col gap-2">
                 <KeyValue label="Start">{formatDateTime(autorun.start_time)}</KeyValue>
                 <KeyValue label="End">{formatDateTime(autorun.end_time)}</KeyValue>
                 <KeyValue label="Countdown">{countdown}</KeyValue>
@@ -231,8 +231,8 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
           <Panel>
             <PanelHead title="Config snapshot" />
             <PanelBody>
-              <div className="stack">
-                <div className="stack stack-sm">
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-2">
                   <KeyValue label="Engine">{engine}</KeyValue>
                   <KeyValue label="Resolver">{resolver}</KeyValue>
                   <KeyValue label="Profile">{profile}</KeyValue>
@@ -250,7 +250,7 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
           </Panel>
         </div>
 
-        <div className="stack">
+        <div className="flex flex-col gap-4">
           <Panel>
             <PanelHead title="Linked run" />
             <PanelBody>
@@ -261,8 +261,8 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
                     : "No run yet — it fires once at its start time."}
                 </p>
               ) : (
-                <div className="stack stack-sm">
-                  <div className="row" style={{ gap: "var(--s-2)" }}>
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-3" style={{ gap: "var(--s-2)" }}>
                     <StatusChip status={linked.status} />
                     <Link
                       className="table-row-link"
@@ -272,7 +272,7 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
                       Session #{linked.id}
                     </Link>
                   </div>
-                  <div className="row" style={{ gap: "var(--s-3)" }}>
+                  <div className="flex items-center gap-3" style={{ gap: "var(--s-3)" }}>
                     <span className="text-dim">
                       {linked.started_at != null && linked.started_at !== ""
                         ? `started ${formatDateTime(linked.started_at)}`
