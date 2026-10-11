@@ -229,3 +229,14 @@ Assumptions: 98% (not 99.5%+); motion largely preserved; `segmented`/`schema-for
 5. **Dark-only is native** (§4.1): define mirrorr's values in `:root`; never add `.dark`; copied `dark:` utilities are inert.
 
 **Bottom line:** feasible at 98%, and now the *right* shape is clear — shadcn is not a cost to be paid but the mechanism that removes behaviour work while leaving the design (tokens + component contracts) intact. The remaining risk is unchanged: the last 2% of fidelity (motion, the bespoke 20%) is the most expensive part of the program.
+
+## 11. Build log
+
+- **Phase 1 — Tailwind scaffold (done, `1c04454`).** `tailwindcss@4.3.3` + `@tailwindcss/vite`; `mirrorr-web/src/ui/styles/tailwind.css` maps the 98 tokens through `@theme inline`. Preflight is deliberately not imported and Tailwind's theme is imported into `layer(theme)`, so the unlayered `tokens.css` keeps ownership of every name it defines. `check:tokens` stays green (98 tokens intact, no dangling `var()`).
+- **Phase 0 — pixel gate (done, `4c53579`).** `playwright.visual.config.ts` + `tests/visual/routes.visual.spec.ts`: 13 route states × 4 viewports (375/768/1280/1440), full-page, frozen clock (`page.clock.setFixedTime`) so relative-time text cannot tick, `reducedMotion: "reduce"`. Baselines are generated from `main` via a throwaway `git worktree` and committed under `tests/visual/__screenshots__/`.
+  - **Measured delta: 0.** Branch vs `main` = **52/52 pass** at `maxDiffPixelRatio 0.001` / `threshold 0.2`.
+  - **Negative control:** setting `--bg: #ff0000` fails **4/4** (the gate detects real change). A 1/255 shift does *not* fail — correct, the per-pixel threshold exists to ignore sub-perceptual noise.
+  - **Stability:** two consecutive runs on one branch = 0 diffs.
+- **`check:collisions` (new guard).** Reads the *built* stylesheet's `@layer utilities` (what Tailwind actually emitted) and intersects it with class names authored in `src/ui/styles/*.css`. Three overlaps found: `table` and `sr-only` allowlisted (both already defined here, unlayered so they still win); `--color-muted` → `.text-muted` resolved by deferring the speculative shadcn slot aliases.
+- **Deferred to Phase 2:** the shadcn slot aliases (`--background`, `--primary`, `--muted`, …). They are added with the first shadcn component so each slot has a real consumer and the `muted` name clash (§4.1) is decided deliberately. A self-referential `--ease-spring: var(--ease-spring)` mapping was also removed.
+- **Open items:** baseline regeneration across branches is a manual `git worktree` step (worth a script); the visual gate covers 13 states per route family but not hover/focus/dialog-open states — extend it as those components are converted.
