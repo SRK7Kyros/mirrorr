@@ -248,27 +248,41 @@ def _public_address(host: str, addr: str) -> None:
         raise HTTPException(400, f"{host} resolves to a non-public address.")
 
 
-async def _resolve_public(url: str) -> str:
+async def _resolve_public(url: str) -> tuple[str, dict[str, str], str | None]:
+    """Validate that *url*'s host resolves only to globally-routable addresses.
+
+    Returns the URL pinned to one validated address, the ``Host`` header to
+    present, and the TLS SNI hostname (``None`` for plain http). Pinning the
+    address closes the DNS-rebinding window between this check and the connect.
+    """
     target = _direct_file_url(url)
     parsed = urlparse(target)
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    default_port = 443 if parsed.scheme == "https" else 80
+    port = parsed.port or default_port
     infos = await asyncio.get_running_loop().getaddrinfo(
         parsed.hostname, port, type=socket.SOCK_STREAM
     )
     for info in infos:
         _public_address(parsed.hostname, info[4][0])
-    return target
+    addr = str(infos[0][4][0])
+    literal = f"[{addr}]" if ":" in addr else addr
+    pinned = parsed._replace(netloc=f"{literal}:{port}").geturl()
+    host = (parsed.hostname or "") + ("" if port == default_port else f":{port}")
+    return pinned, {"Host": host}, (parsed.hostname if parsed.scheme == "https" else None)
 
 
 async def _read_remote_bundle(url: str) -> Any:
     async with httpx.AsyncClient(timeout=FETCH_TIMEOUT, follow_redirects=False) as client:
         for _ in range(MAX_REDIRECTS + 1):
-            target = await _resolve_public(url)
+            pinned, headers, sni = await _resolve_public(url)
             async with client.stream(
-                "GET", target, headers={"Accept": "application/json"}
+                "GET",
+                pinned,
+                headers={"Accept": "application/json", **headers},
+                extensions={"sni_hostname": sni} if sni else None,
             ) as response:
                 if response.is_redirect:
-                    url = urljoin(target, response.headers.get("location", ""))
+                    url = urljoin(url, response.headers.get("location", ""))
                     continue
                 response.raise_for_status()
                 body = b""

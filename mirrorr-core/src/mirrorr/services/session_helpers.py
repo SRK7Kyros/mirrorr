@@ -10,7 +10,6 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from loguru import logger
 from sqlmodel import select
 from sqlalchemy.orm import selectinload
 

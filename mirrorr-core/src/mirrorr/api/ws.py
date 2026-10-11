@@ -458,6 +458,14 @@ def _get_model_map() -> dict[str, type]:
     return _MODEL_MAP
 
 
+# Fields the relay must never broadcast: the owner token (see
+# api/privileged.PRIVILEGED_FIELDS) and server filesystem paths (see
+# crud._serialize_session / _serialize_recording). Unlike the HTTP routes the
+# relay fans out to every connected client, so it cannot vary the payload per
+# principal and must strip these unconditionally.
+_WS_HIDDEN_FIELDS = frozenset({"requester_user_token", "session_folder", "disk_path"})
+
+
 async def _fetch_entity(subject: str, entity_id: int) -> dict | None:
     """Look up the full entity from the database for event enrichment.
 
@@ -481,9 +489,14 @@ async def _fetch_entity(subject: str, entity_id: int) -> dict | None:
             obj = await db.get(model, entity_id)
             if obj is None:
                 return None
-            # SQLModel.model_dump produces a plain dict; omit
-            # relationship attributes to keep the payload lean.
-            return obj.model_dump(mode="json")
+            # SQLModel.model_dump produces a plain dict; omit relationship
+            # attributes to keep the payload lean, then strip the fields the
+            # HTTP API never exposes to a client (owner token, server paths).
+            return {
+                key: value
+                for key, value in obj.model_dump(mode="json").items()
+                if key not in _WS_HIDDEN_FIELDS
+            }
     except Exception as e:
         logger.debug(f"[ws/events] enrichment failed for {subject} id={entity_id}: {e}")
         return None

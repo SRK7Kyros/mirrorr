@@ -3,7 +3,6 @@ import html
 import json
 import time
 from pathlib import Path
-from mirrorr.event_bus.nats import bus
 from loguru import logger
 from fastapi import Depends, FastAPI, Request
 from fastapi.concurrency import asynccontextmanager
@@ -11,10 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
-from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import HTMLResponse, JSONResponse, Response
-from starlette.routing import Mount
 from fastapi.openapi.docs import get_swagger_ui_html
 from mirrorr.api.dependencies import AuthState, require_auth
 from mirrorr.api.privileged import strip_openapi

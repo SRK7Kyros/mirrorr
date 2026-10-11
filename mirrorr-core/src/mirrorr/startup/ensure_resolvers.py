@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from mirrorr.storage.models import Resolver
-from mirrorr.plugin_api.interfaces import ResolverInterface, Source, ResolverContext
+from mirrorr.plugin_api.interfaces import ResolverInterface
 from mirrorr.startup.ensure_plugins import load_plugin_jit, sync_plugins_db
 
 

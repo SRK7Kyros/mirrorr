@@ -3,7 +3,7 @@ import json
 from datetime import datetime, timezone
 
 from loguru import logger
-from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncEngine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
@@ -13,7 +13,6 @@ from mirrorr.storage.models import Autorun, Session, Profile
 from mirrorr.storage.enums import AutorunStatus, SessionStatus
 from mirrorr.storage import crud
 from mirrorr.startup.config import MirrorrSettings
-from mirrorr.services.session_lifecycle import update_autorun
 
 
 async def autorun_scheduler_loop(
@@ -96,7 +95,8 @@ async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) 
                         requester_user_token=autorun.requester_user_token or f"autorun:{autorun.id}",
                         recording=autorun.recording,
                     )
-                    session = await crud.create(db, session)
+                    db.add(session)
+                    await db.flush()
                     just_created_ids.add(session.id)
                     created_session_ids.append(session.id)
                     updated_autorun_ids.append(autorun.id)

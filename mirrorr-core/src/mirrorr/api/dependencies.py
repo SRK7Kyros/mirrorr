@@ -61,7 +61,6 @@ async def _resolve_auth(
             try:
                 user = await resolve_user(db, payload["username"])
                 from mirrorr.storage.enums import UserRole
-                is_admin = user.role == UserRole.ADMIN
                 # Reject access tokens issued before the last password change.
                 # The JWT carries a "cv" (credentials_version) claim that must
                 # match the user's current value — otherwise the token was
@@ -70,6 +69,8 @@ async def _resolve_auth(
                 user_cv = getattr(user, "credentials_version", 0) or 0
                 if token_cv != user_cv:
                     user = None  # token is stale — treat as unauthenticated
+                else:
+                    is_admin = user.role == UserRole.ADMIN
             except HTTPException:
                 pass
 

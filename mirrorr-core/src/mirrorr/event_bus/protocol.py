@@ -7,7 +7,7 @@ test mock) must satisfy. Used for dependency injection and testability.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from typing import Any, Type
 
 from mirrorr.event_bus.event import BaseEvent

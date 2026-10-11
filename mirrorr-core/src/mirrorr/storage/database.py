@@ -3,9 +3,8 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from loguru import logger
 from sqlalchemy import event
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker as _async_sessionmaker, create_async_engine as _create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker as _async_sessionmaker, create_async_engine as _create_async_engine
 from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 
 from mirrorr.startup.config import MirrorrSettings

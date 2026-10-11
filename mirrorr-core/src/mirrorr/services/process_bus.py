@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -39,10 +39,6 @@ class ProcessBus:
         """Publish *data* to *topic*. All current subscribers receive it."""
         for q in self._subscribers.get(topic, []):
             await q.put(data)
-
-    def subscriber_count(self, topic: str) -> int:
-        """How many subscribers exist for *topic*."""
-        return len(self._subscribers.get(topic, []))
 
     def clear(self) -> None:
         """Remove all subscribers and cancel pending get() calls.

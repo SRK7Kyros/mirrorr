@@ -10,7 +10,7 @@ from typing import Any
 from loguru import logger
 from psutil import Process as PsProcess
 
-from mirrorr.services.process_bus import ProcessBus, ProcessExit, ProcessOutput, EngineDone, EngineCrashed
+from mirrorr.services.process_bus import ProcessBus, ProcessExit, ProcessOutput
 
 
 class ManagedProcess:
@@ -197,7 +197,12 @@ class ManagedProcess:
                     asyncio.gather(*self._tasks, return_exceptions=True),
                     timeout=5.0,
                 )
-            except (asyncio.TimeoutError, asyncio.CancelledError):
+            except asyncio.TimeoutError:
+                for t in self._tasks:
+                    if not t.done():
+                        t.cancel()
+                await asyncio.gather(*self._tasks, return_exceptions=True)
+            except asyncio.CancelledError:
                 for t in self._tasks:
                     if not t.done():
                         t.cancel()

@@ -14,12 +14,12 @@ from mirrorr.plugin_api.interfaces import (
     ResolverContext,
 )
 from mirrorr.storage.enums import SessionStatus
-from mirrorr.storage.models import Autorun, Resolver, Session
+from mirrorr.storage.models import Session
 from mirrorr.services.process_bus import ProcessBus, EngineDone, EngineCrashed
 from mirrorr.services.managed_process import ManagedProcess
 from mirrorr.services.recording import RecordingManager
 from mirrorr.services.session_lifecycle import update_session, delete_session
-from mirrorr.services.session_helpers import make_session_dirs, build_session_urls, load_session_from_db
+from mirrorr.services.session_helpers import make_session_dirs, build_session_urls
 from mirrorr.startup.config import MirrorrSettings
 from mirrorr.event_bus.event import MirrorrEvent
 from nats.aio.client import Client as NATS
@@ -86,6 +86,16 @@ class SessionSupervisor:
             self.session_folder = base
 
         self.session_folder = self.session_folder.resolve()
+        # A profile name is user-supplied and used as a path segment, so confine
+        # the resolved folder to the managed roots — a name like "../../x" (or an
+        # absolute path) must never place it outside the content/autoruns trees.
+        roots = (settings.content_dir.resolve(), settings.autoruns_dir.resolve())
+        if not any(self.session_folder == root or self.session_folder.is_relative_to(root) for root in roots):
+            logger.warning(
+                f"Session {self.session_id}: unsafe session folder "
+                f"{self.session_folder} outside {roots}; using a per-session folder"
+            )
+            self.session_folder = roots[0] / f"session-{self.session_id}"
         self.logs_folder = self.session_folder / "logs"
         self.segments_folder = self.session_folder / "segments"
         self._recording = (
@@ -318,8 +328,17 @@ class SessionSupervisor:
         crash_task = asyncio.create_task(crash_q.get())
         stop_task = asyncio.create_task(self._stop.wait())
 
-        for proc in self.processes:
-            await proc.start()
+        try:
+            for proc in self.processes:
+                await proc.start()
+        except Exception as e:
+            logger.error(f"Failed to start processes: {e}")
+            for t in (done_task, crash_task, stop_task):
+                t.cancel()
+            await asyncio.gather(done_task, crash_task, stop_task, return_exceptions=True)
+            await self._cleanup(reason="failed")
+            await update_session(self.settings, self.session_id, status=SessionStatus.FAILED, nc=self._nc)
+            return "failed", None
 
         logger.opt(colors=True).success(f"<green>Session</green> bootstrapped — "
                        f"{len(self.processes)} processes running")
@@ -336,7 +355,6 @@ class SessionSupervisor:
             return_when=asyncio.FIRST_COMPLETED,
         )
 
-        # Capture stop_task state BEFORE cancelling non-done tasks
         stop_also_pending = stop_task in finished
 
         for t in [done_task, crash_task, stop_task]:
@@ -347,22 +365,18 @@ class SessionSupervisor:
                 except asyncio.CancelledError:
                     pass
 
-        result = finished.pop().result()
-
-        if isinstance(result, EngineDone):
-            logger.opt(colors=True).success(f"<green>Session</green> completed: {result.reason}")
-            return "done", result
-        elif isinstance(result, EngineCrashed):
-            if stop_also_pending:
-                logger.info(f"stop requested (ignoring crash: {result.reason})")
-                await self._cleanup(reason="stop")
-                return "stopped", None
-            logger.opt(colors=True).error(f"<red>Session failed</red>: {result.reason}")
-            return "crashed", result
-        else:
-            logger.info(f"stop requested")
+        if stop_also_pending:
+            logger.info("stop requested")
             await self._cleanup(reason="stop")
             return "stopped", None
+
+        result = (crash_task if crash_task in finished else done_task).result()
+
+        if isinstance(result, EngineCrashed):
+            logger.opt(colors=True).error(f"<red>Session failed</red>: {result.reason}")
+            return "crashed", result
+        logger.opt(colors=True).success(f"<green>Session</green> completed: {result.reason}")
+        return "done", result
 
     # ── recording / remux ────────────────────────────────────────────
 
@@ -533,6 +547,7 @@ class SessionSupervisor:
             proc_name = proc.name
 
             async def _forward_telemetry(q, pname):
+                topic = f"proc.{pname}.telemetry"
                 while True:
                     data = await q.get()
                     subject = f"session.{self.session_id}.telemetry.{pname}"
@@ -540,6 +555,7 @@ class SessionSupervisor:
                         await self._nc.publish(subject, json.dumps(data).encode())
                     except Exception as e:
                         logger.debug(f"Error forwarding telemetry for {pname}: {e}")
+                        self.bus.unsubscribe(topic, q)
                         return
 
             self._telemetry_tasks.append(asyncio.create_task(_forward_telemetry(telemetry_q, proc_name)))
@@ -574,11 +590,11 @@ class SessionSupervisor:
         # Wait concurrently for all processes to exit after SIGTERM
         running_procs = [p for p in self.processes if p.running]
         if running_procs:
+            waiters = [asyncio.create_task(p._process.wait()) for p in running_procs if p._process is not None]
             try:
-                await asyncio.wait(
-                    [asyncio.create_task(p._process.wait()) for p in running_procs if p._process is not None],
-                    timeout=5.0,
-                )
+                _, pending = await asyncio.wait(waiters, timeout=5.0)
+                for t in pending:
+                    t.cancel()
             except asyncio.CancelledError:
                 # Shutdown was cancelled — propagate so the caller can handle it.
                 raise
@@ -648,4 +664,4 @@ class SessionSupervisor:
 # ── Backward-compatible re-exports ───────────────────────────────────
 # runner() and main() now live in session_runner.py.
 # Import from there for new code.
-from mirrorr.services.session_runner import runner, main  # noqa: F401, E402
+from mirrorr.services.session_runner import runner, main
