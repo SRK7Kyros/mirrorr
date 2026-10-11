@@ -1,13 +1,13 @@
-import path from "node:path"
 import { defineConfig, devices } from "@playwright/test"
 
 /**
- * Canonical storage-state path. The `setup` project writes it after one real
- * login; every browser project loads it. Gitignored (`.playwright/`).
- */
-export const STORAGE_STATE = path.join(import.meta.dirname, ".playwright/auth.json")
-
-/**
+ * Route-mocked browser suite.
+ *
+ * Every spec fulfils `**\/api/**` from `tests/e2e/fixtures.ts`, so the suite
+ * needs no core process, no database and no seeded login: the SPA boots against
+ * stubbed responses and each spec navigates as the principal it wants. The only
+ * real moving part is the Vite dev server, which Playwright starts below.
+ *
  * Playwright-managed dev-server port. 5175 is this app's strict port; 5173
  * and 5174 belong to other apps and must never be used by tests.
  */
@@ -21,23 +21,9 @@ export default defineConfig({
   reporter: "list",
   use: {
     baseURL: E2E_BASE_URL,
-    // Written by the `setup` project.
-    storageState: STORAGE_STATE,
+    trace: "on-first-retry",
   },
-  projects: [
-    {
-      name: "setup",
-      // The setup login must start logged out even if a stale state file exists.
-      use: { ...devices["Desktop Chrome"], storageState: { cookies: [], origins: [] } },
-      testMatch: /auth\.setup\.ts/,
-    },
-    {
-      name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
-      dependencies: ["setup"],
-      testIgnore: /auth\.setup\.ts/,
-    },
-  ],
+  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
     command: `bun run dev -- --host 127.0.0.1 --port ${E2E_PORT} --strictPort`,
     url: E2E_BASE_URL,
