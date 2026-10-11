@@ -4,9 +4,9 @@ from collections.abc import Callable
 from loguru import logger
 import asyncio
 import json
-from typing import Any, Awaitable, Type, TypeVar
+from typing import Awaitable, Type
 from nats.aio.client import Client as NATS
-from mirrorr.event_bus.event import BaseEvent, MirrorrEvent, T
+from mirrorr.event_bus.event import BaseEvent, T
 from mirrorr.event_bus.protocol import EventBus
 
 
@@ -80,9 +80,6 @@ class NatsRegistry(EventBus):
         except Exception as e:
             logger.debug(f"NATS drain error (non-fatal): {e}")
 
-    def get_handlers(self, event: Type[BaseEvent]) -> list[tuple[Callable[..., Awaitable[None]], Type[BaseEvent]]]:
-        return self._handlers.get(event.subject, [])
-
 
 bus = NatsRegistry()
 
@@ -102,6 +99,12 @@ async def get_control_nc() -> NATS:
     global _control_nc
     async with _control_nc_lock:
         if _control_nc is None or not _control_nc.is_connected:
+            stale, _control_nc = _control_nc, None
+            if stale is not None:
+                try:
+                    await stale.close()
+                except Exception:
+                    pass
             from mirrorr.di import container
             _control_nc = NATS()
             await _control_nc.connect(container.settings.nats_url)
@@ -111,9 +114,10 @@ async def get_control_nc() -> NATS:
 async def drain_control_nc() -> None:
     """Gracefully close the dedicated control connection (called on shutdown)."""
     global _control_nc
-    if _control_nc is not None:
-        try:
-            await _control_nc.drain()
-        except Exception:
-            pass
-        _control_nc = None
+    async with _control_nc_lock:
+        if _control_nc is not None:
+            try:
+                await _control_nc.drain()
+            except Exception:
+                pass
+            _control_nc = None

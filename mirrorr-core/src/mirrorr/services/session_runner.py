@@ -49,8 +49,9 @@ async def runner(
             logger.info(f"Session {session_id}: shutdown event received")
             supervisor.request_stop()
 
+        # Keep a live ref: an unreferenced create_task can be GC'd mid-flight.
         if shutdown_event:
-            asyncio.create_task(_watch_shutdown())
+            _shutdown_watcher = asyncio.create_task(_watch_shutdown())
 
         await supervisor.run()
     except ValueError as e:

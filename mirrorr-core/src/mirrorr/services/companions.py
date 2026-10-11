@@ -115,18 +115,22 @@ def _free_port() -> int:
         return sock.getsockname()[1]
 
 
+def _health_ok(url: str) -> bool:
+    try:
+        with urllib.request.urlopen(url, timeout=1) as resp:
+            return resp.read().strip() == b"ok"
+    except Exception:
+        return False
+
+
 async def _wait_health(port: int, proc: ManagedProcess, timeout: float = 10.0) -> bool:
     url = f"http://127.0.0.1:{port}/health"
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if proc.returncode is not None:
             return False
-        try:
-            with urllib.request.urlopen(url, timeout=1) as resp:
-                if resp.read().strip() == b"ok":
-                    return True
-        except Exception:
-            pass
+        if await asyncio.to_thread(_health_ok, url):
+            return True
         await asyncio.sleep(0.2)
     return False
 
@@ -146,7 +150,7 @@ async def acquire(spec: CompanionSpec, companions_dir: Path) -> tuple[str, Lease
     for _ in range(4):
         for info in await asyncio.to_thread(scan):
             if _key(info["name"], info["code_hash"], info["config"]) == key:
-                lease = _open_lease(info["url"], lock_path)
+                lease = await asyncio.to_thread(_open_lease, info["url"], lock_path)
                 if lease is not None:
                     logger.opt(colors=True).info(
                         f"Reusing companion <b><yellow>{companion.name}</yellow></b> (pid {info['pid']})"
@@ -182,14 +186,14 @@ async def acquire(spec: CompanionSpec, companions_dir: Path) -> tuple[str, Lease
         url = f"http://127.0.0.1:{port}"
         for info in await asyncio.to_thread(scan):
             if _key(info["name"], info["code_hash"], info["config"]) == key and info["pid"] < proc.pid:
-                lease = _open_lease(info["url"], lock_path)
+                lease = await asyncio.to_thread(_open_lease, info["url"], lock_path)
                 if lease is not None:
                     logger.info(f"Companion {companion.name} spawn race: keeping pid {info['pid']}")
                     await proc.kill()
                     await proc.close()
                     return info["url"], lease
 
-        lease = _open_lease(url, lock_path)
+        lease = await asyncio.to_thread(_open_lease, url, lock_path)
         if lease is not None:
             logger.opt(colors=True).success(f"Started companion <green>{companion.name}</green> at {url}")
             return url, lease

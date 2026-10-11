@@ -6,11 +6,10 @@ import secrets
 import threading
 import time
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, Request
+from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from fastapi.responses import JSONResponse
 from loguru import logger
 from sqlalchemy.exc import IntegrityError, OperationalError
-from sqlalchemy import text as sa_text
 from sqlmodel import col as sa_col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 

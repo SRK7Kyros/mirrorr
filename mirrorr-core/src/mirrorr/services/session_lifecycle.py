@@ -35,7 +35,6 @@ Usage:
 
 from __future__ import annotations
 
-import contextlib
 import shutil
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -46,7 +45,6 @@ from typing import Any, TYPE_CHECKING
 from loguru import logger
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
 
 from mirrorr.event_bus.event import MirrorrEvent
 from mirrorr.storage.models import (
@@ -96,13 +94,21 @@ async def _get_session_factory(
     In subprocesses (supervisor), the container isn't wired, so we
     create a fresh engine from settings and dispose it when done.
     """
-    # Try DI container first (main process)
+    # Try DI container first (main process). Resolve the factory *before*
+    # yielding: an exception thrown into the generator at the yield would
+    # otherwise be caught below (SessionNotFoundError subclasses RuntimeError),
+    # making the generator yield a second time and corrupting the context
+    # manager ("generator didn't stop after athrow()").
+    factory = None
     try:
         from mirrorr.di import container
-        yield container.session_factory
-        return
+        factory = container.session_factory
     except (RuntimeError, ImportError):
-        pass
+        factory = None
+
+    if factory is not None:
+        yield factory
+        return
 
     # Fallback: create engine from settings (subprocess)
     if settings is None:

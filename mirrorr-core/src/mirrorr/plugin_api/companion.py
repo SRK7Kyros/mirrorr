@@ -168,8 +168,8 @@ class _Handler(BaseHTTPRequestHandler):
     companion: ClassVar[Companion]
     server_version = "mirrorr-companion"
 
-    def log_message(self, fmt: str, *args: Any) -> None:
-        sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
+    def log_message(self, format: str, *args: Any) -> None:
+        sys.stderr.write("%s - %s\n" % (self.address_string(), format % args))
 
     def send(self, code: int, body: bytes, ctype: str) -> None:
         self.send_response(code)

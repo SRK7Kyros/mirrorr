@@ -387,7 +387,13 @@ class MirrorrCore:
         This is the canonical async entry point.  Call it from an
         ``asyncio.run()`` or ``await`` it in a long-lived task.
         """
-        await self._boot()
+        try:
+            await self._boot()
+        except BaseException:
+            # A partial boot (NATS may already be running) must still tear
+            # down, or the subprocess and background tasks leak.
+            await self._shutdown()
+            raise
 
         # Install signal handlers that set uvicorn's should_exit flag.
         # When uvicorn sees this flag, it stops accepting connections,

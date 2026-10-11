@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
-from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from loguru import logger
@@ -14,7 +13,7 @@ from mirrorr.event_bus.nats import bus, get_control_nc
 from mirrorr.event_bus.event import MirrorrEvent, BaseEvent
 from typing import Any, TypeVar
 from collections.abc import Sequence
-from fastapi import APIRouter, Depends, HTTPException, Body, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from mirrorr.api.dependencies import _get_db_session, require_auth, AuthState
@@ -172,6 +171,26 @@ def _require_owner_or_admin(auth: AuthState, obj) -> bool:
     if not auth.user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return getattr(obj, "requester_user_token", None) == auth.user.username
+
+
+async def _load_owned_profile(
+    db: AsyncSession, profile_id: int | None, auth: AuthState
+) -> Profile | None:
+    """Load a profile a request points at, enforcing ownership.
+
+    A profile carries capture config (resolver_config, retry policy), so a
+    caller may only link to a profile they own — otherwise pointing at another
+    user's profile would leak that config into their own session/autorun.
+    Admins may reference any profile.
+    """
+    if profile_id is None:
+        return None
+    profile = await crud.get_by_id(db, Profile, profile_id)
+    if not profile:
+        raise HTTPException(status_code=400, detail=f"Profile {profile_id} not found")
+    if not _require_owner_or_admin(auth, profile):
+        raise HTTPException(status_code=403, detail="Not your profile")
+    return profile
 
 
 async def _safe_emit(event: BaseEvent) -> None:
@@ -550,11 +569,7 @@ def _merge_profile_capture(profile: Profile | None, payload_data: dict[str, Any]
 
 @sessions_router.post("/", response_model=SessionResponse)
 async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    profile = None
-    if item.profile_id is not None:
-        profile = await crud.get_by_id(db, Profile, item.profile_id)
-        if not profile:
-            raise HTTPException(status_code=400, detail=f"Profile {item.profile_id} not found")
+    profile = await _load_owned_profile(db, item.profile_id, auth)
     engine_id, resolver_id, resolver_config, retry_mode, retry_config = _resolve_capture_target(
         profile, item.engine_id, item.resolver_id, item.resolver_config, item.retry_mode, item.retry_config
     )
@@ -660,11 +675,7 @@ async def get_autorun(id: int, db: AsyncSession = Depends(_get_db_session), auth
 
 @autoruns_router.post("/", response_model=AutorunResponse)
 async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    profile = None
-    if item.profile_id is not None:
-        profile = await crud.get_by_id(db, Profile, item.profile_id)
-        if not profile:
-            raise HTTPException(status_code=400, detail=f"Profile {item.profile_id} not found")
+    profile = await _load_owned_profile(db, item.profile_id, auth)
     engine_id, resolver_id, resolver_config, retry_mode, retry_config = _resolve_capture_target(
         profile, item.engine_id, item.resolver_id, item.resolver_config, item.retry_mode, item.retry_config
     )
@@ -711,10 +722,7 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
     payload_data = item.model_dump(exclude_unset=True)
     _enforce_autorun_update_guard(existing, payload_data)
     if "profile_id" in payload_data:
-        profile_id = payload_data["profile_id"]
-        profile = await crud.get_by_id(db, Profile, profile_id) if profile_id is not None else None
-        if profile_id is not None and not profile:
-            raise HTTPException(status_code=400, detail=f"Profile {profile_id} not found")
+        profile = await _load_owned_profile(db, payload_data["profile_id"], auth)
         payload_data = _merge_profile_capture(profile, payload_data)
     if "start_time" in payload_data and payload_data["start_time"] is not None:
         payload_data["start_time"] = payload_data["start_time"].replace(tzinfo=None) if payload_data["start_time"].tzinfo else payload_data["start_time"]

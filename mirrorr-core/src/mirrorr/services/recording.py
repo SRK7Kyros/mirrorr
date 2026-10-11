@@ -263,7 +263,8 @@ class RecordingManager:
         """Forward remux process telemetry to NATS."""
         if not self.nc or not self._remux_proc:
             return
-        telemetry_q = self.bus.subscribe("proc.remux.telemetry")
+        topic = "proc.remux.telemetry"
+        telemetry_q = self.bus.subscribe(topic)
         nc = self.nc  # capture for type narrowing in closure
 
         async def _forward():
@@ -273,6 +274,7 @@ class RecordingManager:
                 try:
                     await nc.publish(subject, json.dumps(data).encode())
                 except Exception:
+                    self.bus.unsubscribe(topic, telemetry_q)
                     return
 
         self._telemetry_tasks.append(asyncio.create_task(_forward()))
@@ -539,7 +541,7 @@ class RecordingManager:
                     user_friendly_name=self.session.profile.name if self.session.profile else f"Session #{self.session.id}",
                     snake_case_name=dest.name,
                     disk_path=str(dest),
-                    content_url=f"{self.settings.web_url}/content/recordings/{dest.name}/{dest.name}.mp4",
+                    content_url=f"{self.settings.web_url}/content/recordings/{dest.name}/{mp4_name}",
                     profile_name=self.session.profile.name if self.session.profile else "",
                     engine_name=self.session.engine.name if self.session.engine else "",
                     resolver_name=(self.session.profile.resolver.name if self.session.profile else self.session.resolver.name),

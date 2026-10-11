@@ -254,8 +254,12 @@ async def _sweep_dead_supervisors(missing_since: dict[int, float]) -> list[int]:
         elif now - missing_since.setdefault(session_id, now) >= _WATCHDOG_GRACE:
             dead.append(session_id)
 
-    for session_id in [sid for sid in missing_since if sid not in live]:
+    live_set = set(live)
+    for session_id in [sid for sid in missing_since if sid not in live_set]:
         missing_since.pop(session_id)
+    for session_id, (process, _) in list(_sessions.items()):
+        if session_id not in live_set and not process.is_alive():
+            _sessions.pop(session_id)
     return dead
 
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from loguru import logger
 from pathlib import Path
-import sys
 import shutil
 import os
 
@@ -40,7 +39,7 @@ def ensure_ffmpeg(settings: "MirrorrSettings") -> None:  # ty: ignore[unresolved
                         os.environ["FFPROBE_EXECUTABLE"] = str(Path(custom_path) / ffprobe_name)
                         logger.info("Using bundled ffmpeg")
                     else:
-                        logger.error(f"Installation failed: {message}")
+                        raise RuntimeError(f"FFmpeg installation failed: {message}")
                 else:
                     installed_exe = Path(custom_path) / exe_name
                     os.environ["FFMPEG_EXECUTABLE"] = str(installed_exe)

@@ -9,7 +9,6 @@ progress (the same structure the supervisor publishes to NATS on
 from __future__ import annotations
 
 import asyncio
-import os
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -41,7 +40,8 @@ async def _resolve_own_session(
     session = (await db.exec(select(Session).where(Session.id == session_id))).first()
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    _require_owner_or_admin(auth, session)
+    if not _require_owner_or_admin(auth, session):
+        raise HTTPException(status_code=403, detail="Not your session")
     return session
 
 

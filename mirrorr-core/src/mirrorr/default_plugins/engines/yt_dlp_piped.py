@@ -127,7 +127,10 @@ class YtDlpPipedEngine(EngineInterface):
 
         # Engine coordination: watch for process exits
         async def _coordinate():
+            # Subscribe to both exit streams up front: ffmpeg can exit before
+            # yt-dlp does, and an event emitted before we subscribe is lost.
             ytdlp_exit_q = context.bus.subscribe("proc.yt-dlp.exit")
+            ffmpeg_exit_q = context.bus.subscribe("proc.ffmpeg.exit")
             ytdlp_exit = await ytdlp_exit_q.get()
 
             if ytdlp_exit.intentional:
@@ -145,7 +148,6 @@ class YtDlpPipedEngine(EngineInterface):
                 return
 
             # yt-dlp done — wait for ffmpeg to flush
-            ffmpeg_exit_q = context.bus.subscribe("proc.ffmpeg.exit")
             ffmpeg_exit = await ffmpeg_exit_q.get()
 
             if ffmpeg_exit.intentional or ffmpeg_exit.returncode == 0:

@@ -4,7 +4,6 @@ from typing import TypeVar
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from mirrorr.storage.models import Profile
 
 T = TypeVar("T", bound=SQLModel)
 

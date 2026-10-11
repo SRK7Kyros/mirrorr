@@ -95,7 +95,7 @@ class CreateProfileRequest(BaseModel):
 
 
 class UpdateProfileRequest(BaseModel):
-    name: str | None = None
+    name: str | None = Field(default=None, max_length=128, pattern=r"^[^/\\]*[^./\\][^/\\]*$")
     default_engine_id: int | None = None
     resolver_id: int | None = None
     resolver_config: dict[str, Any] | None = None
@@ -104,7 +104,7 @@ class UpdateProfileRequest(BaseModel):
 
 
 class SaveProfileRequest(BaseModel):
-    name: str
+    name: str = Field(max_length=128, pattern=r"^[^/\\]*[^./\\][^/\\]*$")
 
 
 # ── Resolver sources ───────────────────────────────────────────────────
@@ -259,13 +259,6 @@ class ResolverResponse(BaseModel):
     origin_hash: str
     config_schema: dict[str, Any] = Field(default_factory=dict)
     search_schema: dict[str, Any] = Field(default_factory=dict)
-
-
-class PaginatedResponse(BaseModel):
-    items: list[Any]
-    next_cursor: int | None = None
-    has_more: bool = False
-    total: int | None = None
 
 
 # ── Typed list responses (for OpenAPI schema + runtime validation) ────
