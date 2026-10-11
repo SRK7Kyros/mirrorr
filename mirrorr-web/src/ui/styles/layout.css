@@ -640,11 +640,11 @@
 }
 
 @media (max-width: 479px) {
-  .page-actions .btn span {
+  .page-actions [data-slot="button-label"] {
     display: none;
   }
 
-  .page-actions .btn {
+  .page-actions [data-slot="button"] {
     padding: 0 var(--s-3);
   }
 }

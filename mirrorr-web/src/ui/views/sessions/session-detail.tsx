@@ -8,6 +8,7 @@ import { getStatusDescriptor } from "@/api/status";
 import { isLive } from "@/api/domain/filter-grammar";
 import { formatDateTime, formatDuration } from "@/api/time";
 import {
+  buttonClass,
   EmptyState,
   ErrorPanel,
   IconSessions,
@@ -131,7 +132,7 @@ export function SessionDetailView({
             title="Session gone"
             text="It may have been deleted from another client."
             action={
-              <Link className="btn btn-outline" to="/sessions">
+              <Link className={buttonClass({ variant: "outline" })} to="/sessions">
                 Back to sessions
               </Link>
             }
@@ -185,7 +186,7 @@ export function SessionDetailView({
       description={`#${session.id} · ${engine} → ${resolver} · ${profile}`}
       actions={
         <>
-          <Link className="btn btn-ghost" to="/sessions">
+          <Link className={buttonClass({ variant: "ghost" })} to="/sessions">
             All sessions
           </Link>
           <SessionSaveProfileButton session={session} size="md" />

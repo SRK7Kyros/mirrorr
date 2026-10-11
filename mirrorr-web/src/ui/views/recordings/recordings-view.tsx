@@ -13,6 +13,7 @@ import type { Recording } from "@/api/schemas";
 import { showingLabel } from "@/ui/lib/format";
 import {
   Button,
+  buttonClass,
   ConfirmDialog,
   EmptyState,
   ErrorPanel,
@@ -122,7 +123,7 @@ export function RecordingsView({ highlight }: { readonly highlight?: number }) {
           title="No recordings yet."
           text="Recordings appear when a session finishes with recording enabled."
           action={
-            <Link className="btn btn-secondary" to="/sessions">
+            <Link className={buttonClass({ variant: "secondary" })} to="/sessions">
               Open sessions
             </Link>
           }

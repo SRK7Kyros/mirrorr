@@ -23,6 +23,7 @@ import type { Session } from "@/api/schemas";
 import {
   BulkBar,
   Button,
+  buttonClass,
   Checkbox,
   ConfirmDialog,
   EmptyState,
@@ -292,7 +293,7 @@ export function SessionsListView() {
                 >
                   New session
                 </Button>
-                <Link className="btn btn-secondary" to="/profiles">
+                <Link className={buttonClass({ variant: "secondary" })} to="/profiles">
                   Open profiles
                 </Link>
               </div>

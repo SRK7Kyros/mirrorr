@@ -64,6 +64,15 @@
   --color-purple-ink: var(--secondary-ink);
   --color-neutral: var(--neutral);
 
+  /* `-dim` washes, needed by e.g. `.btn-danger-ghost:hover`. `-ink` is only
+     mapped where the token exists (info/neutral define none). */
+  --color-success-dim: var(--success-dim);
+  --color-warning-dim: var(--warning-dim);
+  --color-danger-dim: var(--danger-dim);
+  --color-info-dim: var(--info-dim);
+  --color-purple-dim: var(--secondary-dim);
+  --color-neutral-dim: var(--neutral-dim);
+
   /*
    * shadcn slot aliases (`--background`, `--primary`, `--muted`, …) are NOT
    * mapped yet — they belong to Phase 2, added with the first shadcn component
@@ -105,6 +114,20 @@
   --text-2xl: var(--fs-2xl);
   --text-3xl: var(--fs-3xl);
 
+  /* The design has no per-font-size line-height (`--lh-*` are global), so the
+     migrated `text-*` utilities must stay font-size-only. Without this,
+     Tailwind's default per-size line-heights would silently apply wherever a
+     component never set one. `inherit` reproduces the CSS being replaced. */
+  --text-2xs--line-height: inherit;
+  --text-xs--line-height: inherit;
+  --text-sm--line-height: inherit;
+  --text-base--line-height: inherit;
+  --text-md--line-height: inherit;
+  --text-lg--line-height: inherit;
+  --text-xl--line-height: inherit;
+  --text-2xl--line-height: inherit;
+  --text-3xl--line-height: inherit;
+
   --leading-tight: var(--lh-tight);
   --leading-snug: var(--lh-snug);
   --leading-normal: var(--lh-normal);
@@ -125,4 +148,28 @@
   --shadow-ring: var(--ring);
 
   --default-transition-duration: var(--dur-fast);
+}
+
+/*
+ * Keyframes for the migrated components. They live here rather than in
+ * components.css because their only references are Tailwind `animate-[…]`
+ * utilities, and `check-tokens` flags a fallback-free `var()` in the component
+ * stylesheets — which `--chip-hue` (published per element by StatusChip) is.
+ */
+@keyframes dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 var(--chip-hue);
+  }
+  50% {
+    opacity: 0.55;
+    box-shadow: 0 0 0 3px transparent;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
