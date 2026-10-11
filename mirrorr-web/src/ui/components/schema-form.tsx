@@ -412,7 +412,7 @@ export function SchemaForm({
   if (keys.length === 0 && extras.length === 0) return null
 
   return (
-    <div className="stack">
+    <div className="flex flex-col gap-4">
       {keys.map((key) => (
         <SchemaField
           key={key}

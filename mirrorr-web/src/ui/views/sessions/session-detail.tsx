@@ -81,7 +81,7 @@ function KeyValue({
   readonly children: ReactNode;
 }) {
   return (
-    <div className="row-between">
+    <div className="flex items-center justify-between gap-3">
       <span className="text-dim">{label}</span>
       <span className="mono text-truncate">{children}</span>
     </div>
@@ -206,7 +206,7 @@ export function SessionDetailView({
           }
         />
         <PanelBody>
-          <div className="grid-3">
+          <div className="grid grid-cols-3 gap-4 max-sm:grid-cols-1">
             <Stat
               label="Duration"
               value={duration === null ? "—" : formatDuration(duration)}
@@ -247,13 +247,13 @@ export function SessionDetailView({
           {remuxing ? (
             <RemuxProgressBar
               sessionId={session.id}
-              className="stack stack-sm"
+              className="flex flex-col gap-2"
             />
           ) : null}
         </PanelBody>
       </Panel>
 
-      <div className="grid-2">
+      <div className="grid grid-cols-2 gap-5 max-sm:grid-cols-1">
         <Panel>
           <PanelHead
             title="Attempts"
@@ -266,7 +266,7 @@ export function SessionDetailView({
               </p>
             ) : (
               <div
-                className="stack"
+                className="flex flex-col gap-4"
                 style={{ maxHeight: 480, overflowY: "auto" }}
                 role="list"
                 aria-label="Attempt timeline"
@@ -274,11 +274,11 @@ export function SessionDetailView({
                 {attempts.map((attempt) => (
                   <div
                     key={attempt.index}
-                    className="stack stack-sm"
+                    className="flex flex-col gap-2"
                     role="listitem"
                   >
-                    <div className="row-between">
-                      <span className="row" style={{ gap: "var(--s-2)" }}>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="flex items-center gap-3" style={{ gap: "var(--s-2)" }}>
                         <span className="mono tnum">#{attempt.index}</span>
                         <StatusChip status={attempt.status} />
                       </span>
@@ -293,7 +293,7 @@ export function SessionDetailView({
                       </span>
                     </div>
                     {attempt.exitCode !== null || attempt.reason !== null ? (
-                      <div className="row" style={{ gap: "var(--s-3)" }}>
+                      <div className="flex items-center gap-3" style={{ gap: "var(--s-3)" }}>
                         {attempt.exitCode !== null ? (
                           <span className="mono tnum text-dim">
                             exit {attempt.exitCode}
@@ -311,7 +311,7 @@ export function SessionDetailView({
           </PanelBody>
         </Panel>
 
-        <div className="stack">
+        <div className="flex flex-col gap-4">
           <Panel>
             <PanelHead title="Live sources" />
             <PanelBody>
@@ -321,7 +321,7 @@ export function SessionDetailView({
                   <span className="mono">web_url</span>).
                 </p>
               ) : (
-                <div className="stack">
+                <div className="flex flex-col gap-4">
                   {playable !== null ? (
                     <SessionPreviewPlayer
                       src={playable}
@@ -339,8 +339,8 @@ export function SessionDetailView({
           <Panel>
             <PanelHead title="Config snapshot" />
             <PanelBody>
-              <div className="stack">
-                <div className="stack stack-sm">
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-2">
                   <KeyValue label="Engine">{engine}</KeyValue>
                   <KeyValue label="Resolver">{resolver}</KeyValue>
                   <KeyValue label="Profile">{profile}</KeyValue>

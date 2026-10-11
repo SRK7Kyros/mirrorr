@@ -19,27 +19,40 @@ interface HeadProps {
 function Head({ title, description, actions, level }: HeadProps) {
   if (title === undefined) return null
   return (
-    <div className="page-head">
-      <div className="page-head-text">
+    <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="min-w-0">
         {level === "h1" ? (
-          <h1 className="page-title">{title}</h1>
+          <h1 className="text-2xl font-bold leading-tight tracking-[-0.02em] max-sm:text-xl">
+            {title}
+          </h1>
         ) : (
-          <h2 className="section-title">{title}</h2>
+          <h2 className="text-xl font-semibold leading-tight tracking-[-0.01em]">{title}</h2>
         )}
-        {description !== undefined ? <p className="page-desc">{description}</p> : null}
+        {description !== undefined ? (
+          <p className="mt-1 max-w-[68ch] text-md leading-normal text-ink-muted">{description}</p>
+        ) : null}
       </div>
-      {actions !== undefined ? <div className="page-actions">{actions}</div> : null}
+      {actions !== undefined ? (
+        <div className="flex flex-wrap items-center gap-2 max-[479px]:[&_[data-slot=button]]:px-3 max-[479px]:[&_[data-slot=button-label]]:hidden">
+          {actions}
+        </div>
+      ) : null}
     </div>
   )
 }
 
 /**
- * Page scaffolding — the `.page` column every view renders into, with the
+ * Page scaffolding — the page column every view renders into, with the
  * optional title/description/actions head. Views own their own body.
  */
 export function Page({ title, description, actions, children, className }: PageProps) {
   return (
-    <main className={cn("page", className)}>
+    <main
+      className={cn(
+        "mx-auto flex w-full max-w-[var(--content-max)] flex-1 flex-col gap-5 px-5 pt-6 pb-12 max-sm:px-3 max-sm:pt-4 max-sm:pb-8",
+        className,
+      )}
+    >
       <Head title={title} description={description} actions={actions} level="h1" />
       {children}
     </main>
@@ -48,11 +61,12 @@ export function Page({ title, description, actions, children, className }: PageP
 
 /**
  * Section scaffolding — a titled block stacked inside a `Page`, used when a
- * single view holds more than one list (e.g. profiles + sources).
+ * single view holds more than one list (e.g. profiles + sources). Adjacent
+ * sections are separated by the `[&+&]:mt-8` sibling margin.
  */
 export function Section({ title, description, actions, children, className }: PageProps) {
   return (
-    <section className={cn("page-section", className)}>
+    <section className={cn("flex flex-col gap-4 [&+&]:mt-8", className)}>
       <Head title={title} description={description} actions={actions} level="h2" />
       {children}
     </section>

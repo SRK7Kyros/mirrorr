@@ -91,9 +91,9 @@ export function DiscoveryDrawer({
       className="drawer-wide"
       title={resolver !== null ? `Browse ${resolver.name}` : "Browse"}
     >
-      <div className="stack">
-        <div className="toolbar-search">
-          <span className="toolbar-search-icon" aria-hidden="true">
+      <div className="flex flex-col gap-4">
+        <div className="relative flex-1 min-w-[200px] max-w-[340px] [&_input]:pl-8">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none" aria-hidden="true">
             <IconSearch size={15} />
           </span>
           <Input

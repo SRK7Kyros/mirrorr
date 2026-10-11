@@ -87,7 +87,7 @@ function SourceRow({ source, names, selected, onToggle, onEdit, onDelete }: Sour
         <JsonView value={source.resolver_config ?? {}} />
       </Td>
       <Td actions>
-        <div className="row" style={{ gap: "var(--s-2)" }}>
+        <div className="flex items-center gap-3" style={{ gap: "var(--s-2)" }}>
           <IconButton
             label={`Edit source ${source.name}`}
             icon={<IconEdit size={15} />}
@@ -108,7 +108,7 @@ function SourceCard({ source, names, selected, onToggle, onEdit, onDelete }: Sou
   return (
     <motion.article className="entity-card" variants={staggerItem}>
       <div className="entity-card-head">
-        <div className="row" style={{ gap: "var(--s-2)", minWidth: 0 }}>
+        <div className="flex items-center gap-3" style={{ gap: "var(--s-2)", minWidth: 0 }}>
           <span className="entity-card-check">
             <Checkbox aria-label={`Select ${source.name}`} checked={selected} onChange={() => onToggle(source.id)} />
           </span>
@@ -245,7 +245,7 @@ function SourceDialog({ open, onClose, source, resolvers, schemasLoading, existi
         </>
       }
     >
-      <form id="source-form" className="stack" onSubmit={onSubmit}>
+      <form id="source-form" className="flex flex-col gap-4" onSubmit={onSubmit}>
         {error !== null ? <Banner kind="danger" title={error} /> : null}
 
         <Field label="Name" htmlFor="source-name" required error={nameError}>
@@ -283,7 +283,7 @@ function SourceDialog({ open, onClose, source, resolvers, schemasLoading, existi
           </div>
         ) : null}
 
-        <section className="stack-sm">
+        <section className="flex flex-col gap-2">
           <h3 className={panelTitleClass}>Resolver config</h3>
           {schemasLoading ? (
             <SkeletonRows rows={3} cols={2} />
@@ -395,18 +395,18 @@ export function SourcesPanel() {
       title="Sources"
       description="Saved resolver configs. Pick one wherever a resolver asks for a config."
       actions={
-        <Button variant="primary" className="btn-create" icon={<IconPlus size={16} />} onClick={openCreate}>
+        <Button variant="primary" className="max-sm:hidden" icon={<IconPlus size={16} />} onClick={openCreate}>
           New source
         </Button>
       }
     >
-      <div className="toolbar">
+      <div className="flex items-center gap-2 flex-wrap">
         <span className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
           {showingLabel(rows.length)}
         </span>
-        <div className="toolbar-spacer" />
-        <div className="toolbar-search">
-          <span className="toolbar-search-icon" aria-hidden="true">
+        <div className="flex-1" />
+        <div className="relative flex-1 min-w-[200px] max-w-[340px] [&_input]:pl-8">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none" aria-hidden="true">
             <IconSearch size={15} />
           </span>
           <Input

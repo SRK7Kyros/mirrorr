@@ -271,7 +271,7 @@ export function AutorunFormDialog({
           </>
         }
       >
-        <div className="stack">
+        <div className="flex flex-col gap-4">
           {error !== null ? <Banner kind="danger" title={error} /> : null}
           {startInPast && autorun?.status === "scheduled" ? (
             <Banner
@@ -314,7 +314,7 @@ export function AutorunFormDialog({
             />
           </Field>
 
-          <div className="grid-2">
+          <div className="grid grid-cols-2 gap-5 max-sm:grid-cols-1">
             <Field
               label="Start"
               htmlFor="autorun-start"
@@ -364,7 +364,7 @@ export function AutorunFormDialog({
             />
           </Field>
 
-          <TabPanel panelId="autorun-mode" active={mode} className="stack">
+          <TabPanel panelId="autorun-mode" active={mode} className="flex flex-col gap-4">
             {mode === "profile" ? (
               <Field label="Profile" htmlFor="autorun-profile" required>
                 <Select
@@ -382,7 +382,7 @@ export function AutorunFormDialog({
                 </Select>
               </Field>
             ) : (
-              <div className="grid-2">
+              <div className="grid grid-cols-2 gap-5 max-sm:grid-cols-1">
                 <Field label="Engine" htmlFor="autorun-engine" required>
                   <Select
                     id="autorun-engine"
@@ -426,7 +426,7 @@ export function AutorunFormDialog({
                     setResolverConfig(source.resolver_config ?? {})
                   }}
                 />
-                <section className="stack-sm">
+                <section className="flex flex-col gap-2">
                   <h3 className={panelTitleClass}>Resolver config</h3>
                   {resolver === undefined ? (
                     <p className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>

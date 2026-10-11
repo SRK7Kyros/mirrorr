@@ -9,13 +9,14 @@
  * Unlayered CSS always beats layered CSS, so leaving it unlayered silently
  * defeats every utility at the call site.
  *
- * `components.css` / `layout.css` stay UNLAYERED on purpose. They are the
- * not-yet-migrated design system, and they carry contextual overrides of the
- * components that HAVE migrated (`.session-record-toggle[aria-pressed="true"]`,
- * `.session-danger-icon:hover`, `.page-actions .btn-create`). Unlayered beats
- * `layer(utilities)`, so those overrides keep working exactly as they did before
- * Tailwind existed. Each migrated component takes its rules with it, so the
- * unlayered set shrinks toward nothing.
+ * `components.css` stays UNLAYERED on purpose. It is the not-yet-migrated
+ * design system, and it carries contextual overrides of the components that
+ * HAVE migrated (`.session-record-toggle[aria-pressed="true"]`,
+ * `.session-danger-icon:hover`). Unlayered beats `layer(utilities)`, so those
+ * overrides keep working exactly as they did before Tailwind existed. Each
+ * migrated component takes its rules with it, so the unlayered set shrinks
+ * toward nothing. `layout.css` is now empty — its rules are Tailwind utilities
+ * at the call sites.
  *
  * `tokens.css` / `fonts.css`: custom properties and `@font-face` — nothing
  * competes with them either way.

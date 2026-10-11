@@ -46,7 +46,7 @@ async function copyLink(url: string): Promise<void> {
 
 function MediaHint({ recording }: { readonly recording: Recording }) {
   return (
-    <div className="row" style={{ gap: "var(--s-2)" }}>
+    <div className="flex items-center gap-3" style={{ gap: "var(--s-2)" }}>
       <span className="text-dim" style={{ fontSize: "var(--fs-xs)" }}>
         Media not served on this install — copy link instead
       </span>

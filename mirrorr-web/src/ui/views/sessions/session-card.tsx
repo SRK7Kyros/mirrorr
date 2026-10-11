@@ -109,7 +109,7 @@ export function SessionCard({
           ) : null}
         </div>
 
-        {remuxing ? <RemuxProgressBar sessionId={session.id} className="stack stack-sm" /> : null}
+        {remuxing ? <RemuxProgressBar sessionId={session.id} className="flex flex-col gap-2" /> : null}
 
         {urls.length > 0 ? (
           <SessionUrls urls={urls} className="session-card-urls" />

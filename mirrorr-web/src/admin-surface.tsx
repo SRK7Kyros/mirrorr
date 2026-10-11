@@ -126,11 +126,11 @@ function UsersSection() {
                 return (
                   <tr key={user.id}>
                     <Td>
-                      <div className="row">
+                      <div className="flex items-center gap-3">
                         <Avatar name={label} small />
-                        <div className="user-meta">
-                          <div className="user-name">{label}</div>
-                          <div className="user-role">@{user.username}</div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-base font-medium text-ink truncate">{label}</div>
+                          <div className="text-xs text-ink-dim [font-family:var(--font-mono)]">@{user.username}</div>
                         </div>
                       </div>
                     </Td>
@@ -249,7 +249,7 @@ function CreateUserDialog({ open, onClose }: CreateUserDialogProps) {
         </>
       }
     >
-      <form id="create-user-form" className="stack" onSubmit={(event) => void onSubmit(event)} noValidate>
+      <form id="create-user-form" className="flex flex-col gap-4" onSubmit={(event) => void onSubmit(event)} noValidate>
         {error !== null ? <Banner kind="danger" title={error} /> : null}
         <Field label="Username" htmlFor="new-user-username" required error={fieldErrors.username ?? null}>
           <Input
@@ -454,7 +454,7 @@ function CreateClientDialog({ open, onClose }: CreateClientDialogProps) {
       {apiKey === null ? (
         <form
           id="create-client-form"
-          className="stack"
+          className="flex flex-col gap-4"
           onSubmit={(event) => {
             event.preventDefault()
             if (!create.isPending) create.mutate()
@@ -472,11 +472,11 @@ function CreateClientDialog({ open, onClose }: CreateClientDialogProps) {
           </Field>
         </form>
       ) : (
-        <div className="stack">
+        <div className="flex flex-col gap-4">
           <Banner kind="info" title="Copy the key now">
             This key is shown once and cannot be retrieved later.
           </Banner>
-          <div className="row-between">
+          <div className="flex items-center justify-between gap-3">
             <span className="mono text-truncate">{apiKey}</span>
             <Button size="sm" variant="outline" icon={<IconCopy size={14} />} onClick={() => void copyKey()}>
               Copy
@@ -552,12 +552,12 @@ function RegistrationRequestsSection() {
                 return (
                   <tr key={request.id}>
                     <Td>
-                      <div className="user-name">{label}</div>
-                      <div className="user-role">@{request.username}</div>
+                      <div className="text-base font-medium text-ink truncate">{label}</div>
+                      <div className="text-xs text-ink-dim [font-family:var(--font-mono)]">@{request.username}</div>
                     </Td>
                     <Td className="text-muted">{whenLabel(request.created_at)}</Td>
                     <Td actions>
-                      <div className="row">
+                      <div className="flex items-center gap-3">
                         <Button
                           size="sm"
                           variant="outline"
