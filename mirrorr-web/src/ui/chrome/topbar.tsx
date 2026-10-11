@@ -9,20 +9,20 @@ export function TopBar() {
   const crumb = describeRoute(pathname)
 
   return (
-    <header className="topbar">
-      <div className="crumb">
+    <header className="sticky top-0 z-[var(--z-topbar)] flex h-[var(--topbar-h)] shrink-0 items-center gap-3 border-b border-line bg-[color-mix(in_srgb,var(--bg)_86%,transparent)] px-5 backdrop-blur-[12px] max-sm:px-3">
+      <div className="flex min-w-0 items-center gap-2 text-md font-semibold">
         {crumb.parent !== null ? (
           <>
-            <span className="crumb-parent">{crumb.parent}</span>
-            <span className="crumb-sep" aria-hidden="true">
+            <span className="font-medium text-ink-muted hover:text-ink">{crumb.parent}</span>
+            <span className="text-ink-faint" aria-hidden="true">
               /
             </span>
           </>
         ) : null}
-        <span className="crumb-current">{crumb.current}</span>
+        <span className="truncate text-ink">{crumb.current}</span>
       </div>
-      <div className="topbar-spacer" />
-      <div className="topbar-actions">
+      <div className="flex-1" />
+      <div className="flex items-center gap-2">
         <ConnectionPill />
         <NotificationBell />
         <AccountMenu />

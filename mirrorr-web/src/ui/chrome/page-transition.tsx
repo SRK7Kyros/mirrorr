@@ -10,7 +10,13 @@ import { pageVariants } from "@/ui/lib/motion"
 export function PageTransition({ children }: { readonly children: ReactNode }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   return (
-    <motion.div key={pathname} className="page-transition" variants={pageVariants} initial="hidden" animate="visible">
+    <motion.div
+      key={pathname}
+      className="flex min-w-0 flex-1 flex-col"
+      variants={pageVariants}
+      initial="hidden"
+      animate="visible"
+    >
       {children}
     </motion.div>
   )

@@ -9,7 +9,7 @@ export function HealthBanner() {
   if (!realtime.pollingFallback) return null
 
   return (
-    <div className="app-banner">
+    <div className="mx-auto w-full max-w-[var(--content-max)] px-5 pt-4 max-sm:px-3 max-sm:pt-3">
       <Banner
         kind="warning"
         title="Live updates paused"
@@ -35,7 +35,7 @@ export function ApiClientBanner() {
   const client = auth.auth?.client ?? null
   if (client === null) return null
   return (
-    <div className="app-banner">
+    <div className="mx-auto w-full max-w-[var(--content-max)] px-5 pt-4 max-sm:px-3 max-sm:pt-3">
       <Banner kind="info" title="API client session">
         {apiClientBannerText(client.name)}
       </Banner>
