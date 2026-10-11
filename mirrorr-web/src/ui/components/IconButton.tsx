@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react"
 import { cn } from "@/ui/lib/cn"
-import type { ButtonSize, ButtonVariant } from "./Button"
+import { iconButtonClass, type ButtonSize, type ButtonVariant } from "./Button"
 
 export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"> {
   /** Accessible name — required (the icon alone carries no text). */
@@ -11,7 +11,7 @@ export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonEle
   readonly type?: "button" | "submit" | "reset"
 }
 
-/** Square icon-only button — `.btn .btn-icon` + `aria-label`. */
+/** Square icon-only button — the icon flavour of `Button` plus `aria-label`. */
 export function IconButton({
   label,
   icon,
@@ -25,9 +25,10 @@ export function IconButton({
     <button
       {...rest}
       type={type}
+      data-slot="button"
       aria-label={label}
       title={label}
-      className={cn("btn", `btn-${variant}`, "btn-icon", size !== "md" && `btn-${size}`, className)}
+      className={cn(iconButtonClass({ variant, size }), className)}
     >
       {icon}
     </button>

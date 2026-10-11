@@ -16,6 +16,7 @@ import {
 import type { Session } from "@/api/schemas"
 import {
   Banner,
+  buttonClass,
   EmptyState,
   ErrorPanel,
   IconAutoruns,
@@ -119,7 +120,7 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
             title="Scheduled recording gone"
             text="It may have been deleted from another client."
             action={
-              <Link className="btn btn-outline" to="/autoruns">
+              <Link className={buttonClass({ variant: "outline" })} to="/autoruns">
                 Back to scheduled recordings
               </Link>
             }
@@ -154,7 +155,7 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
       description={`${engine} → ${resolver} · ${profile}`}
       actions={
         <>
-          <Link className="btn btn-ghost" to="/autoruns">
+          <Link className={buttonClass({ variant: "ghost" })} to="/autoruns">
             All scheduled recordings
           </Link>
           <AutorunActionsMenu autorun={autorun} />
@@ -281,7 +282,11 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
                       <span className="mono tnum">{formatDuration(linkedDuration)}</span>
                     ) : null}
                   </div>
-                  <Link className="btn btn-outline btn-sm" to="/sessions/$sessionId" params={{ sessionId: String(linked.id) }}>
+                  <Link
+                    className={buttonClass({ variant: "outline", size: "sm" })}
+                    to="/sessions/$sessionId"
+                    params={{ sessionId: String(linked.id) }}
+                  >
                     Open session
                   </Link>
                 </div>

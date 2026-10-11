@@ -34,7 +34,8 @@ function recording(overrides: Record<string, unknown> = {}): Record<string, unkn
 
 // Statuses come from `src/api/status.ts` STATUS_MAP - the single source of
 // truth. Chosen to exercise each tone/dot/icon branch: recording (danger+pulse),
-// active (success), scheduled (primary), completed (success+check).
+// active (success), scheduled (primary), completed (success+check),
+// failed (danger+cross), terminating (warning+spinner).
 const SESSIONS = [
   session({
     id: 101,
@@ -51,6 +52,13 @@ const SESSIONS = [
     started_at: "2026-10-11 18:00:00",
     ended_at: "2026-10-11 20:30:00",
   }),
+  session({
+    id: 105,
+    status: "failed",
+    started_at: "2026-10-11 12:00:00",
+    ended_at: "2026-10-11 12:04:00",
+  }),
+  session({ id: 106, status: "terminating" }),
 ]
 
 const AUTORUNS = [autorun({ id: 201, status: "scheduled" }), autorun({ id: 202, status: "active" })]

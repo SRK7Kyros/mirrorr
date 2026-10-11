@@ -3,7 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router"
 import { getErrorMessage, register } from "@/api"
 import { ApiError } from "@/api/client"
 import { useAuthStatus } from "@/api/hooks"
-import { Banner, Button, Field, IconDisc, Input, Panel, PanelBody } from "@/ui/components"
+import { Banner, Button, buttonClass, Field, IconDisc, Input, Panel, PanelBody } from "@/ui/components"
 
 export function RegisterView() {
   const navigate = useNavigate()
@@ -61,7 +61,7 @@ export function RegisterView() {
                 <Banner kind="info" title="Registration submitted">
                   An administrator must approve <strong>{username.trim()}</strong> before you can sign in.
                 </Banner>
-                <Link className="btn btn-secondary btn-block" to="/login">
+                <Link className={buttonClass({ variant: "secondary", block: true })} to="/login">
                   Back to sign in
                 </Link>
               </div>

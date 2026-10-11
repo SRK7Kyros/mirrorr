@@ -2,6 +2,7 @@ import { useSyncExternalStore, type ReactNode } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { cn } from "@/ui/lib/cn"
 import { toastVariants } from "@/ui/lib/motion"
+import { buttonClass, iconButtonClass } from "./Button"
 import { IconAlert, IconCheck, IconInfo } from "./icons"
 
 export type ToastKind = "success" | "error" | "info"
@@ -111,14 +112,18 @@ export function ToastRegion({ className }: { readonly className?: string }) {
               <div className="toast-title">{item.title}</div>
               {item.text !== undefined ? <div className="toast-text">{item.text}</div> : null}
               {item.action !== undefined ? (
-                <button type="button" className="btn btn-ghost btn-sm" onClick={item.action.onClick}>
+                <button
+                  type="button"
+                  className={buttonClass({ variant: "ghost", size: "sm" })}
+                  onClick={item.action.onClick}
+                >
                   {item.action.label}
                 </button>
               ) : null}
             </div>
             <button
               type="button"
-              className="btn btn-ghost btn-icon btn-sm"
+              className={iconButtonClass({ variant: "ghost", size: "sm" })}
               aria-label="Dismiss"
               onClick={() => dismiss(item.id)}
             >
