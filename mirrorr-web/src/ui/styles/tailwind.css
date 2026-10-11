@@ -1,0 +1,144 @@
+/*
+ * Tailwind v4 entry — POC phase 1 of the shadcn/Tailwind migration
+ * (branch `poc/tailwind-shadcn`; see docs/shadcn-tailwind-migration-audit.md).
+ *
+ * Contract for this phase: consume `tokens.css` VERBATIM — no token value is
+ * re-declared or re-derived — and change NOTHING visually.
+ *
+ * Two deliberate choices keep it at zero visual delta:
+ *  1. Preflight is NOT imported. `base.css` already owns the reset; importing
+ *     Tailwind's preflight would restyle the whole document.
+ *  2. Tailwind's theme is imported into `layer(theme)`, while mirrorr's
+ *     tokens.css is UNLAYERED. Unlayered declarations always beat layered
+ *     ones, so mirrorr keeps ownership of every name it already defines
+ *     (`--font-mono`, `--shadow-*`, `--ease-out`, …) regardless of order.
+ *
+ * Naming rule that follows from (2): a mirrorr token may only be mapped onto a
+ * Tailwind namespace key whose NAME DIFFERS from the token's own name —
+ * otherwise the mapping is a self-reference (`--shadow-md: var(--shadow-md)`).
+ * Colliding names are therefore aliased (see `shadow-elev-*`) or deferred.
+ */
+
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/*
+ * Colour — mirrorr tokens → Tailwind's colour namespace. `inline` keeps the
+ * var() reference (the shadcn pattern), so an element-scoped token override
+ * still flows through to the utility.
+ */
+@theme inline {
+  --color-canvas: var(--bg);
+  --color-sunken: var(--bg-sunken);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-surface-4: var(--surface-4);
+  --color-surface-hover: var(--surface-hover);
+
+  --color-line: var(--border);
+  --color-line-subtle: var(--border-subtle);
+  --color-line-strong: var(--border-strong);
+
+  --color-ink: var(--text);
+  --color-ink-muted: var(--text-muted);
+  --color-ink-dim: var(--text-dim);
+  --color-ink-faint: var(--text-faint);
+  --color-ink-inverse: var(--text-inverse);
+
+  --color-brand: var(--accent);
+  --color-brand-hover: var(--accent-hover);
+  --color-brand-press: var(--accent-press);
+  --color-brand-ink: var(--accent-ink);
+
+  --color-success: var(--success);
+  --color-success-ink: var(--success-ink);
+  --color-warning: var(--warning);
+  --color-warning-ink: var(--warning-ink);
+  --color-danger: var(--danger);
+  --color-danger-ink: var(--danger-ink);
+  --color-info: var(--info);
+  --color-purple: var(--secondary); /* mirrorr calls this hue "secondary" */
+  --color-purple-ink: var(--secondary-ink);
+  --color-neutral: var(--neutral);
+
+  /*
+   * shadcn slot aliases (audit §4.1). Two collisions are resolved on purpose:
+   *  - shadcn `accent` is an interactive HOVER WASH → maps to --surface-hover,
+   *    NOT to mirrorr's signal green (which is exposed as `brand`/`primary`).
+   *  - shadcn `secondary` is a NEUTRAL fill → maps to --surface-2, NOT to
+   *    mirrorr's purple (`--secondary`, exposed as `purple`).
+   */
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
+  --color-card: var(--surface-1);
+  --color-card-foreground: var(--text);
+  --color-popover: var(--surface-3);
+  --color-popover-foreground: var(--text);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--accent-ink);
+  --color-secondary: var(--surface-2);
+  --color-secondary-foreground: var(--text);
+  --color-muted: var(--surface-2);
+  --color-muted-foreground: var(--text-muted);
+  --color-accent: var(--surface-hover);
+  --color-accent-foreground: var(--text);
+  --color-destructive: var(--danger);
+  --color-border: var(--border);
+  --color-input: var(--border);
+  --color-ring: var(--accent);
+}
+
+/*
+ * Radius / spacing / type / elevation / motion.
+ *
+ * Spacing: mirrorr's scale is 4px-based, which is exactly Tailwind's default
+ * multiplier — so `p-1`…`p-16` line up with `--s-1`…`--s-16`. Pinning
+ * `--spacing: 4px` keeps them fixed-px like the tokens (Tailwind's default is
+ * `0.25rem`, identical at a 16px root but rem-scaled otherwise).
+ *
+ * Elevation and easing collide with mirrorr's own token names, so they are
+ * aliased under distinct keys (`shadow-elev-*`) rather than mapped 1:1.
+ */
+@theme {
+  --radius-xs: var(--r-xs);
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-xl);
+  --spacing: 4px;
+
+  --text-2xs: var(--fs-2xs);
+  --text-xs: var(--fs-xs);
+  --text-sm: var(--fs-sm);
+  --text-base: var(--fs-base);
+  --text-md: var(--fs-md);
+  --text-lg: var(--fs-lg);
+  --text-xl: var(--fs-xl);
+  --text-2xl: var(--fs-2xl);
+  --text-3xl: var(--fs-3xl);
+
+  --leading-tight: var(--lh-tight);
+  --leading-snug: var(--lh-snug);
+  --leading-normal: var(--lh-normal);
+
+  --font-weight-regular: var(--fw-regular);
+  --font-weight-medium: var(--fw-medium);
+  --font-weight-semibold: var(--fw-semibold);
+  --font-weight-bold: var(--fw-bold);
+
+  /* `--font-sans` is a distinct name from mirrorr's `--font-ui`, so this is
+     safe; `font-mono` is deferred (self-named token ⇒ self-reference). */
+  --font-sans: var(--font-ui);
+
+  --shadow-elev-xs: var(--shadow-xs);
+  --shadow-elev-sm: var(--shadow-sm);
+  --shadow-elev-md: var(--shadow-md);
+  --shadow-elev-lg: var(--shadow-lg);
+  --shadow-ring: var(--ring);
+
+  --ease-spring: var(--ease-spring);
+  --default-transition-duration: var(--dur-fast);
+}

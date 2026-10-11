@@ -1,4 +1,5 @@
 import path from "node:path"
+import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 
@@ -24,7 +25,9 @@ export default defineConfig({
   // Compile-time surface flag: the standard build drops every admin branch
   // during bundling rather than hiding it behind a runtime check.
   define: { __ADMIN__: JSON.stringify(surface === "admin") },
-  plugins: [react()],
+  // `tailwindcss()` scans sources and compiles `src/ui/styles/tailwind.css`
+  // (imported first from app.css) — see that file for the zero-delta contract.
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "./src"),
