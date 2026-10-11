@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   applyImport,
@@ -9,6 +9,7 @@ import {
   downloadJson,
   fetchAutorunExport,
   fetchAutorunPage,
+  fetchBundleFromUrl,
   fetchProfileExport,
   getErrorMessage,
   isSupportedVersion,
@@ -16,6 +17,7 @@ import {
   issueOriginHash,
   issuePluginType,
   itemBadge,
+  pastAutoruns,
   suggestedRename,
   useEngines,
   useEntityList,
@@ -41,6 +43,7 @@ import {
   FilePicker,
   Hash,
   IconDownload,
+  Input,
   LoadMore,
   Panel,
   PanelBody,
@@ -52,6 +55,7 @@ import {
   Table,
   Tag,
   Td,
+  Textarea,
   Th,
   toast,
 } from "@/ui/components"
@@ -369,7 +373,10 @@ function ImportPanel() {
   const [fileError, setFileError] = useState<string | null>(null)
   const [fileName, setFileName] = useState<string | null>(null)
   const [fileSize, setFileSize] = useState<number | null>(null)
+  const [pasted, setPasted] = useState("")
+  const [bundleUrl, setBundleUrl] = useState("")
   const [summary, setSummary] = useState<ImportApplySummary | null>(null)
+  const pastItems = useMemo(() => (bundle === null ? [] : pastAutoruns(bundle)), [bundle])
 
   const validate = useMutation({
     mutationFn: (value: unknown) => validateBundle(value),
@@ -401,20 +408,9 @@ function ImportPanel() {
     setFileSize(null)
   }
 
-  const handleFile = async (file: File): Promise<void> => {
-    setFileName(file.name)
-    setFileSize(file.size)
+  const stage = (parsed: unknown): void => {
     setFileError(null)
     setSummary(null)
-
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(await file.text())
-    } catch {
-      clearStaged()
-      setFileError(UNREADABLE_FILE)
-      return
-    }
     if (!isSupportedVersion(parsed)) {
       clearStaged()
       setFileError(UNSUPPORTED_VERSION)
@@ -426,12 +422,35 @@ function ImportPanel() {
       setFileError(`This bundle has ${count} items — the server accepts up to ${BUNDLE_ITEM_LIMIT}.`)
       return
     }
-
     setBundle(parsed)
     setReport(null)
     setResolutions({})
     validate.mutate(parsed)
   }
+
+  const stageText = (text: string): void => {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      clearStaged()
+      setFileError(UNREADABLE_FILE)
+      return
+    }
+    stage(parsed)
+  }
+
+  const handleFile = async (file: File): Promise<void> => {
+    setFileName(file.name)
+    setFileSize(file.size)
+    stageText(await file.text())
+  }
+
+  const fetchUrl = useMutation({
+    mutationFn: (value: string) => fetchBundleFromUrl(value),
+    onSuccess: (parsed) => stage(parsed),
+    onError: (error) => setFileError(getErrorMessage(error, "Could not read that URL")),
+  })
 
   const setResolution = (name: string, patch: Partial<ItemResolution>) => {
     setResolutions((current) => {
@@ -477,14 +496,66 @@ function ImportPanel() {
             />
           </Field>
 
+          <Field label="Paste JSON" hint="Or paste a version 1 bundle straight from your clipboard.">
+            <div className="stack-sm">
+              <Textarea
+                rows={4}
+                aria-label="Pasted bundle JSON"
+                placeholder='{ "version": 1, "profiles": [], "autoruns": [] }'
+                value={pasted}
+                onChange={(event) => setPasted(event.target.value)}
+              />
+              <Button disabled={pasted.trim() === ""} onClick={() => stageText(pasted)}>
+                Load pasted JSON
+              </Button>
+            </div>
+          </Field>
+
+          <Field label="Direct file URL" hint="Any http(s) URL that returns the bundle JSON directly.">
+            <div className="stack-sm">
+              <Input
+                type="url"
+                aria-label="Bundle URL"
+                placeholder="https://example.com/mirrorr-bundle.json"
+                value={bundleUrl}
+                onChange={(event) => setBundleUrl(event.target.value)}
+              />
+              <Button
+                loading={fetchUrl.isPending}
+                disabled={bundleUrl.trim() === ""}
+                onClick={() => fetchUrl.mutate(bundleUrl.trim())}
+              >
+                Load from URL
+              </Button>
+            </div>
+          </Field>
+
           {fileError !== null ? (
-            <Banner kind="danger" title="Cannot import this file">
+            <Banner kind="danger" title="Cannot read this bundle">
               {fileError}
             </Banner>
           ) : null}
           {summary !== null ? (
             <Banner kind="info" title="Import complete">
-              {`${summary.profiles_created} profiles created · ${summary.profiles_skipped} skipped · ${summary.autoruns_created} autoruns created.`}
+              <div className="stack-sm">
+                <span>
+                  {`${summary.profiles_created} profiles created · ${summary.profiles_skipped} skipped · ${summary.autoruns_created} autoruns created.`}
+                </span>
+                {summary.discarded_autoruns.length > 0 ? (
+                  <span>
+                    {`Discarded ${summary.discarded_autoruns.length} already-started: ${summary.discarded_autoruns.map((item) => item.name).join(", ")}.`}
+                  </span>
+                ) : null}
+              </div>
+            </Banner>
+          ) : null}
+
+          {bundle !== null && pastItems.length > 0 ? (
+            <Banner
+              kind="warning"
+              title={`${pastItems.length} ${pastItems.length === 1 ? "item has" : "items have"} already started and will be skipped`}
+            >
+              {`Discarded on import: ${pastItems.map((item) => item.name).join(", ")}.`}
             </Banner>
           ) : null}
 

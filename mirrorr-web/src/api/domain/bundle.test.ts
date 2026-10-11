@@ -8,6 +8,7 @@ import {
   issueOriginHash,
   issuePluginType,
   itemBadge,
+  pastAutoruns,
   suggestedRename,
 } from "./bundle"
 
@@ -143,5 +144,35 @@ describe("buildApplyBody", () => {
     const profile = (body.bundle as { profiles: Record<string, unknown>[] }).profiles[0]
     expect(profile.engine).toBeUndefined()
     expect(profile.retry_mode).toBeUndefined()
+  })
+})
+
+describe("pastAutoruns", () => {
+  const NOW = Date.parse("2026-10-10T12:00:00Z")
+  const withAutoruns = (autoruns: unknown[]) => ({ version: 1, profiles: [], autoruns })
+
+  it("flags the autoruns whose start time has already passed", () => {
+    expect(
+      pastAutoruns(
+        withAutoruns([
+          { user_friendly_name: "Early", start_time: "2026-10-10T09:00:00" },
+          { user_friendly_name: "Late", start_time: "2026-10-10T15:00:00" },
+        ]),
+        NOW,
+      ),
+    ).toEqual([{ name: "Early", start_time: "2026-10-10T09:00:00" }])
+  })
+
+  it("ignores entries with a missing or unreadable start time", () => {
+    expect(
+      pastAutoruns(
+        withAutoruns([
+          { user_friendly_name: "No time" },
+          { user_friendly_name: "Bad", start_time: "whenever" },
+          { user_friendly_name: "Wrong type", start_time: 42 },
+        ]),
+        NOW,
+      ),
+    ).toEqual([])
   })
 })

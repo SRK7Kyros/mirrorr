@@ -153,6 +153,28 @@ export function mergeBundles(bundles: readonly unknown[]): unknown {
   return { version: 1, profiles, autoruns }
 }
 
+export interface PastAutorun {
+  readonly name: string
+  readonly start_time: string
+}
+
+/**
+ * Autoruns in a bundle whose start time has already passed. A past
+ * `start_time` makes the scheduler fire the moment the autorun lands, so the
+ * server discards these on apply — this lets the preview say so first.
+ */
+export function pastAutoruns(bundle: unknown, now: number = Date.now()): PastAutorun[] {
+  const found: PastAutorun[] = []
+  for (const entry of entriesOf(bundle, "autoruns")) {
+    const name = entry.user_friendly_name
+    const start = entry.start_time
+    if (typeof name !== "string" || typeof start !== "string") continue
+    const at = Date.parse(start.endsWith("Z") ? start : `${start}Z`)
+    if (!Number.isNaN(at) && at <= now) found.push({ name, start_time: start })
+  }
+  return found
+}
+
 export type IssueKind =
   | "not_installed"
   | "hash_mismatch"
