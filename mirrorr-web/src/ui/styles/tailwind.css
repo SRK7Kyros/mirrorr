@@ -65,30 +65,13 @@
   --color-neutral: var(--neutral);
 
   /*
-   * shadcn slot aliases (audit §4.1). Two collisions are resolved on purpose:
-   *  - shadcn `accent` is an interactive HOVER WASH → maps to --surface-hover,
-   *    NOT to mirrorr's signal green (which is exposed as `brand`/`primary`).
-   *  - shadcn `secondary` is a NEUTRAL fill → maps to --surface-2, NOT to
-   *    mirrorr's purple (`--secondary`, exposed as `purple`).
+   * shadcn slot aliases (`--background`, `--primary`, `--muted`, …) are NOT
+   * mapped yet — they belong to Phase 2, added with the first shadcn component
+   * so every slot has a real consumer. Deferring also defers the one genuine
+   * name clash: `--color-muted` would emit `.text-muted`, which base.css
+   * already defines, and that deserves a deliberate decision rather than an
+   * inherited collision. Intended mapping: audit §4.1.
    */
-  --color-background: var(--bg);
-  --color-foreground: var(--text);
-  --color-card: var(--surface-1);
-  --color-card-foreground: var(--text);
-  --color-popover: var(--surface-3);
-  --color-popover-foreground: var(--text);
-  --color-primary: var(--accent);
-  --color-primary-foreground: var(--accent-ink);
-  --color-secondary: var(--surface-2);
-  --color-secondary-foreground: var(--text);
-  --color-muted: var(--surface-2);
-  --color-muted-foreground: var(--text-muted);
-  --color-accent: var(--surface-hover);
-  --color-accent-foreground: var(--text);
-  --color-destructive: var(--danger);
-  --color-border: var(--border);
-  --color-input: var(--border);
-  --color-ring: var(--accent);
 }
 
 /*
@@ -99,8 +82,10 @@
  * `--spacing: 4px` keeps them fixed-px like the tokens (Tailwind's default is
  * `0.25rem`, identical at a 16px root but rem-scaled otherwise).
  *
- * Elevation and easing collide with mirrorr's own token names, so they are
- * aliased under distinct keys (`shadow-elev-*`) rather than mapped 1:1.
+ * Elevation collides with mirrorr's own token names, so it is aliased under
+ * distinct keys (`shadow-elev-*`) rather than mapped 1:1. Easing is deferred
+ * for the same reason: mirrorr's `--ease-*` names are already Tailwind's, so a
+ * 1:1 mapping would be a self-reference.
  */
 @theme {
   --radius-xs: var(--r-xs);
@@ -139,6 +124,5 @@
   --shadow-elev-lg: var(--shadow-lg);
   --shadow-ring: var(--ring);
 
-  --ease-spring: var(--ease-spring);
   --default-transition-duration: var(--dur-fast);
 }
