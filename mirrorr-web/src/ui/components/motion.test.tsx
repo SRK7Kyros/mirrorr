@@ -101,6 +101,6 @@ describe("Fab", () => {
   it("exposes its label and renders as the floating action button", () => {
     render(<Fab label="New session" icon={<span />} />)
     const button = screen.getByRole("button", { name: "New session" })
-    expect(button.className).toContain("fab")
+    expect(button.getAttribute("data-slot")).toBe("fab")
   })
 })
