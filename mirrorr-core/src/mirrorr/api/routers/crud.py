@@ -523,6 +523,31 @@ def _resolve_capture_target(
     )
 
 
+def _merge_profile_capture(profile: Profile | None, payload_data: dict[str, Any]) -> dict[str, Any]:
+    """Fold the profile a PUT now points at into the payload's capture config.
+
+    A profile link is only a link: ``Autorun.engine_id``/``resolver_id``/
+    ``resolver_config``/retry columns are what the scheduler actually runs with.
+    Mirroring ``POST /autoruns/``, a profile change re-derives them here so
+    switching profiles changes the capture, not just the ``profile_id``.
+    """
+    engine_id, resolver_id, resolver_config, retry_mode, retry_config = _resolve_capture_target(
+        profile,
+        payload_data.get("engine_id"),
+        payload_data.get("resolver_id"),
+        payload_data.get("resolver_config"),
+        payload_data.get("retry_mode"),
+        payload_data.get("retry_config"),
+    )
+    return payload_data | {
+        "engine_id": engine_id,
+        "resolver_id": resolver_id,
+        "resolver_config": resolver_config,
+        "retry_mode": retry_mode,
+        "retry_config": retry_config,
+    }
+
+
 @sessions_router.post("/", response_model=SessionResponse)
 async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
     profile = None
@@ -685,6 +710,12 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
         raise HTTPException(status_code=403, detail="Not your autorun")
     payload_data = item.model_dump(exclude_unset=True)
     _enforce_autorun_update_guard(existing, payload_data)
+    if "profile_id" in payload_data:
+        profile_id = payload_data["profile_id"]
+        profile = await crud.get_by_id(db, Profile, profile_id) if profile_id is not None else None
+        if profile_id is not None and not profile:
+            raise HTTPException(status_code=400, detail=f"Profile {profile_id} not found")
+        payload_data = _merge_profile_capture(profile, payload_data)
     if "start_time" in payload_data and payload_data["start_time"] is not None:
         payload_data["start_time"] = payload_data["start_time"].replace(tzinfo=None) if payload_data["start_time"].tzinfo else payload_data["start_time"]
     if "end_time" in payload_data and payload_data["end_time"] is not None:
