@@ -50,6 +50,7 @@ import {
   asObject,
   defaultsFromSchema,
   toast,
+  panelTitleClass,
 } from "@/ui/components"
 import { useSelection } from "@/ui/hooks"
 import { Section } from "@/ui/views/shared/page"
@@ -283,7 +284,7 @@ function SourceDialog({ open, onClose, source, resolvers, schemasLoading, existi
         ) : null}
 
         <section className="stack-sm">
-          <h3 className="panel-title">Resolver config</h3>
+          <h3 className={panelTitleClass}>Resolver config</h3>
           {schemasLoading ? (
             <SkeletonRows rows={3} cols={2} />
           ) : resolver === undefined ? (

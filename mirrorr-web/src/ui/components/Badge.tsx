@@ -1,6 +1,23 @@
 import type { ReactNode } from "react"
 import { cn } from "@/ui/lib/cn"
 
+const BADGE_BASE =
+  "inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full text-2xs font-bold tabular-nums leading-none [font-family:var(--font-mono)]"
+
+const BADGE_VARIANT = {
+  accent: "bg-brand text-brand-ink",
+  neutral: "bg-surface-4 text-ink-muted",
+  danger: "bg-danger text-white",
+} as const
+
+const TAG_BASE =
+  "inline-flex items-center gap-1 h-[22px] px-2 rounded-xs border text-xs whitespace-nowrap [font-family:var(--font-mono)]"
+
+const TAG_VARIANT = {
+  default: "bg-surface-2 border-line-subtle text-ink-muted",
+  accent: "[background-color:var(--accent-dim)] [border-color:var(--accent-line)] text-brand",
+} as const
+
 export interface BadgeProps {
   readonly children: ReactNode
   readonly variant?: "accent" | "neutral" | "danger"
@@ -8,13 +25,10 @@ export interface BadgeProps {
   readonly title?: string
 }
 
-/** Count badge — `.badge` variants from components.css. */
+/** Count badge. */
 export function Badge({ children, variant = "accent", className, title }: BadgeProps) {
   return (
-    <span
-      className={cn("badge", variant === "neutral" && "badge-neutral", variant === "danger" && "badge-danger", className)}
-      title={title}
-    >
+    <span className={cn(BADGE_BASE, BADGE_VARIANT[variant], className)} title={title}>
       {children}
     </span>
   )
@@ -30,7 +44,7 @@ export interface TagProps {
 /** Mono metadata tag (ids, hashes, engine names). */
 export function Tag({ children, accent = false, className, title }: TagProps) {
   return (
-    <span className={cn("tag", accent && "tag-accent", className)} title={title}>
+    <span className={cn(TAG_BASE, accent ? TAG_VARIANT.accent : TAG_VARIANT.default, className)} title={title}>
       {children}
     </span>
   )

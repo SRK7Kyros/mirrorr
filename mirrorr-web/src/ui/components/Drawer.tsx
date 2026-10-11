@@ -93,7 +93,7 @@ export function Drawer({
               >
                 <header className={HEAD_CLASS}>
                   <DialogPrimitive.Title asChild>
-                    <h2 className="text-lg font-semibold">{title}</h2>
+                    <h2 className="text-lg font-semibold leading-tight">{title}</h2>
                   </DialogPrimitive.Title>
                   <IconButton label="Close" icon={<IconX size={18} />} onClick={onClose} />
                 </header>

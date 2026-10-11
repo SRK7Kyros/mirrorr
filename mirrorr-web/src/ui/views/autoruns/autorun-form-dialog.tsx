@@ -28,6 +28,7 @@ import {
   TabPanel,
   defaultsFromSchema,
   toast,
+  panelTitleClass,
 } from "@/ui/components"
 import { SourcePicker } from "@/ui/views/shared/source-picker"
 
@@ -426,7 +427,7 @@ export function AutorunFormDialog({
                   }}
                 />
                 <section className="stack-sm">
-                  <h3 className="panel-title">Resolver config</h3>
+                  <h3 className={panelTitleClass}>Resolver config</h3>
                   {resolver === undefined ? (
                     <p className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
                       Pick a resolver to configure it.

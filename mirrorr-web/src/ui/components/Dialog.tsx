@@ -105,7 +105,7 @@ export function Dialog({
                   {icon !== undefined ? icon : null}
                   <div className="flex-1 min-w-0">
                     <DialogPrimitive.Title asChild>
-                      <h2 className="text-lg font-semibold">{title}</h2>
+                      <h2 className="text-lg font-semibold leading-tight">{title}</h2>
                     </DialogPrimitive.Title>
                     {description !== undefined ? (
                       <DialogPrimitive.Description asChild>

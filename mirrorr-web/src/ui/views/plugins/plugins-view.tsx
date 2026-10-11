@@ -16,6 +16,7 @@ import {
   Table,
   Td,
   Th,
+  panelBodyClass,
 } from "@/ui/components"
 import { staggerContainer, staggerItem } from "@/ui/lib/motion"
 import { Page } from "@/ui/views/shared/page"
@@ -147,11 +148,11 @@ function PluginPanel({ title, tagsLabel, variant, entries, isLoading, isError, e
       <PanelHead title={title} />
       <PanelBody flush>
         {isLoading ? (
-          <div className="panel-body">
+          <div className={panelBodyClass}>
             <SkeletonRows cols={4} />
           </div>
         ) : isError ? (
-          <div className="panel-body">
+          <div className={panelBodyClass}>
             <ErrorPanel message={getErrorMessage(error, `Could not load ${title.toLowerCase()}`)} onRetry={onRetry} />
           </div>
         ) : entries.length === 0 ? (
