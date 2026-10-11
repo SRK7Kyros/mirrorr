@@ -27,5 +27,6 @@ export function humanize(token: string): string {
 
 /** Truncate a string to `max` chars with an ellipsis. */
 export function truncate(value: string, max: number): string {
+  if (max <= 0) return ""
   return value.length <= max ? value : `${value.slice(0, max - 1)}…`
 }

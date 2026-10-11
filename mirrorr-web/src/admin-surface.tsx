@@ -22,6 +22,7 @@ import {
 } from "@/api"
 import { ApiError } from "@/api/client"
 import { queryKeys, staleTimes } from "@/api/query-keys"
+import { copyText } from "@/ui/lib/clipboard"
 import {
   Avatar,
   Banner,
@@ -420,7 +421,7 @@ function CreateClientDialog({ open, onClose }: CreateClientDialogProps) {
   async function copyKey(): Promise<void> {
     if (apiKey === null) return
     try {
-      await navigator.clipboard.writeText(apiKey)
+      await copyText(apiKey)
       toast.success("API key copied")
     } catch {
       toast.error("Copy failed", "Select the key and copy it manually.")
@@ -451,7 +452,15 @@ function CreateClientDialog({ open, onClose }: CreateClientDialogProps) {
       }
     >
       {apiKey === null ? (
-        <form id="create-client-form" className="stack" onSubmit={(event) => void event.preventDefault()} noValidate>
+        <form
+          id="create-client-form"
+          className="stack"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (!create.isPending) create.mutate()
+          }}
+          noValidate
+        >
           {error !== null ? <Banner kind="danger" title={error} /> : null}
           <Field label="Client name" htmlFor="new-client-name" required>
             <Input

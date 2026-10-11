@@ -33,10 +33,6 @@ export function MenuSeparator() {
   return <div className="menu-sep" role="separator" />
 }
 
-export function MenuLabel({ children }: { readonly children: ReactNode }) {
-  return <div className="menu-label">{children}</div>
-}
-
 export interface MenuPopoverProps {
   readonly open: boolean
   readonly children: ReactNode
@@ -82,26 +78,48 @@ export function MenuPopover({
 export interface DropdownMenuProps {
   readonly children: ReactNode
   readonly label?: string
-  readonly trigger?: ReactNode
   readonly align?: "left" | "right"
   readonly className?: string
 }
 
-/** Outside-click + Escape dismissal for a `.menu-anchor` popover. */
+const MENU_ITEM = '[role="menuitem"]:not([disabled])'
+const MENU_TRIGGER = 'button[aria-haspopup="menu"]'
+
+/** Outside-click + Escape dismissal and arrow-key navigation for a `.menu-anchor` popover. */
 export function useMenuDismiss() {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
+    const items = () => Array.from(wrapRef.current?.querySelectorAll<HTMLElement>(MENU_ITEM) ?? [])
+    const trigger = () => wrapRef.current?.querySelector<HTMLElement>(MENU_TRIGGER) ?? null
+
     const onPointerDown = (event: MouseEvent) => {
       if (wrapRef.current !== null && !wrapRef.current.contains(event.target as Node)) setOpen(false)
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false)
+      if (event.key === "Escape") {
+        setOpen(false)
+        trigger()?.focus()
+        return
+      }
+      const list = items()
+      if (list.length === 0) return
+      const index = list.indexOf(document.activeElement as HTMLElement)
+      let next: number
+      if (event.key === "ArrowDown") next = (index + 1) % list.length
+      else if (event.key === "ArrowUp") next = index <= 0 ? list.length - 1 : index - 1
+      else if (event.key === "Home") next = 0
+      else if (event.key === "End") next = list.length - 1
+      else return
+      event.preventDefault()
+      list[next]?.focus()
     }
+
     document.addEventListener("mousedown", onPointerDown)
     document.addEventListener("keydown", onKeyDown)
+    items()[0]?.focus()
     return () => {
       document.removeEventListener("mousedown", onPointerDown)
       document.removeEventListener("keydown", onKeyDown)
@@ -116,22 +134,18 @@ export function useMenuDismiss() {
  * outside click, Escape, or item selection (each `MenuItem` calls its own
  * `onClick`; the wrapper closes on any click inside).
  */
-export function DropdownMenu({ children, label = "More actions", trigger, align = "right", className }: DropdownMenuProps) {
+export function DropdownMenu({ children, label = "More actions", align = "right", className }: DropdownMenuProps) {
   const { open, setOpen, wrapRef } = useMenuDismiss()
 
   return (
     <div ref={wrapRef} className={cn("menu-anchor", className)}>
-      {trigger !== undefined ? (
-        <span onClick={() => setOpen((value) => !value)}>{trigger}</span>
-      ) : (
-        <IconButton
-          label={label}
-          icon={<IconMoreVertical size={18} />}
-          aria-haspopup="menu"
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-        />
-      )}
+      <IconButton
+        label={label}
+        icon={<IconMoreVertical size={18} />}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      />
       <MenuPopover open={open} align={align} onClick={() => setOpen(false)}>
         {children}
       </MenuPopover>

@@ -59,7 +59,9 @@ export function FilePicker({
           event.preventDefault()
           if (!disabled) setDragging(true)
         }}
-        onDragLeave={() => setDragging(false)}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false)
+        }}
         onDrop={drop}
         onKeyDown={(event) => {
           if (disabled) return

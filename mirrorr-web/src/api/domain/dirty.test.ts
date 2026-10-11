@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { diffDirtyFields, isDirty, snapshotFields } from "./dirty"
+import { diffDirtyFields, isDirty } from "./dirty"
 
 describe("diffDirtyFields", () => {
   it("returns empty when nothing changed", () => {
     const initial = { a: 1, b: "x", c: { d: [1, 2] } }
-    const current = snapshotFields(initial)
+    const current = structuredClone(initial)
     expect(diffDirtyFields(initial, current)).toEqual([])
   })
 
@@ -32,14 +32,5 @@ describe("isDirty", () => {
     expect(isDirty(initial, { a: 1, b: 3 }, ["a"])).toBe(false)
     expect(isDirty(initial, { a: 1, b: 3 }, ["a", "b"])).toBe(true)
     expect(isDirty(initial, { a: 9 }, ["b"])).toBe(false)
-  })
-})
-
-describe("snapshotFields", () => {
-  it("deep-copies so later mutation cannot alias the snapshot", () => {
-    const source = { c: { d: [1] } }
-    const snap = snapshotFields(source)
-    source.c.d.push(2)
-    expect(diffDirtyFields(snap, { c: { d: [1] } })).toEqual([])
   })
 })

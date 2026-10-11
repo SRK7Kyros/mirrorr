@@ -23,10 +23,3 @@ export function listRefetchInterval(context: PollingContext): PollingIntervalMs 
   if (context.wsPollingFallback) return WS_FALLBACK_POLL_MS
   return LIST_BACKSTOP_MS
 }
-
-/** Open detail queries — no steady interval normally; degraded modes poll. */
-export function detailRefetchInterval(context: PollingContext): PollingIntervalMs | false {
-  if (context.isApiClient) return API_CLIENT_POLL_MS
-  if (context.wsPollingFallback) return WS_FALLBACK_POLL_MS
-  return false
-}

@@ -37,6 +37,8 @@ export function ConfirmDialog({
     try {
       await onConfirm()
       onClose()
+    } catch (error) {
+      console.warn("Confirm action failed", error)
     } finally {
       setBusy(false)
     }

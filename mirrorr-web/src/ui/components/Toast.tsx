@@ -28,6 +28,7 @@ export interface ToastItem {
 let nextId = 1
 let items: readonly ToastItem[] = []
 const listeners = new Set<() => void>()
+const timers = new Map<number, ReturnType<typeof setTimeout>>()
 
 function emit(): void {
   for (const listener of listeners) listener()
@@ -46,11 +47,16 @@ function push(kind: ToastKind, title: string, text?: string, action?: ToastActio
     },
   ]
   emit()
-  window.setTimeout(() => dismiss(id), kind === "error" ? 8000 : 5000)
+  timers.set(id, window.setTimeout(() => dismiss(id), kind === "error" ? 8000 : 5000))
   return id
 }
 
 export function dismiss(id: number): void {
+  const timer = timers.get(id)
+  if (timer !== undefined) {
+    clearTimeout(timer)
+    timers.delete(id)
+  }
   const next = items.filter((item) => item.id !== id)
   if (next.length === items.length) return
   items = next

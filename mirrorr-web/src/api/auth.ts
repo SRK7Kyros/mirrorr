@@ -6,7 +6,7 @@ import {
   startProactiveRefresh,
   stopProactiveRefresh,
 } from "@/api/client"
-import { disposeEventTable, installEventTable } from "@/api/realtime/event-table"
+import { disposeEventTable } from "@/api/realtime/event-table"
 import { startRealtimeManager, stopRealtimeManager } from "@/api/realtime/manager"
 import {
   AuthResponseSchema,
@@ -15,6 +15,8 @@ import {
   type RegistrationPending,
 } from "@/api/schemas"
 import { queryClient } from "@/api/query-client"
+import { clearProbeCache } from "@/api/endpoints"
+import { clearAllPendingActions } from "@/api/entity-store"
 
 export type AuthStatus = "unknown" | "authenticated" | "anonymous"
 
@@ -25,6 +27,7 @@ export interface AuthState {
 
 let state: AuthState = { status: "unknown", auth: null }
 const listeners = new Set<() => void>()
+let authMeInFlight: Promise<AuthResponse> | null = null
 
 export function getAuthState(): AuthState {
   return state
@@ -40,15 +43,6 @@ export function subscribeAuth(listener: () => void): () => void {
 function setState(next: AuthState): void {
   state = next
   for (const listener of listeners) listener()
-}
-
-/** Scaffold-compatible guard check backed by the session state. */
-export function isAuthenticated(): boolean {
-  return state.status === "authenticated"
-}
-
-export function currentAuth(): AuthResponse | null {
-  return state.auth
 }
 
 /**
@@ -68,10 +62,9 @@ export const API_CLIENT_POLL_LABEL = "API client — polling every 10s"
 
 function onAuthenticated(auth: AuthResponse): void {
   setState({ status: "authenticated", auth })
-  queryClient.setQueryData(["auth", "me"], auth)
+  queryClient.setQueryData(["auth", "me"], { ...auth, access_token: null, refresh_token: null })
   startRealtimeManager({ openNotifications: auth.user != null })
   startProactiveRefresh()
-  installEventTable()
 }
 
 function clearSession(): void {
@@ -79,6 +72,8 @@ function clearSession(): void {
   stopProactiveRefresh()
   disposeEventTable()
   queryClient.clear()
+  clearProbeCache()
+  clearAllPendingActions()
   setState({ status: "anonymous", auth: null })
 }
 
@@ -89,6 +84,15 @@ function clearSession(): void {
  */
 export async function ensureAuthMe(): Promise<AuthResponse> {
   if (state.status === "authenticated" && state.auth !== null) return state.auth
+  if (authMeInFlight === null) {
+    authMeInFlight = fetchAuthMe().finally(() => {
+      authMeInFlight = null
+    })
+  }
+  return authMeInFlight
+}
+
+async function fetchAuthMe(): Promise<AuthResponse> {
   try {
     const raw = await apiFetch<unknown>("/auth/me")
     const auth = AuthResponseSchema.parse(raw)
@@ -182,11 +186,8 @@ export async function forceLogout(): Promise<void> {
   const wasAuthenticated = state.status === "authenticated"
   clearSession()
   if (!wasAuthenticated) return
-  try {
-    navigator?.toLogin()
-  } catch {
-    window.location.assign("/login")
-  }
+  if (navigator !== null) navigator.toLogin()
+  else window.location.assign("/login")
 }
 
 setAuthExhaustedHandler(() => {

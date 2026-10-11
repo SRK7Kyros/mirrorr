@@ -2,12 +2,14 @@ import type { InfiniteData, QueryClient } from "@tanstack/react-query"
 import {
   applyAuthoritative,
   clearPendingActions,
+  idKey,
   type EntityId,
   type Identified,
 } from "@/api/entity-store"
 import { queryKeys, queryRoots, type CursorPage } from "@/api/query-keys"
 import { setRealtimeFrameHandlers } from "@/api/realtime/manager"
 import { queryClient as defaultQueryClient } from "@/api/query-client"
+import { removeFromInfiniteLists } from "@/api/infinite-lists"
 
 export interface EventToast {
   readonly kind: "info" | "success" | "error"
@@ -101,12 +103,24 @@ function publishRemux(sessionId: number, frame: ParsedFrame): void {
   for (const listener of [...listeners]) listener(progress)
 }
 
-export function createEventTable(
-  client: QueryClient,
-  options: EventTableOptions = {},
-): EventTable {
+export function createEventTable(client: QueryClient, options: EventTableOptions = {}): EventTable {
   const buffer = new Map<string, ParsedFrame>()
   let flushTimer: ReturnType<typeof setTimeout> | null = null
+
+  // Rule 5 is sticky for this table's lifetime: a deleted id stays deleted so a
+  // later stale `*.updated` cannot resurrect it; a `*.created` clears it.
+  const deletedIds = new Map<string, Set<string>>()
+  function markDeleted(resource: string, id: EntityId): void {
+    const ids = deletedIds.get(resource) ?? new Set<string>()
+    ids.add(idKey(id))
+    deletedIds.set(resource, ids)
+  }
+  function isDeleted(resource: string, id: EntityId): boolean {
+    return deletedIds.get(resource)?.has(idKey(id)) === true
+  }
+  function clearDeleted(resource: string, id: EntityId): void {
+    deletedIds.get(resource)?.delete(idKey(id))
+  }
 
   function handleFrame(frame: unknown): void {
     const parsed = parseFrame(frame)
@@ -115,8 +129,7 @@ export function createEventTable(
       return
     }
     // 30ms coalesce; dedupe key = (event-family, id), newest frame wins.
-    // Neither component contains a space, so the join is collision-free.
-    buffer.set(`${parsed.event} ${frameEntityId(parsed) ?? ""}`, parsed)
+    buffer.set(JSON.stringify([parsed.event, frameEntityId(parsed) ?? null]), parsed)
     if (flushTimer === null) flushTimer = setTimeout(flush, COALESCE_MS)
   }
 
@@ -124,7 +137,13 @@ export function createEventTable(
     flushTimer = null
     const frames = [...buffer.values()]
     buffer.clear()
-    for (const frame of frames) dispatch(frame)
+    for (const frame of frames) {
+      try {
+        dispatch(frame)
+      } catch (error) {
+        console.warn("Realtime dispatch failed", error)
+      }
+    }
   }
 
   function dispose(): void {
@@ -143,7 +162,10 @@ export function createEventTable(
       if (previous === undefined) return undefined
       return {
         ...previous,
-        pages: previous.pages.map((page) => ({ ...page, items: writeItems(page.items) })),
+        pages: previous.pages.map((page) => ({
+          ...page,
+          items: writeItems(page.items),
+        })),
       }
     })
   }
@@ -175,11 +197,6 @@ export function createEventTable(
     })
   }
 
-  function removeAcrossPages<T extends Identified>(root: readonly unknown[], id: EntityId): void {
-    clearPendingActions(id)
-    writeListPages<T>(root, (items) => items.filter((item) => item.id !== id))
-  }
-
   function upsertDetail<T extends Identified>(key: readonly unknown[], snapshot: T): void {
     client.setQueryData<T>(key, (previous) => applyAuthoritative(previous, snapshot))
   }
@@ -190,6 +207,7 @@ export function createEventTable(
       client.invalidateQueries({ queryKey: queryRoots.sessions })
       return
     }
+    clearDeleted("session", data.id)
     upsertAcrossPages<AnyEntity>(queryRoots.sessions, data)
     const autorunId = (data as { autorun_id?: unknown }).autorun_id
     if (typeof autorunId === "number") {
@@ -211,18 +229,26 @@ export function createEventTable(
     const data = entityFromData(frame)
     if (data === null) {
       const id = frameEntityId(frame)
+      client.invalidateQueries({ queryKey: queryRoots.sessions })
       if (id !== undefined) client.invalidateQueries({ queryKey: queryKeys.session(id) })
       return
     }
+    if (isDeleted("session", data.id)) return
     const previous = client.getQueryData<AnyEntity>(queryKeys.session(data.id))
     upsertDetail(queryKeys.session(data.id), data)
     upsertAcrossPages<AnyEntity>(queryRoots.sessions, data)
     const status = typeof data.status === "string" ? data.status : undefined
     if (status === "completed" && previous?.status !== "completed") {
-      options.toast?.({ kind: "info", message: `Session #${String(data.id)} completed` })
+      options.toast?.({
+        kind: "info",
+        message: `Session #${String(data.id)} completed`,
+      })
     }
     if (status === "failed" && previous?.status !== "failed") {
-      options.toast?.({ kind: "error", message: `Session #${String(data.id)} failed` })
+      options.toast?.({
+        kind: "error",
+        message: `Session #${String(data.id)} failed`,
+      })
       client.invalidateQueries({ queryKey: queryKeys.session(data.id) })
     } else if (refetchDetail) {
       client.invalidateQueries({ queryKey: queryKeys.session(data.id) })
@@ -232,8 +258,9 @@ export function createEventTable(
   function onSessionDeleted(frame: ParsedFrame): void {
     const id = frameEntityId(frame)
     if (id === undefined) return
+    markDeleted("session", id)
     const detailOpen = client.getQueryData(queryKeys.session(id)) !== undefined
-    removeAcrossPages<AnyEntity>(queryRoots.sessions, id)
+    removeFromInfiniteLists(client, queryRoots.sessions, id)
     client.removeQueries({ queryKey: queryKeys.session(id), exact: true })
     if (detailOpen) options.navigate?.("/sessions")
   }
@@ -244,6 +271,8 @@ export function createEventTable(
       client.invalidateQueries({ queryKey: queryRoots.autoruns })
       return
     }
+    if (frame.event === "autorun.created") clearDeleted("autorun", data.id)
+    else if (isDeleted("autorun", data.id)) return
     upsertAcrossPages<AnyEntity>(queryRoots.autoruns, data)
     upsertDetail(queryKeys.autorun(data.id), data)
   }
@@ -251,8 +280,9 @@ export function createEventTable(
   function onAutorunDeleted(frame: ParsedFrame): void {
     const id = frameEntityId(frame)
     if (id === undefined) return
+    markDeleted("autorun", id)
     const detailOpen = client.getQueryData(queryKeys.autorun(id)) !== undefined
-    removeAcrossPages<AnyEntity>(queryRoots.autoruns, id)
+    removeFromInfiniteLists(client, queryRoots.autoruns, id)
     client.removeQueries({ queryKey: queryKeys.autorun(id), exact: true })
     if (detailOpen) options.navigate?.("/autoruns")
   }
@@ -263,13 +293,15 @@ export function createEventTable(
       client.invalidateQueries({ queryKey: queryRoots.recordings })
       return
     }
+    if (isDeleted("recording", data.id)) return
     upsertAcrossPages<AnyEntity>(queryRoots.recordings, data)
   }
 
   function onRecordingDeleted(frame: ParsedFrame): void {
     const id = frameEntityId(frame)
     if (id === undefined) return
-    removeAcrossPages<AnyEntity>(queryRoots.recordings, id)
+    markDeleted("recording", id)
+    removeFromInfiniteLists(client, queryRoots.recordings, id)
   }
 
   function onUnknownSubject(frame: ParsedFrame): void {
@@ -337,9 +369,14 @@ export function createEventTable(
         break
       case "profile.created":
       case "profile.updated":
-      case "profile.deleted":
+      case "profile.deleted": {
         client.invalidateQueries({ queryKey: queryRoots.profiles })
+        const profileId = frameEntityId(frame)
+        if (profileId !== undefined) {
+          client.invalidateQueries({ queryKey: queryKeys.profile(profileId) })
+        }
         break
+      }
       default:
         onUnknownSubject(frame)
     }
@@ -355,7 +392,14 @@ let activeTable: EventTable | null = null
 export function installEventTable(options: EventTableOptions = {}): () => void {
   disposeEventTable()
   const table = createEventTable(defaultQueryClient, options)
-  activeUnregister = setRealtimeFrameHandlers({ onEvent: (frame) => table.handleFrame(frame) })
+  activeUnregister = setRealtimeFrameHandlers({
+    onEvent: (frame) => table.handleFrame(frame),
+    onNotification: () => {
+      void defaultQueryClient.invalidateQueries({
+        queryKey: queryKeys.notifications,
+      })
+    },
+  })
   activeTable = table
   return disposeEventTable
 }

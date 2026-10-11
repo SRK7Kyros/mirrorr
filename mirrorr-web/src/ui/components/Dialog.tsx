@@ -3,6 +3,7 @@ import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "motion/react"
 import { cn } from "@/ui/lib/cn"
 import { dialogVariants, overlayVariants } from "@/ui/lib/motion"
+import { isTopOverlay, popOverlay, pushOverlay } from "@/ui/lib/overlay-stack"
 import { IconButton } from "./IconButton"
 import { IconX } from "./icons"
 
@@ -39,20 +40,26 @@ export function Dialog({
 }: DialogProps) {
   const titleId = useId()
   const descId = useId()
+  const overlayId = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
   const restoreRef = useRef<HTMLElement | null>(null)
+  const latest = useRef({ onClose, busy })
+  useEffect(() => {
+    latest.current = { onClose, busy }
+  })
 
   useEffect(() => {
     if (!open) return
+    pushOverlay(overlayId)
     restoreRef.current = document.activeElement as HTMLElement | null
     const node = dialogRef.current
     const first = node?.querySelector<HTMLElement>(FOCUSABLE)
     ;(first ?? node)?.focus()
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy) {
+      if (event.key === "Escape" && !latest.current.busy && isTopOverlay(overlayId)) {
         event.preventDefault()
-        onClose()
+        latest.current.onClose()
         return
       }
       if (event.key !== "Tab" || node === null) return
@@ -72,10 +79,11 @@ export function Dialog({
     }
     document.addEventListener("keydown", onKeyDown)
     return () => {
+      popOverlay(overlayId)
       document.removeEventListener("keydown", onKeyDown)
       restoreRef.current?.focus()
     }
-  }, [open, busy, onClose])
+  }, [open, overlayId])
 
   return createPortal(
     <AnimatePresence>

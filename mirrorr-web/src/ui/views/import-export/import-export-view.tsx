@@ -71,7 +71,6 @@ const BADGE_VARIANT: Record<ItemBadge, "accent" | "neutral" | "danger"> = {
   conflict: "danger",
 }
 
-/** Resolution state is keyed by item name (bundle entries carry names). */
 type Resolutions = Record<string, ItemResolution>
 
 /* ── export half ─────────────────────────────────────────────────────── */
@@ -265,10 +264,8 @@ function ResolutionControls({
         const type = issuePluginType(issue)
         const hash = issueOriginHash(issue)
         const options = type === "engine" ? engines : resolvers
-        const selected =
-          resolution.plugin !== undefined && resolution.plugin.type === type
-            ? String(resolution.plugin.id)
-            : ""
+        const mapped = hash === null ? undefined : resolution.plugins?.[hash]
+        const selected = mapped === undefined ? "" : String(mapped.id)
         return (
           <Field
             key={`${type}-${index}`}
@@ -290,7 +287,12 @@ function ResolutionControls({
               disabled={hash === null}
               onChange={(event) => {
                 if (hash === null || event.target.value === "") return
-                onChange({ plugin: { type, id: Number(event.target.value) }, pluginHash: hash })
+                onChange({
+                  plugins: {
+                    ...(resolution.plugins ?? {}),
+                    [hash]: { type, id: Number(event.target.value) },
+                  },
+                })
               }}
             >
               <option value="">{`Select an installed ${type}…`}</option>
@@ -391,9 +393,7 @@ function ImportPanel() {
     mutationFn: (body: ApplyBody) => applyImport(body),
     onSuccess: (result) => {
       setSummary(result)
-      setBundle(null)
-      setReport(null)
-      setResolutions({})
+      clearStaged()
       void queryClient.invalidateQueries({ queryKey: queryRoots.profiles })
       void queryClient.invalidateQueries({ queryKey: queryRoots.autoruns })
     },
@@ -441,9 +441,10 @@ function ImportPanel() {
   }
 
   const handleFile = async (file: File): Promise<void> => {
+    const text = await file.text()
     setFileName(file.name)
     setFileSize(file.size)
-    stageText(await file.text())
+    stageText(text)
   }
 
   const fetchUrl = useMutation({
@@ -452,14 +453,15 @@ function ImportPanel() {
     onError: (error) => setFileError(getErrorMessage(error, "Could not read that URL")),
   })
 
-  const setResolution = (name: string, patch: Partial<ItemResolution>) => {
+  const setResolution = (key: string, patch: Partial<ItemResolution>) => {
     setResolutions((current) => {
-      const base = current[name] ?? { included: true }
-      return { ...current, [name]: { ...base, ...patch } }
+      const base = current[key] ?? { included: true }
+      return { ...current, [key]: { ...base, ...patch } }
     })
   }
 
-  const includedOf = (item: ImportItem): boolean => (resolutions[item.name] ?? { included: true }).included
+  const includedOf = (item: ImportItem): boolean =>
+    (resolutions[`${item.kind}:${item.name}`] ?? { included: true }).included
   const allIncluded =
     report !== null && report.items.length > 0 && report.items.every(includedOf)
   const setAllIncluded = (included: boolean) => {
@@ -467,7 +469,8 @@ function ImportPanel() {
     setResolutions((current) => {
       const next: Resolutions = { ...current }
       for (const item of report.items) {
-        next[item.name] = { ...(next[item.name] ?? { included: true }), included }
+        const key = `${item.kind}:${item.name}`
+        next[key] = { ...(next[key] ?? { included: true }), included }
       }
       return next
     })
@@ -584,7 +587,7 @@ function ImportPanel() {
                 </thead>
                 <tbody>
                   {report.items.map((item) => {
-                    const resolution = resolutions[item.name] ?? { included: true }
+                    const resolution = resolutions[`${item.kind}:${item.name}`] ?? { included: true }
                     const badge = itemBadge(item)
                     const rename = suggestedRename(item)
                     return (
@@ -593,7 +596,9 @@ function ImportPanel() {
                           <Checkbox
                             aria-label={`Include ${item.name}`}
                             checked={resolution.included}
-                            onChange={() => setResolution(item.name, { included: !resolution.included })}
+                            onChange={() =>
+                              setResolution(`${item.kind}:${item.name}`, { included: !resolution.included })
+                            }
                           />
                         </Td>
                         <Td>
@@ -638,7 +643,7 @@ function ImportPanel() {
                             engines={engines}
                             resolvers={resolvers}
                             profiles={profiles}
-                            onChange={(patch) => setResolution(item.name, patch)}
+                            onChange={(patch) => setResolution(`${item.kind}:${item.name}`, patch)}
                           />
                         </Td>
                       </tr>

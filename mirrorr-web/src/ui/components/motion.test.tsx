@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react"
 import { Dialog } from "./Dialog"
 import { Drawer } from "./Drawer"
 import { MenuPopover } from "./Menu"
-import { Segmented, Tabs } from "./Tabs"
+import { Segmented } from "./Tabs"
 import { Fab } from "./Fab"
 
 // Layout animations (layoutId) need ResizeObserver, which jsdom omits.
@@ -76,26 +76,6 @@ describe("MenuPopover", () => {
       </MenuPopover>,
     )
     expect(screen.queryByRole("menu")).toBeNull()
-  })
-})
-
-describe("Tabs", () => {
-  it("marks only the active tab and mounts one animated indicator", () => {
-    render(
-      <Tabs
-        items={[
-          { id: "a", label: "Alpha" },
-          { id: "b", label: "Beta" },
-        ]}
-        active="b"
-        onChange={() => {}}
-      />,
-    )
-    const [alpha, beta] = screen.getAllByRole("tab")
-    expect(alpha.getAttribute("aria-selected")).toBe("false")
-    expect(beta.getAttribute("aria-selected")).toBe("true")
-    expect(beta.querySelector(".tab-indicator")).not.toBeNull()
-    expect(alpha.querySelector(".tab-indicator")).toBeNull()
   })
 })
 

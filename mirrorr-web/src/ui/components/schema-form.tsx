@@ -306,8 +306,12 @@ function SchemaField({
 
   if (type === "boolean") {
     return (
-      <Field label={label} hint={hint}>
-        <Switch checked={value === true} onChange={(event) => onChange(event.target.checked)} />
+      <Field label={label} htmlFor={id} hint={hint}>
+        <Switch
+          id={id}
+          checked={value === true}
+          onChange={(event) => onChange(event.target.checked)}
+        />
       </Field>
     )
   }
@@ -321,7 +325,10 @@ function SchemaField({
           value={typeof value === "number" ? String(value) : ""}
           min={typeof schema["minimum"] === "number" ? schema["minimum"] : undefined}
           max={typeof schema["maximum"] === "number" ? schema["maximum"] : undefined}
-          onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))}
+          onChange={(event) => {
+            const next = Number(event.target.value)
+            onChange(event.target.value === "" ? undefined : Number.isFinite(next) ? next : value)
+          }}
         />
       </Field>
     )

@@ -30,8 +30,7 @@ export type EngineResolution = { readonly mode: "keep" } | { readonly mode: "pro
 
 export interface ItemResolution {
   readonly included: boolean
-  readonly plugin?: PluginMapEntry
-  readonly pluginHash?: string
+  readonly plugins?: Record<string, PluginMapEntry>
   readonly profile?: ProfileResolution
   readonly engine?: EngineResolution
 }
@@ -101,7 +100,7 @@ export function buildApplyBody(
   const removed_autoruns: string[] = []
 
   for (const item of items) {
-    const resolution = resolutions[item.name] ?? { included: true }
+    const resolution = resolutions[`${item.kind}:${item.name}`] ?? { included: true }
     const name = entryName(item, findEntry(edited, item))
     if (!resolution.included) {
       if (item.kind === "autorun") removed_autoruns.push(name)
@@ -110,11 +109,11 @@ export function buildApplyBody(
     }
 
   const hasHashIssue = item.issues.some(
-    (issue: ImportItem["issues"][number]) =>
-      issue.type === "not_installed" || issue.type === "hash_mismatch",
-  )
-    if (hasHashIssue && resolution.plugin !== undefined && resolution.pluginHash !== undefined) {
-      plugin_map[resolution.pluginHash] = resolution.plugin
+      (issue: ImportItem["issues"][number]) =>
+        issue.type === "not_installed" || issue.type === "hash_mismatch",
+    )
+    if (hasHashIssue && resolution.plugins !== undefined) {
+      for (const [hash, plugin] of Object.entries(resolution.plugins)) plugin_map[hash] = plugin
     }
 
     const entry = findEntry(edited, item)
@@ -180,6 +179,7 @@ export type IssueKind =
   | "hash_mismatch"
   | "name_conflict"
   | "profile_missing"
+  | "already_exists"
   | "engine_override"
   | "other"
 
@@ -189,6 +189,7 @@ export function issueKind(issue: { type: string }): IssueKind {
     case "hash_mismatch":
     case "name_conflict":
     case "profile_missing":
+    case "already_exists":
     case "engine_override":
       return issue.type
     default:
@@ -201,6 +202,7 @@ export type ItemBadge = "ready" | "skip" | "needs-mapping" | "conflict"
 export function itemBadge(item: ImportItem): ItemBadge {
   if (item.status === "skip" || item.status === "already_imported") return "skip"
   const kinds = item.issues.map(issueKind)
+  if (kinds.includes("already_exists")) return "skip"
   if (kinds.includes("name_conflict")) return "conflict"
   if (
     kinds.includes("not_installed") ||
@@ -230,11 +232,16 @@ export function suggestedRename(item: ImportItem): string | null {
 }
 
 export function issueOriginHash(issue: Record<string, unknown>): string | null {
-  const hash = issue.origin_hash ?? issue.hash ?? issue.content_hash
+  const bundled = issue.bundled
+  const nested =
+    bundled !== null && typeof bundled === "object"
+      ? (bundled as Record<string, unknown>).origin_hash
+      : undefined
+  const hash = nested ?? issue.origin_hash ?? issue.hash ?? issue.content_hash
   return typeof hash === "string" && hash !== "" ? hash : null
 }
 
 export function issuePluginType(issue: Record<string, unknown>): "engine" | "resolver" {
-  const kind = issue.plugin_type ?? issue.kind ?? issue.target
+  const kind = issue.field ?? issue.plugin_type ?? issue.kind ?? issue.target
   return kind === "resolver" ? "resolver" : "engine"
 }
