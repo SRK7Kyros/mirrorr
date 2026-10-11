@@ -3,35 +3,9 @@
  * scaffolding, and the mobile navigation. One responsive shell, no variants.
  */
 
-.app {
-  display: grid;
-  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
-  min-height: 100dvh;
-}
-
 /* ════════════════════════════════════════════════════════════════════
    Sidebar
    ════════════════════════════════════════════════════════════════════ */
-.sidebar {
-  position: sticky;
-  top: 0;
-  height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  background: var(--surface-1);
-  border-right: 1px solid var(--border);
-  z-index: var(--z-sidebar);
-}
-
-.sidebar-brand {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-  height: var(--topbar-h);
-  padding: 0 var(--s-4);
-  border-bottom: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-}
 
 .brand-mark {
   display: grid;
@@ -58,73 +32,6 @@
   font-family: var(--font-mono);
 }
 
-.sidebar-nav {
-  flex: 1;
-  overflow-y: auto;
-  padding: var(--s-3) var(--s-2);
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-1);
-}
-
-.nav-section {
-  padding: var(--s-3) var(--s-3) var(--s-1);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-semibold);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-}
-
-.nav-item {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-  padding: var(--s-2) var(--s-3);
-  border-radius: var(--r-sm);
-  font-size: var(--fs-base);
-  font-weight: var(--fw-medium);
-  color: var(--text-muted);
-  transition:
-    background var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
-}
-
-.nav-item:hover {
-  background: var(--surface-2);
-  color: var(--text);
-}
-
-.nav-item[data-active="true"] {
-  background: var(--accent-dim);
-  color: var(--accent);
-}
-
-.nav-item[data-active="true"]::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 18px;
-  border-radius: var(--r-full);
-  background: var(--accent);
-}
-
-.nav-item svg {
-  flex-shrink: 0;
-}
-
-.nav-count {
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: var(--fs-2xs);
-  color: var(--text-dim);
-  font-variant-numeric: tabular-nums;
-}
-
 /* Shared identity text — the account surfaces in settings and user lists. */
 .user-meta {
   min-width: 0;
@@ -144,143 +51,6 @@
   font-size: var(--fs-xs);
   color: var(--text-dim);
   font-family: var(--font-mono);
-}
-
-/* ════════════════════════════════════════════════════════════════════
-   Main column + top bar
-   ════════════════════════════════════════════════════════════════════ */
-.app-main {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 100dvh;
-}
-
-.page-transition {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-}
-
-.topbar {
-  position: sticky;
-  top: 0;
-  z-index: var(--z-topbar);
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-  height: var(--topbar-h);
-  padding: 0 var(--s-5);
-  background: color-mix(in srgb, var(--bg) 86%, transparent);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.crumb {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  min-width: 0;
-  font-size: var(--fs-md);
-  font-weight: var(--fw-semibold);
-}
-
-.crumb-parent {
-  color: var(--text-muted);
-  font-weight: var(--fw-medium);
-}
-
-.crumb-parent:hover {
-  color: var(--text);
-}
-
-.crumb-sep {
-  color: var(--text-faint);
-}
-
-.crumb-current {
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.topbar-spacer {
-  flex: 1;
-}
-
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-}
-
-/* connection pill */
-.conn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-2);
-  height: 28px;
-  padding: 0 var(--s-3) 0 var(--s-2);
-  border-radius: var(--r-full);
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  font-size: var(--fs-sm);
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.conn-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: var(--r-full);
-  background: var(--neutral);
-  flex-shrink: 0;
-}
-
-.conn[data-state="open"] .conn-dot {
-  background: var(--success);
-  box-shadow: 0 0 6px var(--success);
-}
-
-.conn[data-state="connecting"] .conn-dot,
-.conn[data-state="reconnecting"] .conn-dot {
-  background: var(--warning);
-  animation: dot-pulse 1.2s var(--ease-in-out) infinite;
-}
-
-.conn[data-state="polling"] .conn-dot {
-  background: var(--info);
-}
-
-.conn[data-state="closed"] .conn-dot {
-  background: var(--danger);
-}
-
-/* notification bell */
-.icon-badge-wrap {
-  position: relative;
-}
-
-.icon-badge {
-  position: absolute;
-  top: -3px;
-  right: -3px;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: var(--r-full);
-  background: var(--danger);
-  color: #fff;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: var(--fw-bold);
-  display: grid;
-  place-content: center;
-  line-height: 1;
-  border: 2px solid var(--bg);
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -396,12 +166,6 @@
   gap: var(--s-3);
 }
 
-.grid-auto {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: var(--s-4);
-}
-
 .stack {
   display: flex;
   flex-direction: column;
@@ -427,150 +191,10 @@
   gap: var(--s-3);
 }
 
-/* detail definition list */
-.dl {
-  display: grid;
-  grid-template-columns: minmax(120px, 168px) minmax(0, 1fr);
-  gap: var(--s-3) var(--s-4);
-}
-
-.dl dt {
-  font-size: var(--fs-sm);
-  color: var(--text-dim);
-}
-
-.dl dd {
-  font-size: var(--fs-base);
-  color: var(--text);
-  min-width: 0;
-  word-break: break-word;
-}
-
-/* ════════════════════════════════════════════════════════════════════
-   Floating mobile navigation — a translucent pill that floats above the
-   content (not a full-bleed fixed bar). The burger at its trailing edge
-   opens only the destinations the pill does not already carry.
-   ════════════════════════════════════════════════════════════════════ */
-.bottomnav {
-  display: none;
-  position: fixed;
-  left: 50%;
-  bottom: calc(var(--s-3) + env(safe-area-inset-bottom, 0px));
-  transform: translateX(-50%);
-  width: min(calc(100% - var(--s-6)), 30rem);
-  z-index: var(--z-sidebar);
-}
-
-.bottomnav-inner {
-  display: flex;
-  align-items: center;
-  gap: var(--s-1);
-  height: var(--bottomnav-h);
-  padding: 0 var(--s-1);
-  border-radius: var(--r-full);
-  border: 1px solid var(--border-strong);
-  background: color-mix(in srgb, var(--surface-2) 86%, transparent);
-  backdrop-filter: blur(16px);
-  box-shadow: var(--shadow-lg);
-}
-
-.bottomnav-item {
-  position: relative;
-  flex: 1 1 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  height: calc(var(--bottomnav-h) - var(--s-2));
-  border-radius: var(--r-full);
-  font-size: var(--fs-2xs);
-  color: var(--text-dim);
-  transition:
-    color var(--dur-fast) var(--ease-out),
-    background var(--dur-fast) var(--ease-out);
-}
-
-.bottomnav-pill {
-  position: absolute;
-  inset: 0;
-  border-radius: var(--r-full);
-  background: var(--accent-dim);
-}
-
-.bottomnav-item > svg,
-.bottomnav-item > span:not(.bottomnav-pill) {
-  position: relative;
-}
-
-.bottomnav-item:hover {
-  color: var(--text);
-}
-
-.bottomnav-item[data-active="true"] {
-  color: var(--accent);
-}
-
-.bottomnav-burger {
-  flex: 0 0 auto;
-  width: calc(var(--bottomnav-h) - var(--s-2));
-  color: var(--text-muted);
-}
-
-.bottomnav-burger svg {
-  flex-shrink: 0;
-}
-
 /* ════════════════════════════════════════════════════════════════════
    Responsive
    ════════════════════════════════════════════════════════════════════ */
-@media (max-width: 1023px) {
-  .app {
-    grid-template-columns: var(--sidebar-rail-w) minmax(0, 1fr);
-  }
-
-  .brand-text,
-  .nav-item span:not(.nav-count),
-  .nav-section {
-    display: none;
-  }
-
-  .nav-item {
-    justify-content: center;
-    padding: var(--s-2);
-  }
-
-  .sidebar-brand {
-    justify-content: center;
-    padding: 0;
-  }
-
-  .nav-count {
-    display: none;
-  }
-}
-
 @media (max-width: 639px) {
-  .app {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .sidebar {
-    display: none;
-  }
-
-  .bottomnav {
-    display: block;
-  }
-
-  .app-main {
-    padding-bottom: calc(var(--bottomnav-h) + env(safe-area-inset-bottom, 0px) + var(--s-16));
-  }
-
-  .topbar {
-    padding: 0 var(--s-3);
-  }
-
   .page {
     padding: var(--s-4) var(--s-3) var(--s-8);
   }
@@ -588,22 +212,6 @@
   .grid-3 {
     grid-template-columns: minmax(0, 1fr);
   }
-
-  .dl {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--s-1) 0;
-  }
-
-  .dl dt {
-    margin-top: var(--s-2);
-  }
-
-  .toast-region {
-    left: var(--s-3);
-    right: var(--s-3);
-    bottom: calc(var(--bottomnav-h) + env(safe-area-inset-bottom, 0px) + var(--s-6));
-    width: auto;
-  }
 }
 
 @media (max-width: 479px) {
@@ -614,31 +222,6 @@
   .page-actions [data-slot="button"] {
     padding: 0 var(--s-3);
   }
-}
-
-/* ════════════════════════════════════════════════════════════════════
-   Active navigation — class form (TanStack `Link` cannot carry a typed
-   `data-active`); the `[data-active="true"]` rules above stay equivalent.
-   ════════════════════════════════════════════════════════════════════ */
-.nav-item.nav-item-active {
-  background: var(--accent-dim);
-  color: var(--accent);
-}
-
-.nav-item.nav-item-active::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 18px;
-  border-radius: var(--r-full);
-  background: var(--accent);
-}
-
-.bottomnav-item.bottomnav-item-active {
-  color: var(--accent);
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -674,20 +257,4 @@
   gap: var(--s-2);
   font-size: var(--fs-sm);
   color: var(--text-muted);
-}
-
-/* ════════════════════════════════════════════════════════════════════
-   Shell banners (API-client notice, degraded realtime)
-   ════════════════════════════════════════════════════════════════════ */
-.app-banner {
-  width: 100%;
-  max-width: var(--content-max);
-  margin: 0 auto;
-  padding: var(--s-4) var(--s-5) 0;
-}
-
-@media (max-width: 639px) {
-  .app-banner {
-    padding: var(--s-3) var(--s-3) 0;
-  }
 }

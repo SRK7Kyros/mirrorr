@@ -1,26 +1,37 @@
 import { Link, useMatchRoute } from "@tanstack/react-router"
 import { motion } from "motion/react"
 import { IconMenu, menuAnchorClass, menuItemClass, MenuPopover, useMenuDismiss } from "@/ui/components"
+import { cn } from "@/ui/lib/cn"
 import { springs } from "@/ui/lib/motion"
 import { MOBILE_OVERFLOW, MOBILE_TABS } from "./nav-items"
+
+const ITEM_CLASS =
+  "relative isolate flex h-[calc(var(--bottomnav-h)_-_var(--s-2))] flex-col items-center justify-center gap-[2px] rounded-full text-2xs transition-[color,background] duration-[var(--dur-fast)] ease-[var(--ease-out)]"
 
 export function BottomNav() {
   const matchRoute = useMatchRoute()
   const { open, setOpen, wrapRef } = useMenuDismiss()
 
   return (
-    <nav className="bottomnav" aria-label="Primary">
-      <div className="bottomnav-inner">
+    <nav
+      className="fixed bottom-[calc(var(--s-3)_+_env(safe-area-inset-bottom,0px))] left-1/2 z-[var(--z-sidebar)] hidden w-[min(calc(100%_-_var(--s-6)),30rem)] -translate-x-1/2 max-sm:block"
+      aria-label="Primary"
+    >
+      <div className="flex h-[var(--bottomnav-h)] items-center gap-1 rounded-full border border-line-strong bg-[color-mix(in_srgb,var(--surface-2)_86%,transparent)] px-1 shadow-elev-lg backdrop-blur-[16px]">
         {MOBILE_TABS.map((item) => {
           const active = matchRoute({ to: item.to, fuzzy: item.exact !== true }) !== false
           return (
             <Link
               key={item.to}
               to={item.to}
-              className={active ? "bottomnav-item bottomnav-item-active" : "bottomnav-item"}
+              className={cn(ITEM_CLASS, "flex-[1_1_0]", active ? "text-brand" : "text-ink-dim hover:text-ink")}
             >
               {active ? (
-                <motion.span layoutId="bottomnav-pill" className="bottomnav-pill" transition={springs.snappy} />
+                <motion.span
+                  layoutId="bottomnav-pill"
+                  className="absolute inset-0 -z-10 rounded-full bg-[var(--accent-dim)]"
+                  transition={springs.snappy}
+                />
               ) : null}
               {item.icon}
               <span>{item.label}</span>
@@ -30,7 +41,10 @@ export function BottomNav() {
         <div className={menuAnchorClass} ref={wrapRef}>
           <button
             type="button"
-            className="bottomnav-item bottomnav-burger"
+            className={cn(
+              ITEM_CLASS,
+              "w-[calc(var(--bottomnav-h)_-_var(--s-2))] flex-none text-ink-muted hover:text-ink",
+            )}
             aria-label="More navigation"
             aria-haspopup="menu"
             aria-expanded={open}

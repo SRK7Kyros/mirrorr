@@ -45,9 +45,9 @@ export function AppShell() {
 
   return (
     <>
-      <div className="app">
+      <div className="grid min-h-dvh grid-cols-[var(--sidebar-w)_minmax(0,1fr)] max-lg:grid-cols-[var(--sidebar-rail-w)_minmax(0,1fr)] max-sm:block">
         <Sidebar />
-        <div className="app-main">
+        <div className="flex min-h-dvh min-w-0 flex-col max-sm:pb-[calc(var(--bottomnav-h)_+_env(safe-area-inset-bottom,0px)_+_var(--s-16))]">
           <TopBar />
           <ApiClientBanner />
           <HealthBanner />
