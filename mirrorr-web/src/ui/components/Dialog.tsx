@@ -1,15 +1,24 @@
-import { useEffect, useId, useRef, type ReactNode } from "react"
-import { createPortal } from "react-dom"
+import { useEffect, useRef, type ReactNode } from "react"
+import { Dialog as DialogPrimitive } from "radix-ui"
 import { AnimatePresence, motion } from "motion/react"
 import { cn } from "@/ui/lib/cn"
 import { dialogVariants, overlayVariants } from "@/ui/lib/motion"
-import { isTopOverlay, popOverlay, pushOverlay } from "@/ui/lib/overlay-stack"
 import { IconButton } from "./IconButton"
 import { IconX } from "./icons"
 
-const FOCUSABLE =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
-
+/**
+ * Modal dialog.
+ *
+ * Behaviour is Radix's `Dialog`: background scroll-lock, background
+ * `aria-hidden` isolation, a trapped focus scope and nested-overlay stacking
+ * (the last open layer alone answers Escape). Motion is still `motion/react`
+ * (`dialogVariants` / `overlayVariants`) via `forceMount`, so the entry/exit
+ * springs are unchanged.
+ *
+ * Focus restore is deliberate: Radix returns focus to its own `Trigger`, but
+ * every mirrorr dialog is driven by an external button, so we capture the
+ * previously focused element on open and restore it in `onCloseAutoFocus`.
+ */
 export interface DialogProps {
   readonly open: boolean
   readonly onClose: () => void
@@ -23,10 +32,16 @@ export interface DialogProps {
   readonly busy?: boolean
 }
 
-/**
- * Modal dialog — `.scrim` + `.dialog`. Portalled to `body`, traps Tab, closes
- * on Escape or scrim click (unless `busy`), and restores focus on unmount.
- */
+const OVERLAY_CLASS = "fixed inset-0 bg-[var(--overlay-scrim)] backdrop-blur-[2px] z-[var(--z-modal)]"
+
+const HEAD_CLASS = "flex items-start gap-3 pt-5 px-5 pb-3"
+const DESC_CLASS = "text-ink-muted text-base mt-1"
+const BODY_CLASS = "px-5 pb-4 overflow-y-auto overflow-x-hidden flex flex-col gap-4"
+const FOOT_CLASS = "flex items-center justify-end gap-2 py-4 px-5 border-t border-line-subtle bg-surface-1 rounded-b-lg"
+
+const CONTENT_BASE =
+  "fixed top-1/2 left-1/2 flex flex-col max-h-[calc(100dvh_-_48px)] bg-surface-2 border border-line-strong rounded-lg shadow-elev-lg z-[calc(var(--z-modal)_+_1)]"
+
 export function Dialog({
   open,
   onClose,
@@ -38,103 +53,75 @@ export function Dialog({
   footer,
   busy = false,
 }: DialogProps) {
-  const titleId = useId()
-  const descId = useId()
-  const overlayId = useId()
-  const dialogRef = useRef<HTMLDivElement>(null)
   const restoreRef = useRef<HTMLElement | null>(null)
-  const latest = useRef({ onClose, busy })
-  useEffect(() => {
-    latest.current = { onClose, busy }
-  })
 
   useEffect(() => {
-    if (!open) return
-    pushOverlay(overlayId)
-    restoreRef.current = document.activeElement as HTMLElement | null
-    const node = dialogRef.current
-    const first = node?.querySelector<HTMLElement>(FOCUSABLE)
-    ;(first ?? node)?.focus()
+    if (open) restoreRef.current = document.activeElement as HTMLElement | null
+  }, [open])
 
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !latest.current.busy && isTopOverlay(overlayId)) {
-        event.preventDefault()
-        latest.current.onClose()
-        return
-      }
-      if (event.key !== "Tab" || node === null) return
-      const focusable = Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-        (el) => el.offsetParent !== null || el === document.activeElement,
-      )
-      if (focusable.length === 0) return
-      const firstEl = focusable[0]
-      const lastEl = focusable[focusable.length - 1]
-      if (event.shiftKey && document.activeElement === firstEl) {
-        event.preventDefault()
-        lastEl.focus()
-      } else if (!event.shiftKey && document.activeElement === lastEl) {
-        event.preventDefault()
-        firstEl.focus()
-      }
-    }
-    document.addEventListener("keydown", onKeyDown)
-    return () => {
-      popOverlay(overlayId)
-      document.removeEventListener("keydown", onKeyDown)
-      restoreRef.current?.focus()
-    }
-  }, [open, overlayId])
-
-  return createPortal(
-    <AnimatePresence>
-      {open ? (
-        <motion.div
-          key="scrim"
-          className="scrim"
-          variants={overlayVariants}
-          initial="hidden"
-          animate="visible"
-          exit="exit"
-          onClick={() => {
-            if (!busy) onClose()
-          }}
-          aria-hidden="true"
-        />
-      ) : null}
-      {open ? (
-        <motion.div
-          key="dialog"
-          ref={dialogRef}
-          className={cn("dialog", size === "lg" && "dialog-lg")}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={titleId}
-          aria-describedby={description !== undefined ? descId : undefined}
-          tabIndex={-1}
-          variants={dialogVariants}
-          initial="hidden"
-          animate="visible"
-          exit="exit"
-        >
-          <header className="dialog-head">
-            {icon !== undefined ? icon : null}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <h2 className="dialog-title" id={titleId}>
-                {title}
-              </h2>
-              {description !== undefined ? (
-                <p className="dialog-desc" id={descId}>
-                  {description}
-                </p>
-              ) : null}
-            </div>
-            <IconButton label="Close" icon={<IconX size={18} />} onClick={onClose} disabled={busy} />
-          </header>
-          {children !== undefined ? <div className="dialog-body">{children}</div> : null}
-          {footer !== undefined ? <footer className="dialog-foot">{footer}</footer> : null}
-        </motion.div>
-      ) : null}
-    </AnimatePresence>,
-    document.body,
+  return (
+    <DialogPrimitive.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+      modal
+    >
+      <AnimatePresence>
+        {open ? (
+          <DialogPrimitive.Portal forceMount>
+            <DialogPrimitive.Overlay asChild forceMount>
+              <motion.div
+                className={OVERLAY_CLASS}
+                variants={overlayVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                aria-hidden="true"
+              />
+            </DialogPrimitive.Overlay>
+            <DialogPrimitive.Content
+              asChild
+              forceMount
+              onEscapeKeyDown={(event) => {
+                if (busy) event.preventDefault()
+              }}
+              onInteractOutside={(event) => {
+                if (busy) event.preventDefault()
+              }}
+              onCloseAutoFocus={(event) => {
+                event.preventDefault()
+                restoreRef.current?.focus()
+              }}
+            >
+              <motion.div
+                className={cn(CONTENT_BASE, size === "lg" ? "w-[min(46rem,calc(100vw_-_32px))]" : "w-[min(30rem,calc(100vw_-_32px))]")}
+                variants={dialogVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+              >
+                <header className={HEAD_CLASS}>
+                  {icon !== undefined ? icon : null}
+                  <div className="flex-1 min-w-0">
+                    <DialogPrimitive.Title asChild>
+                      <h2 className="text-lg font-semibold">{title}</h2>
+                    </DialogPrimitive.Title>
+                    {description !== undefined ? (
+                      <DialogPrimitive.Description asChild>
+                        <p className={DESC_CLASS}>{description}</p>
+                      </DialogPrimitive.Description>
+                    ) : null}
+                  </div>
+                  <IconButton label="Close" icon={<IconX size={18} />} onClick={onClose} disabled={busy} />
+                </header>
+                {children !== undefined ? <div className={BODY_CLASS}>{children}</div> : null}
+                {footer !== undefined ? <footer className={FOOT_CLASS}>{footer}</footer> : null}
+              </motion.div>
+            </DialogPrimitive.Content>
+          </DialogPrimitive.Portal>
+        ) : null}
+      </AnimatePresence>
+    </DialogPrimitive.Root>
   )
 }

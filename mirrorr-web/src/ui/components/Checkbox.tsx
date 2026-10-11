@@ -6,11 +6,12 @@ export interface CheckboxProps extends Omit<ComponentPropsWithRef<"input">, "typ
   readonly className?: string
 }
 
-/** Checkbox — `.check` wrapper styles the native box; the input stays native. */
+const WRAP_CLASS = "inline-flex items-center gap-2 cursor-pointer text-base"
+
 export function Checkbox({ label, className, ...rest }: CheckboxProps) {
   return (
-    <label className={cn("check", className)}>
-      <input type="checkbox" {...rest} />
+    <label className={cn(WRAP_CLASS, className)}>
+      <input type="checkbox" className="check-input" {...rest} />
       {label !== undefined ? <span>{label}</span> : null}
     </label>
   )
@@ -22,8 +23,8 @@ export interface RadioProps extends Omit<ComponentPropsWithRef<"input">, "type">
 
 export function Radio({ label, className, ...rest }: RadioProps) {
   return (
-    <label className={cn("check", className)}>
-      <input type="radio" {...rest} />
+    <label className={cn(WRAP_CLASS, className)}>
+      <input type="radio" className="check-input" {...rest} />
       {label !== undefined ? <span>{label}</span> : null}
     </label>
   )

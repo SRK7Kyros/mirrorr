@@ -53,7 +53,7 @@ export function ConfirmDialog({
       description={description}
       icon={
         danger ? (
-          <span className="dialog-icon-danger" aria-hidden="true">
+          <span className="grid place-content-center w-9 h-9 rounded-md bg-danger-dim text-danger shrink-0" aria-hidden="true">
             <IconAlert size={20} />
           </span>
         ) : undefined

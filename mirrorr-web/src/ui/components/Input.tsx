@@ -1,9 +1,9 @@
 import type { ComponentPropsWithRef } from "react"
 import { cn } from "@/ui/lib/cn"
+import { controlClass } from "./control"
 
 export type InputProps = ComponentPropsWithRef<"input">
 
-/** Text input — `.input` from components.css. Ref forwards to the element. */
 export function Input({ className, ...rest }: InputProps) {
-  return <input className={cn("input", className)} {...rest} />
+  return <input className={cn(controlClass, "h-9 px-3 text-base", className)} {...rest} />
 }

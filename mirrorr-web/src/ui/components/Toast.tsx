@@ -21,11 +21,6 @@ export interface ToastItem {
   readonly action?: ToastAction
 }
 
-/**
- * Minimal toast store — module-level, no context. Views call `toast.success`
- * / `toast.error` / `toast.info`; `ToastRegion` (mounted once by the app
- * shell) renders the queue.
- */
 let nextId = 1
 let items: readonly ToastItem[] = []
 const listeners = new Set<() => void>()
@@ -87,17 +82,39 @@ const ICONS: Record<ToastKind, ReactNode> = {
   info: <IconInfo size={16} />,
 }
 
-/** Fixed bottom-right toast stack — `.toast-region`. Mount once per app. */
+const ICON_TONE: Record<ToastKind, string> = {
+  success: "text-success",
+  error: "text-danger",
+  info: "text-info",
+}
+
+const EDGE_TONE: Record<ToastKind, string> = {
+  success: "border-l-success",
+  error: "border-l-danger",
+  info: "border-l-info",
+}
+
+const REGION_CLASS = [
+  "fixed bottom-5 right-5 z-[var(--z-toast)] flex flex-col gap-2",
+  "w-[min(24rem,calc(100vw_-_32px))] pointer-events-none",
+  "max-sm:left-3 max-sm:right-3 max-sm:w-auto",
+  "max-sm:bottom-[calc(var(--bottomnav-h)_+_env(safe-area-inset-bottom,0px)_+_var(--s-6))]",
+].join(" ")
+
+/** Fixed bottom-right toast stack. Mount once per app. */
 export function ToastRegion({ className }: { readonly className?: string }) {
   const toasts = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   return (
-    <div className={cn("toast-region", className)} aria-live="polite" aria-atomic="false">
+    <div className={cn(REGION_CLASS, className)} aria-live="polite" aria-atomic="false">
       <AnimatePresence initial={false}>
         {toasts.map((item) => (
           <motion.div
             key={item.id}
             layout
-            className="toast"
+            className={cn(
+              "flex items-start gap-3 py-3 px-4 bg-surface-3 border border-line-strong border-l-[3px] rounded-md shadow-elev-md pointer-events-auto",
+              EDGE_TONE[item.kind],
+            )}
             data-kind={item.kind}
             role="status"
             variants={toastVariants}
@@ -105,12 +122,12 @@ export function ToastRegion({ className }: { readonly className?: string }) {
             animate="visible"
             exit="exit"
           >
-            <span className="toast-icon" aria-hidden="true">
+            <span className={cn("mt-px shrink-0", ICON_TONE[item.kind])} aria-hidden="true">
               {ICONS[item.kind]}
             </span>
-            <div className="toast-body">
-              <div className="toast-title">{item.title}</div>
-              {item.text !== undefined ? <div className="toast-text">{item.text}</div> : null}
+            <div className="flex-1 min-w-0">
+              <div className="text-base font-semibold">{item.title}</div>
+              {item.text !== undefined ? <div className="text-sm text-ink-muted mt-0.5 break-words">{item.text}</div> : null}
               {item.action !== undefined ? (
                 <button
                   type="button"

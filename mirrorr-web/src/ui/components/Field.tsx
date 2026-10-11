@@ -12,18 +12,14 @@ export interface FieldProps {
   readonly className?: string
 }
 
-/**
- * Form field wrapper — label / control / hint / error. `error` is announced
- * via `role="alert"` and the control should set `aria-invalid` itself.
- */
 export function Field({ label, htmlFor, required = false, hint, error, children, className }: FieldProps) {
   return (
-    <div className={cn("field", className)}>
+    <div className={cn("flex flex-col gap-2 min-w-0", className)}>
       {label !== undefined ? (
-        <label className="field-label" htmlFor={htmlFor}>
+        <label className="flex items-center gap-2 text-sm font-medium text-ink-muted" htmlFor={htmlFor}>
           {label}
           {required ? (
-            <span className="field-req" aria-hidden="true">
+            <span className="text-danger" aria-hidden="true">
               *
             </span>
           ) : null}
@@ -31,12 +27,12 @@ export function Field({ label, htmlFor, required = false, hint, error, children,
       ) : null}
       {children}
       {error !== undefined && error !== null && error !== "" ? (
-        <span className="field-error" role="alert">
+        <span className="flex items-center gap-1 text-sm text-danger" role="alert">
           <IconAlert size={13} />
           {error}
         </span>
       ) : hint !== undefined ? (
-        <span className="field-hint">{hint}</span>
+        <span className="text-sm text-ink-dim">{hint}</span>
       ) : null}
     </div>
   )
