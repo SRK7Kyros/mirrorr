@@ -203,7 +203,7 @@ export function SessionsListView() {
           }
         />
         <PanelBody>
-          <div className="grid-3">
+          <div className="stat-grid">
             <Stat
               label="Live"
               value={

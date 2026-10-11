@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
@@ -8,6 +8,7 @@ import {
   getErrorMessage,
   mergeBundles,
   removeFromInfiniteLists,
+  updateAutorun,
   useEntityList,
   useNameMaps,
   type NameMaps,
@@ -36,6 +37,7 @@ import {
   IconClock,
   IconDownload,
   IconPlus,
+  IconProfiles,
   IconRefresh,
   IconSearch,
   IconTrash,
@@ -54,6 +56,7 @@ import {
 import { useNowTick, useSelection } from "@/ui/hooks"
 import { Page } from "@/ui/views/shared/page"
 import { AutorunActionsMenu } from "./autorun-actions"
+import { AutorunBulkProfileDialog } from "./autorun-bulk-profile-dialog"
 import { AutorunFormDialog } from "./autorun-form-dialog"
 
 /** `scheduled` renders as the spec's "Upcoming" filter (spec §5.5). */
@@ -64,12 +67,33 @@ const FILTER_LABELS: Record<FilterToken, string> = {
   all: "All",
 }
 
+/** When the autorun will next run — the re-armed time if set, else its start. */
+function runTarget(autorun: Autorun): string {
+  const next = autorun.next_run_at
+  return next !== null && next !== undefined && next !== "" ? next : autorun.start_time
+}
+
 /** "starts in ~12 min" for a `scheduled` row — tick-granular, never seconds. */
 function countdownFor(autorun: Autorun, now: Date): string | null {
   if (autorun.status !== "scheduled") return null
-  const next = autorun.next_run_at
-  const target = next !== null && next !== undefined && next !== "" ? next : autorun.start_time
-  return formatCountdown(target, now)
+  return formatCountdown(runTarget(autorun), now)
+}
+
+/** Epoch ms, or `null` for an unusable timestamp (which sorts last). */
+function runTargetMs(autorun: Autorun): number | null {
+  const parsed = Date.parse(runTarget(autorun))
+  return Number.isNaN(parsed) ? null : parsed
+}
+
+/** Soonest first, so the next recording to run leads the list; id breaks ties. */
+function bySoonest(a: Autorun, b: Autorun): number {
+  const left = runTargetMs(a)
+  const right = runTargetMs(b)
+  if (left === null || right === null) {
+    if (left === right) return a.id - b.id
+    return left === null ? 1 : -1
+  }
+  return left !== right ? left - right : a.id - b.id
 }
 
 function AutorunRow({
@@ -155,12 +179,113 @@ function AutorunRow({
   )
 }
 
+/** The narrow-screen stand-in for `AutorunRow`. Only the title links — a
+    whole-card click would swallow the checkbox and the actions menu. */
+function AutorunCard({
+  autorun,
+  names,
+  now,
+  selected,
+  onToggle,
+}: {
+  readonly autorun: Autorun
+  readonly names: NameMaps
+  readonly now: Date
+  readonly selected: boolean
+  readonly onToggle: (id: number) => void
+}) {
+  const countdown = countdownFor(autorun, now)
+  const owner = autorun.requester_user_token
+
+  return (
+    <article className="entity-card" data-selected={selected}>
+      <div className="entity-card-head">
+        <div className="row" style={{ gap: "var(--s-2)", minWidth: 0, alignItems: "flex-start" }}>
+          <span className="entity-card-check">
+            <Checkbox
+              aria-label={`Select ${autorun.user_friendly_name}`}
+              checked={selected}
+              onChange={() => onToggle(autorun.id)}
+            />
+          </span>
+          <div style={{ minWidth: 0 }}>
+            <Link
+              className="entity-card-title"
+              to="/autoruns/$autorunId"
+              params={{ autorunId: String(autorun.id) }}
+            >
+              {autorun.user_friendly_name}
+            </Link>
+            <div className="entity-card-desc">
+              <Tag title={autorun.snake_case_name}>{autorun.snake_case_name}</Tag>
+            </div>
+          </div>
+        </div>
+        <div className="entity-card-actions">
+          <AutorunActionsMenu autorun={autorun} />
+        </div>
+      </div>
+
+      <div className="row" style={{ gap: "var(--s-2)" }}>
+        <StatusChip status={autorun.status} />
+        {autorun.recording === true ? <Tag accent>REC</Tag> : null}
+      </div>
+
+      <dl className="entity-card-facts">
+        <div className="entity-card-fact">
+          <dt>Window</dt>
+          <dd>
+            {formatDateTime(autorun.start_time)}
+            <span aria-hidden="true">{" → "}</span>
+            {formatDateTime(autorun.end_time)}
+            <span className="text-dim"> stored UTC</span>
+          </dd>
+        </div>
+        <div className="entity-card-fact">
+          <dt>Countdown</dt>
+          <dd>
+            {countdown === null ? (
+              <span className="text-dim">—</span>
+            ) : (
+              <span className="row" style={{ gap: "var(--s-1)" }}>
+                <IconClock size={14} />
+                {countdown}
+              </span>
+            )}
+          </dd>
+        </div>
+        <div className="entity-card-fact">
+          <dt>Resolver → Engine</dt>
+          <dd>
+            {resolveEntityName(autorun.resolver_name, names.resolvers, autorun.resolver_id)}
+            <span className="text-dim" aria-hidden="true">
+              {" → "}
+            </span>
+            {resolveEntityName(autorun.engine_name, names.engines, autorun.engine_id)}
+          </dd>
+        </div>
+        <div className="entity-card-fact">
+          <dt>Profile</dt>
+          <dd>{resolveEntityName(autorun.profile_name, names.profiles, autorun.profile_id)}</dd>
+        </div>
+        {__ADMIN__ ? (
+          <div className="entity-card-fact">
+            <dt>Owner</dt>
+            <dd className="mono">{owner !== undefined && owner !== "" ? owner : "—"}</dd>
+          </div>
+        ) : null}
+      </dl>
+    </article>
+  )
+}
+
 export function AutorunsListView() {
   const queryClient = useQueryClient()
   const [tokens, setTokens] = useState<readonly FilterToken[]>(() => [...DEFAULT_FILTER])
   const [search, setSearch] = useState("")
   const [createOpen, setCreateOpen] = useState(false)
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [bulkProfileOpen, setBulkProfileOpen] = useState(false)
   const selection = useSelection<number>()
   const names = useNameMaps()
   const now = useNowTick()
@@ -178,10 +303,10 @@ export function AutorunsListView() {
     void loadAll()
   }, [autoExhaust, hasMore, loadingAll, isFetching, loadAll])
 
-  const rows = useMemo(() => {
-    const term = search.trim().toLowerCase()
-    return list.items.filter((autorun) => {
+  const matchesRow = useCallback(
+    (autorun: Autorun) => {
       if (!matchesFilter(autorun.status, tokens)) return false
+      const term = search.trim().toLowerCase()
       if (term === "") return true
       return [
         String(autorun.id),
@@ -195,8 +320,14 @@ export function AutorunsListView() {
         .join(" ")
         .toLowerCase()
         .includes(term)
-    })
-  }, [list.items, tokens, search])
+    },
+    [tokens, search],
+  )
+
+  const rows = useMemo(
+    () => [...list.items.filter(matchesRow)].sort(bySoonest),
+    [list.items, matchesRow],
+  )
 
   const rowIds = useMemo(() => rows.map((autorun) => autorun.id), [rows])
   const selectedAutoruns = list.items.filter((autorun) => selection.has(autorun.id))
@@ -233,6 +364,54 @@ export function AutorunsListView() {
     onError: (error) => toast.error("Could not export the recordings", getErrorMessage(error, "Request failed")),
   })
 
+  const bulkSetProfile = useMutation({
+    mutationFn: async ({ ids, profileId }: { ids: readonly number[]; profileId: number }) => {
+      // Sequential so a large selection cannot stampede the single-writer DB;
+      // a per-id failure (a spent or live autorun) is counted, not fatal.
+      const failed: number[] = []
+      for (const id of ids) {
+        try {
+          await updateAutorun(id, { profile_id: profileId })
+        } catch {
+          failed.push(id)
+        }
+      }
+      return { updated: ids.length - failed.length, skipped: failed.length }
+    },
+    onSuccess: ({ updated, skipped }) => {
+      void queryClient.invalidateQueries({ queryKey: queryRoots.autoruns })
+      if (skipped === 0) {
+        toast.success("Profile set", `${updated} scheduled recording${updated === 1 ? "" : "s"} updated`)
+      } else if (updated === 0) {
+        toast.error("Profile not set", `${skipped} skipped — they have already run or are live`)
+      } else {
+        toast.success("Profile partly set", `${updated} updated, ${skipped} skipped`)
+      }
+      selection.clear()
+      setBulkProfileOpen(false)
+    },
+  })
+
+  const selectAllRows = async () => {
+    const all = list.hasMore ? await list.loadAll() : list.items
+    selection.setMany(all.filter(matchesRow).map((autorun) => autorun.id))
+  }
+
+  // Shared by the table header and the card list head, which are never both shown.
+  const selectAllCheckbox = (
+    <Checkbox
+      aria-label="Select all scheduled recordings"
+      checked={selection.allSelected(rowIds)}
+      onChange={(event) => {
+        if (!event.target.checked) {
+          selection.clear()
+          return
+        }
+        void selectAllRows()
+      }}
+    />
+  )
+
   const toggleToken = (token: FilterToken) => {
     if (token === "all") {
       setTokens(["all"])
@@ -246,7 +425,7 @@ export function AutorunsListView() {
   return (
     <Page
       title="Autoruns"
-      description="Scheduled recordings. A scheduled recording runs once at its start time and then retires — status filtering and search apply to the rows loaded so far."
+      description="Scheduled recordings, soonest first. A scheduled recording runs once at its start time and then retires — status filtering and search apply to the rows loaded so far."
       actions={
         <Button variant="primary" className="btn-create" icon={<IconPlus size={16} />} onClick={() => setCreateOpen(true)}>
           New scheduled recording
@@ -318,44 +497,66 @@ export function AutorunsListView() {
         <>
           <Panel>
             <PanelBody flush>
-              <Table>
-                <thead>
-                  <tr>
-                    <Th className="cell-check">
-                      <Checkbox
-                        aria-label="Select all scheduled recordings"
-                        checked={selection.allSelected(rowIds)}
-                        onChange={(event) => selection.setMany(event.target.checked ? rowIds : [])}
+              <div className="table-desktop">
+                <Table>
+                  <thead>
+                    <tr>
+                      <Th className="cell-check">{selectAllCheckbox}</Th>
+                      <Th>Status</Th>
+                      <Th>Scheduled recording</Th>
+                      <Th>Window</Th>
+                      <Th>Countdown</Th>
+                      <Th>Resolver → Engine</Th>
+                      <Th>Profile</Th>
+                      <Th>Rec</Th>
+                      {__ADMIN__ ? <Th>Owner</Th> : null}
+                      <Th aria-label="Actions" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((autorun) => (
+                      <AutorunRow
+                        key={autorun.id}
+                        autorun={autorun}
+                        names={names}
+                        now={now}
+                        selected={selection.has(autorun.id)}
+                        onToggle={selection.toggle}
                       />
-                    </Th>
-                    <Th>Status</Th>
-                    <Th>Scheduled recording</Th>
-                    <Th>Window</Th>
-                    <Th>Countdown</Th>
-                    <Th>Resolver → Engine</Th>
-                    <Th>Profile</Th>
-                    <Th>Rec</Th>
-                    {__ADMIN__ ? <Th>Owner</Th> : null}
-                    <Th aria-label="Actions" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((autorun) => (
-                    <AutorunRow
-                      key={autorun.id}
-                      autorun={autorun}
-                      names={names}
-                      now={now}
-                      selected={selection.has(autorun.id)}
-                      onToggle={selection.toggle}
-                    />
-                  ))}
-                </tbody>
-              </Table>
+                    ))}
+                  </tbody>
+                </Table>
+              </div>
+              <div className="cards-mobile">
+                <div className="session-grid-head">
+                  {selectAllCheckbox}
+                  <span className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
+                    {rows.length} scheduled recording{rows.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                {rows.map((autorun) => (
+                  <AutorunCard
+                    key={autorun.id}
+                    autorun={autorun}
+                    names={names}
+                    now={now}
+                    selected={selection.has(autorun.id)}
+                    onToggle={selection.toggle}
+                  />
+                ))}
+              </div>
             </PanelBody>
           </Panel>
           {selection.count > 0 ? (
             <BulkBar count={selection.count} onClear={selection.clear}>
+              <Button
+                size="sm"
+                variant="outline"
+                icon={<IconProfiles size={15} />}
+                onClick={() => setBulkProfileOpen(true)}
+              >
+                Set profile
+              </Button>
               <Button
                 size="sm"
                 variant="outline"
@@ -401,6 +602,14 @@ export function AutorunsListView() {
             // The mutation's onError surfaces the failure via toast.
           }
         }}
+      />
+
+      <AutorunBulkProfileDialog
+        open={bulkProfileOpen}
+        onClose={() => setBulkProfileOpen(false)}
+        count={selection.count}
+        busy={bulkSetProfile.isPending}
+        onApply={(profileId) => bulkSetProfile.mutate({ ids: [...selection.selected], profileId })}
       />
 
       <AutorunFormDialog open={createOpen} onClose={() => setCreateOpen(false)} />
