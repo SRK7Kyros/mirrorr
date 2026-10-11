@@ -8,15 +8,23 @@ Validate: inspects an incoming bundle against the current installation,
 
 Apply: creates profiles and autoruns from a validated bundle, using a
        plugin_map to resolve any hash mismatches.
+
+Fetch: reads a bundle from a direct-file URL. The server makes the request, so
+       a browser's cross-origin rules never enter into it.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import ipaddress
 import json
+import socket
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
+import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -28,6 +36,9 @@ from mirrorr.storage.models import Autorun, Engine, Profile, Resolver
 import_export_router = APIRouter(prefix="/import-export")
 
 BUNDLE_VERSION = 1
+MAX_BUNDLE_BYTES = 8 * 1024 * 1024
+FETCH_TIMEOUT = 15.0
+MAX_REDIRECTS = 4
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -210,6 +221,81 @@ async def export_autorun(
 # ═══════════════════════════════════════════════════════════════════════
 # Validate endpoint
 # ═══════════════════════════════════════════════════════════════════════
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Fetch endpoint
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def _direct_file_url(url: str) -> str:
+    parsed = urlparse(url.strip())
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise HTTPException(400, "Only direct http(s) file URLs are supported.")
+    return url.strip()
+
+
+def _public_address(host: str, addr: str) -> None:
+    """Refuse an address that is not globally routable.
+
+    The server must not be usable as a probe of its own network — cloud
+    metadata, the tailnet and loopback all resolve to non-global addresses.
+    """
+    ip = ipaddress.ip_address(addr)
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    if not ip.is_global:
+        raise HTTPException(400, f"{host} resolves to a non-public address.")
+
+
+async def _resolve_public(url: str) -> str:
+    target = _direct_file_url(url)
+    parsed = urlparse(target)
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    infos = await asyncio.get_running_loop().getaddrinfo(
+        parsed.hostname, port, type=socket.SOCK_STREAM
+    )
+    for info in infos:
+        _public_address(parsed.hostname, info[4][0])
+    return target
+
+
+async def _read_remote_bundle(url: str) -> Any:
+    async with httpx.AsyncClient(timeout=FETCH_TIMEOUT, follow_redirects=False) as client:
+        for _ in range(MAX_REDIRECTS + 1):
+            target = await _resolve_public(url)
+            async with client.stream(
+                "GET", target, headers={"Accept": "application/json"}
+            ) as response:
+                if response.is_redirect:
+                    url = urljoin(target, response.headers.get("location", ""))
+                    continue
+                response.raise_for_status()
+                body = b""
+                async for chunk in response.aiter_bytes():
+                    body += chunk
+                    if len(body) > MAX_BUNDLE_BYTES:
+                        raise HTTPException(400, "That file is too large to be an import bundle.")
+                return json.loads(body)
+    raise HTTPException(400, "That URL redirected too many times.")
+
+
+@import_export_router.post("/fetch")
+async def fetch_bundle(
+    url: str = Body(..., embed=True),
+    auth: AuthState = Depends(require_auth),
+):
+    """Read a bundle from a direct-file URL and return it parsed.
+
+    The import panel offers a URL field; a browser cannot read an arbitrary
+    cross-origin file, so the request is made here instead.
+    """
+    try:
+        return await _read_remote_bundle(url)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(400, "That URL did not return JSON.") from exc
+    except (httpx.HTTPError, OSError) as exc:
+        raise HTTPException(400, f"Could not read that URL: {exc}") from exc
 
 
 @import_export_router.post("/validate")
@@ -505,6 +591,7 @@ async def apply_bundle(
     # straight to new items without re-listing.
     created_profiles_list: list[dict[str, Any]] = []
     created_autoruns_list: list[dict[str, Any]] = []
+    discarded_autoruns: list[dict[str, Any]] = []
     renamed: dict[str, str] = {}
 
     # ── Import profiles ────────────────────────────────────────────
@@ -578,6 +665,18 @@ async def apply_bundle(
 
     for a in raw_autoruns:
         a_name = a.get("user_friendly_name", "untitled")
+
+        # An autorun whose window has already opened would fire the scheduler
+        # the instant it lands, so discard it and report it back instead.
+        raw_start = a.get("start_time")
+        if raw_start:
+            start = datetime.fromisoformat(raw_start)
+            if start.tzinfo is not None:
+                start = start.astimezone(timezone.utc).replace(tzinfo=None)
+            if start <= datetime.now(timezone.utc).replace(tzinfo=None):
+                discarded_autoruns.append({"name": a_name, "start_time": raw_start})
+                continue
+
         profile_name = a.get("profile_name", "")
 
         # Resolve profile — either just created or already existing
@@ -626,10 +725,12 @@ async def apply_bundle(
         "profiles_created": profiles_created,
         "profiles_skipped": profiles_skipped,
         "autoruns_created": autoruns_created,
+        "autoruns_discarded": len(discarded_autoruns),
         "created": {
             "profiles": created_profiles_list,
             "autoruns": created_autoruns_list,
         },
+        "discarded_autoruns": discarded_autoruns,
         "renamed": renamed,
     }
 
