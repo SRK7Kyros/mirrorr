@@ -31,14 +31,6 @@ export const RegistrationPendingSchema = z
 
 export type RegistrationPending = z.infer<typeof RegistrationPendingSchema>
 
-/** Register accepts either shape — pending must be tried first (passthrough would swallow it). */
-export const RegisterResponseSchema = z.union([
-  RegistrationPendingSchema,
-  AuthResponseSchema,
-])
-
-export type RegisterResponse = z.infer<typeof RegisterResponseSchema>
-
 /** `GET /auth/status` — drives the register link and login throttling UI. */
 export const AuthStatusSchema = z
   .object({

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
-import { useInfiniteQuery, type QueryClient } from "@tanstack/react-query"
+import { useInfiniteQuery } from "@tanstack/react-query"
 import { isApiClientPrincipal, subscribeAuth } from "@/api/auth"
 import {
   getRealtimeState,
@@ -19,7 +19,10 @@ import { listRefetchInterval, type PollingContext } from "@/api/polling"
  */
 
 /* ── polling context (auth + realtime external stores) ─────────────── */
-let pollSnapshot: PollingContext = { isApiClient: false, wsPollingFallback: false }
+let pollSnapshot: PollingContext = {
+  isApiClient: false,
+  wsPollingFallback: false,
+}
 const pollListeners = new Set<() => void>()
 let pollInstalled = false
 
@@ -97,25 +100,27 @@ export function useEntityList<T extends { id: number }>(options: {
     if (polling.wsPollingFallback) notifyRealtimePollSuccess()
   }, [query.dataUpdatedAt, polling.wsPollingFallback])
 
+  const { fetchNextPage } = query
+
   const loadMore = useCallback(() => {
-    if (query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage()
-  }, [query])
+    if (query.hasNextPage && !query.isFetchingNextPage) void fetchNextPage()
+  }, [fetchNextPage, query.hasNextPage, query.isFetchingNextPage])
 
   const loadAll = useCallback(async (): Promise<T[]> => {
     setLoadingAll(true)
     try {
-      let pages = query.data?.pages
+      let pages: Array<CursorPage<T>> | undefined
       for (;;) {
-        const result = await query.fetchNextPage()
+        const result = await fetchNextPage()
         pages = result.data?.pages
         const last = result.data?.pages.at(-1)
-        if (last === undefined || !last.has_more) break
+        if (last === undefined || !last.has_more || last.next_cursor == null) break
       }
       return mergedSortedByIdDesc(pages)
     } finally {
       setLoadingAll(false)
     }
-  }, [query])
+  }, [fetchNextPage])
 
   const items = useMemo(() => mergedSortedByIdDesc(query.data?.pages), [query.data])
 
@@ -132,25 +137,4 @@ export function useEntityList<T extends { id: number }>(options: {
     loadingAll,
     refetch: () => void query.refetch(),
   }
-}
-
-/* ── infinite-cache helpers (delete/remove across pages) ──────────── */
-export function removeFromInfiniteLists(
-  client: QueryClient,
-  root: readonly unknown[],
-  id: number | string,
-): void {
-  client.setQueriesData<{ pages: Array<CursorPage<{ id: number | string }>>; pageParams: unknown[] }>(
-    { queryKey: root },
-    (previous) => {
-      if (previous === undefined) return undefined
-      return {
-        ...previous,
-        pages: previous.pages.map((page) => ({
-          ...page,
-          items: page.items.filter((item) => item.id !== id),
-        })),
-      }
-    },
-  )
 }

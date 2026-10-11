@@ -91,14 +91,6 @@ export const IconSettings = makeIcon(
   </>,
 )
 
-export const IconUsers = makeIcon(
-  <>
-    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-    <circle cx="9" cy="7" r="4" />
-    <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
-  </>,
-)
-
 /* ── chrome / actions ───────────────────────────────────────────────── */
 export const IconBell = makeIcon(
   <>
@@ -115,13 +107,9 @@ export const IconSearch = makeIcon(
 )
 
 export const IconPlus = makeIcon(<path d="M12 5v14M5 12h14" />)
-export const IconMinus = makeIcon(<path d="M5 12h14" />)
 export const IconX = makeIcon(<path d="M18 6 6 18M6 6l12 12" />)
 export const IconCheck = makeIcon(<path d="M20 6 9 17l-5-5" />)
-export const IconChevronDown = makeIcon(<path d="m6 9 6 6 6-6" />)
 export const IconChevronRight = makeIcon(<path d="m9 18 6-6-6-6" />)
-export const IconChevronLeft = makeIcon(<path d="m15 18-6-6 6-6" />)
-export const IconChevronUp = makeIcon(<path d="m18 15-6-6-6 6" />)
 export const IconMenu = makeIcon(<path d="M4 6h16M4 12h16M4 18h16" />)
 export const IconMoreVertical = makeIcon(
   <>
@@ -134,12 +122,6 @@ export const IconLogout = makeIcon(
   <>
     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
     <path d="m16 17 5-5-5-5M21 12H9" />
-  </>,
-)
-export const IconUser = makeIcon(
-  <>
-    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-    <circle cx="12" cy="7" r="4" />
   </>,
 )
 export const IconRefresh = makeIcon(
@@ -198,23 +180,6 @@ export const IconCopy = makeIcon(
     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
   </>,
 )
-export const IconKey = makeIcon(
-  <>
-    <circle cx="7.5" cy="15.5" r="4.5" />
-    <path d="m10.7 12.3 9.3-9.3M17 6l3 3M14 9l3 3" />
-  </>,
-)
-export const IconShield = makeIcon(
-  <>
-    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-  </>,
-)
-export const IconLock = makeIcon(
-  <>
-    <rect x="4" y="11" width="16" height="10" rx="2" />
-    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-  </>,
-)
 export const IconAlert = makeIcon(
   <>
     <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
@@ -227,28 +192,10 @@ export const IconInfo = makeIcon(
     <path d="M12 16v-4M12 8h.01" />
   </>,
 )
-export const IconWifi = makeIcon(
-  <>
-    <path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M2 9a15 15 0 0 1 20 0" />
-    <path d="M12 20h.01" />
-  </>,
-)
 export const IconClock = makeIcon(
   <>
     <circle cx="12" cy="12" r="9" />
     <path d="M12 7v5l3 2" />
-  </>,
-)
-export const IconFilter = makeIcon(<path d="M22 3H2l8 9.5V19l4 2v-8.5z" />)
-export const IconTerminal = makeIcon(
-  <>
-    <path d="m4 17 6-6-6-6M12 19h8" />
-  </>,
-)
-export const IconDatabase = makeIcon(
-  <>
-    <ellipse cx="12" cy="5" rx="9" ry="3" />
-    <path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5M3 12c0 1.7 4 3 9 3s9-1.3 9-3" />
   </>,
 )
 export const IconDisc = makeIcon(
@@ -257,16 +204,3 @@ export const IconDisc = makeIcon(
     <circle cx="12" cy="12" r="2.5" />
   </>,
 )
-export const IconRadio = makeIcon(
-  <>
-    <circle cx="12" cy="12" r="2" />
-    <path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4" />
-  </>,
-)
-export const IconEye = makeIcon(
-  <>
-    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
-    <circle cx="12" cy="12" r="3" />
-  </>,
-)
-export const IconSpinner = makeIcon(<path d="M21 12a9 9 0 1 1-6.2-8.6" />)

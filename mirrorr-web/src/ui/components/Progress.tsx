@@ -11,7 +11,7 @@ export interface ProgressProps {
 
 /** Determinate bar — `.progress` > `.progress-fill`. */
 export function Progress({ value, max = 100, tone = "accent", label, className }: ProgressProps) {
-  const pct = max <= 0 ? 0 : Math.min(100, Math.max(0, (value / max) * 100))
+  const pct = !Number.isFinite(value) || max <= 0 ? 0 : Math.min(100, Math.max(0, (value / max) * 100))
   return (
     <div
       className={cn("progress", className)}

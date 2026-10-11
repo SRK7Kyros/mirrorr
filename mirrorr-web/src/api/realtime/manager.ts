@@ -36,6 +36,7 @@ export interface RealtimeManagerOptions {
 }
 
 const MAX_ATTEMPTS = 12
+const MAX_AUTH_RETRIES = 2
 const BASE_BACKOFF_MS = 1_000
 const MAX_BACKOFF_MS = 30_000
 
@@ -51,7 +52,9 @@ export function wsEndpoint(path: string): string {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
     return `${protocol}//${window.location.host}${path}`
   }
-  return `${base.replace(/^http/, "ws")}${path}`
+  const url = new URL(path, base)
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
+  return url.href
 }
 
 type SocketKind = "events" | "notifications"
@@ -73,7 +76,12 @@ export class RealtimeManager {
   private running = false
   private wantNotifications = true
   private attempts = 0
-  private timer: ReturnType<typeof setTimeout> | null = null
+  private authRetries = 0
+  private notifAttempts = 0
+  private readonly timers: {
+    events: ReturnType<typeof setTimeout> | null
+    notifications: ReturnType<typeof setTimeout> | null
+  } = { events: null, notifications: null }
 
   constructor(options: RealtimeManagerOptions = {}) {
     this.options = options
@@ -87,6 +95,7 @@ export class RealtimeManager {
     }
     this.running = true
     this.attempts = 0
+    this.authRetries = 0
     this.state = { ...this.state, attempts: 0, pollingFallback: false }
     this.openAll()
     this.emit()
@@ -144,10 +153,16 @@ export class RealtimeManager {
     else this.state = { ...this.state, notifications: socketState }
   }
 
-  private clearTimer(): void {
-    if (this.timer !== null) {
-      clearTimeout(this.timer)
-      this.timer = null
+  private clearTimer(kind?: SocketKind): void {
+    if (kind === undefined) {
+      this.clearTimer("events")
+      this.clearTimer("notifications")
+      return
+    }
+    const timer = this.timers[kind]
+    if (timer !== null) {
+      clearTimeout(timer)
+      this.timers[kind] = null
     }
   }
 
@@ -230,6 +245,8 @@ export class RealtimeManager {
     if (kind === "events") {
       this.attempts = 0
       this.state = { ...this.state, attempts: 0, pollingFallback: false }
+    } else {
+      this.notifAttempts = 0
     }
     this.emit()
   }
@@ -240,14 +257,16 @@ export class RealtimeManager {
     if (code === 4001) {
       // Auth close: one refresh (api.ts single-flight), reconnect or logout.
       this.emit()
-      void this.handleAuthClose()
+      void this.handleAuthClose(kind)
       return
     }
+    this.authRetries = 0
     if (kind === "notifications" && this.sockets.events !== null) {
       // Primary stream healthy: notifications retry on plain backoff without
       // burning the shared 12-attempt failure budget.
+      this.notifAttempts += 1
       this.emit()
-      this.scheduleReconnect()
+      this.scheduleReconnect("notifications", backoffDelay(Math.max(1, this.notifAttempts)))
       return
     }
     this.attempts += 1
@@ -265,37 +284,59 @@ export class RealtimeManager {
               : "skipped"
             : "open",
       }
-      this.clearTimer()
+      this.clearTimer(kind)
       this.emit()
       return
     }
     // Close 1013 (server restarting) and ordinary drops share the backoff.
     this.setSocketState(kind, "reconnecting")
     this.emit()
-    this.scheduleReconnect()
+    this.scheduleReconnect(kind)
   }
 
-  private async handleAuthClose(): Promise<void> {
+  private async handleAuthClose(kind: SocketKind): Promise<void> {
     const refresh = this.options.refresh ?? refreshSession
     try {
       await refresh()
     } catch {
-      this.options.onAuthFailure?.() // refresh-once failed → auth seam logs out
+      if (this.options.onAuthFailure !== undefined) {
+        this.options.onAuthFailure() // refresh-once failed → auth seam logs out
+        return
+      }
+      // No auth seam wired (the default singleton) — don't die closed; retry on
+      // the bounded ladder instead.
+      this.attempts += 1
+      this.state = { ...this.state, attempts: this.attempts }
+      if (this.attempts >= MAX_ATTEMPTS) {
+        this.clearTimer(kind)
+        this.emit()
+        return
+      }
+      this.setSocketState(kind, "reconnecting")
+      this.emit()
+      this.scheduleReconnect(kind)
       return
     }
     if (!this.running) return
+    if (this.authRetries >= MAX_AUTH_RETRIES) {
+      // Server keeps closing 4001 even after a successful refresh — stop the
+      // unbounded /auth/refresh + reconnect storm.
+      this.options.onAuthFailure?.()
+      return
+    }
+    this.authRetries += 1
     this.attempts = 0
     this.state = { ...this.state, attempts: 0, pollingFallback: false }
     this.emit()
     this.openAll()
   }
 
-  private scheduleReconnect(): void {
-    if (this.timer !== null) return
-    const delay = backoffDelay(Math.max(1, this.attempts))
-    this.timer = setTimeout(() => {
-      this.timer = null
-      this.openAll()
+  private scheduleReconnect(kind: SocketKind, delayOverride?: number): void {
+    if (this.timers[kind] !== null) return
+    const delay = delayOverride ?? backoffDelay(Math.max(1, this.attempts))
+    this.timers[kind] = setTimeout(() => {
+      this.timers[kind] = null
+      this.openSocket(kind)
     }, delay)
   }
 
@@ -311,8 +352,12 @@ export class RealtimeManager {
       console.warn("Mirrorr WS frame is not JSON", error)
       return
     }
-    if (kind === "events") this.handlers.onEvent?.(frame)
-    else this.handlers.onNotification?.(frame)
+    try {
+      if (kind === "events") this.handlers.onEvent?.(frame)
+      else this.handlers.onNotification?.(frame)
+    } catch (error) {
+      console.warn("Realtime handler failed", error)
+    }
   }
 }
 
@@ -337,10 +382,6 @@ export function getRealtimeState(): RealtimeState {
 
 export function setRealtimeFrameHandlers(handlers: RealtimeFrameHandlers): () => void {
   return defaultManager.setFrameHandlers(handlers)
-}
-
-export function retryRealtime(): void {
-  defaultManager.retry()
 }
 
 /** Views call this after a successful poll while the offline banner is up — resumes WS. */

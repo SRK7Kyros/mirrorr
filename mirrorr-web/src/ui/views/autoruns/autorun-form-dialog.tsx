@@ -25,6 +25,7 @@ import {
   Segmented,
   Select,
   Switch,
+  TabPanel,
   defaultsFromSchema,
   toast,
 } from "@/ui/components"
@@ -70,7 +71,9 @@ function mapAutorunError(error: unknown): FieldIssues {
     }
     return { general: error.message }
   }
-  return { general: getErrorMessage(error, "Could not save the scheduled recording") }
+  return {
+    general: getErrorMessage(error, "Could not save the scheduled recording"),
+  }
 }
 
 /**
@@ -143,7 +146,9 @@ export function AutorunFormDialog({
     setEndLocal(naiveUtcToDatetimeLocal(autorun.end_time))
     const existingProfile = autorun.profile_id
     setMode(existingProfile !== null && existingProfile !== undefined ? "profile" : "custom")
-    setProfileId(existingProfile !== null && existingProfile !== undefined ? String(existingProfile) : "")
+    setProfileId(
+      existingProfile !== null && existingProfile !== undefined ? String(existingProfile) : "",
+    )
     setEngineId(String(autorun.engine_id))
     setResolverId(String(autorun.resolver_id))
     setResolverConfig(autorun.resolver_config ?? {})
@@ -153,7 +158,9 @@ export function AutorunFormDialog({
   const live = editing && isLive(autorun.status)
   const startInPast = startLocal !== "" && new Date(startLocal).getTime() < Date.now()
   const endBeforeStart =
-    startLocal !== "" && endLocal !== "" && new Date(endLocal).getTime() <= new Date(startLocal).getTime()
+    startLocal !== "" &&
+    endLocal !== "" &&
+    new Date(endLocal).getTime() <= new Date(startLocal).getTime()
   const endEarlierWhileLive =
     live &&
     autorun !== undefined &&
@@ -164,7 +171,9 @@ export function AutorunFormDialog({
 
   function changeResolver(nextId: string): void {
     setResolverId(nextId)
-    setResolverConfig(defaultsFromSchema(resolvers.find((item) => String(item.id) === nextId)?.config_schema))
+    setResolverConfig(
+      defaultsFromSchema(resolvers.find((item) => String(item.id) === nextId)?.config_schema),
+    )
   }
 
   const save = useMutation({
@@ -176,7 +185,9 @@ export function AutorunFormDialog({
         saved.user_friendly_name,
       )
       void queryClient.invalidateQueries({ queryKey: queryRoots.autoruns })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.autorun(saved.id) })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.autorun(saved.id),
+      })
       onClose()
     },
     onError: (caught) => {
@@ -199,7 +210,11 @@ export function AutorunFormDialog({
       recording,
       ...(mode === "profile"
         ? { profile_id: Number(profileId) }
-        : { engine_id: Number(engineId), resolver_id: Number(resolverId), resolver_config: resolverConfig }),
+        : {
+            engine_id: Number(engineId),
+            resolver_id: Number(resolverId),
+            resolver_config: resolverConfig,
+          }),
     })
   }
 
@@ -244,7 +259,12 @@ export function AutorunFormDialog({
             <Button variant="ghost" onClick={onClose} disabled={save.isPending}>
               Cancel
             </Button>
-            <Button variant="primary" loading={save.isPending} disabled={!canSubmit} onClick={submit}>
+            <Button
+              variant="primary"
+              loading={save.isPending}
+              disabled={!canSubmit}
+              onClick={submit}
+            >
               {editing ? "Save changes" : "Create scheduled recording"}
             </Button>
           </>
@@ -253,7 +273,10 @@ export function AutorunFormDialog({
         <div className="stack">
           {error !== null ? <Banner kind="danger" title={error} /> : null}
           {startInPast && autorun?.status === "scheduled" ? (
-            <Banner kind="warning" title="Start time is in the past — the server will fire it immediately." />
+            <Banner
+              kind="warning"
+              title="Start time is in the past — the server will fire it immediately."
+            />
           ) : null}
 
           <Field label="Name" htmlFor="autorun-friendly" required>
@@ -291,7 +314,12 @@ export function AutorunFormDialog({
           </Field>
 
           <div className="grid-2">
-            <Field label="Start" htmlFor="autorun-start" required hint="Your local time — stored as UTC">
+            <Field
+              label="Start"
+              htmlFor="autorun-start"
+              required
+              hint="Your local time — stored as UTC"
+            >
               <Input
                 id="autorun-start"
                 type="datetime-local"
@@ -321,93 +349,100 @@ export function AutorunFormDialog({
           >
             <Segmented
               ariaLabel="Start from"
+              panelId="autorun-mode"
               active={mode}
               onChange={setMode}
               items={[
-                { id: "profile", label: "A profile", disabled: profiles.length === 0 || live },
+                {
+                  id: "profile",
+                  label: "A profile",
+                  disabled: profiles.length === 0 || live,
+                },
                 { id: "custom", label: "Engine + resolver", disabled: live },
               ]}
             />
           </Field>
 
-          {mode === "profile" ? (
-            <Field label="Profile" htmlFor="autorun-profile" required>
-              <Select
-                id="autorun-profile"
-                value={profileId}
-                disabled={live}
-                onChange={(event) => setProfileId(event.target.value)}
-              >
-                <option value="">Select a profile…</option>
-                {profiles.map((profile) => (
-                  <option key={profile.id} value={String(profile.id)}>
-                    {profile.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          ) : (
-            <div className="grid-2">
-              <Field label="Engine" htmlFor="autorun-engine" required>
+          <TabPanel panelId="autorun-mode" active={mode} className="stack">
+            {mode === "profile" ? (
+              <Field label="Profile" htmlFor="autorun-profile" required>
                 <Select
-                  id="autorun-engine"
-                  value={engineId}
+                  id="autorun-profile"
+                  value={profileId}
                   disabled={live}
-                  onChange={(event) => setEngineId(event.target.value)}
+                  onChange={(event) => setProfileId(event.target.value)}
                 >
-                  <option value="">Select an engine…</option>
-                  {engines.map((engine) => (
-                    <option key={engine.id} value={String(engine.id)}>
-                      {engine.name}
+                  <option value="">Select a profile…</option>
+                  {profiles.map((profile) => (
+                    <option key={profile.id} value={String(profile.id)}>
+                      {profile.name}
                     </option>
                   ))}
                 </Select>
               </Field>
-              <Field label="Resolver" htmlFor="autorun-resolver" required>
-                <Select
-                  id="autorun-resolver"
-                  value={resolverId}
-                  disabled={live}
-                  onChange={(event) => changeResolver(event.target.value)}
-                >
-                  <option value="">Select a resolver…</option>
-                  {resolvers.map((item) => (
-                    <option key={item.id} value={String(item.id)}>
-                      {item.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            </div>
-          )}
+            ) : (
+              <div className="grid-2">
+                <Field label="Engine" htmlFor="autorun-engine" required>
+                  <Select
+                    id="autorun-engine"
+                    value={engineId}
+                    disabled={live}
+                    onChange={(event) => setEngineId(event.target.value)}
+                  >
+                    <option value="">Select an engine…</option>
+                    {engines.map((engine) => (
+                      <option key={engine.id} value={String(engine.id)}>
+                        {engine.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Resolver" htmlFor="autorun-resolver" required>
+                  <Select
+                    id="autorun-resolver"
+                    value={resolverId}
+                    disabled={live}
+                    onChange={(event) => changeResolver(event.target.value)}
+                  >
+                    <option value="">Select a resolver…</option>
+                    {resolvers.map((item) => (
+                      <option key={item.id} value={String(item.id)}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            )}
 
-          {!live && mode === "custom" ? (
-            <>
-              <SourcePicker
-                idPrefix="autorun"
-                resolverId={resolverId}
-                onPick={(source) => {
-                  setResolverId(String(source.resolver_id))
-                  setResolverConfig(source.resolver_config ?? {})
-                }}
-              />
-              <section className="stack-sm">
-                <h3 className="panel-title">Resolver config</h3>
-                {resolver === undefined ? (
-                  <p className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
-                    Pick a resolver to configure it.
-                  </p>
-                ) : (
-                  <SchemaForm
-                    schema={resolver.config_schema}
-                    value={resolverConfig}
-                    onChange={setResolverConfig}
-                    idPrefix="autorun-resolver-config"
-                  />
-                )}
-              </section>
-            </>
-          ) : null}
+            {!live && mode === "custom" ? (
+              <>
+                <SourcePicker
+                  idPrefix="autorun"
+                  resolverId={resolverId}
+                  onPick={(source) => {
+                    setResolverId(String(source.resolver_id))
+                    setResolverConfig(source.resolver_config ?? {})
+                  }}
+                />
+                <section className="stack-sm">
+                  <h3 className="panel-title">Resolver config</h3>
+                  {resolver === undefined ? (
+                    <p className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
+                      Pick a resolver to configure it.
+                    </p>
+                  ) : (
+                    <SchemaForm
+                      schema={resolver.config_schema}
+                      value={resolverConfig}
+                      onChange={setResolverConfig}
+                      idPrefix="autorun-resolver-config"
+                    />
+                  )}
+                </section>
+              </>
+            ) : null}
+          </TabPanel>
 
           <Switch
             label="Record this scheduled run"

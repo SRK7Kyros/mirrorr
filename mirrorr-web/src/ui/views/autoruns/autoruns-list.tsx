@@ -300,7 +300,7 @@ export function AutorunsListView() {
   // Non-`all` filters are a client-side scope over the whole (small) set.
   useEffect(() => {
     if (!autoExhaust || !hasMore || loadingAll || isFetching) return
-    void loadAll()
+    void loadAll().catch(() => undefined)
   }, [autoExhaust, hasMore, loadingAll, isFetching, loadAll])
 
   const matchesRow = useCallback(
@@ -390,6 +390,7 @@ export function AutorunsListView() {
       selection.clear()
       setBulkProfileOpen(false)
     },
+    onError: (error) => toast.error("Could not set the profile", getErrorMessage(error, "Request failed")),
   })
 
   const selectAllRows = async () => {
@@ -413,6 +414,7 @@ export function AutorunsListView() {
   )
 
   const toggleToken = (token: FilterToken) => {
+    selection.clear()
     if (token === "all") {
       setTokens(["all"])
       return

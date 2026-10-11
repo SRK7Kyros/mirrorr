@@ -16,9 +16,6 @@ export function cursorPageSchema<T extends z.ZodType>(item: T) {
     .passthrough()
 }
 
-/** Untyped page envelope for `unknown`/client-shaped items. */
-export const CursorPageSchema = cursorPageSchema(z.unknown())
-
 export type CursorPage<T> = {
   items: T[]
   next_cursor?: number | null

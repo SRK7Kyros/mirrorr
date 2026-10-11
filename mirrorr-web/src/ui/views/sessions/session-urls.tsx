@@ -15,7 +15,7 @@ export interface SessionUrl {
 export function toSessionUrls(entries: readonly Record<string, string>[] | undefined): SessionUrl[] {
   const out: SessionUrl[] = []
   for (const entry of entries ?? []) {
-    const url = entry.url ?? Object.values(entry)[0] ?? ""
+    const url = entry.url ?? Object.entries(entry).find(([key]) => key !== "label")?.[1] ?? ""
     if (url === "") continue
     out.push({ label: entry.label ?? Object.keys(entry)[0] ?? "URL", url })
   }
@@ -64,7 +64,7 @@ export function SessionUrls({
   return (
     <ul className={cn("url-list", className)}>
       {urls.map((entry) => (
-        <li key={entry.label} className="url-list-item">
+        <li key={`${entry.label}-${entry.url}`} className="url-list-item">
           <span className="url-list-label">{entry.label}</span>
           <a
             className="url-list-value mono text-truncate"

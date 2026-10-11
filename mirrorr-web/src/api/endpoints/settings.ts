@@ -124,7 +124,7 @@ async function registerPending(
     body: JSON.stringify({ username, password, display_name: displayName }),
   })
   if (res.status === 202) {
-    const body: unknown = await res.json()
+    const body: unknown = await res.json().catch(() => null)
     return parseOrThrow(RegistrationPendingSchema, body)
   }
   if (res.status === 429) {

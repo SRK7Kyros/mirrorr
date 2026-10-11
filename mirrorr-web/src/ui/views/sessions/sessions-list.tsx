@@ -103,7 +103,7 @@ export function SessionsListView() {
   // Non-`all` filters are a client-side scope over the whole (small) set.
   useEffect(() => {
     if (!autoExhaust || !hasMore || loadingAll || isFetching) return;
-    void loadAll();
+    void loadAll().catch(() => undefined);
   }, [autoExhaust, hasMore, loadingAll, isFetching, loadAll]);
 
   const cards = useMemo(() => {
@@ -161,6 +161,7 @@ export function SessionsListView() {
   }, [list.items]);
 
   const toggleToken = (token: FilterToken) => {
+    selection.clear();
     if (token === "all") {
       setTokens(["all"]);
       return;

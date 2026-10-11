@@ -277,20 +277,6 @@ summary.field-label {
   background-position: right var(--s-3) center;
 }
 
-.input-group {
-  display: flex;
-  align-items: stretch;
-}
-
-.input-group .input {
-  border-radius: var(--r-sm) 0 0 var(--r-sm);
-}
-
-.input-group .btn {
-  border-radius: 0 var(--r-sm) var(--r-sm) 0;
-  border-left: none;
-}
-
 /* checkbox + radio */
 .check {
   display: inline-flex;
@@ -1085,46 +1071,8 @@ summary.field-label {
 }
 
 /* ════════════════════════════════════════════════════════════════════
-   Tabs / segmented
+   Segmented
    ════════════════════════════════════════════════════════════════════ */
-.tabs {
-  display: flex;
-  gap: var(--s-1);
-  border-bottom: 1px solid var(--border);
-  overflow-x: auto;
-}
-
-.tab {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-2);
-  padding: var(--s-3) var(--s-3);
-  font-size: var(--fs-base);
-  font-weight: var(--fw-medium);
-  color: var(--text-muted);
-  white-space: nowrap;
-  transition: color var(--dur-fast) var(--ease-out);
-}
-
-.tab:hover {
-  color: var(--text);
-}
-
-.tab[data-active="true"] {
-  color: var(--text);
-}
-
-.tab-indicator {
-  position: absolute;
-  left: var(--s-2);
-  right: var(--s-2);
-  bottom: -1px;
-  height: 2px;
-  border-radius: var(--r-full);
-  background: var(--accent);
-}
-
 .segmented {
   display: inline-flex;
   padding: 3px;
@@ -1345,14 +1293,6 @@ summary.field-label {
   height: 1px;
   margin: var(--s-1) 0;
   background: var(--border);
-}
-
-.menu-label {
-  padding: var(--s-2) var(--s-3) var(--s-1);
-  font-size: var(--fs-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-dim);
 }
 
 /* anchored popover — a `.menu` opened from a chrome button */
@@ -1678,22 +1618,6 @@ kbd {
 
 .stat-value-sm {
   font-size: var(--fs-md);
-}
-
-/* tooltip */
-.tooltip {
-  position: fixed;
-  z-index: var(--z-popover);
-  padding: 5px var(--s-2);
-  background: var(--surface-4);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--r-sm);
-  font-size: var(--fs-sm);
-  color: var(--text);
-  box-shadow: var(--shadow-md);
-  pointer-events: none;
-  animation: fade-in var(--dur-fast) var(--ease-out);
-  max-width: 280px;
 }
 
 /* ════════════════════════════════════════════════════════════════════

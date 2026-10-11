@@ -7,13 +7,3 @@ export type InputProps = ComponentPropsWithRef<"input">
 export function Input({ className, ...rest }: InputProps) {
   return <input className={cn("input", className)} {...rest} />
 }
-
-export interface InputGroupProps {
-  readonly children: React.ReactNode
-  readonly className?: string
-}
-
-/** `.input-group` — input flush against a trailing button. */
-export function InputGroup({ children, className }: InputGroupProps) {
-  return <div className={cn("input-group", className)}>{children}</div>
-}

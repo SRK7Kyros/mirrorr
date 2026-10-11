@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { COUNTDOWN_TICK_MS, formatDuration, parseNaiveUtc } from "@/api/time"
+import { COUNTDOWN_TICK_MS, parseNaiveUtc } from "@/api/time"
 
 /**
  * UI-only hooks. These are presentation concerns (clocks, breakpoints, scroll
@@ -44,30 +44,6 @@ export function useLiveDurationSeconds(
   return seconds
 }
 
-export function useFormattedDuration(
-  startedAt: string | null | undefined,
-  endedAt: string | null | undefined,
-): string {
-  const seconds = useLiveDurationSeconds(startedAt, endedAt)
-  return seconds === null ? "—" : formatDuration(seconds)
-}
-
-/** `true` below the 640px compact breakpoint. */
-export function useIsCompact(): boolean {
-  const [compact, setCompact] = useState(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false
-    return window.matchMedia("(max-width: 639px)").matches
-  })
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return
-    const query = window.matchMedia("(max-width: 639px)")
-    const onChange = () => setCompact(query.matches)
-    query.addEventListener("change", onChange)
-    return () => query.removeEventListener("change", onChange)
-  }, [])
-  return compact
-}
-
 /** Multi-select state for list views — a set of ids plus select-all/clear. */
 export function useSelection<T extends number | string>() {
   const [selected, setSelected] = useState<ReadonlySet<T>>(() => new Set<T>())
@@ -105,6 +81,9 @@ export function useSelection<T extends number | string>() {
 /** `?highlight=<id>` → scroll the matching row/card into view + 2s accent ring. */
 export function useHighlightRef(highlightId: number | null | undefined) {
   const done = useRef(false)
+  useEffect(() => {
+    done.current = false
+  }, [highlightId])
   return useCallback(
     (element: HTMLElement | null) => {
       if (element === null || highlightId == null || done.current) return

@@ -1,8 +1,9 @@
-import { useEffect, useRef, type ReactNode } from "react"
+import { useEffect, useId, useRef, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "motion/react"
 import { cn } from "@/ui/lib/cn"
 import { drawerVariants, overlayVariants } from "@/ui/lib/motion"
+import { isTopOverlay, popOverlay, pushOverlay } from "@/ui/lib/overlay-stack"
 import { IconButton } from "./IconButton"
 import { IconX } from "./icons"
 
@@ -30,19 +31,32 @@ export function Drawer({
   raised = false,
 }: DrawerProps) {
   const panelRef = useRef<HTMLElement>(null)
+  const restoreRef = useRef<HTMLElement | null>(null)
+  const overlayId = useId()
+  const titleId = useId()
+  const latest = useRef(onClose)
+  useEffect(() => {
+    latest.current = onClose
+  })
 
   useEffect(() => {
     if (!open) return
+    pushOverlay(overlayId)
+    restoreRef.current = document.activeElement as HTMLElement | null
     panelRef.current?.focus()
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && isTopOverlay(overlayId)) {
         event.preventDefault()
-        onClose()
+        latest.current()
       }
     }
     document.addEventListener("keydown", onKeyDown)
-    return () => document.removeEventListener("keydown", onKeyDown)
-  }, [open, onClose])
+    return () => {
+      popOverlay(overlayId)
+      document.removeEventListener("keydown", onKeyDown)
+      restoreRef.current?.focus()
+    }
+  }, [open, overlayId])
 
   return createPortal(
     <AnimatePresence>
@@ -65,7 +79,7 @@ export function Drawer({
           className={cn("drawer", side === "left" && "drawer-left", className, raised && "drawer-raised")}
           role="dialog"
           aria-modal="true"
-          aria-label={typeof title === "string" ? title : undefined}
+          aria-labelledby={titleId}
           tabIndex={-1}
           variants={drawerVariants(side)}
           initial="hidden"
@@ -73,7 +87,7 @@ export function Drawer({
           exit="exit"
         >
           <header className="drawer-head">
-            <h2 className="drawer-title">{title}</h2>
+            <h2 id={titleId} className="drawer-title">{title}</h2>
             <IconButton label="Close" icon={<IconX size={18} />} onClick={onClose} />
           </header>
           <div className="drawer-body">{children}</div>

@@ -10,13 +10,15 @@ import type { Engine, Profile, Resolver, ResolverSource } from "@/api/schemas"
  * `Map<id, name>` so list rows can resolve names without N+1 requests.
  */
 
+const EMPTY: never[] = []
+
 export function useEngines(): Engine[] {
   const query = useQuery({
     queryKey: queryKeys.engines,
     queryFn: () => fetchAllEngines(),
     staleTime: staleTimes.lookup,
   })
-  return query.data ?? []
+  return query.data ?? EMPTY
 }
 
 export function useResolvers(): Resolver[] {
@@ -25,7 +27,7 @@ export function useResolvers(): Resolver[] {
     queryFn: () => fetchAllResolvers(),
     staleTime: staleTimes.lookup,
   })
-  return query.data ?? []
+  return query.data ?? EMPTY
 }
 
 function useProfilesLookup(): Profile[] {
@@ -34,7 +36,7 @@ function useProfilesLookup(): Profile[] {
     queryFn: () => fetchAllLookupPages((cursor) => fetchProfilePage(cursor)),
     staleTime: staleTimes.lookup,
   })
-  return query.data ?? []
+  return query.data ?? EMPTY
 }
 
 export function useProfiles(): Profile[] {
@@ -47,7 +49,7 @@ export function useSources(): ResolverSource[] {
     queryFn: () => fetchAllLookupPages((cursor) => fetchSourcePage(cursor)),
     staleTime: staleTimes.lookup,
   })
-  return query.data ?? []
+  return query.data ?? EMPTY
 }
 
 export interface NameMaps {

@@ -35,8 +35,3 @@ export function diffDirtyFields(initial: FieldMap, current: FieldMap): string[] 
 export function isDirty(initial: FieldMap, current: FieldMap, keys: readonly string[]): boolean {
   return keys.some((key) => key in current && !sameValue(initial[key], current[key]))
 }
-
-/** Deep-clone helper for snapshotting initial form state (plain data only). */
-export function snapshotFields(source: FieldMap): FieldMap {
-  return JSON.parse(JSON.stringify(source)) as FieldMap
-}

@@ -1,5 +1,5 @@
 import { ApiError, apiFetch } from "@/api/client"
-import { PAGE_SIZE, type CursorPage } from "@/api/query-keys"
+import { PAGE_SIZE, fetchAllLookupPages, type CursorPage } from "@/api/query-keys"
 import {
   AutorunSchema,
   DiscoveryPageSchema,
@@ -171,9 +171,6 @@ export interface SourceBody {
 export function createSource(body: SourceBody): Promise<ResolverSource> {
   return apiFetch<unknown>("/sources/", { body }).then((raw) => parseOrWarn(ResolverSourceSchema.parse, raw))
 }
-export function fetchSource(id: number | string): Promise<ResolverSource> {
-  return apiFetch<unknown>(`/sources/${id}`).then((raw) => parseOrWarn(ResolverSourceSchema.parse, raw))
-}
 export function updateSource(id: number, body: SourceBody): Promise<ResolverSource> {
   return apiFetch<unknown>(`/sources/${id}`, { method: "PUT", body }).then((raw) =>
     parseOrWarn(ResolverSourceSchema.parse, raw),
@@ -202,29 +199,11 @@ export function fetchEnginePage(cursor: number | undefined, limit = PAGE_SIZE) {
 export function fetchResolverPage(cursor: number | undefined, limit = PAGE_SIZE) {
   return fetchPageOf("/resolvers/", ResolverSchema, cursor, limit)
 }
-export async function fetchAllEngines(limit = PAGE_SIZE): Promise<Engine[]> {
-  const all: Engine[] = []
-  let cursor: number | undefined
-  for (;;) {
-    const page = await fetchEnginePage(cursor, limit)
-    all.push(...page.items)
-    if (!page.has_more) break
-    cursor = page.next_cursor ?? undefined
-    if (cursor === undefined) break
-  }
-  return all
+export function fetchAllEngines(limit = PAGE_SIZE): Promise<Engine[]> {
+  return fetchAllLookupPages((cursor) => fetchEnginePage(cursor, limit))
 }
-export async function fetchAllResolvers(limit = PAGE_SIZE): Promise<Resolver[]> {
-  const all: Resolver[] = []
-  let cursor: number | undefined
-  for (;;) {
-    const page = await fetchResolverPage(cursor, limit)
-    all.push(...page.items)
-    if (!page.has_more) break
-    cursor = page.next_cursor ?? undefined
-    if (cursor === undefined) break
-  }
-  return all
+export function fetchAllResolvers(limit = PAGE_SIZE): Promise<Resolver[]> {
+  return fetchAllLookupPages((cursor) => fetchResolverPage(cursor, limit))
 }
 
 /* ── import / export ──────────────────────────────────────────────── */
@@ -282,8 +261,8 @@ export function normalizeValidateReport(raw: unknown): ImportValidateReport {
         ...(entry.content_hash === undefined ? {} : { content_hash: entry.content_hash }),
         status: entry.status ?? "ready",
         issues: (entry.issues ?? []).map((raw) => ({
-          type: typeof raw.type === "string" ? raw.type : "other",
           ...raw,
+          type: typeof raw.problem === "string" ? raw.problem : typeof raw.type === "string" ? raw.type : "other",
         })),
         entry: entry.entry ?? (entry as Record<string, unknown>),
       })
@@ -362,14 +341,15 @@ export function downloadJson(filename: string, data: unknown): boolean {
     document.body.appendChild(anchor)
     anchor.click()
     anchor.remove()
-    URL.revokeObjectURL(url)
+    setTimeout(() => URL.revokeObjectURL(url), 0)
     return true
   } catch {
     return false
   }
 }
 
-/** One HEAD probe per app session (media reachability) — no-cors tolerant. */
+/** One HEAD probe per URL; only successes are retained (failures retry, hits are capped). */
+const MAX_PROBE_CACHE = 500
 const probeCache = new Map<string, Promise<boolean>>()
 export function probeMediaUrl(url: string): Promise<boolean> {
   const cached = probeCache.get(url)
@@ -378,9 +358,19 @@ export function probeMediaUrl(url: string): Promise<boolean> {
     .then((response) => response.ok)
     .catch(() => false)
   probeCache.set(url, probe)
+  void probe.then((ok) => {
+    if (!ok) {
+      probeCache.delete(url)
+      return
+    }
+    if (probeCache.size > MAX_PROBE_CACHE) {
+      const oldest = probeCache.keys().next().value
+      if (oldest !== undefined) probeCache.delete(oldest)
+    }
+  })
   return probe
 }
 
-export function apiErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof ApiError ? error.message : fallback
+export function clearProbeCache(): void {
+  probeCache.clear()
 }

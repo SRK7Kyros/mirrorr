@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react"
+import { useRef, useState, type ReactNode } from "react"
 import { copyText } from "@/ui/lib/clipboard"
 import { cn } from "@/ui/lib/cn"
 import { IconCheck, IconChevronRight, IconCopy } from "./icons"
@@ -100,6 +100,7 @@ export interface JsonViewProps {
  */
 export function JsonView({ value, label, className, defaultOpen = false }: JsonViewProps) {
   const [copied, setCopied] = useState(false)
+  const copyTimer = useRef<number | null>(null)
   const composite = Array.isArray(value) || isPlainObject(value)
 
   const copy = async (): Promise<void> => {
@@ -108,7 +109,8 @@ export function JsonView({ value, label, className, defaultOpen = false }: JsonV
       await copyText(text)
       setCopied(true)
       toast.success("Copied JSON", label ?? "Value")
-      window.setTimeout(() => setCopied(false), 1600)
+      if (copyTimer.current !== null) window.clearTimeout(copyTimer.current)
+      copyTimer.current = window.setTimeout(() => setCopied(false), 1600)
     } catch {
       toast.error("Could not copy", "Clipboard access was denied.")
     }

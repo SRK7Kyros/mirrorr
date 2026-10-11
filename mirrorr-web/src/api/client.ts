@@ -206,7 +206,7 @@ export async function apiFetch<T>(path: string, init: ApiFetchInit = {}): Promis
       signal: init.signal,
     })
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") throw error
+    if (error instanceof Error && error.name === "AbortError") throw error
     throw new ApiError(0, error instanceof Error ? error.message : "Network error")
   }
 
@@ -238,8 +238,9 @@ let proactiveInstalled = false
 function scheduleProactiveRefresh(): void {
   proactiveTimer = setTimeout(() => {
     proactiveTimer = null
-    refreshSession().then(scheduleProactiveRefresh, () => {
-      proactiveTimer = null // failure already routed through the auth-exhausted seam
+    refreshSession().then(scheduleProactiveRefresh, (error: unknown) => {
+      proactiveTimer = null
+      if (!(error instanceof ApiError && error.status === 401)) scheduleProactiveRefresh()
     })
   }, PROACTIVE_REFRESH_MS)
 }

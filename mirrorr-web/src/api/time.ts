@@ -2,16 +2,17 @@
  * Naive-UTC time discipline: every server datetime arrives WITHOUT a `Z`
  * suffix and must never be parsed as local time (contract §Time & UTC).
  */
-export type NaiveUtc = string & { readonly __brand: "naive-utc" }
-
-/** Parse `YYYY-MM-DDTHH:mm:ss` (naive UTC) — always appends `Z`. */
+/** Parse `YYYY-MM-DDTHH:mm:ss` (naive UTC) — always appends `Z`. Throws on invalid input. */
 export function parseNaiveUtc(value: string): Date {
+  const date = tryParseNaiveUtc(value)
+  if (date === null) throw new Error(`Invalid naive UTC datetime: ${value}`)
+  return date
+}
+
+function tryParseNaiveUtc(value: string): Date | null {
   const iso = value.endsWith("Z") ? value : `${value}Z`
   const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) {
-    throw new Error(`Invalid naive UTC datetime: ${value}`)
-  }
-  return date
+  return Number.isNaN(date.getTime()) ? null : date
 }
 
 function pad(n: number, width = 2): string {
@@ -28,7 +29,8 @@ export function toNaiveUtc(date: Date): string {
 
 /** Display formatter — local timezone, medium date + short time. */
 export function formatDateTime(value: string | Date): string {
-  const date = typeof value === "string" ? parseNaiveUtc(value) : value
+  const date = typeof value === "string" ? tryParseNaiveUtc(value) : value
+  if (date === null) return "—"
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(
     date,
   )
@@ -36,7 +38,8 @@ export function formatDateTime(value: string | Date): string {
 
 /** Relative label for list rows ("2 min ago", "in 3 hr"). */
 export function formatRelativeTime(target: string | Date, now: Date = new Date()): string {
-  const date = typeof target === "string" ? parseNaiveUtc(target) : target
+  const date = typeof target === "string" ? tryParseNaiveUtc(target) : target
+  if (date === null) return "—"
   const diffMs = date.getTime() - now.getTime()
   const abs = Math.abs(diffMs)
   const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto", style: "short" })
@@ -64,7 +67,8 @@ export function datetimeLocalToNaiveUtc(localValue: string): string {
 
 /** Prefill a `datetime-local` input from a naive UTC string (local wall time). */
 export function naiveUtcToDatetimeLocal(value: string): string {
-  const date = parseNaiveUtc(value)
+  const date = tryParseNaiveUtc(value)
+  if (date === null) return ""
   return (
     `${pad(date.getFullYear(), 4)}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
     `T${pad(date.getHours())}:${pad(date.getMinutes())}`
@@ -76,7 +80,8 @@ export const COUNTDOWN_TICK_MS = 10_000
 
 /** "starts in ~3 h 12 min" before `start_time`; "starting…" once it has passed. */
 export function formatCountdown(startTime: string, now: Date = new Date()): string {
-  const target = parseNaiveUtc(startTime)
+  const target = tryParseNaiveUtc(startTime)
+  if (target === null) return "—"
   const deltaMs = target.getTime() - now.getTime()
   if (deltaMs <= 0) return "starting…"
   const totalMinutes = Math.max(1, Math.ceil(deltaMs / 60_000))

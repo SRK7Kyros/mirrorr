@@ -259,7 +259,7 @@ dot, icon?, sessionActions, autorunActions }`. `getStatusDescriptor(status)`
   `formatDuration`, and `datetimeLocalToNaiveUtc` / `naiveUtcToDatetimeLocal`
   for `<input type="datetime-local">`.
 - **`domain/errors.ts`** — `getErrorMessage(error, fallback)`.
-- **`domain/dirty.ts`** — `diffDirtyFields`, `isDirty`, `snapshotFields`.
+- **`domain/dirty.ts`** — `diffDirtyFields`, `isDirty`.
 - **`domain/bundle.ts`** — bundle validation helpers, `itemBadge`, issue
   classification, `buildApplyBody`.
 - **`domain/filter-grammar.ts`** — `FILTER_TOKENS`, `parseFilter`,

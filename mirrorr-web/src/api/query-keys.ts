@@ -93,12 +93,6 @@ export function buildNameMap<T extends { id: number; name: string }>(
   return map
 }
 
-export function buildNameMapFromPages<T extends { id: number; name: string }>(
-  pages: readonly CursorPage<T>[] | undefined,
-): Map<number, string> {
-  return buildNameMap(flattenPages(pages))
-}
-
 /**
  * Prefer a present non-null `_name` field; else memo-map; missing id → `#id`
  * (rendered muted by the caller). `id` null → `—`.

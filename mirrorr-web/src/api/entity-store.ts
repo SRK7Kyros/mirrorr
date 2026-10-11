@@ -39,6 +39,10 @@ export function clearPendingActions(id: EntityId): void {
   pendingActions.delete(idKey(id))
 }
 
+export function clearAllPendingActions(): void {
+  pendingActions.clear()
+}
+
 export type EntityWrite<T> =
   | { readonly kind: "mutation"; readonly entity: T }
   | { readonly kind: "authoritative"; readonly entity: T }
@@ -47,7 +51,8 @@ export type EntityWrite<T> =
 
 /** Rule 1 — insert only if the id is absent; never overwrite, never touch pending. */
 export function mutationInsert<T extends Identified>(list: T[], entity: T): T[] {
-  return list.some((existing) => existing.id === entity.id) ? list : [entity, ...list]
+  const key = idKey(entity.id)
+  return list.some((existing) => idKey(existing.id) === key) ? list : [entity, ...list]
 }
 
 /**
@@ -64,7 +69,8 @@ export function applyAuthoritative<T extends Identified>(
 
 /** Rule 2 as an upsert across a list — replaces in place, prepends when new. */
 export function applyAuthoritativeToList<T extends Identified>(list: T[], snapshot: T): T[] {
-  const index = list.findIndex((existing) => existing.id === snapshot.id)
+  const key = idKey(snapshot.id)
+  const index = list.findIndex((existing) => idKey(existing.id) === key)
   if (index === -1) {
     clearPendingActions(snapshot.id)
     return [snapshot, ...list]
@@ -77,7 +83,8 @@ export function applyAuthoritativeToList<T extends Identified>(list: T[], snapsh
 /** Rule 5 — deleted wins: drop the id and cancel its pending actions. */
 export function removeFromList<T extends Identified>(list: T[], id: EntityId): T[] {
   clearPendingActions(id)
-  const next = list.filter((existing) => existing.id !== id)
+  const key = idKey(id)
+  const next = list.filter((existing) => idKey(existing.id) !== key)
   return next.length === list.length ? list : next
 }
 

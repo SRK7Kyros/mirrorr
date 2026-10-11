@@ -3,9 +3,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createEventTable, type EventTable } from "./event-table"
 
 function seedClient(): QueryClient {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
   client.setQueryData(["sessions", {}], {
-    pages: [{ items: [{ id: 1, status: "active" }], next_cursor: null, has_more: false }],
+    pages: [
+      {
+        items: [{ id: 1, status: "active" }],
+        next_cursor: null,
+        has_more: false,
+      },
+    ],
     pageParams: [undefined],
   })
   client.setQueryData(["session", 1], { id: 1, status: "active" })
@@ -49,7 +57,9 @@ describe("event table", () => {
     })
 
     vi.advanceTimersByTime(29)
-    expect(client.getQueryData(["session", 1])).toMatchObject({ status: "active" })
+    expect(client.getQueryData(["session", 1])).toMatchObject({
+      status: "active",
+    })
 
     vi.advanceTimersByTime(1)
     const detailWrites = spy.mock.calls.filter((call) => isSessionDetailKey(call[0]))
@@ -69,7 +79,9 @@ describe("event table", () => {
     table.handleFrame({ type: "event", event: "session.updated", id: 1 })
     vi.advanceTimersByTime(30)
 
-    expect(client.getQueryData(["session", 1])).toMatchObject({ status: "active" })
+    expect(client.getQueryData(["session", 1])).toMatchObject({
+      status: "active",
+    })
     expect(writeSpy.mock.calls.filter((call) => isSessionDetailKey(call[0]))).toHaveLength(0)
     const invalidated = invalidateSpy.mock.calls.some((call) => {
       const filter = call[0]
@@ -89,6 +101,23 @@ describe("event table", () => {
     expect(client.getQueryData(["session", 1])).toBeUndefined()
   })
 
+  it("keeps a deleted id deleted — a later session.updated cannot resurrect it", () => {
+    table.handleFrame({ type: "event", event: "session.deleted", id: 1 })
+    vi.advanceTimersByTime(30)
+
+    table.handleFrame({
+      type: "event",
+      event: "session.updated",
+      id: 1,
+      data: { id: 1, status: "completed" },
+    })
+    vi.advanceTimersByTime(30)
+
+    const pages = client.getQueryData<{ pages: { items: { id: number }[] }[] }>(["sessions", {}])
+    expect(pages?.pages[0]?.items).toHaveLength(0)
+    expect(client.getQueryData(["session", 1])).toBeUndefined()
+  })
+
   it("patches detail and list rows on session.updated with data", () => {
     table.handleFrame({
       type: "event",
@@ -98,8 +127,12 @@ describe("event table", () => {
     })
     vi.advanceTimersByTime(30)
 
-    expect(client.getQueryData(["session", 1])).toMatchObject({ status: "completed" })
-    const pages = client.getQueryData<{ pages: { items: { status: string }[] }[] }>(["sessions", {}])
+    expect(client.getQueryData(["session", 1])).toMatchObject({
+      status: "completed",
+    })
+    const pages = client.getQueryData<{
+      pages: { items: { status: string }[] }[]
+    }>(["sessions", {}])
     expect(pages?.pages[0]?.items[0]?.status).toBe("completed")
   })
 
@@ -118,14 +151,24 @@ describe("event table", () => {
 
   it("invalidates the recordings list on recording.created", () => {
     const invalidateSpy = vi.spyOn(client, "invalidateQueries")
-    table.handleFrame({ type: "event", event: "recording.created", id: 4, data: { id: 4 } })
+    table.handleFrame({
+      type: "event",
+      event: "recording.created",
+      id: 4,
+      data: { id: 4 },
+    })
     vi.advanceTimersByTime(30)
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["recordings"] })
   })
 
   it("invalidates profiles on any profile.* subject", () => {
     const invalidateSpy = vi.spyOn(client, "invalidateQueries")
-    table.handleFrame({ type: "event", event: "profile.updated", id: 3, data: { id: 3 } })
+    table.handleFrame({
+      type: "event",
+      event: "profile.updated",
+      id: 3,
+      data: { id: 3 },
+    })
     vi.advanceTimersByTime(30)
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["profiles"] })
   })

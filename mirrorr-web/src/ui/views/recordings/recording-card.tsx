@@ -78,7 +78,7 @@ export function RecordingCard({
 }) {
   const [hovering, setHovering] = useState(false);
   const served = useMediaServed(recording);
-  const playable = served === false ? null : recording.content_url;
+  const playable = served === true ? recording.content_url : null;
 
   function openRecording(event: MouseEvent<HTMLElement>) {
     if (served === false) return;

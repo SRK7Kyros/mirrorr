@@ -104,7 +104,7 @@ describe("buildApplyBody", () => {
   it("maps only excluded items into removed_* and never for included ones", () => {
     const items = [item({ name: "harbour-cam" }), item({ name: "lofi_radio_overnight" })]
     const body = buildApplyBody(BUNDLE, items, {
-      lofi_radio_overnight: { included: false },
+      "profile:lofi_radio_overnight": { included: false },
     })
     expect(body.removed_profiles).toEqual(["lofi_radio_overnight"])
     expect(body.removed_autoruns).toBeUndefined()
@@ -118,10 +118,9 @@ describe("buildApplyBody", () => {
       }),
     ]
     const body = buildApplyBody(BUNDLE, items, {
-      "harbour-cam": {
+      "profile:harbour-cam": {
         included: true,
-        plugin: { type: "engine", id: 7 },
-        pluginHash: "6e57a1c4",
+        plugins: { "6e57a1c4": { type: "engine", id: 7 } },
       },
     })
     expect(body.plugin_map).toEqual({ "6e57a1c4": { type: "engine", id: 7 } })
@@ -130,7 +129,7 @@ describe("buildApplyBody", () => {
   it("binds a profile_missing item to a named installed profile", () => {
     const items = [item({ name: "Speedcubing finals", kind: "autorun" })]
     const body = buildApplyBody(BUNDLE, items, {
-      "Speedcubing finals": { included: true, profile: { mode: "bind", profileName: "speedcubing_2026" } },
+      "autorun:Speedcubing finals": { included: true, profile: { mode: "bind", profileName: "speedcubing_2026" } },
     })
     const autoruns = (body.bundle as { autoruns: { name: string; profile?: { name: string } }[] }).autoruns
     expect(autoruns[0].profile).toEqual({ name: "speedcubing_2026" })
@@ -139,7 +138,7 @@ describe("buildApplyBody", () => {
   it("strips inline engine fields when the profile engine is chosen", () => {
     const items = [item({ name: "harbour-cam" })]
     const body = buildApplyBody(BUNDLE, items, {
-      "harbour-cam": { included: true, engine: { mode: "profile" } },
+      "profile:harbour-cam": { included: true, engine: { mode: "profile" } },
     })
     const profile = (body.bundle as { profiles: Record<string, unknown>[] }).profiles[0]
     expect(profile.engine).toBeUndefined()

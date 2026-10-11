@@ -1,6 +1,13 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { createSession, getErrorMessage, useEngines, useProfiles, useResolvers, type SessionCreateBody } from "@/api"
+import {
+  createSession,
+  getErrorMessage,
+  useEngines,
+  useProfiles,
+  useResolvers,
+  type SessionCreateBody,
+} from "@/api"
 import { queryRoots } from "@/api/query-keys"
 import {
   Banner,
@@ -11,6 +18,7 @@ import {
   Segmented,
   Select,
   Switch,
+  TabPanel,
   defaultsFromSchema,
   toast,
 } from "@/ui/components"
@@ -36,10 +44,18 @@ export function NewSessionDialog({
   const [recording, setRecording] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const openedRef = useRef(false)
+
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      openedRef.current = false
+      return
+    }
+    if (openedRef.current) return
+    openedRef.current = true
     setError(null)
     setMode(profiles.length > 0 ? "profile" : "custom")
+    setProfileId("")
     setEngineId("")
     setResolverId("")
     setResolverConfig({})
@@ -61,7 +77,9 @@ export function NewSessionDialog({
 
   function changeResolver(nextId: string): void {
     setResolverId(nextId)
-    setResolverConfig(defaultsFromSchema(resolvers.find((item) => String(item.id) === nextId)?.config_schema))
+    setResolverConfig(
+      defaultsFromSchema(resolvers.find((item) => String(item.id) === nextId)?.config_schema),
+    )
   }
 
   const submit = () => {
@@ -69,7 +87,12 @@ export function NewSessionDialog({
     const body: SessionCreateBody =
       mode === "profile"
         ? { profile_id: Number(profileId), recording }
-        : { engine_id: Number(engineId), resolver_id: Number(resolverId), resolver_config: resolverConfig, recording }
+        : {
+            engine_id: Number(engineId),
+            resolver_id: Number(resolverId),
+            resolver_config: resolverConfig,
+            recording,
+          }
     create.mutate(body)
   }
 
@@ -85,7 +108,12 @@ export function NewSessionDialog({
           <Button variant="ghost" onClick={onClose} disabled={create.isPending}>
             Cancel
           </Button>
-          <Button variant="primary" loading={create.isPending} disabled={!canSubmit} onClick={submit}>
+          <Button
+            variant="primary"
+            loading={create.isPending}
+            disabled={!canSubmit}
+            onClick={submit}
+          >
             Start session
           </Button>
         </>
@@ -97,73 +125,93 @@ export function NewSessionDialog({
         <Field label="Start from">
           <Segmented
             ariaLabel="Start from"
+            panelId="new-session-mode"
             active={mode}
             onChange={setMode}
             items={[
-              { id: "profile", label: "A profile", disabled: profiles.length === 0 },
+              {
+                id: "profile",
+                label: "A profile",
+                disabled: profiles.length === 0,
+              },
               { id: "custom", label: "Engine + resolver" },
             ]}
           />
         </Field>
 
-        {mode === "profile" ? (
-          <Field label="Profile" htmlFor="new-session-profile" required hint={`${profiles.length} available`}>
-            <Select id="new-session-profile" value={profileId} onChange={(event) => setProfileId(event.target.value)}>
-              <option value="">Select a profile…</option>
-              {profiles.map((profile) => (
-                <option key={profile.id} value={String(profile.id)}>
-                  {profile.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        ) : (
-          <>
-            <Field label="Engine" htmlFor="new-session-engine" required>
-              <Select id="new-session-engine" value={engineId} onChange={(event) => setEngineId(event.target.value)}>
-                <option value="">Select an engine…</option>
-                {engines.map((engine) => (
-                  <option key={engine.id} value={String(engine.id)}>
-                    {engine.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Resolver" htmlFor="new-session-resolver" required>
+        <TabPanel panelId="new-session-mode" active={mode} className="stack">
+          {mode === "profile" ? (
+            <Field
+              label="Profile"
+              htmlFor="new-session-profile"
+              required
+              hint={`${profiles.length} available`}
+            >
               <Select
-                id="new-session-resolver"
-                value={resolverId}
-                onChange={(event) => changeResolver(event.target.value)}
+                id="new-session-profile"
+                value={profileId}
+                onChange={(event) => setProfileId(event.target.value)}
               >
-                <option value="">Select a resolver…</option>
-                {resolvers.map((item) => (
-                  <option key={item.id} value={String(item.id)}>
-                    {item.name}
+                <option value="">Select a profile…</option>
+                {profiles.map((profile) => (
+                  <option key={profile.id} value={String(profile.id)}>
+                    {profile.name}
                   </option>
                 ))}
               </Select>
             </Field>
-            <SourcePicker
-              idPrefix="new-session"
-              resolverId={resolverId}
-              onPick={(source) => {
-                setResolverId(String(source.resolver_id))
-                setResolverConfig(source.resolver_config ?? {})
-              }}
-            />
-            {resolver === undefined ? null : (
-              <section className="stack-sm">
-                <h3 className="panel-title">Resolver config</h3>
-                <SchemaForm
-                  schema={resolver.config_schema}
-                  value={resolverConfig}
-                  onChange={setResolverConfig}
-                  idPrefix="new-session-resolver-config"
-                />
-              </section>
-            )}
-          </>
-        )}
+          ) : (
+            <>
+              <Field label="Engine" htmlFor="new-session-engine" required>
+                <Select
+                  id="new-session-engine"
+                  value={engineId}
+                  onChange={(event) => setEngineId(event.target.value)}
+                >
+                  <option value="">Select an engine…</option>
+                  {engines.map((engine) => (
+                    <option key={engine.id} value={String(engine.id)}>
+                      {engine.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Resolver" htmlFor="new-session-resolver" required>
+                <Select
+                  id="new-session-resolver"
+                  value={resolverId}
+                  onChange={(event) => changeResolver(event.target.value)}
+                >
+                  <option value="">Select a resolver…</option>
+                  {resolvers.map((item) => (
+                    <option key={item.id} value={String(item.id)}>
+                      {item.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <SourcePicker
+                idPrefix="new-session"
+                resolverId={resolverId}
+                onPick={(source) => {
+                  setResolverId(String(source.resolver_id))
+                  setResolverConfig(source.resolver_config ?? {})
+                }}
+              />
+              {resolver === undefined ? null : (
+                <section className="stack-sm">
+                  <h3 className="panel-title">Resolver config</h3>
+                  <SchemaForm
+                    schema={resolver.config_schema}
+                    value={resolverConfig}
+                    onChange={setResolverConfig}
+                    idPrefix="new-session-resolver-config"
+                  />
+                </section>
+              )}
+            </>
+          )}
+        </TabPanel>
 
         <Switch
           label="Record this session"
