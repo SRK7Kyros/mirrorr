@@ -299,16 +299,32 @@ export function validateBundle(bundle: unknown): Promise<ImportValidateReport> {
   return apiFetch<unknown>("/import-export/validate", { body: bundle }).then(normalizeValidateReport)
 }
 
+/** Read a bundle from a direct-file URL. The server fetches it, so CORS does not apply. */
+export function fetchBundleFromUrl(url: string): Promise<unknown> {
+  return apiFetch<unknown>("/import-export/fetch", { body: { url } })
+}
+
+export interface DiscardedAutorun {
+  readonly name: string
+  readonly start_time: string
+}
 export interface ImportApplySummary {
   readonly profiles_created: number
   readonly profiles_skipped: number
   readonly autoruns_created: number
+  readonly autoruns_discarded: number
+  readonly discarded_autoruns: readonly DiscardedAutorun[]
 }
+const DiscardedAutorunSchema = z
+  .object({ name: z.string(), start_time: z.string() })
+  .passthrough()
 const ApplySummarySchema = z
   .object({
     profiles_created: z.number().optional(),
     profiles_skipped: z.number().optional(),
     autoruns_created: z.number().optional(),
+    autoruns_discarded: z.number().optional(),
+    discarded_autoruns: z.array(DiscardedAutorunSchema).optional(),
   })
   .passthrough()
 
@@ -322,10 +338,13 @@ export function applyImport(body: ApplyBody): Promise<ImportApplySummary> {
   return apiFetch<unknown>("/import-export/apply", { body }).then((raw) =>
     parseOrWarn((value) => {
       const parsed = ApplySummarySchema.parse(value)
+      const discarded = parsed.discarded_autoruns ?? []
       return {
         profiles_created: parsed.profiles_created ?? 0,
         profiles_skipped: parsed.profiles_skipped ?? 0,
         autoruns_created: parsed.autoruns_created ?? 0,
+        autoruns_discarded: parsed.autoruns_discarded ?? discarded.length,
+        discarded_autoruns: discarded,
       }
     }, raw),
   )
