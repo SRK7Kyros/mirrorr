@@ -3,6 +3,13 @@ import { cn } from "@/ui/lib/cn"
 import { pluralize } from "@/ui/lib/format"
 import { Button } from "./Button"
 
+const BULK_BAR_CLASS =
+  "sticky bottom-3 z-[var(--z-sticky)] flex items-center gap-3 py-2 px-3 border [border-color:var(--accent-line)] rounded-md bg-surface-3 shadow-elev-md animate-[bulk-in_var(--dur-med)_var(--ease-out)]"
+
+const BULK_COUNT_CLASS = "text-sm font-medium text-ink whitespace-nowrap"
+
+const BULK_ACTIONS_CLASS = "flex flex-1 flex-wrap items-center gap-2"
+
 export interface BulkBarProps {
   readonly count: number
   readonly onClear: () => void
@@ -16,9 +23,9 @@ export interface BulkBarProps {
  */
 export function BulkBar({ count, onClear, children, className }: BulkBarProps) {
   return (
-    <div className={cn("bulk-bar", className)} role="region" aria-label="Bulk actions">
-      <span className="bulk-count">{pluralize(count, "selected item")}</span>
-      <div className="bulk-actions">{children}</div>
+    <div className={cn(BULK_BAR_CLASS, className)} role="region" aria-label="Bulk actions">
+      <span className={BULK_COUNT_CLASS}>{pluralize(count, "selected item")}</span>
+      <div className={BULK_ACTIONS_CLASS}>{children}</div>
       <Button variant="ghost" size="sm" onClick={onClear}>
         Clear
       </Button>

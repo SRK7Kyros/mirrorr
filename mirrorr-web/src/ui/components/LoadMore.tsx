@@ -17,7 +17,7 @@ export interface LoadMoreProps {
 export function LoadMore({ hasMore, isFetching, onLoadMore, onLoadAll, loadingAll = false, count }: LoadMoreProps) {
   if (!hasMore) return null
   return (
-    <div className="load-more">
+    <div className="flex justify-center p-4">
       <div className="row">
         <Button variant="outline" onClick={onLoadMore} disabled={isFetching} icon={isFetching ? <Spinner /> : undefined}>
           Load more
@@ -27,9 +27,7 @@ export function LoadMore({ hasMore, isFetching, onLoadMore, onLoadAll, loadingAl
             Load all
           </Button>
         ) : null}
-        <span className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
-          {count} shown
-        </span>
+        <span className="text-dim text-sm">{count} shown</span>
       </div>
     </div>
   )

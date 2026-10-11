@@ -446,35 +446,6 @@
   word-break: break-word;
 }
 
-/* load-more row */
-.load-more {
-  display: flex;
-  justify-content: center;
-  padding: var(--s-4);
-}
-
-/* Floating action button — the mobile home of a view's primary create action. */
-.fab {
-  display: none;
-  align-items: center;
-  justify-content: center;
-  position: fixed;
-  right: var(--s-4);
-  bottom: calc(var(--bottomnav-h) + env(safe-area-inset-bottom, 0px) + var(--s-4));
-  width: 52px;
-  height: 52px;
-  border-radius: var(--r-full);
-  background: var(--accent);
-  color: var(--accent-ink);
-  box-shadow: var(--shadow-lg);
-  z-index: var(--z-sticky);
-  transition: background var(--dur-fast) var(--ease-out);
-}
-
-.fab:hover {
-  background: var(--accent-hover);
-}
-
 /* ════════════════════════════════════════════════════════════════════
    Floating mobile navigation — a translucent pill that floats above the
    content (not a full-bleed fixed bar). The burger at its trailing edge
@@ -611,10 +582,6 @@
   /* The primary create action moves from the page head to a thumb-reachable FAB. */
   .page-actions .btn-create {
     display: none;
-  }
-
-  .fab {
-    display: inline-flex;
   }
 
   .grid-2,

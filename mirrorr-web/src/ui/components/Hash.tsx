@@ -4,6 +4,14 @@ import { cn } from "@/ui/lib/cn"
 import { IconCheck, IconCopy } from "./icons"
 import { toast } from "./Toast"
 
+const HASH_CLASS =
+  "group inline-flex items-center gap-1 max-w-full py-px pl-2 pr-1 border border-transparent rounded-xs bg-surface-2 text-ink-muted cursor-pointer [font-family:var(--font-mono)] text-xs transition-[color,background-color,border-color] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-surface-3 hover:border-line-subtle hover:text-ink focus-visible:outline-none focus-visible:shadow-[var(--ring)] data-[copied=true]:text-brand data-[copied=true]:bg-brand-dim data-[copied=true]:border-[color:var(--accent-line)]"
+
+const HASH_TEXT_CLASS = "min-w-0 truncate [font:inherit]"
+
+const HASH_ICON_CLASS =
+  "inline-flex shrink-0 items-center opacity-0 -translate-x-0.5 transition-[opacity,translate,color] duration-[var(--dur-fast)] ease-[var(--ease-out)] group-hover:opacity-100 group-hover:translate-x-0 group-focus-visible:opacity-100 group-focus-visible:translate-x-0 group-data-[copied=true]:opacity-100 group-data-[copied=true]:translate-x-0 group-data-[copied=true]:text-brand"
+
 export interface HashProps {
   /** The full value — copied on click, ellipsised by CSS to the space available. */
   readonly value: string
@@ -44,14 +52,14 @@ export function Hash({ value, label = "Value", className }: HashProps) {
   return (
     <button
       type="button"
-      className={cn("hash", className)}
+      className={cn(HASH_CLASS, className)}
       data-copied={copied}
       title={`${value} — click to copy`}
       aria-label={`Copy ${label}`}
       onClick={() => void copy()}
     >
-      <code className="hash-text">{value}</code>
-      <span className="hash-icon" aria-hidden="true">
+      <code className={HASH_TEXT_CLASS}>{value}</code>
+      <span className={HASH_ICON_CLASS} aria-hidden="true">
         {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
       </span>
     </button>

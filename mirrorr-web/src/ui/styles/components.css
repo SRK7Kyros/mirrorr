@@ -605,77 +605,6 @@ kbd {
 
 
 /* ════════════════════════════════════════════════════════════════════
-   Hash — inline copyable identifier
-   ════════════════════════════════════════════════════════════════════ */
-.hash {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-1);
-  max-width: 100%;
-  padding: 1px var(--s-1) 1px var(--s-2);
-  border: 1px solid transparent;
-  border-radius: var(--r-xs);
-  background: var(--surface-2);
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  cursor: pointer;
-  transition:
-    color var(--dur-fast) var(--ease-out),
-    background var(--dur-fast) var(--ease-out),
-    border-color var(--dur-fast) var(--ease-out);
-}
-
-.hash:hover {
-  background: var(--surface-3);
-  border-color: var(--border-subtle);
-  color: var(--text);
-}
-
-.hash:focus-visible {
-  outline: none;
-  box-shadow: var(--ring);
-}
-
-.hash-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font: inherit;
-}
-
-.hash-icon {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  opacity: 0;
-  transform: translateX(-2px);
-  transition:
-    opacity var(--dur-fast) var(--ease-out),
-    transform var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
-}
-
-.hash:hover .hash-icon,
-.hash:focus-visible .hash-icon {
-  opacity: 1;
-  transform: none;
-}
-
-.hash[data-copied="true"] {
-  color: var(--accent);
-  background: var(--accent-dim);
-  border-color: var(--accent-line);
-}
-
-.hash[data-copied="true"] .hash-icon {
-  opacity: 1;
-  transform: none;
-  color: var(--accent);
-}
-
-/* ════════════════════════════════════════════════════════════════════
    JsonView — pretty, collapsible JSON tree
    ════════════════════════════════════════════════════════════════════ */
 .json-view {
@@ -922,49 +851,6 @@ kbd {
   color: var(--danger);
 }
 
-/* ════════════════════════════════════════════════════════════════════
-   BulkBar — sticky multi-select action bar
-   ════════════════════════════════════════════════════════════════════ */
-.bulk-bar {
-  position: sticky;
-  bottom: var(--s-3);
-  z-index: var(--z-sticky);
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-  padding: var(--s-2) var(--s-3);
-  border: 1px solid var(--accent-line);
-  border-radius: var(--r-md);
-  background: var(--surface-3);
-  box-shadow: var(--shadow-md);
-  animation: bulk-in var(--dur-med) var(--ease-out);
-}
-
-.bulk-count {
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-medium);
-  color: var(--text);
-  white-space: nowrap;
-}
-
-.bulk-actions {
-  display: flex;
-  flex: 1;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s-2);
-}
-
-@keyframes bulk-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
 
 /* ════════════════════════════════════════════════════════════════════
    Selection — the checkbox column / card checkbox
