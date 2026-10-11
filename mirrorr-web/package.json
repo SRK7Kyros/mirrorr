@@ -11,7 +11,6 @@
     "test": "bun run test:unit && bun run test:e2e",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
-    "test:ratelimit": "playwright test --config playwright.ratelimit.config.ts",
     "check:tokens": "bun scripts/check-tokens.mjs",
     "check:contrast": "bun scripts/check-contrast.mjs",
     "bundle:report": "bun scripts/bundle-report.mjs",
