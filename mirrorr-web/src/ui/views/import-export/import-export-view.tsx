@@ -58,6 +58,7 @@ import {
   Textarea,
   Th,
   toast,
+  panelTitleClass,
 } from "@/ui/components"
 import { Page } from "@/ui/views/shared/page"
 
@@ -109,7 +110,7 @@ function ExportPanel() {
       <PanelHead title="Export" />
       <PanelBody>
         <div className="stack-sm">
-          <h3 className="panel-title">Profiles</h3>
+          <h3 className={panelTitleClass}>Profiles</h3>
           {profiles.length === 0 ? (
             <p className="text-dim">No profiles to export.</p>
           ) : (
@@ -158,7 +159,7 @@ function ExportPanel() {
       </PanelBody>
       <PanelBody>
         <div className="stack-sm">
-          <h3 className="panel-title">Autoruns</h3>
+          <h3 className={panelTitleClass}>Autoruns</h3>
           {autoruns.isLoading ? (
             <SkeletonRows rows={4} cols={3} />
           ) : autoruns.isError ? (

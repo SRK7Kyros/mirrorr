@@ -21,6 +21,7 @@ import {
   TabPanel,
   defaultsFromSchema,
   toast,
+  panelTitleClass,
 } from "@/ui/components"
 import { SourcePicker } from "@/ui/views/shared/source-picker"
 
@@ -200,7 +201,7 @@ export function NewSessionDialog({
               />
               {resolver === undefined ? null : (
                 <section className="stack-sm">
-                  <h3 className="panel-title">Resolver config</h3>
+                  <h3 className={panelTitleClass}>Resolver config</h3>
                   <SchemaForm
                     schema={resolver.config_schema}
                     value={resolverConfig}
