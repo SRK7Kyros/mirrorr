@@ -265,7 +265,7 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
                   <div className="flex items-center gap-3" style={{ gap: "var(--s-2)" }}>
                     <StatusChip status={linked.status} />
                     <Link
-                      className="table-row-link"
+                      className="text-ink font-medium hover:text-brand"
                       to="/sessions/$sessionId"
                       params={{ sessionId: String(linked.id) }}
                     >

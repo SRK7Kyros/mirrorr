@@ -125,7 +125,11 @@ function AutorunRow({
         <StatusChip status={autorun.status} />
       </Td>
       <Td>
-        <Link className="table-row-link" to="/autoruns/$autorunId" params={{ autorunId: String(autorun.id) }}>
+        <Link
+          className="text-ink font-medium hover:text-brand"
+          to="/autoruns/$autorunId"
+          params={{ autorunId: String(autorun.id) }}
+        >
           {autorun.user_friendly_name}
         </Link>
         <div>
