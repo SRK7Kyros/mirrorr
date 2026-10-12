@@ -125,15 +125,6 @@
   flex-wrap: wrap;
 }
 
-.table-row-link {
-  color: var(--text);
-  font-weight: var(--fw-medium);
-}
-
-.table-row-link:hover {
-  color: var(--accent);
-}
-
 /* ════════════════════════════════════════════════════════════════════
    Segmented
    ════════════════════════════════════════════════════════════════════ */
