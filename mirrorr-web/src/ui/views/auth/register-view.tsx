@@ -42,6 +42,10 @@ export function RegisterView() {
     }
   }
 
+  // First user bootstraps the admin account; anyone after files a request an
+  // admin must approve (server answers 202 pending → the banner below).
+  const isFirstUser = authStatus.status?.has_users === false
+
   return (
     <div className="grid place-items-center min-h-dvh px-4 pt-6 pb-6 bg-canvas">
       <div className="w-full max-w-[400px] flex flex-col gap-4">
@@ -114,14 +118,14 @@ export function RegisterView() {
                   loading={busy}
                   disabled={username.trim() === "" || password === "" || confirm === ""}
                 >
-                  Create account
+                  {isFirstUser ? "Create account" : "Request access"}
                 </Button>
               </form>
             )}
           </PanelBody>
         </Panel>
         <div className="flex justify-center gap-2 text-sm text-ink-muted">
-          <span>{authStatus.status?.has_users === false ? "Already set up?" : "Have an account?"}</span>
+          <span>{isFirstUser ? "Already set up?" : "Have an account?"}</span>
           <Link to="/login">Sign in</Link>
         </div>
       </div>
