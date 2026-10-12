@@ -16,7 +16,8 @@
     "check:contrast": "bun scripts/check-contrast.mjs",
     "check:collisions": "bun scripts/check-collisions.mjs",
     "bundle:report": "bun scripts/bundle-report.mjs",
-    "deploy:web": "bun scripts/deploy-web.mjs"
+    "deploy:web": "bun scripts/deploy-web.mjs",
+    "deploy:preview": "MIRRORR_PREVIEW=1 bun run deploy:web"
   },
   "dependencies": {
     "@capacitor/core": "^8.5.2",

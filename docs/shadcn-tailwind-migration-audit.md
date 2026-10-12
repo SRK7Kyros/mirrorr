@@ -272,3 +272,5 @@ Assumptions: 98% (not 99.5%+); motion largely preserved; `segmented`/`schema-for
 - **Still open (deliberate, not blocked).** The shadcn slot aliases (§4.1) — still no consumer, because no shadcn component was ever vendored (Phase 2b kept Radix plus our own wrappers). The visual gate's reach — 13 route states × 4 viewports, no hover/focus/dialog-open states. Regenerating baselines across branches — still a manual `git worktree` step, documented in `playwright.visual.config.ts`; a script would first have to pin *which ref owns the harness* (the spec lives on the branch, the appearance to freeze lives on `main`), so it was left unguessed.
 
 **Status: migration complete on `poc/tailwind-shadcn`** — Shape B landed end to end at 98% fidelity, with every commit gated by 52/52 zero-diff screenshots.
+
+A live preview of the branch is served at `https://mirrorr.bigbro-itzamekyros.duckdns.org/dev/` — built with `base=/dev/` into `run/dev` via `bun run deploy:preview` (the live `run/web`/`run/admin` are never touched, so `/` deliberately keeps the pre-migration build). Refresh command + teardown: AGENTS.md.
