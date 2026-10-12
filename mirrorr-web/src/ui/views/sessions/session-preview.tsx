@@ -65,7 +65,10 @@ export function SessionPreview({
   return (
     <video
       ref={ref}
-      className={cn("session-preview", className)}
+      className={cn(
+      "session-preview block w-full h-full object-cover opacity-0 transition-opacity duration-[var(--dur-med)] ease-[var(--ease-out)] data-[active=true]:opacity-100",
+      className,
+    )}
       data-active={active}
       muted
       loop={loop}

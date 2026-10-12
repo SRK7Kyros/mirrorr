@@ -52,7 +52,12 @@ export function SessionCard({
 
   return (
     <article
-      className={cn("session-card", live && "session-card-live")}
+      className={cn(
+        "session-card flex flex-col border border-line rounded-lg bg-surface-2 overflow-hidden cursor-pointer",
+        "transition-[border-color,box-shadow] duration-[var(--dur-fast)] ease-[var(--ease-out)]",
+        "hover:border-line-strong hover:shadow-elev-md",
+        "data-[selected=true]:border-brand data-[selected=true]:shadow-[0_0_0_1px_var(--accent-dim)]",
+      )}
       data-selected={selected}
       onClick={openDetail}
       onMouseEnter={() => setHovering(true)}
@@ -61,35 +66,35 @@ export function SessionCard({
       onBlurCapture={() => setHovering(false)}
     >
       <SessionPreviewPlayer src={playable} loop={!live} hovering={hovering} label={`session #${session.id}`}>
-        <div className="session-card-overlay">
+        <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 px-3 py-2 [background-image:linear-gradient(to_top,var(--overlay-scrim),transparent)] pointer-events-none">
           <StatusChip status={session.status} />
           {live ? (
-            <span className="session-card-flag" data-live="true">
+            <span className="text-2xs font-semibold tracking-[0.06em] uppercase text-ink data-[live=true]:text-danger" data-live="true">
               Live
             </span>
           ) : duration !== null ? (
-            <span className="session-card-flag tnum">{formatDuration(duration)}</span>
+            <span className="tnum text-2xs font-semibold tracking-[0.06em] uppercase text-ink">{formatDuration(duration)}</span>
           ) : null}
         </div>
       </SessionPreviewPlayer>
 
-      <div className="session-card-body">
-        <div className="session-card-head">
+      <div className="flex flex-col gap-3 px-4 pt-3 pb-4">
+        <div className="flex items-center gap-2">
           <Checkbox
             aria-label={`Select session #${session.id}`}
             checked={selected}
             onChange={() => onToggle(session.id)}
           />
-          <Link className="session-card-title text-truncate" {...link}>
+          <Link className="font-semibold text-ink min-w-0 text-truncate" {...link}>
             {sessionTitle(session, names)}
           </Link>
-          <span className="session-card-id mono tnum text-dim">#{session.id}</span>
-          <span className="session-card-spacer" />
+          <span className="shrink-0 mono tnum text-dim">#{session.id}</span>
+          <span className="flex-1" />
           <SessionRecordingButton session={session} />
           <SessionStopDeleteButton session={session} />
         </div>
 
-        <div className="session-card-source">
+        <div className="session-card-source text-sm text-ink-muted [overflow-wrap:anywhere]">
           {resolveEntityName(session.resolver_name, names.resolvers, session.resolver_id)}
           <span className="text-dim" aria-hidden="true">
             {" → "}
@@ -97,7 +102,7 @@ export function SessionCard({
           {resolveEntityName(session.engine_name, names.engines, session.engine_id)}
         </div>
 
-        <div className="session-card-meta text-dim">
+        <div className="flex items-baseline justify-between gap-3 text-sm text-dim">
           <span className="text-truncate">
             {resolveEntityName(session.profile_name, names.profiles, session.profile_id)}
           </span>
@@ -112,9 +117,9 @@ export function SessionCard({
         {remuxing ? <RemuxProgressBar sessionId={session.id} className="flex flex-col gap-2" /> : null}
 
         {urls.length > 0 ? (
-          <SessionUrls urls={urls} className="session-card-urls" />
+          <SessionUrls urls={urls} />
         ) : (
-          <p className="session-card-none text-dim">No media yet — nothing published for this run.</p>
+          <p className="text-sm text-dim">No media yet — nothing published for this run.</p>
         )}
       </div>
     </article>

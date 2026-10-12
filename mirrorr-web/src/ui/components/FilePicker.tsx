@@ -44,13 +44,18 @@ export function FilePicker({
   }
 
   return (
-    <div className="file-picker">
+    <div className="flex flex-col gap-1">
       <label
         className={cn(
-          "file-drop",
-          dragging && "file-drop-active",
-          disabled && "file-drop-disabled",
-          hasFile && "file-drop-has-file",
+          "relative flex flex-col items-center justify-center gap-1 px-4 py-5 border border-dashed rounded-md text-center",
+          "transition-[border-color,background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]",
+          "hover:border-[color:var(--accent-line)] hover:bg-surface-1 hover:text-ink",
+          "focus-visible:outline-none focus-visible:border-[color:var(--accent-line)] focus-visible:shadow-ring",
+          dragging
+            ? "border-[color:var(--accent)] bg-[var(--accent-dim)] text-ink"
+            : "border-line-strong bg-sunken text-ink-muted",
+          disabled ? "cursor-not-allowed" : "cursor-pointer",
+          disabled && "opacity-50",
         )}
         htmlFor={id}
         tabIndex={disabled ? -1 : 0}
@@ -71,27 +76,27 @@ export function FilePicker({
           }
         }}
       >
-        <span className="file-drop-icon" aria-hidden="true">
+        <span className={hasFile ? "text-brand" : "text-ink-dim"} aria-hidden="true">
           <IconUpload size={20} />
         </span>
         {hasFile ? (
           <>
-            <span className="file-drop-name">{fileName}</span>
+            <span className="font-medium text-ink break-all">{fileName}</span>
             {fileSize !== undefined && fileSize !== null ? (
-              <span className="file-drop-meta">{formatBytes(fileSize)}</span>
+              <span className="text-xs text-ink-dim">{formatBytes(fileSize)}</span>
             ) : null}
-            <span className="file-drop-cta">Click or drop to replace</span>
+            <span className="text-xs text-ink-dim">Click or drop to replace</span>
           </>
         ) : (
           <>
-            <span className="file-drop-name">Drop a file here</span>
-            <span className="file-drop-cta">or click to browse</span>
+            <span className="font-medium text-ink break-all">Drop a file here</span>
+            <span className="text-xs text-ink-dim">or click to browse</span>
           </>
         )}
         <input
           ref={inputRef}
           id={id}
-          className="file-input"
+          className="sr-only"
           type="file"
           accept={accept}
           disabled={disabled}
@@ -104,7 +109,12 @@ export function FilePicker({
         />
       </label>
       {hasFile && onClear !== undefined ? (
-        <button type="button" className="file-picker-clear" onClick={onClear} disabled={disabled}>
+        <button
+          type="button"
+          className="self-start inline-flex items-center gap-1 text-xs text-ink-dim transition-[color] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:text-danger"
+          onClick={onClear}
+          disabled={disabled}
+        >
           <IconX size={13} />
           Remove
         </button>

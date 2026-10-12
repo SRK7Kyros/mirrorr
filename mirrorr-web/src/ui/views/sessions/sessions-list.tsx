@@ -59,20 +59,20 @@ const FILTER_LABELS: Record<FilterToken, string> = {
 function SkeletonCards({ count = 6 }: { readonly count?: number }) {
   return (
     <div
-      className="session-grid"
+      className="session-grid grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4 items-start"
       aria-busy="true"
       aria-label="Loading sessions"
     >
       {Array.from({ length: count }, (_, index) => (
-        <div key={index} className="session-card">
-          <div className="session-preview-box">
+        <div key={index} className="session-card flex flex-col border border-line rounded-lg bg-surface-2 overflow-hidden">
+          <div className="relative aspect-video bg-sunken overflow-hidden">
             <Skeleton
               width="100%"
               height="100%"
-              className="session-preview-box-fill"
+              className="block"
             />
           </div>
-          <div className="session-card-body">
+          <div className="flex flex-col gap-3 px-4 pt-3 pb-4">
             <Skeleton width="40%" />
             <Skeleton width="72%" />
             <Skeleton width="58%" />
@@ -302,7 +302,7 @@ export function SessionsListView() {
         />
       ) : (
         <>
-          <div className="session-grid-head">
+          <div className="flex items-center gap-3 px-1">
             <Checkbox
               aria-label="Select all sessions"
               checked={selection.allSelected(cardIds)}
@@ -315,7 +315,7 @@ export function SessionsListView() {
             </span>
           </div>
 
-          <div className="session-grid">
+          <div className="session-grid grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4 items-start">
             {cards.map((session) => (
               <SessionCard
                 key={session.id}

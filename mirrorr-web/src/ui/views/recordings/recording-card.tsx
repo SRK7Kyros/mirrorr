@@ -91,7 +91,7 @@ export function RecordingCard({
     <article
       ref={highlightRef}
       data-id={recording.id}
-      className="session-card"
+      className="session-card flex flex-col border border-line rounded-lg bg-surface-2 overflow-hidden cursor-pointer transition-[border-color,box-shadow] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:border-line-strong hover:shadow-elev-md"
       onClick={openRecording}
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}
@@ -104,18 +104,18 @@ export function RecordingCard({
         hovering={hovering}
         label={`recording #${recording.id}`}
       >
-        <div className="session-card-overlay">
+        <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 px-3 py-2 [background-image:linear-gradient(to_top,var(--overlay-scrim),transparent)] pointer-events-none">
           <Tag>{recording.snake_case_name}</Tag>
-          <span className="session-card-flag tnum">
+          <span className="tnum text-2xs font-semibold tracking-[0.06em] uppercase text-ink">
             {formatDuration(recording.duration_seconds)}
           </span>
         </div>
       </SessionPreviewPlayer>
 
-      <div className="session-card-body">
-        <div className="session-card-head">
+      <div className="flex flex-col gap-3 px-4 pt-3 pb-4">
+        <div className="flex items-center gap-2">
           <a
-            className="session-card-title text-truncate"
+            className="font-semibold text-ink min-w-0 text-truncate"
             href={recording.content_url}
             target="_blank"
             rel="noreferrer"
@@ -123,10 +123,10 @@ export function RecordingCard({
           >
             {recording.user_friendly_name}
           </a>
-          <span className="session-card-id mono tnum text-dim">
+          <span className="shrink-0 mono tnum text-dim">
             #{recording.id}
           </span>
-          <span className="session-card-spacer" />
+          <span className="flex-1" />
           <IconButton
             label={`Open recording #${recording.id}`}
             icon={<IconExternal size={16} />}
@@ -145,7 +145,7 @@ export function RecordingCard({
           />
         </div>
 
-        <div className="session-card-source">
+        <div className="session-card-source text-sm text-ink-muted [overflow-wrap:anywhere]">
           {recording.resolver_name}
           <span className="text-dim" aria-hidden="true">
             {" → "}
@@ -153,7 +153,7 @@ export function RecordingCard({
           {recording.engine_name}
         </div>
 
-        <div className="session-card-meta text-dim">
+        <div className="flex items-baseline justify-between gap-3 text-sm text-dim">
           <span className="text-truncate">{recording.profile_name}</span>
           <span className="tnum">{formatBytes(recording.size_bytes)}</span>
           <span>{formatDateTime(recording.created_at)}</span>
@@ -161,10 +161,7 @@ export function RecordingCard({
 
         {served === false ? <MediaHint recording={recording} /> : null}
 
-        <SessionUrls
-          urls={[{ label: "File", url: recording.content_url }]}
-          className="session-card-urls"
-        />
+        <SessionUrls urls={[{ label: "File", url: recording.content_url }]} />
       </div>
     </article>
   );

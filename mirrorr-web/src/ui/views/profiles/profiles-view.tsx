@@ -136,21 +136,21 @@ function ProfileRow({ profile, names, selected, onToggle, onEdit, onDelete, onEx
 
 function ProfileCard({ profile, names, selected, onToggle, onEdit, onDelete, onExport }: ProfileRowProps) {
   return (
-    <motion.article className="entity-card" variants={staggerItem}>
-      <div className="entity-card-head">
+    <motion.article className="entity-card flex flex-col gap-3 p-4 border border-line rounded-md bg-surface-2" variants={staggerItem}>
+      <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3" style={{ gap: "var(--s-2)", minWidth: 0 }}>
-          <span className="entity-card-check">
+          <span className="flex items-center">
             <Checkbox
               aria-label={`Select ${profile.name}`}
               checked={selected}
               onChange={() => onToggle(profile.id)}
             />
           </span>
-          <div className="entity-card-title" title={profile.name}>
+          <div className="text-md font-semibold text-ink [overflow-wrap:anywhere]" title={profile.name}>
             {profile.name}
           </div>
         </div>
-        <div className="entity-card-actions">
+        <div className="flex gap-1 shrink-0">
           <IconButton
             label={`Export profile ${profile.name}`}
             icon={<IconDownload size={15} />}
@@ -168,8 +168,8 @@ function ProfileCard({ profile, names, selected, onToggle, onEdit, onDelete, onE
           />
         </div>
       </div>
-      <dl className="entity-card-facts">
-        <div className="entity-card-fact">
+      <dl className="flex flex-col gap-2">
+        <div className="entity-card-fact flex flex-col gap-[2px] text-sm [&_dt]:text-ink-dim [&_dd]:text-ink [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere]">
           <dt>Resolver → Engine</dt>
           <dd>
             {resolveEntityName(profile.resolver_name, names.resolvers, profile.resolver_id)}
@@ -179,7 +179,7 @@ function ProfileCard({ profile, names, selected, onToggle, onEdit, onDelete, onE
             {resolveEntityName(profile.engine_name, names.engines, profile.default_engine_id)}
           </dd>
         </div>
-        <div className="entity-card-fact">
+        <div className="entity-card-fact flex flex-col gap-[2px] text-sm [&_dt]:text-ink-dim [&_dd]:text-ink [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere]">
           <dt>Retry</dt>
           <dd>
             {profile.retry_mode !== undefined && profile.retry_mode !== "" ? (
@@ -189,7 +189,7 @@ function ProfileCard({ profile, names, selected, onToggle, onEdit, onDelete, onE
             )}
           </dd>
         </div>
-        <div className="entity-card-fact">
+        <div className="entity-card-fact flex flex-col gap-[2px] text-sm [&_dt]:text-ink-dim [&_dd]:text-ink [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere]">
           <dt>Config</dt>
           <dd>
             <JsonView value={profile.resolver_config ?? {}} />
@@ -628,7 +628,7 @@ function ProfilesPanel() {
         <>
           <Panel>
             <PanelBody flush>
-              <div className="table-desktop">
+              <div className="table-desktop block max-sm:hidden">
                 <Table className="table-stable">
                   <thead>
                     <tr>
@@ -662,7 +662,7 @@ function ProfilesPanel() {
                   </tbody>
                 </Table>
               </div>
-              <motion.div className="cards-mobile" variants={staggerContainer} initial="hidden" animate="visible">
+              <motion.div className="cards-mobile hidden max-sm:flex max-sm:flex-col max-sm:gap-3 max-sm:p-3" variants={staggerContainer} initial="hidden" animate="visible">
                 {rows.map((profile) => (
                   <ProfileCard
                     key={profile.id}

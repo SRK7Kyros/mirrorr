@@ -98,7 +98,7 @@ function AccountSection() {
             <Tag accent>{role}</Tag>
           </div>
 
-          <hr className="divider" />
+          <hr className="h-px bg-line-subtle border-none" />
 
           <form className="flex flex-col gap-4" onSubmit={(event) => void onSubmit(event)} noValidate>
             <h3>Change password</h3>
@@ -152,7 +152,7 @@ function AccountSection() {
             </div>
           </form>
 
-          <hr className="divider" />
+          <hr className="h-px bg-line-subtle border-none" />
 
           <div className="flex items-center justify-between gap-3">
             <span className="text-muted">End this session on every device.</span>

@@ -88,7 +88,7 @@ export function DiscoveryDrawer({
       open={open}
       onClose={onClose}
       raised
-      className="drawer-wide"
+      className="w-[min(1100px,92vw)]"
       title={resolver !== null ? `Browse ${resolver.name}` : "Browse"}
     >
       <div className="flex flex-col gap-4">
@@ -128,19 +128,19 @@ export function DiscoveryDrawer({
           />
         ) : (
           <>
-            <ul className="discovery-grid">
+            <ul className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3 m-0 p-0 list-none">
               {items.map((item) => (
-                <li key={item.id} className="discovery-card">
+                <li key={item.id} className="flex flex-col gap-3 p-3 border border-line rounded-md bg-surface-2">
                   {item.image !== null && item.image !== undefined && item.image !== "" ? (
-                    <img className="discovery-card-image" src={item.image} alt="" loading="lazy" />
+                    <img className="w-full aspect-video object-cover rounded-sm bg-sunken" src={item.image} alt="" loading="lazy" />
                   ) : null}
-                  <div className="discovery-card-text">
-                    <span className="discovery-card-title">{item.title}</span>
+                  <div className="flex flex-1 flex-col gap-1 min-w-0">
+                    <span className="text-base font-semibold text-ink [overflow-wrap:anywhere]">{item.title}</span>
                     {item.subtitle !== null && item.subtitle !== undefined && item.subtitle !== "" ? (
-                      <span className="discovery-card-subtitle">{item.subtitle}</span>
+                      <span className="text-sm text-ink-muted">{item.subtitle}</span>
                     ) : null}
                     {item.description !== null && item.description !== undefined && item.description !== "" ? (
-                      <p className="discovery-card-desc">{item.description}</p>
+                      <p className="text-sm text-ink-dim [overflow-wrap:anywhere]">{item.description}</p>
                     ) : null}
                   </div>
                   <Button size="sm" variant="outline" onClick={() => onUse(item)}>
