@@ -34,3 +34,18 @@ jobs:
       - name: Build web
         run: bun run build
         working-directory: mirrorr-web
+
+      # Deterministic text guards (no browser): the token layer is pinned,
+      # contrast holds, and no authored class collides with an emitted utility.
+      # The pixel gate stays local — baselines depend on host font rendering.
+      - name: Check token layer
+        run: bun run check:tokens
+        working-directory: mirrorr-web
+
+      - name: Check contrast
+        run: bun run check:contrast
+        working-directory: mirrorr-web
+
+      - name: Check utility collisions
+        run: bun run check:collisions
+        working-directory: mirrorr-web
