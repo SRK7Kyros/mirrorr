@@ -11,6 +11,11 @@
  * never points at a file that has already been removed.
  *
  * Usage: bun run deploy:web
+ *
+ * Preview: `MIRRORR_PREVIEW=1 bun run deploy:preview` (with MIRRORR_DEPLOY_ROOT
+ * set) builds the branch as one standard surface with `base=/dev/` and
+ * publishes it to <deploy root>/dev, which nginx serves at `<url>/dev/`; the
+ * live `web`/`admin` builds are left untouched.
  */
 import { readdirSync, renameSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -22,12 +27,20 @@ const deployRoot = process.env.MIRRORR_DEPLOY_ROOT
   ? resolve(process.env.MIRRORR_DEPLOY_ROOT)
   : resolve(appDir, "..", "dev");
 
-const SURFACES = [
-  { surface: "standard", base: "/", target: join(deployRoot, "web") },
-  // Vite names an emitted HTML file after its source, so the admin entry
-  // arrives as admin.html and is published under the conventional index.html.
-  { surface: "admin", base: "/admin/", target: join(deployRoot, "admin"), entry: "admin.html" },
-];
+// Default `/dev/` matches the nginx `/dev/` location in deploy/mirrorr.conf.
+const PREVIEW_BASE = process.env.MIRRORR_PREVIEW_BASE ?? "/dev/";
+
+// `MIRRORR_PREVIEW=1` publishes ONE standard build under a path prefix instead
+// of the live pair, so an unmerged branch can be eyeballed in a real browser
+// without touching `web`/`admin`.
+const SURFACES = process.env.MIRRORR_PREVIEW
+  ? [{ surface: "standard", base: PREVIEW_BASE, target: join(deployRoot, "dev") }]
+  : [
+      { surface: "standard", base: "/", target: join(deployRoot, "web") },
+      // Vite names an emitted HTML file after its source, so the admin entry
+      // arrives as admin.html and is published under the conventional index.html.
+      { surface: "admin", base: "/admin/", target: join(deployRoot, "admin"), entry: "admin.html" },
+    ];
 
 function step(cmd, env) {
   const proc = Bun.spawnSync(cmd, {
