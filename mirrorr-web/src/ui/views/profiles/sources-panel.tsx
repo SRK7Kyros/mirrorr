@@ -106,17 +106,17 @@ function SourceRow({ source, names, selected, onToggle, onEdit, onDelete }: Sour
 
 function SourceCard({ source, names, selected, onToggle, onEdit, onDelete }: SourceRowProps) {
   return (
-    <motion.article className="entity-card" variants={staggerItem}>
-      <div className="entity-card-head">
+    <motion.article className="entity-card flex flex-col gap-3 p-4 border border-line rounded-md bg-surface-2" variants={staggerItem}>
+      <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3" style={{ gap: "var(--s-2)", minWidth: 0 }}>
-          <span className="entity-card-check">
+          <span className="flex items-center">
             <Checkbox aria-label={`Select ${source.name}`} checked={selected} onChange={() => onToggle(source.id)} />
           </span>
-          <div className="entity-card-title" title={source.name}>
+          <div className="text-md font-semibold text-ink [overflow-wrap:anywhere]" title={source.name}>
             {source.name}
           </div>
         </div>
-        <div className="entity-card-actions">
+        <div className="flex gap-1 shrink-0">
           <IconButton
             label={`Edit source ${source.name}`}
             icon={<IconEdit size={15} />}
@@ -129,12 +129,12 @@ function SourceCard({ source, names, selected, onToggle, onEdit, onDelete }: Sou
           />
         </div>
       </div>
-      <dl className="entity-card-facts">
-        <div className="entity-card-fact">
+      <dl className="flex flex-col gap-2">
+        <div className="entity-card-fact flex flex-col gap-[2px] text-sm [&_dt]:text-ink-dim [&_dd]:text-ink [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere]">
           <dt>Resolver</dt>
           <dd>{resolveEntityName(source.resolver_name, names.resolvers, source.resolver_id)}</dd>
         </div>
-        <div className="entity-card-fact">
+        <div className="entity-card-fact flex flex-col gap-[2px] text-sm [&_dt]:text-ink-dim [&_dd]:text-ink [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere]">
           <dt>Config</dt>
           <dd>
             <JsonView value={source.resolver_config ?? {}} />
@@ -450,7 +450,7 @@ export function SourcesPanel() {
         <>
           <Panel>
             <PanelBody flush>
-              <div className="table-desktop">
+              <div className="table-desktop block max-sm:hidden">
                 <Table className="table-stable">
                   <thead>
                     <tr>
@@ -482,7 +482,7 @@ export function SourcesPanel() {
                   </tbody>
                 </Table>
               </div>
-              <motion.div className="cards-mobile" variants={staggerContainer} initial="hidden" animate="visible">
+              <motion.div className="cards-mobile hidden max-sm:flex max-sm:flex-col max-sm:gap-3 max-sm:p-3" variants={staggerContainer} initial="hidden" animate="visible">
                 {rows.map((source) => (
                   <SourceCard
                     key={source.id}

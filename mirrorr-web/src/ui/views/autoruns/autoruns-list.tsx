@@ -129,7 +129,9 @@ function AutorunRow({
           {autorun.user_friendly_name}
         </Link>
         <div>
-          <Tag title={autorun.snake_case_name}>{autorun.snake_case_name}</Tag>
+          <Tag className="max-w-full overflow-hidden text-ellipsis" title={autorun.snake_case_name}>
+                {autorun.snake_case_name}
+              </Tag>
         </div>
       </Td>
       <Td>
@@ -198,10 +200,13 @@ function AutorunCard({
   const owner = autorun.requester_user_token
 
   return (
-    <article className="entity-card" data-selected={selected}>
-      <div className="entity-card-head">
+    <article
+      className="entity-card flex flex-col gap-3 p-4 border border-line rounded-md bg-surface-2 data-[selected=true]:bg-[var(--accent-dim)] data-[selected=true]:shadow-[inset_2px_0_0_var(--accent)]"
+      data-selected={selected}
+    >
+      <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3" style={{ gap: "var(--s-2)", minWidth: 0, alignItems: "flex-start" }}>
-          <span className="entity-card-check">
+          <span className="flex items-center">
             <Checkbox
               aria-label={`Select ${autorun.user_friendly_name}`}
               checked={selected}
@@ -210,18 +215,20 @@ function AutorunCard({
           </span>
           <div style={{ minWidth: 0 }}>
             <Link
-              className="entity-card-title"
+              className="text-md font-semibold text-ink [overflow-wrap:anywhere]"
               to="/autoruns/$autorunId"
               params={{ autorunId: String(autorun.id) }}
             >
               {autorun.user_friendly_name}
             </Link>
-            <div className="entity-card-desc">
-              <Tag title={autorun.snake_case_name}>{autorun.snake_case_name}</Tag>
+            <div className="text-sm text-ink-muted">
+              <Tag className="max-w-full overflow-hidden text-ellipsis" title={autorun.snake_case_name}>
+                {autorun.snake_case_name}
+              </Tag>
             </div>
           </div>
         </div>
-        <div className="entity-card-actions">
+        <div className="flex gap-1 shrink-0">
           <AutorunActionsMenu autorun={autorun} />
         </div>
       </div>
@@ -231,8 +238,8 @@ function AutorunCard({
         {autorun.recording === true ? <Tag accent>REC</Tag> : null}
       </div>
 
-      <dl className="entity-card-facts">
-        <div className="entity-card-fact">
+      <dl className="flex flex-col gap-2">
+        <div className="entity-card-fact flex flex-col gap-[2px] text-sm [&_dt]:text-ink-dim [&_dd]:text-ink [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere]">
           <dt>Window</dt>
           <dd>
             {formatDateTime(autorun.start_time)}
@@ -241,7 +248,7 @@ function AutorunCard({
             <span className="text-dim"> stored UTC</span>
           </dd>
         </div>
-        <div className="entity-card-fact">
+        <div className="entity-card-fact flex flex-col gap-[2px] text-sm [&_dt]:text-ink-dim [&_dd]:text-ink [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere]">
           <dt>Countdown</dt>
           <dd>
             {countdown === null ? (
@@ -254,7 +261,7 @@ function AutorunCard({
             )}
           </dd>
         </div>
-        <div className="entity-card-fact">
+        <div className="entity-card-fact flex flex-col gap-[2px] text-sm [&_dt]:text-ink-dim [&_dd]:text-ink [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere]">
           <dt>Resolver → Engine</dt>
           <dd>
             {resolveEntityName(autorun.resolver_name, names.resolvers, autorun.resolver_id)}
@@ -264,12 +271,12 @@ function AutorunCard({
             {resolveEntityName(autorun.engine_name, names.engines, autorun.engine_id)}
           </dd>
         </div>
-        <div className="entity-card-fact">
+        <div className="entity-card-fact flex flex-col gap-[2px] text-sm [&_dt]:text-ink-dim [&_dd]:text-ink [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere]">
           <dt>Profile</dt>
           <dd>{resolveEntityName(autorun.profile_name, names.profiles, autorun.profile_id)}</dd>
         </div>
         {__ADMIN__ ? (
-          <div className="entity-card-fact">
+          <div className="entity-card-fact flex flex-col gap-[2px] text-sm [&_dt]:text-ink-dim [&_dd]:text-ink [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere]">
             <dt>Owner</dt>
             <dd className="mono">{owner !== undefined && owner !== "" ? owner : "—"}</dd>
           </div>
@@ -499,7 +506,7 @@ export function AutorunsListView() {
         <>
           <Panel>
             <PanelBody flush>
-              <div className="table-desktop">
+              <div className="table-desktop block max-sm:hidden">
                 <Table>
                   <thead>
                     <tr>
@@ -529,8 +536,8 @@ export function AutorunsListView() {
                   </tbody>
                 </Table>
               </div>
-              <div className="cards-mobile">
-                <div className="session-grid-head">
+              <div className="cards-mobile hidden max-sm:flex max-sm:flex-col max-sm:gap-3 max-sm:p-3">
+                <div className="flex items-center gap-3 px-1">
                   {selectAllCheckbox}
                   <span className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
                     {rows.length} scheduled recording{rows.length === 1 ? "" : "s"}

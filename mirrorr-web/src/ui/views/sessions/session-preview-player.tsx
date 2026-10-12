@@ -29,12 +29,12 @@ export function SessionPreviewPlayer({
   const previewing = hovering || playing
 
   return (
-    <div className={cn("session-preview-box", className)}>
+    <div className={cn("relative aspect-video bg-sunken overflow-hidden", className)}>
       <SessionPreview src={src} active={previewing} loop={loop} />
       {src !== null ? (
         <button
           type="button"
-          className="session-preview-toggle"
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 grid place-items-center size-[46px] p-0 border border-line-strong rounded-full bg-[var(--overlay-scrim)] text-ink cursor-pointer transition-[translate,scale,background-color] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-surface-3 hover:scale-[1.06]"
           aria-label={playing ? `Stop preview of ${label}` : `Preview ${label}`}
           aria-pressed={playing}
           onClick={() => setPlaying((value) => !value)}

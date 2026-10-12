@@ -80,7 +80,7 @@ function CapabilityBadges({ entry }: { readonly entry: PluginEntry }) {
 function EntryMeta({ entry }: { readonly entry: PluginEntry }) {
   if (entry.capabilities !== undefined) {
     return (
-      <div className="capability-stack">
+      <div className="flex flex-col items-center gap-1">
         <CapabilityBadges entry={entry} />
       </div>
     )
@@ -159,14 +159,14 @@ function PluginPanel({ title, tagsLabel, variant, entries, isLoading, isError, e
           <EmptyState title={`No ${title.toLowerCase()}`} text="Nothing has been registered yet." />
         ) : (
           <>
-            <div className="table-desktop">
-              <Table className={`table-stable plugin-table plugin-table-${variant}`}>
+            <div className="table-desktop block max-sm:hidden">
+              <Table className="table-stable">
                 <thead>
                   <tr>
                     <Th>Name</Th>
-                    <Th>{tagsLabel}</Th>
-                    <Th>Origin</Th>
-                    <Th>Hash</Th>
+                    <Th className={variant === "engines" ? "w-[112px]" : "w-[300px] max-[1180px]:w-[33%]"}>{tagsLabel}</Th>
+                    <Th className="w-[150px] max-[1180px]:w-[17%]">Origin</Th>
+                    <Th className="w-[230px] max-[1180px]:w-[25%]">Hash</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -190,28 +190,28 @@ function PluginPanel({ title, tagsLabel, variant, entries, isLoading, isError, e
                 </tbody>
               </Table>
             </div>
-            <motion.div className="cards-mobile" variants={staggerContainer} initial="hidden" animate="visible">
+            <motion.div className="cards-mobile hidden max-sm:flex max-sm:flex-col max-sm:gap-3 max-sm:p-3" variants={staggerContainer} initial="hidden" animate="visible">
               {entries.map((entry) => (
-                <motion.article key={entry.id} className="entity-card" variants={staggerItem}>
-                  <div className="entity-card-head">
+                <motion.article key={entry.id} className="entity-card flex flex-col gap-3 p-4 border border-line rounded-md bg-surface-2" variants={staggerItem}>
+                  <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="entity-card-title">{entry.name}</div>
+                      <div className="text-md font-semibold text-ink [overflow-wrap:anywhere]">{entry.name}</div>
                       {entry.description !== undefined && entry.description !== "" ? (
-                        <div className="entity-card-desc">{entry.description}</div>
+                        <div className="text-sm text-ink-muted">{entry.description}</div>
                       ) : null}
                     </div>
                     {entry.capabilities !== undefined ? (
-                      <div className="capability-row">
+                      <div className="capability-row flex items-center gap-1 shrink-0">
                         <CapabilityBadges entry={entry} />
                       </div>
                     ) : null}
                   </div>
-                  <dl className="entity-card-facts">
-                    <div className="entity-card-fact">
+                  <dl className="flex flex-col gap-2">
+                    <div className="entity-card-fact flex flex-col gap-[2px] text-sm [&_dt]:text-ink-dim [&_dd]:text-ink [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere]">
                       <dt>Origin</dt>
                       <dd>{entry.origin}</dd>
                     </div>
-                    <div className="entity-card-fact">
+                    <div className="entity-card-fact flex flex-col gap-[2px] text-sm [&_dt]:text-ink-dim [&_dd]:text-ink [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere]">
                       <dt>Hash</dt>
                       <dd>
                         <Hash value={entry.originHash} label={`${entry.name} origin hash`} />

@@ -6,6 +6,21 @@ import { getStatusDescriptor } from "@/api/status"
 import { Button, IconDisc, toast, type ButtonSize } from "@/ui/components"
 
 /**
+ * The pressed state fills the toggle red. Each override carries `data-slot=button`
+ * (always present on `Button`) plus `:not(:disabled)`, buying the extra
+ * specificity that makes the fill beat the ghost variant's own rest and hover
+ * colours deterministically instead of leaving it to Tailwind's emitted order.
+ */
+const RECORD_TOGGLE = [
+  "[&[data-slot=button][aria-pressed=true]]:bg-danger",
+  "[&[data-slot=button][aria-pressed=true]]:border-danger",
+  "[&[data-slot=button][aria-pressed=true]]:text-danger-ink",
+  "[&[data-slot=button][aria-pressed=true]:hover:not(:disabled)]:bg-danger",
+  "[&[data-slot=button][aria-pressed=true]:hover:not(:disabled)]:text-danger-ink",
+  "[&[data-slot=button][aria-pressed=true]:hover:not(:disabled)]:brightness-[1.08]",
+].join(" ")
+
+/**
  * Recording toggle, promoted out of the actions menu so the control is visible
  * on the card itself. Rendered only for statuses whose action set carries a
  * recording toggle; an engine with `can_record === false` renders it disabled.
@@ -55,7 +70,7 @@ export function SessionRecordingButton({
     <Button
       size={size}
       variant="ghost"
-      className="session-record-toggle"
+      className={RECORD_TOGGLE}
       icon={<IconDisc size={15} />}
       loading={record.isPending}
       aria-pressed={disable}

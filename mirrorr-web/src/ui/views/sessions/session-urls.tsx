@@ -41,7 +41,12 @@ function CopyButton({ value, label }: { readonly value: string; readonly label: 
   }
 
   return (
-    <button type="button" className="url-copy" aria-label={`Copy ${label} URL`} onClick={() => void copy()}>
+    <button
+      type="button"
+      className="shrink-0 inline-grid place-items-center size-[1.6rem] p-0 border border-transparent rounded-sm bg-transparent text-ink-faint cursor-pointer hover:border-line hover:text-ink hover:bg-surface-hover"
+      aria-label={`Copy ${label} URL`}
+      onClick={() => void copy()}
+    >
       {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
     </button>
   )
@@ -62,12 +67,14 @@ export function SessionUrls({
   if (urls.length === 0) return null
 
   return (
-    <ul className={cn("url-list", className)}>
+    <ul className={cn("url-list flex flex-col gap-1 m-0 p-0 list-none", className)}>
       {urls.map((entry) => (
-        <li key={`${entry.label}-${entry.url}`} className="url-list-item">
-          <span className="url-list-label">{entry.label}</span>
+        <li key={`${entry.label}-${entry.url}`} className="flex items-center gap-2 min-w-0">
+          <span className="shrink-0 w-[4.5rem] text-2xs font-semibold tracking-[0.04em] uppercase text-ink-faint">
+            {entry.label}
+          </span>
           <a
-            className="url-list-value mono text-truncate"
+            className="flex-1 inline-flex items-center gap-1 min-w-0 text-2xs text-ink-muted no-underline hover:text-brand mono text-truncate"
             href={entry.url}
             target="_blank"
             rel="noreferrer"

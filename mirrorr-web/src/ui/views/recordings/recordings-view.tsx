@@ -37,20 +37,20 @@ import { RecordingCard } from "./recording-card";
 function RecordingsSkeleton({ count = 6 }: { readonly count?: number }) {
   return (
     <div
-      className="session-grid"
+      className="session-grid grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4 items-start"
       aria-busy="true"
       aria-label="Loading recordings"
     >
       {Array.from({ length: count }, (_, index) => (
-        <div key={index} className="session-card">
-          <div className="session-preview-box">
+        <div key={index} className="session-card flex flex-col border border-line rounded-lg bg-surface-2 overflow-hidden">
+          <div className="relative aspect-video bg-sunken overflow-hidden">
             <Skeleton
               width="100%"
               height="100%"
-              className="session-preview-box-fill"
+              className="block"
             />
           </div>
-          <div className="session-card-body">
+          <div className="flex flex-col gap-3 px-4 pt-3 pb-4">
             <Skeleton width="48%" />
             <Skeleton width="70%" />
             <Skeleton width="56%" />
@@ -130,7 +130,7 @@ export function RecordingsView({ highlight }: { readonly highlight?: number }) {
         />
       ) : (
         <>
-          <div className="session-grid">
+          <div className="session-grid grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4 items-start">
             {rows.map((recording) => (
               <RecordingCard
                 key={recording.id}
