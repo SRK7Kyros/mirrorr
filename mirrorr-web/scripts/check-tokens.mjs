@@ -13,22 +13,35 @@
  *   2. EQUIVALENT — every pinned name carries its pinned value (whitespace- and
  *                   case-insensitive, so a formatter cannot fail the gate but a
  *                   re-derived number can).
- *   3. DEFINED    — every `var(--x)` used anywhere in the CSS layer resolves to
- *                   a token declared in tokens.css or locally in that same file.
- *                   A reference without a fallback that resolves to nothing is a
- *                   rendering bug (the declaration is dropped silently), so it
- *                   fails the gate.
+ *   3. DEFINED    — every `var(--x)` used in the authored CSS layer *or in the
+ *                   `var(--…)` arbitrary values that now carry the styling
+ *                   inside TS/TSX class strings* resolves to a token declared in
+ *                   tokens.css (or a custom property published per element at
+ *                   runtime — see RUNTIME_PROPS). A reference without a fallback
+ *                   that resolves to nothing is a rendering bug (the declaration
+ *                   is dropped silently), so it fails the gate.
  *
  * A missing, drifted, or dangling token is a token-layer defect — fix
  * tokens.css (or the consuming CSS), never relax this script.
  * Exit 0 = the layer is pinned and closed; exit 1 = defects printed.
  */
-import { readFileSync } from "node:fs"
+import { readdirSync, readFileSync } from "node:fs"
+import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const TOKENS_FILE = fileURLToPath(new URL("../src/ui/styles/tokens.css", import.meta.url))
 const CSS_DIR = new URL("../src/ui/styles/", import.meta.url)
-const CSS_FILES = ["base.css", "components.css", "layout.css", "fonts.css"]
+const CSS_FILES = ["base.css", "components.css", "layout.css", "fonts.css", "tailwind.css"]
+const SRC_DIR = fileURLToPath(new URL("../src/", import.meta.url))
+
+/**
+ * Custom properties published per element at runtime rather than declared in
+ * tokens.css, so a bare `var(--x)` for one of them is legitimate. Keep this list
+ * tiny and justified — each entry must name the component that publishes it.
+ */
+const RUNTIME_PROPS = new Set([
+  "--chip-hue", // set by StatusChip/StatusDot `[--chip-hue:var(--…)]` tone variants
+])
 
 /** Pinned token values. Any change here is a deliberate token-layer decision. */
 const PINNED = {
@@ -166,6 +179,15 @@ function parseDeclarations(css) {
   return values
 }
 
+/** Authored `.ts`/`.tsx` under src/ — where the utility class strings now live. */
+function* walkSource(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) yield* walkSource(path)
+    else if (/\.tsx?$/.test(entry.name) && !entry.name.endsWith(".d.ts")) yield path
+  }
+}
+
 let tokensCss
 try {
   tokensCss = readFileSync(TOKENS_FILE, "utf8")
@@ -185,6 +207,17 @@ for (const [name, expected] of Object.entries(PINNED)) {
 }
 
 const dangling = []
+
+// `var(--x, fallback)` is fine when --x is absent; a bare `var(--x)` is not.
+function collectDangling(label, text, local) {
+  for (const match of text.matchAll(/var\(\s*(--[\w-]+)\s*([,)])/g)) {
+    const [, name, terminator] = match
+    if (terminator === ",") continue
+    if (declared.has(name) || local.has(name) || RUNTIME_PROPS.has(name)) continue
+    dangling.push(`${label}: ${name}`)
+  }
+}
+
 for (const file of CSS_FILES) {
   let css
   try {
@@ -192,15 +225,16 @@ for (const file of CSS_FILES) {
   } catch {
     continue
   }
-  const local = parseDeclarations(css)
-  // `var(--x, fallback)` is fine when --x is absent; a bare `var(--x)` is not.
-  for (const match of css.matchAll(/var\(\s*(--[\w-]+)\s*([,)])/g)) {
-    const [, name, terminator] = match
-    if (terminator === ",") continue
-    if (declared.has(name) || local.has(name)) continue
-    dangling.push(`${file}: ${name}`)
-  }
+  collectDangling(file, css, parseDeclarations(css))
 }
+
+// The styling now lives in `var(--…)` arbitrary values inside class strings, so
+// scan the sources too. No declaration parsing here: a `--x:…` inside an
+// arbitrary value is not a declaration — runtime props are listed explicitly.
+const sources = [...walkSource(SRC_DIR)]
+  .map((file) => [relative(process.cwd(), file), readFileSync(file, "utf8")])
+  .filter(([, text]) => text.includes("var(--"))
+for (const [label, text] of sources) collectDangling(label, text, new Map())
 
 if (missing.length > 0 || drifted.length > 0 || dangling.length > 0) {
   console.error(
@@ -219,5 +253,5 @@ if (missing.length > 0 || drifted.length > 0 || dangling.length > 0) {
 
 console.log(
   `[check-tokens] ok — ${Object.keys(PINNED).length} pinned tokens present and value-checked, ` +
-    `no dangling var() references in ${CSS_FILES.length} stylesheets`,
+    `no dangling var() references in ${CSS_FILES.length} stylesheets or ${sources.length} source files`,
 )
