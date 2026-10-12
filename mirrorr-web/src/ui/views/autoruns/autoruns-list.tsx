@@ -133,7 +133,7 @@ function AutorunRow({
           {autorun.user_friendly_name}
         </Link>
         <div>
-          <Tag className="max-w-full overflow-hidden text-ellipsis" title={autorun.snake_case_name}>
+          <Tag title={autorun.snake_case_name}>
                 {autorun.snake_case_name}
               </Tag>
         </div>
@@ -225,8 +225,11 @@ function AutorunCard({
             >
               {autorun.user_friendly_name}
             </Link>
-            <div className="text-sm text-ink-muted">
-              <Tag className="max-w-full overflow-hidden text-ellipsis" title={autorun.snake_case_name}>
+            <div className="text-sm text-ink-muted [&>span]:block">
+              <Tag
+                className="w-fit max-w-full overflow-hidden text-ellipsis"
+                title={autorun.snake_case_name}
+              >
                 {autorun.snake_case_name}
               </Tag>
             </div>
