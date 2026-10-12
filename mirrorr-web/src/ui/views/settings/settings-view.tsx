@@ -7,8 +7,10 @@ import {
   Avatar,
   Banner,
   Button,
+  buttonClass,
   Field,
   IconLogout,
+  IconSettings,
   Input,
   Panel,
   PanelBody,
@@ -24,10 +26,37 @@ export function SettingsView() {
   return (
     <Page title="Settings" description="Manage your account.">
       <AccountSection />
+      <AdminConsolePanel />
       {sections.map(({ id, Component }) => (
         <Component key={id} />
       ))}
     </Page>
+  )
+}
+
+/**
+ * Door to the admin console. Admin UI ships in a second build (`run/admin`,
+ * served at `/admin/`) so the standard bundle carries no admin code — but that
+ * build is linked from nowhere, which left the registration queue unreachable
+ * for the admins it is meant for. The admin build renders those surfaces
+ * natively, so `__ADMIN__` compiles this pointer out of it.
+ */
+function AdminConsolePanel() {
+  const auth = useAuthState()
+  if (__ADMIN__ || auth.auth?.user?.role !== "admin") return null
+  return (
+    <Panel>
+      <PanelHead title="Administration" />
+      <PanelBody>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-muted">Approve sign-ups, manage users and API clients.</span>
+          <a className={buttonClass({ variant: "secondary" })} href="/admin/settings">
+            <IconSettings size={16} />
+            <span data-slot="button-label">Open console</span>
+          </a>
+        </div>
+      </PanelBody>
+    </Panel>
   )
 }
 

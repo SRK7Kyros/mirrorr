@@ -31,7 +31,10 @@ export function LoginView() {
     }
   }
 
-  const showRegisterLink = !authStatus.isLoading && authStatus.status?.has_users === false
+  // No users yet → /register bootstraps the first admin; once users exist the
+  // same page files a registration request an admin must approve. Either way it
+  // is the only way in, so the link always renders and only the copy adapts.
+  const isFirstUser = authStatus.status?.has_users === false
 
   return (
     <div className="grid place-items-center min-h-dvh px-4 pt-6 pb-6 bg-canvas">
@@ -81,12 +84,10 @@ export function LoginView() {
             </form>
           </PanelBody>
         </Panel>
-        {showRegisterLink ? (
-          <div className="flex justify-center gap-2 text-sm text-ink-muted">
-            <span>No account yet?</span>
-            <Link to="/register">Create the first user</Link>
-          </div>
-        ) : null}
+        <div className="flex justify-center gap-2 text-sm text-ink-muted">
+          <span>{isFirstUser ? "No account yet?" : "Need an account?"}</span>
+          <Link to="/register">{isFirstUser ? "Create the first user" : "Request access"}</Link>
+        </div>
       </div>
     </div>
   )
