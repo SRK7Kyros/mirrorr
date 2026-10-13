@@ -1,15 +1,24 @@
 import type { CapacitorConfig } from "@capacitor/cli"
 
-// Capacitor config + seam only (architecture brief open decision: "config +
-// seams yes; native build optional later"). `webDir` points at the plain web
-// build for now — the mobile asset-prep step lands with the native wave, and
-// ios/android project paths are added by `cap add` at that point.
+// Remote shell: the app's own content is only the server picker under
+// mobile/launcher. Choosing a server navigates the WebView to that host, so the
+// console runs from its real origin and its cookies, /api and /ws all behave as
+// they do in a browser. `allowNavigation` has to be a wildcard because servers
+// are added at runtime; without it the WebView would hand the host to Safari.
 const config: CapacitorConfig = {
   appId: "com.mirrorr.app",
   appName: "Mirrorr",
-  webDir: "dist",
+  webDir: "mobile/launcher",
+  ios: {
+    path: "mobile/ios",
+  },
+  android: {
+    path: "mobile/android",
+    allowMixedContent: true,
+  },
   server: {
     androidScheme: "https",
+    allowNavigation: ["*"],
   },
 }
 

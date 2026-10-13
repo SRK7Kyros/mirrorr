@@ -1,0 +1,55 @@
+name: iOS Sideload IPA
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ios-sideload-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios-sideload:
+    name: Unsigned sideload IPA
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install web dependencies
+        run: bun install --frozen-lockfile
+        working-directory: mirrorr-web
+
+      - name: Add iOS platform
+        run: bunx cap add ios
+        working-directory: mirrorr-web
+
+      - name: Sync shell content to the native project
+        run: bunx cap sync ios
+        working-directory: mirrorr-web
+
+      - name: Build unsigned app (sideload)
+        run: |
+          xcodebuild -quiet -project mobile/ios/App/App.xcodeproj \
+            -scheme App \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO build \
+            -derivedDataPath build
+        working-directory: mirrorr-web
+
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/*.app Payload/
+          zip -qr Mirrorr.ipa Payload
+        working-directory: mirrorr-web
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mirrorr-ipa
+          path: mirrorr-web/Mirrorr.ipa
+          retention-days: 14
