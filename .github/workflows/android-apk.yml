@@ -47,19 +47,19 @@ jobs:
         working-directory: mirrorr-web
 
       # The template ships Capacitor's placeholder mark and launch image, and
-      # expects the source to be named `logo.png`. Generate the launcher icons
-      # (legacy + adaptive) from Mirrorr's one 1024 asset. The background colour
-      # is the art's own centre, so the icon reads as one green surface under any
-      # launcher mask.
+      # the generator writes nothing at all — while still exiting 0 — unless its
+      # `assets/logo.png` input exists, so the last line asserts real output.
       - name: Generate the app icon and launch screen
         run: |
-          mkdir -p /tmp/shell-assets
-          cp mobile/assets/app-icon-1024.png /tmp/shell-assets/logo.png
+          mkdir -p assets
+          cp mobile/assets/app-icon-1024.png assets/logo.png
           bunx @capacitor/assets generate --android \
             --androidProject mobile/android \
-            --assetPath /tmp/shell-assets \
             --iconBackgroundColor "#00d56a" \
-            --splashBackgroundColor "#0a0a0c"
+            --iconBackgroundColorDark "#00d56a" \
+            --splashBackgroundColor "#0a0a0c" \
+            --splashBackgroundColorDark "#0a0a0c"
+          test -f mobile/android/app/src/main/res/mipmap-mdpi/ic_launcher_background.png
         working-directory: mirrorr-web
 
       - name: Sync shell content to the native project

@@ -9,6 +9,8 @@ dist-ssr
 mobile/dist
 mobile/ios
 mobile/android
+# Staged by the Android build for `@capacitor/assets`; the art lives in mobile/assets.
+/assets
 
 # Vite dependency cache
 .vite
