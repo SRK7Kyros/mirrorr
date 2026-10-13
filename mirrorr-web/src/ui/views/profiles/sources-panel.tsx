@@ -15,6 +15,7 @@ import {
 } from "@/api"
 import { fetchAllResolvers, fetchSourcePage } from "@/api/endpoints"
 import { queryKeys, queryRoots, resolveEntityName, staleTimes } from "@/api/query-keys"
+import { rankBySearch } from "@/api/domain/search"
 import type { Resolver, ResolverSource } from "@/api/schemas"
 import { showingLabel } from "@/ui/lib/format"
 import { staggerContainer, staggerItem } from "@/ui/lib/motion"
@@ -320,6 +321,11 @@ function SourceDialog({ open, onClose, source, resolvers, schemasLoading, existi
   )
 }
 
+const sourceSearchFields = (source: ResolverSource): readonly string[] => [
+  source.name,
+  source.resolver_name ?? "",
+]
+
 export function SourcesPanel() {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState("")
@@ -342,13 +348,7 @@ export function SourcesPanel() {
   })
   const { hasMore, isFetching, loadingAll, loadAll } = list
 
-  const rows = useMemo(() => {
-    const term = search.trim().toLowerCase()
-    if (term === "") return list.items
-    return list.items.filter((source) =>
-      [source.name, source.resolver_name ?? ""].join(" ").toLowerCase().includes(term),
-    )
-  }, [list.items, search])
+  const rows = useMemo(() => rankBySearch(list.items, search, sourceSearchFields), [list.items, search])
 
   const rowIds = useMemo(() => rows.map((source) => source.id), [rows])
 

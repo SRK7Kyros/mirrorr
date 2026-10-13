@@ -19,6 +19,7 @@ import {
   shouldAutoExhaust,
   type FilterToken,
 } from "@/api/domain/filter-grammar";
+import { rankBySearch } from "@/api/domain/search";
 import type { Session } from "@/api/schemas";
 import {
   BulkBar,
@@ -83,6 +84,14 @@ function SkeletonCards({ count = 6 }: { readonly count?: number }) {
   );
 }
 
+const sessionSearchFields = (session: Session): readonly string[] => [
+  String(session.id),
+  session.profile_name ?? "",
+  session.engine_name ?? "",
+  session.resolver_name ?? "",
+  session.status,
+];
+
 export function SessionsListView() {
   const queryClient = useQueryClient();
   const [tokens, setTokens] = useState<readonly FilterToken[]>(() => [
@@ -107,23 +116,16 @@ export function SessionsListView() {
     void loadAll().catch(() => undefined);
   }, [autoExhaust, hasMore, loadingAll, isFetching, loadAll]);
 
-  const cards = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return list.items.filter((session) => {
-      if (!matchesFilter(session.status, tokens)) return false;
-      if (term === "") return true;
-      return [
-        String(session.id),
-        session.profile_name ?? "",
-        session.engine_name ?? "",
-        session.resolver_name ?? "",
-        session.status,
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(term);
-    });
-  }, [list.items, tokens, search]);
+  // The filter buttons are a hard scope; the search term only ranks what's left.
+  const cards = useMemo(
+    () =>
+      rankBySearch(
+        list.items.filter((session) => matchesFilter(session.status, tokens)),
+        search,
+        sessionSearchFields,
+      ),
+    [list.items, tokens, search],
+  );
 
   const cardIds = useMemo(() => cards.map((session) => session.id), [cards]);
 

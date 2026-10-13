@@ -18,6 +18,7 @@ import {
 } from "@/api"
 import { fetchAllEngines, fetchAllResolvers, fetchProfilePage } from "@/api/endpoints"
 import { queryKeys, queryRoots, resolveEntityName, staleTimes } from "@/api/query-keys"
+import { rankBySearch } from "@/api/domain/search"
 import type { Engine, Profile, Resolver } from "@/api/schemas"
 import { humanize, showingLabel } from "@/ui/lib/format"
 import { staggerContainer, staggerItem } from "@/ui/lib/motion"
@@ -463,6 +464,13 @@ export function ProfilesView() {
   )
 }
 
+const profileSearchFields = (profile: Profile): readonly string[] => [
+  profile.name,
+  profile.engine_name ?? "",
+  profile.resolver_name ?? "",
+  profile.retry_mode ?? "",
+]
+
 function ProfilesPanel() {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState("")
@@ -490,16 +498,10 @@ function ProfilesPanel() {
   })
   const { hasMore, isFetching, loadingAll, loadAll } = list
 
-  const rows = useMemo(() => {
-    const term = search.trim().toLowerCase()
-    if (term === "") return list.items
-    return list.items.filter((profile) =>
-      [profile.name, profile.engine_name ?? "", profile.resolver_name ?? "", profile.retry_mode ?? ""]
-        .join(" ")
-        .toLowerCase()
-        .includes(term),
-    )
-  }, [list.items, search])
+  const rows = useMemo(
+    () => rankBySearch(list.items, search, profileSearchFields),
+    [list.items, search],
+  )
 
   const rowIds = useMemo(() => rows.map((profile) => profile.id), [rows])
 
