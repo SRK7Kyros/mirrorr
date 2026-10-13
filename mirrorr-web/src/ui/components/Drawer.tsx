@@ -81,8 +81,10 @@ export function Drawer({
             >
               <motion.aside
                 className={cn(
-                  "fixed inset-y-0 flex flex-col bg-surface-1 shadow-elev-lg",
-                  side === "right" ? "right-0 w-[min(28rem,100vw)] border-l border-line" : "left-0 w-[min(28rem,100vw)] border-r border-line",
+                  "fixed inset-y-0 flex flex-col bg-surface-1 shadow-elev-lg pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)]",
+                  side === "right"
+                    ? "right-0 pr-[env(safe-area-inset-right,0px)] w-[min(28rem,100vw)] border-l border-line"
+                    : "left-0 pl-[env(safe-area-inset-left,0px)] w-[min(28rem,100vw)] border-r border-line",
                   raised ? "z-[calc(var(--z-modal)_+_2)]" : "z-[calc(var(--z-drawer)_+_1)]",
                   className,
                 )}

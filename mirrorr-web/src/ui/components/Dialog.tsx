@@ -40,7 +40,7 @@ const BODY_CLASS = "px-5 pb-4 overflow-y-auto overflow-x-hidden flex flex-col ga
 const FOOT_CLASS = "flex items-center justify-end gap-2 py-4 px-5 border-t border-line-subtle bg-surface-1 rounded-b-lg"
 
 const CONTENT_BASE =
-  "fixed top-1/2 left-1/2 flex flex-col max-h-[calc(100dvh_-_48px)] bg-surface-2 border border-line-strong rounded-lg shadow-elev-lg z-[calc(var(--z-modal)_+_1)]"
+  "fixed top-1/2 left-1/2 flex flex-col max-h-[calc(100dvh_-_48px_-_env(safe-area-inset-top,0px)_-_env(safe-area-inset-bottom,0px))] bg-surface-2 border border-line-strong rounded-lg shadow-elev-lg z-[calc(var(--z-modal)_+_1)]"
 
 export function Dialog({
   open,
