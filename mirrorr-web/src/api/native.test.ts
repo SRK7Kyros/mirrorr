@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { HOST_PICKER_URL, isNativeShell, readHostCredential } from "./native"
+import { hostPickerUrl, installShellBackHandler, isNativeShell, readHostCredential } from "./native"
 
 const internalGetItem = vi.fn()
 
@@ -83,8 +83,68 @@ describe("readHostCredential", () => {
   })
 })
 
-describe("HOST_PICKER_URL", () => {
-  it("points at the shell's own bundled content", () => {
-    expect(HOST_PICKER_URL).toBe("capacitor://localhost/")
+describe("hostPickerUrl", () => {
+  it("is the iOS local scheme when no bridge is injected", () => {
+    expect(hostPickerUrl()).toBe("capacitor://localhost/")
+  })
+
+  it("follows the platform's own local origin", () => {
+    installBridge({ isNativePlatform: () => true, getPlatform: () => "ios", Plugins: {} })
+    expect(hostPickerUrl()).toBe("capacitor://localhost/")
+
+    installBridge({ isNativePlatform: () => true, getPlatform: () => "android", Plugins: {} })
+    expect(hostPickerUrl()).toBe("https://localhost/")
+  })
+})
+
+describe("installShellBackHandler", () => {
+  const addListener = vi.fn()
+  const exitApp = vi.fn()
+
+  function installAppPlugin(platform: string): void {
+    addListener.mockReset()
+    exitApp.mockReset()
+    installBridge({
+      isNativePlatform: () => true,
+      getPlatform: () => platform,
+      Plugins: { App: { addListener, exitApp } },
+    })
+  }
+
+  it("does nothing where there is no back button", () => {
+    installShellBackHandler()
+    expect(addListener).not.toHaveBeenCalled()
+
+    installAppPlugin("ios")
+    installShellBackHandler()
+    expect(addListener).not.toHaveBeenCalled()
+  })
+
+  it("does nothing when the app plugin is not linked", () => {
+    installBridge({ isNativePlatform: () => true, getPlatform: () => "android", Plugins: {} })
+    expect(() => installShellBackHandler()).not.toThrow()
+    expect(addListener).not.toHaveBeenCalled()
+  })
+
+  it("walks the WebView's own history back when there is one", () => {
+    installAppPlugin("android")
+    const back = vi.spyOn(window.history, "back").mockImplementation(() => {})
+    installShellBackHandler()
+
+    expect(addListener).toHaveBeenCalledWith("backButton", expect.any(Function))
+    ;(addListener.mock.calls[0] as [string, (payload: { canGoBack?: boolean }) => void])[1]({ canGoBack: true })
+
+    expect(back).toHaveBeenCalled()
+    expect(exitApp).not.toHaveBeenCalled()
+    back.mockRestore()
+  })
+
+  it("quits the app when there is nowhere left to go", () => {
+    installAppPlugin("android")
+    installShellBackHandler()
+
+    ;(addListener.mock.calls[0] as [string, (payload: { canGoBack?: boolean }) => void])[1]({ canGoBack: false })
+
+    expect(exitApp).toHaveBeenCalled()
   })
 })

@@ -1,0 +1,141 @@
+name: Android APK
+
+on:
+  workflow_dispatch:
+  # Same rule as the IPA: only the bundled shell, its native deps or this build
+  # change the app — the console is served from each host's own origin, so a web
+  # change never alters the APK. Publishing to the drive share stays a deliberate
+  # step (mirrorr-web/mobile/README.md).
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/android-apk.yml"
+      - "mirrorr-web/capacitor.config.ts"
+      - "mirrorr-web/mobile/**"
+      - "mirrorr-web/package.json"
+      - "mirrorr-web/bun.lock"
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-apk:
+    name: Signed release APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      # Capacitor's Android project compiles against Java 21.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install web dependencies
+        run: bun install --frozen-lockfile
+        working-directory: mirrorr-web
+
+      - name: Add Android platform
+        run: bunx cap add android
+        working-directory: mirrorr-web
+
+      # The template ships Capacitor's placeholder mark and launch image, and
+      # expects the source to be named `logo.png`. Generate the launcher icons
+      # (legacy + adaptive) from Mirrorr's one 1024 asset. The background colour
+      # is the art's own centre, so the icon reads as one green surface under any
+      # launcher mask.
+      - name: Generate the app icon and launch screen
+        run: |
+          mkdir -p /tmp/shell-assets
+          cp mobile/assets/app-icon-1024.png /tmp/shell-assets/logo.png
+          bunx @capacitor/assets generate --android \
+            --androidProject mobile/android \
+            --assetPath /tmp/shell-assets \
+            --iconBackgroundColor "#00d56a" \
+            --splashBackgroundColor "#0a0a0c"
+        working-directory: mirrorr-web
+
+      - name: Sync shell content to the native project
+        run: bunx cap sync android
+        working-directory: mirrorr-web
+
+      # Android installs an update over an existing app only when it is signed by
+      # the same key with a higher versionCode, so the release is signed with the
+      # repo's own keystore (Actions secrets, decoded only here — never a
+      # per-runner debug key, which would force an uninstall between builds) and
+      # numbered by the run. Every anchor must match exactly once or the step
+      # fails, because a capacitor template change would otherwise ship an
+      # unsigned APK; the `buildTypes` anchor stays narrowed so the signing line
+      # cannot land in the block this step itself just inserted.
+      - name: Sign and version the release build
+        run: |
+          printf '%s\n' \
+            "storeFile=$PWD/mobile/android/release.jks" \
+            "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" \
+            "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" \
+            "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" \
+            > mobile/android/keystore.properties
+          printf '%s' "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > mobile/android/release.jks
+          python3 - "$(cat mobile/shell-version.txt)" "${{ github.run_number }}" <<'PY'
+          import pathlib, re, sys
+
+          version, build = sys.argv[1], sys.argv[2]
+          if not version:
+              raise SystemExit("android-apk: mirrorr-web/mobile/shell-version.txt is empty")
+          path = pathlib.Path("mobile/android/app/build.gradle")
+          text = path.read_text()
+
+          def replace(pattern, replacement):
+              global text
+              text, count = re.subn(pattern, replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit(f"android-apk: build.gradle no longer matches {pattern!r}")
+
+          replace(r"versionCode \d+", f"versionCode {build}")
+          replace(r'versionName "[^"]*"', f'versionName "{version}"')
+          replace(
+              r"android \{\n",
+              "android {\n"
+              "    signingConfigs {\n"
+              "        release {\n"
+              "            def keystore = new Properties()\n"
+              "            keystore.load(new FileInputStream(rootProject.file('keystore.properties')))\n"
+              "            storeFile file(keystore['storeFile'])\n"
+              "            storePassword keystore['storePassword']\n"
+              "            keyAlias keystore['keyAlias']\n"
+              "            keyPassword keystore['keyPassword']\n"
+              "        }\n"
+              "    }\n",
+          )
+          replace(r"(buildTypes \{[ \t]*\n[ \t]*)release \{\n", r"\1release {\n            signingConfig signingConfigs.release\n")
+          path.write_text(text)
+          print(f"stamped versionName={version} versionCode={build} and the release signing config")
+          PY
+        working-directory: mirrorr-web
+
+      - name: Build the release APK
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+        working-directory: mirrorr-web/mobile/android
+
+      # Fail here rather than on the phone: the APK has to carry the picker and
+      # the credential bridge contract it speaks.
+      - name: Package and check the APK
+        run: |
+          cp mobile/android/app/build/outputs/apk/release/app-release.apk Mirrorr.apk
+          unzip -p Mirrorr.apk assets/public/launcher.js > /tmp/launcher-shipped.js
+          grep -q internalGetItem /tmp/launcher-shipped.js
+          ls -l Mirrorr.apk
+        working-directory: mirrorr-web
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mirrorr-apk
+          path: mirrorr-web/Mirrorr.apk
+          retention-days: 14

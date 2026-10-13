@@ -1,6 +1,6 @@
 import { useNavigate } from "@tanstack/react-router"
 import { logout, useAuthState } from "@/api"
-import { HOST_PICKER_URL, isNativeShell } from "@/api/native"
+import { hostPickerUrl, isNativeShell } from "@/api/native"
 import {
   Avatar,
   IconLogout,
@@ -45,7 +45,7 @@ export function AccountMenu() {
             reaching it is a real navigation rather than a route — hence a link,
             and only where the native shell hosts this page. */}
         {isNativeShell() ? (
-          <a role="menuitem" className={menuItemClass} href={HOST_PICKER_URL}>
+          <a role="menuitem" className={menuItemClass} href={hostPickerUrl()}>
             <IconServer size={16} />
             <span>Servers</span>
           </a>
