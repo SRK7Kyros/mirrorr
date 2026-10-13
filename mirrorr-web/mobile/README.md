@@ -1,11 +1,11 @@
-# Mirrorr iOS shell
+# Mirrorr app shell (iOS and Android)
 
 A Capacitor 8 wrapper that is deliberately a **remote shell**: the only bundled
 content is the server picker in `launcher/`. Choosing a server loads that host's
 live console in the WebView, so the console runs from its own origin and its
 cookies, `/api` and `/ws` behave exactly as they do in a browser — which is what
 makes "stay signed in per server" work. Credentials are optional, and they live
-in the iOS keychain rather than in the page.
+in the device keychain rather than in the page.
 
 ## Layout
 
@@ -19,11 +19,11 @@ in the iOS keychain rather than in the page.
 Hosts are stored natively (`@capacitor/preferences`, with a `localStorage`
 fallback when the page is opened in a plain browser). Sessions are not stored by
 the app at all: each host's refresh cookie lives in the WebView's own cookie
-store, which iOS keeps per origin and persists across launches.
+store, which the platform WebView keeps per origin and persists across launches.
 
 ## Signing in without retyping
 
-The picker can hold a username and password per host, in the iOS keychain
+The picker can hold a username and password per host, in the device keychain
 (`@aparajita/capacitor-secure-storage`, entered by pencil-ing a row). The console
 reads the entry for its *own* origin and signs in by itself; a rejected
 credential falls back to the form instead of retrying. Worth knowing:
@@ -45,9 +45,23 @@ credential falls back to the form instead of retrying. Worth knowing:
 ## Getting back to the host list
 
 Inside the app the console's account menu gains a **Servers** entry that
-navigates to `capacitor://localhost/` — the picker. It renders only where
-Capacitor's bridge is present (`src/api/native.ts` in `mirrorr-web`), so the web
-build keeps no native-only affordance and the console is otherwise unchanged.
+navigates back to the picker — `hostPickerUrl()` in `src/api/native.ts`, which
+is `capacitor://localhost/` on iOS and `https://localhost/` on Android because
+that is how each platform serves the shell. It renders only where Capacitor's
+bridge is present, so the web build keeps no native-only affordance and the
+console is otherwise unchanged.
+
+Android hands the system back button to the app instead of the WebView, so it
+would otherwise be dead inside the shell: `installShellBackHandler()` walks the
+console's own history and leaves the app only from the picker. iOS and the
+browser install no handler at all, which is why the entry is safe to keep in
+shared code.
+
+Both app builds start themselves when the shell changes (`mobile/**`,
+`capacitor.config.ts`, `package.json`, `bun.lock`) on the same push filter, and
+either can be run by hand. They read one `mobile/shell-version.txt`: a phone only
+offers an update once the version a build stamps rises, and the two platforms
+must not disagree about which one that is.
 
 ## Build the IPA
 
@@ -60,8 +74,29 @@ gh run download --name mirrorr-ipa    # Mirrorr.ipa, unsigned, for Feather/AltSt
 ```
 
 The workflow installs `assets/app-icon-1024.png` over Apple's placeholder icon
-and stamps `MARKETING_VERSION` (bump it there) plus the run number as the build
-number — an over-the-air update is only offered when the version rises.
+and stamps the shell version plus the run number as the build number.
+
+## Build the APK
+
+A signed release APK on `ubuntu-latest` with JDK 21:
+
+```bash
+gh workflow run android-apk.yml --ref main
+gh run download --name mirrorr-apk    # Mirrorr.apk, signed with the repository key
+```
+
+It signs with a keystore kept out of the repo in four Actions secrets
+(`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_PASSWORD`,
+`ANDROID_KEY_ALIAS`; the same keystore and password sit on the build host in
+`~/.config/mirrorr-android/`, 0600). Android installs an update over an existing
+app only when the signing key matches and `versionCode` rises, so the version
+code is the workflow's run number rather than a hand-managed number. Launcher
+icons and the launch screen are generated from the same 1024 asset by
+`@capacitor/assets`: legacy icons, an adaptive icon whose foreground is the
+glyph alone over the art's own green, and both splash orientations.
+
+Android refuses plain-`http` hosts by default, exactly as iOS does, so a server
+has to be reachable over `https` for the console to load inside the app.
 
 Locally you can only verify the shell wiring, and only where CocoaPods is not
 required:
