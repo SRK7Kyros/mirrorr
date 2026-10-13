@@ -6,11 +6,20 @@ import { expect, test } from "./fixtures"
  * `window.Capacitor` into the main frame of every page it loads — remote
  * origins included — so these specs install a fake bridge to cover both sides
  * of that seam: native-only affordances appear, and a browser never sees them.
+ * The keychain answers only for its own origin's key, so a console that asked
+ * for the wrong one would come back empty here exactly as it would on a phone.
  */
 async function installShell(page: Page, credential: string | null = null): Promise<void> {
   await page.addInitScript((stored: string | null) => {
+    const pageOrigin = (globalThis as unknown as { location: { origin: string } }).location.origin
     const Plugins: Record<string, unknown> = {}
-    if (stored !== null) Plugins["SecureStorage"] = { get: async () => stored }
+    if (stored !== null) {
+      Plugins["SecureStorage"] = {
+        internalGetItem: async (options: { prefixedKey: string }) => ({
+          data: options.prefixedKey === `capacitor-storage_mirrorr.cred.${pageOrigin}` ? stored : null,
+        }),
+      }
+    }
     ;(globalThis as { Capacitor?: unknown }).Capacitor = { isNativePlatform: () => true, Plugins }
   }, credential)
 }

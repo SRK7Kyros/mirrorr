@@ -59,10 +59,19 @@ const showError = (message) => {
   errorLine.hidden = false
 }
 
+// The plugin's typed JS wrapper needs a bundler and this page is build-less, so
+// these speak its wire contract directly, as that wrapper does: bridge methods
+// taking ONE options object, with the key already prefixed. Passing a bare
+// string instead reaches the native side with no key and is rejected outright.
+const KEYCHAIN_PREFIX = "capacitor-storage_"
+const keychainKey = (url) => `${KEYCHAIN_PREFIX}${CREDENTIAL_PREFIX}${url}`
+
 const readCredential = async (url) => {
-  const key = `${CREDENTIAL_PREFIX}${url}`
+  const key = keychainKey(url)
   try {
-    const raw = secureStorage ? await secureStorage.get(key) : window.localStorage.getItem(key)
+    const raw = secureStorage
+      ? ((await secureStorage.internalGetItem({ prefixedKey: key, sync: false }))?.data ?? null)
+      : window.localStorage.getItem(key)
     if (typeof raw !== "string" || raw === "") return null
     const parsed = JSON.parse(raw)
     if (typeof parsed?.username !== "string" || typeof parsed?.password !== "string") return null
@@ -73,15 +82,15 @@ const readCredential = async (url) => {
 }
 
 const writeCredential = async (url, credential) => {
-  const key = `${CREDENTIAL_PREFIX}${url}`
+  const key = keychainKey(url)
   if (credential === null) {
-    if (secureStorage) await secureStorage.remove(key)
+    if (secureStorage) await secureStorage.internalRemoveItem({ prefixedKey: key, sync: false })
     else window.localStorage.removeItem(key)
     return
   }
-  const raw = JSON.stringify(credential)
-  if (secureStorage) await secureStorage.set(key, raw)
-  else window.localStorage.setItem(key, raw)
+  const data = JSON.stringify(credential)
+  if (secureStorage) await secureStorage.internalSetItem({ prefixedKey: key, data, sync: false })
+  else window.localStorage.setItem(key, data)
 }
 
 let state = await readState()

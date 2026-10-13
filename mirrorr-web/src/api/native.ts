@@ -11,7 +11,12 @@
  * what keeps the web build free of any native-only affordance.
  */
 
-/** Keychain key prefix the server picker stores one host's credentials under. */
+/**
+ * The keychain entry the two pages address. The plugin layers its own
+ * `capacitor-storage_` prefix over the app's, and its native methods take one
+ * options object whose key is already at that final form (`prefixedKey`).
+ */
+const KEYCHAIN_PREFIX = "capacitor-storage_"
 const CREDENTIAL_KEY_PREFIX = "mirrorr.cred."
 
 /**
@@ -27,11 +32,11 @@ export interface HostCredential {
   readonly password: string
 }
 
-type PluginMethod = (...args: readonly unknown[]) => Promise<unknown>
+type BridgeMethod = (options: Readonly<Record<string, unknown>>) => Promise<unknown>
 
 interface NativeBridge {
   readonly isNativePlatform?: () => boolean
-  readonly Plugins?: Readonly<Record<string, Readonly<Record<string, PluginMethod>>>>
+  readonly Plugins?: Readonly<Record<string, Readonly<Record<string, BridgeMethod>>>>
 }
 
 function bridge(): NativeBridge | null {
@@ -51,11 +56,14 @@ export function isNativeShell(): boolean {
  * not break the login screen.
  */
 export async function readHostCredential(origin: string): Promise<HostCredential | null> {
-  const storage = bridge()?.Plugins?.["SecureStorage"]
-  const get = storage?.["get"]
-  if (get === undefined) return null
+  const getItem = bridge()?.Plugins?.["SecureStorage"]?.["internalGetItem"]
+  if (getItem === undefined) return null
   try {
-    const stored = await get.call(storage, `${CREDENTIAL_KEY_PREFIX}${origin}`)
+    const result = (await getItem({
+      prefixedKey: `${KEYCHAIN_PREFIX}${CREDENTIAL_KEY_PREFIX}${origin}`,
+      sync: false,
+    })) as { readonly data?: unknown } | null
+    const stored = result?.data
     const parsed: unknown = typeof stored === "string" ? JSON.parse(stored) : stored
     if (parsed === null || typeof parsed !== "object") return null
     const { username, password } = parsed as { username?: unknown; password?: unknown }

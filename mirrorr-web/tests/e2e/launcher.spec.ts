@@ -30,6 +30,8 @@ async function serveLauncher(page: Page): Promise<void> {
 
 const HOST = "https://mirrorr.example.org"
 const CREDENTIAL_KEY = `mirrorr.cred.${HOST}`
+// What the plugin actually stores it under — the prefix is part of the contract.
+const KEYCHAIN_KEY = `capacitor-storage_${CREDENTIAL_KEY}`
 const SERVERS_KEY = "mirrorr.servers.v1"
 
 async function keysIn(page: Page): Promise<string[]> {
@@ -57,10 +59,16 @@ test.beforeEach(async ({ page }) => {
           get: async (options: { key: string }) => ({ value: store.get(options.key) ?? null }),
           set: async (options: { key: string; value: string }) => void store.set(options.key, options.value),
         },
+        // The plugin's real bridge contract: one options object, with the key
+        // already carrying its `capacitor-storage_` prefix.
         SecureStorage: {
-          get: async (key: string) => store.get(key) ?? null,
-          set: async (key: string, value: string) => void store.set(key, value),
-          remove: async (key: string) => void store.delete(key),
+          internalGetItem: async (options: { prefixedKey: string }) => ({
+            data: store.get(options.prefixedKey) ?? null,
+          }),
+          internalSetItem: async (options: { prefixedKey: string; data: string }) =>
+            void store.set(options.prefixedKey, options.data),
+          internalRemoveItem: async (options: { prefixedKey: string }) =>
+            void store.delete(options.prefixedKey),
         },
       },
     }
@@ -80,7 +88,7 @@ test.describe("server picker", () => {
     await expect(page.locator(".connect .name")).toContainText("Home server")
     await expect(page.locator(".connect .badge-login")).toHaveText("kyros")
 
-    await expect.poll(() => entryIn(page, CREDENTIAL_KEY)).toBe(JSON.stringify({ username: "kyros", password: "s3cret" }))
+    await expect.poll(() => entryIn(page, KEYCHAIN_KEY)).toBe(JSON.stringify({ username: "kyros", password: "s3cret" }))
     const servers = await entryIn(page, SERVERS_KEY)
     expect(servers).toContain(HOST)
     expect(servers).not.toContain("s3cret")
@@ -117,6 +125,6 @@ test.describe("server picker", () => {
 
     await expect(page.locator(".server")).toHaveCount(0)
     await expect(page.getByText("No servers yet — add one below.")).toBeVisible()
-    await expect.poll(() => keysIn(page)).not.toContain(CREDENTIAL_KEY)
+    await expect.poll(() => keysIn(page)).not.toContain(KEYCHAIN_KEY)
   })
 })
