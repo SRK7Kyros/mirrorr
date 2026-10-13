@@ -1,0 +1,51 @@
+<!doctype html>
+<!-- Home page of the Capacitor shell: the app's own content is only this server
+     picker. Choosing a server navigates the WebView to that host's live console,
+     so the console runs from its real origin and each host keeps its own session. -->
+<html lang="en" data-wrapper="capacitor-launcher">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0a0a0c" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Mirrorr</title>
+    <link rel="stylesheet" href="launcher.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="head">
+        <h1>Mirrorr</h1>
+        <p class="hint">Pick a server. Each one keeps its own sign-in, so switching back is instant.</p>
+      </header>
+
+      <ul class="servers" id="servers"></ul>
+
+      <form class="add" id="add" novalidate>
+        <label class="field">
+          <span>Server URL</span>
+          <input
+            id="url"
+            type="text"
+            inputmode="url"
+            autocomplete="url"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+            placeholder="https://mirrorr.example.org"
+          />
+        </label>
+        <label class="field">
+          <span>Name (optional)</span>
+          <input id="name" type="text" maxlength="40" placeholder="Home server" />
+        </label>
+        <p class="error" id="error" role="alert" hidden></p>
+        <button type="submit">Add server</button>
+      </form>
+    </main>
+    <script type="module" src="launcher.js"></script>
+  </body>
+</html>
