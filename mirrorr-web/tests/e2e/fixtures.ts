@@ -125,6 +125,8 @@ export interface ApiCall {
 
 export interface ApiData {
   authenticated?: boolean
+  /** `POST /auth/login` — reject the credentials to exercise the fallback path. */
+  loginFails?: boolean
   sessions?: readonly Row[]
   autoruns?: readonly Row[]
   recordings?: readonly Row[]
@@ -175,7 +177,9 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
       return authenticated ? answer(200, authResponse()) : answer(401, { detail: "Not authenticated" })
     }
     if (path === "/auth/status") return answer(200, { has_users: true })
-    if (path === "/auth/login") return answer(200, authResponse())
+    if (path === "/auth/login") {
+      return data.loginFails === true ? answer(401, { detail: "Invalid credentials" }) : answer(200, authResponse())
+    }
     if (path === "/auth/logout") return answer(200, {})
 
     if (path === "/sessions/") return list(data.sessions)
