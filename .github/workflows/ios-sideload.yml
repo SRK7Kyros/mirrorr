@@ -14,6 +14,8 @@ on:
       - "mirrorr-web/mobile/**"
       - "mirrorr-web/package.json"
       - "mirrorr-web/bun.lock"
+      # A doc-only edit changes nothing a phone installs.
+      - "!mirrorr-web/mobile/README.md"
 
 concurrency:
   group: ios-sideload-${{ github.ref }}
