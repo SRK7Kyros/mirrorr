@@ -2,6 +2,18 @@ name: iOS Sideload IPA
 
 on:
   workflow_dispatch:
+  # The console is served from each host's own origin, so a web change never
+  # alters the IPA — only a change to the bundled shell, its native deps, or
+  # this build needs a new one. Publishing to the phone stays a deliberate
+  # step (mirrorr-web/mobile/README.md), so this only refreshes the artifact.
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ios-sideload.yml"
+      - "mirrorr-web/capacitor.config.ts"
+      - "mirrorr-web/mobile/**"
+      - "mirrorr-web/package.json"
+      - "mirrorr-web/bun.lock"
 
 concurrency:
   group: ios-sideload-${{ github.ref }}
