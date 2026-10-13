@@ -26,6 +26,16 @@ jobs:
         run: bunx cap add ios
         working-directory: mirrorr-web
 
+      # The template ships Apple's placeholder mark, so the home screen icon is
+      # not Mirrorr's. Replace that single 1024 image (Xcode derives every other
+      # size from it) and fail loudly if the template's layout ever moves.
+      - name: Install the app icon
+        run: |
+          cp mobile/assets/app-icon-1024.png \
+            "mobile/ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png"
+          test -f "mobile/ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png"
+        working-directory: mirrorr-web
+
       # The UI is dark-only, so the system status bar must always render light
       # text — otherwise a phone in light mode paints a near-invisible clock
       # over our own top bar.
@@ -47,6 +57,8 @@ jobs:
             -destination 'generic/platform=iOS' \
             -configuration Release \
             CODE_SIGNING_ALLOWED=NO build \
+            MARKETING_VERSION=1.1 \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             -derivedDataPath build
         working-directory: mirrorr-web
 
