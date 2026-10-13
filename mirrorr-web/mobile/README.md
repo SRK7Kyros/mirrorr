@@ -92,8 +92,10 @@ It signs with a keystore kept out of the repo in four Actions secrets
 app only when the signing key matches and `versionCode` rises, so the version
 code is the workflow's run number rather than a hand-managed number. Launcher
 icons and the launch screen are generated from the same 1024 asset by
-`@capacitor/assets`: legacy icons, an adaptive icon whose foreground is the
-glyph alone over the art's own green, and both splash orientations.
+`@capacitor/assets`: legacy icons, an adaptive icon built over the art's own
+green, and both splash orientations against the console's `#0a0a0c`. The
+generator reads `assets/logo.png`, which the build stages and `.gitignore`
+ignores — `mobile/assets/` is the art's real home.
 
 Android refuses plain-`http` hosts by default, exactly as iOS does, so a server
 has to be reachable over `https` for the console to load inside the app.
