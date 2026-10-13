@@ -79,6 +79,18 @@ textarea {
   color: inherit;
 }
 
+/* iOS zooms the page when a focused control renders under 16px, which knocks
+   the console off-screen on a phone. `!important` is deliberate: the compact
+   sizes come from Tailwind's utility layer, which outranks anything this file
+   can say, and a mouse-driven browser never reaches this media query. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: var(--fs-lg) !important;
+  }
+}
+
 button {
   cursor: pointer;
   background: none;
