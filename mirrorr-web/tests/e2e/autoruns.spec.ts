@@ -39,47 +39,48 @@ test.describe("scheduled recordings", () => {
     ]
   })
 
-  test("orders the table soonest first and hides spent rows by default", async ({ page }) => {
+  test("orders the cards soonest first and hides spent ones by default", async ({ page }) => {
     await page.goto("/autoruns")
 
-    await expect(page.locator(".table-desktop")).toBeVisible()
-    await expect(page.locator(".cards-mobile")).toBeHidden()
+    // Cards at desktop width too — the table variant is gone for good.
+    await expect(page.locator("table")).toHaveCount(0)
 
-    const rows = page.locator(".table-desktop tbody tr")
-    await expect(rows).toHaveCount(3)
-    await expect(rows.nth(0)).toContainText("Alpha")
-    await expect(rows.nth(1)).toContainText("Mike")
-    await expect(rows.nth(2)).toContainText("Zulu")
+    const cards = page.locator(".entity-card")
+    await expect(cards).toHaveCount(3)
+    await expect(cards.nth(0)).toContainText("Alpha")
+    await expect(cards.nth(1)).toContainText("Mike")
+    await expect(cards.nth(2)).toContainText("Zulu")
   })
 
   test("the All filter reveals the completed recording", async ({ page }) => {
     await page.goto("/autoruns")
-    await expect(page.locator(".table-desktop tbody tr")).toHaveCount(3)
+    await expect(page.locator(".entity-card")).toHaveCount(3)
 
     await page.getByRole("button", { name: "All" }).click()
 
-    await expect(page.locator(".table-desktop tbody tr")).toHaveCount(4)
-    await expect(page.locator(".table-desktop tbody")).toContainText("Done")
+    await expect(page.locator(".entity-card")).toHaveCount(4)
+    await expect(page.getByRole("link", { name: "Done" })).toBeVisible()
   })
 
-  test("swaps the table for cards at a phone width, keeping the order", async ({ page }) => {
-    await page.setViewportSize({ width: 375, height: 720 })
-
+  test("keeps the card layout at both phone and desktop widths", async ({ page }) => {
     await page.goto("/autoruns")
 
-    await expect(page.locator(".table-desktop")).toBeHidden()
-    await expect(page.locator(".cards-mobile")).toBeVisible()
+    for (const width of [375, 1280]) {
+      await page.setViewportSize({ width, height: 800 })
 
-    const cards = page.locator(".cards-mobile .entity-card")
-    await expect(cards).toHaveCount(3)
-    await expect(cards.nth(0)).toContainText("Alpha")
-    await expect(cards.nth(2)).toContainText("Zulu")
+      await expect(page.locator("table"), `no table at ${width}px`).toHaveCount(0)
+
+      const cards = page.locator(".entity-card")
+      await expect(cards).toHaveCount(3)
+      await expect(cards.nth(0)).toContainText("Alpha")
+      await expect(cards.nth(2)).toContainText("Zulu")
+    }
   })
 
   test("sets one profile across the whole selection", async ({ page, api }) => {
     await page.goto("/autoruns")
 
-    await page.locator(".table-desktop").getByLabel("Select all scheduled recordings").check()
+    await page.getByLabel("Select all scheduled recordings").check()
 
     const bulk = page.getByRole("region", { name: "Bulk actions" })
     await expect(bulk).toContainText("3 selected items")
