@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover is what makes env(safe-area-inset-*) resolve, so the
+         iOS app (and a home-screen web app) can keep its own top bar clear of
+         the status bar and the notch. It has no effect in a desktop browser. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Mirrorr</title>
   </head>
   <body>

@@ -26,6 +26,15 @@ jobs:
         run: bunx cap add ios
         working-directory: mirrorr-web
 
+      # The UI is dark-only, so the system status bar must always render light
+      # text — otherwise a phone in light mode paints a near-invisible clock
+      # over our own top bar.
+      - name: Pin the status bar to light content
+        run: |
+          plutil -replace UIStatusBarStyle -string UIStatusBarStyleLightContent mobile/ios/App/App/Info.plist
+          plutil -replace UIViewControllerBasedStatusBarAppearance -bool NO mobile/ios/App/App/Info.plist
+        working-directory: mirrorr-web
+
       - name: Sync shell content to the native project
         run: bunx cap sync ios
         working-directory: mirrorr-web
