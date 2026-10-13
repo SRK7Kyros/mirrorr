@@ -20,6 +20,7 @@
     "deploy:preview": "MIRRORR_PREVIEW=1 bun run deploy:web"
   },
   "dependencies": {
+    "@aparajita/capacitor-secure-storage": "^8.0.1",
     "@capacitor/core": "^8.5.2",
     "@capacitor/ios": "^8.5.3",
     "@capacitor/preferences": "^8.0.1",

@@ -1,14 +1,22 @@
 const STORAGE_KEY = "mirrorr.servers.v1"
+const CREDENTIAL_PREFIX = "mirrorr.cred."
 
 // On a device this is the native store (survives clearing WebView data); in a
 // plain browser the same page falls back to localStorage so it stays previewable.
 const preferences = window.Capacitor?.Plugins?.Preferences
+// Credentials go to the OS keychain, keyed by the host's origin — the console
+// reads the entry for its own origin and signs itself in with it.
+const secureStorage = window.Capacitor?.Plugins?.SecureStorage
 
 const list = document.getElementById("servers")
 const form = document.getElementById("add")
 const urlInput = document.getElementById("url")
 const nameInput = document.getElementById("name")
+const usernameInput = document.getElementById("username")
+const passwordInput = document.getElementById("password")
 const errorLine = document.getElementById("error")
+const submitButton = document.getElementById("submit")
+const cancelButton = document.getElementById("cancel")
 
 const readState = async () => {
   const raw = preferences
@@ -51,7 +59,35 @@ const showError = (message) => {
   errorLine.hidden = false
 }
 
+const readCredential = async (url) => {
+  const key = `${CREDENTIAL_PREFIX}${url}`
+  try {
+    const raw = secureStorage ? await secureStorage.get(key) : window.localStorage.getItem(key)
+    if (typeof raw !== "string" || raw === "") return null
+    const parsed = JSON.parse(raw)
+    if (typeof parsed?.username !== "string" || typeof parsed?.password !== "string") return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+const writeCredential = async (url, credential) => {
+  const key = `${CREDENTIAL_PREFIX}${url}`
+  if (credential === null) {
+    if (secureStorage) await secureStorage.remove(key)
+    else window.localStorage.removeItem(key)
+    return
+  }
+  const raw = JSON.stringify(credential)
+  if (secureStorage) await secureStorage.set(key, raw)
+  else window.localStorage.setItem(key, raw)
+}
+
 let state = await readState()
+let editingUrl = null
+// url -> username, so a row can show which hosts will sign themselves in.
+const savedLogins = new Map()
 
 const render = () => {
   list.replaceChildren()
@@ -82,6 +118,13 @@ const render = () => {
       badge.textContent = "last"
       name.append(badge)
     }
+    const username = savedLogins.get(server.url)
+    if (username !== undefined) {
+      const badge = document.createElement("span")
+      badge.className = "badge badge-login"
+      badge.textContent = username
+      name.append(badge)
+    }
 
     const url = document.createElement("span")
     url.className = "url"
@@ -89,16 +132,33 @@ const render = () => {
 
     connect.append(name, url)
 
+    const edit = document.createElement("button")
+    edit.type = "button"
+    edit.className = "icon-action"
+    edit.textContent = "\u270e"
+    edit.setAttribute("aria-label", `Edit ${server.name || server.url}`)
+    edit.addEventListener("click", () => void startEdit(server))
+
     const remove = document.createElement("button")
     remove.type = "button"
-    remove.className = "remove"
+    remove.className = "icon-action danger"
     remove.textContent = "\u00d7"
     remove.setAttribute("aria-label", `Remove ${server.name || server.url}`)
     remove.addEventListener("click", () => void removeServer(server.url))
 
-    row.append(connect, remove)
+    row.append(connect, edit, remove)
     list.append(row)
   }
+}
+
+/** Which hosts have credentials, so the list reports the feature is on. */
+const refreshSavedLogins = async () => {
+  const entries = await Promise.all(
+    state.servers.map(async (server) => [server.url, (await readCredential(server.url))?.username ?? null]),
+  )
+  savedLogins.clear()
+  for (const [url, username] of entries) if (username !== null) savedLogins.set(url, username)
+  render()
 }
 
 const openServer = async (server) => {
@@ -113,25 +173,72 @@ const removeServer = async (target) => {
     lastUrl: state.lastUrl === target ? null : state.lastUrl,
   }
   await writeState(state)
-  render()
+  // Never leave a secret behind for a host the user removed.
+  await writeCredential(target, null)
+  if (editingUrl === target) stopEdit()
+  await refreshSavedLogins()
 }
+
+const startEdit = async (server) => {
+  const credential = await readCredential(server.url)
+  editingUrl = server.url
+  urlInput.value = server.url
+  nameInput.value = server.name
+  usernameInput.value = credential?.username ?? ""
+  passwordInput.value = credential?.password ?? ""
+  errorLine.hidden = true
+  submitButton.textContent = "Save changes"
+  cancelButton.hidden = false
+  form.scrollIntoView({ block: "nearest" })
+  urlInput.focus()
+}
+
+const stopEdit = () => {
+  editingUrl = null
+  form.reset()
+  errorLine.hidden = true
+  submitButton.textContent = "Add server"
+  cancelButton.hidden = true
+}
+
+cancelButton.addEventListener("click", stopEdit)
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault()
   errorLine.hidden = true
   try {
     const url = parseServerUrl(urlInput.value)
-    if (state.servers.some((server) => server.url === url)) {
+    if (state.servers.some((server) => server.url === url && server.url !== editingUrl)) {
       throw new Error("That server is already in the list.")
     }
-    state = { ...state, servers: [...state.servers, { name: nameInput.value.trim(), url }] }
-    await writeState(state)
-    urlInput.value = ""
-    nameInput.value = ""
-    render()
+    const name = nameInput.value.trim()
+    const username = usernameInput.value.trim()
+    const password = passwordInput.value
+    // Both or neither: a username without a password can never sign in, and a
+    // password without a username is not a credential. Empty fields clear it.
+    const credential = username !== "" && password !== "" ? { username, password } : null
+
+    if (editingUrl === null) {
+      state = { ...state, servers: [...state.servers, { name, url }] }
+      await writeState(state)
+      await writeCredential(url, credential)
+    } else {
+      const previous = editingUrl
+      state = {
+        servers: state.servers.map((server) => (server.url === previous ? { name, url } : server)),
+        lastUrl: state.lastUrl === previous ? url : state.lastUrl,
+      }
+      await writeState(state)
+      // A re-pointed host takes its credentials with it — never orphan a key.
+      if (previous !== url) await writeCredential(previous, null)
+      await writeCredential(url, credential)
+    }
+    stopEdit()
+    await refreshSavedLogins()
   } catch (error) {
-    showError(error instanceof Error ? error.message : "Could not add that server.")
+    showError(error instanceof Error ? error.message : "Could not save that server.")
   }
 })
 
 render()
+void refreshSavedLogins()

@@ -42,8 +42,33 @@
           <span>Name (optional)</span>
           <input id="name" type="text" maxlength="40" placeholder="Home server" />
         </label>
+        <label class="field">
+          <span>Username (optional)</span>
+          <input
+            id="username"
+            type="text"
+            autocomplete="username"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+            placeholder="kyros"
+          />
+        </label>
+        <label class="field">
+          <span>Password (optional)</span>
+          <input
+            id="password"
+            type="password"
+            autocomplete="current-password"
+            placeholder="kept in the phone's keychain"
+          />
+        </label>
+        <p class="note">Saved credentials sign that server's console in automatically.</p>
         <p class="error" id="error" role="alert" hidden></p>
-        <button type="submit">Add server</button>
+        <div class="actions">
+          <button type="submit" id="submit">Add server</button>
+          <button type="button" id="cancel" hidden>Cancel</button>
+        </div>
       </form>
     </main>
     <script type="module" src="launcher.js"></script>

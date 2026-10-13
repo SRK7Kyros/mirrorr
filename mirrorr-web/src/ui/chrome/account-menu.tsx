@@ -1,10 +1,13 @@
 import { useNavigate } from "@tanstack/react-router"
 import { logout, useAuthState } from "@/api"
+import { HOST_PICKER_URL, isNativeShell } from "@/api/native"
 import {
   Avatar,
   IconLogout,
+  IconServer,
   IconSettings,
   menuAnchorClass,
+  menuItemClass,
   MenuItem,
   MenuPopover,
   MenuSeparator,
@@ -38,6 +41,15 @@ export function AccountMenu() {
           ) : null}
         </div>
         <MenuSeparator />
+        {/* The phone app's server list sits outside this page's origin, so
+            reaching it is a real navigation rather than a route — hence a link,
+            and only where the native shell hosts this page. */}
+        {isNativeShell() ? (
+          <a role="menuitem" className={menuItemClass} href={HOST_PICKER_URL}>
+            <IconServer size={16} />
+            <span>Servers</span>
+          </a>
+        ) : null}
         <MenuItem icon={<IconSettings size={16} />} onClick={() => void navigate({ to: "/settings" })}>
           Settings
         </MenuItem>

@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from "react"
+import { useEffect, useRef, useState, type FormEvent } from "react"
 import { Link, useNavigate } from "@tanstack/react-router"
 import { getErrorMessage, login } from "@/api"
 import { ApiError } from "@/api/client"
 import { useAuthStatus } from "@/api/hooks"
+import { isNativeShell, readHostCredential } from "@/api/native"
 import { Banner, Button, Field, IconDisc, Input, Panel, PanelBody } from "@/ui/components"
 
 export function LoginView() {
@@ -13,6 +14,8 @@ export function LoginView() {
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, string>>>({})
   const [busy, setBusy] = useState(false)
+  const [autoUsername, setAutoUsername] = useState<string | null>(null)
+  const autoLoginTried = useRef(false)
 
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
@@ -30,6 +33,26 @@ export function LoginView() {
       setBusy(false)
     }
   }
+
+  // The phone app's server picker can hold this host's credentials, so the
+  // console signs itself in instead of asking again. Once per page load: a
+  // rejected credential falls back to the form rather than retrying.
+  useEffect(() => {
+    if (autoLoginTried.current || !isNativeShell()) return
+    autoLoginTried.current = true
+    void (async () => {
+      const credential = await readHostCredential(window.location.origin)
+      if (credential === null) return
+      setAutoUsername(credential.username)
+      try {
+        await login(credential.username, credential.password)
+        await navigate({ to: "/sessions" })
+      } catch {
+        setAutoUsername(null)
+        setError("Saved credentials were rejected — sign in below.")
+      }
+    })()
+  }, [navigate])
 
   // No users yet → /register bootstraps the first admin; once users exist the
   // same page files a registration request an admin must approve. Either way it
@@ -50,38 +73,44 @@ export function LoginView() {
         </div>
         <Panel>
           <PanelBody>
-            <form className="flex flex-col gap-4" onSubmit={(event) => void onSubmit(event)} noValidate>
-              {error !== null ? <Banner kind="danger" title={error} /> : null}
-              <Field label="Username" htmlFor="login-username" required error={fieldErrors.username ?? null}>
-                <Input
-                  id="login-username"
-                  name="username"
-                  autoComplete="username"
-                  autoFocus
-                  value={username}
-                  onChange={(event) => setUsername(event.target.value)}
-                />
-              </Field>
-              <Field label="Password" htmlFor="login-password" required error={fieldErrors.password ?? null}>
-                <Input
-                  id="login-password"
-                  name="password"
-                  type="password"
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                />
-              </Field>
-              <Button
-                type="submit"
-                variant="primary"
-                block
-                loading={busy}
-                disabled={username.trim() === "" || password === ""}
-              >
-                Sign in
-              </Button>
-            </form>
+            {autoUsername !== null ? (
+              <p className="text-sm text-ink-muted">
+                Signing in as <strong className="text-ink">{autoUsername}</strong>…
+              </p>
+            ) : (
+              <form className="flex flex-col gap-4" onSubmit={(event) => void onSubmit(event)} noValidate>
+                {error !== null ? <Banner kind="danger" title={error} /> : null}
+                <Field label="Username" htmlFor="login-username" required error={fieldErrors.username ?? null}>
+                  <Input
+                    id="login-username"
+                    name="username"
+                    autoComplete="username"
+                    autoFocus
+                    value={username}
+                    onChange={(event) => setUsername(event.target.value)}
+                  />
+                </Field>
+                <Field label="Password" htmlFor="login-password" required error={fieldErrors.password ?? null}>
+                  <Input
+                    id="login-password"
+                    name="password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                  />
+                </Field>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  block
+                  loading={busy}
+                  disabled={username.trim() === "" || password === ""}
+                >
+                  Sign in
+                </Button>
+              </form>
+            )}
           </PanelBody>
         </Panel>
         <div className="flex justify-center gap-2 text-sm text-ink-muted">
