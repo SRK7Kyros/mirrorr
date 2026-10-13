@@ -1,5 +1,4 @@
 const STORAGE_KEY = "mirrorr.servers.v1"
-const HOME = { name: "Mirrorr", url: "https://mirrorr.bigbro-itzamekyros.duckdns.org" }
 
 // On a device this is the native store (survives clearing WebView data); in a
 // plain browser the same page falls back to localStorage so it stays previewable.
@@ -15,15 +14,13 @@ const readState = async () => {
   const raw = preferences
     ? (await preferences.get({ key: STORAGE_KEY })).value
     : window.localStorage.getItem(STORAGE_KEY)
-  if (!raw) return { servers: [{ ...HOME }], lastUrl: null }
+  if (!raw) return { servers: [], lastUrl: null }
   try {
     const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed?.servers) || parsed.servers.length === 0) {
-      return { servers: [{ ...HOME }], lastUrl: null }
-    }
+    if (!Array.isArray(parsed?.servers)) return { servers: [], lastUrl: null }
     return { servers: parsed.servers, lastUrl: parsed.lastUrl ?? null }
   } catch {
-    return { servers: [{ ...HOME }], lastUrl: null }
+    return { servers: [], lastUrl: null }
   }
 }
 
