@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
@@ -23,6 +23,7 @@ import {
   shouldAutoExhaust,
   type FilterToken,
 } from "@/api/domain/filter-grammar"
+import { rankBySearch } from "@/api/domain/search"
 import type { Autorun } from "@/api/schemas"
 import { formatCountdown, formatDateTime } from "@/api/time"
 import {
@@ -95,6 +96,16 @@ function bySoonest(a: Autorun, b: Autorun): number {
   }
   return left !== right ? left - right : a.id - b.id
 }
+
+const autorunSearchFields = (autorun: Autorun): readonly string[] => [
+  String(autorun.id),
+  autorun.user_friendly_name,
+  autorun.snake_case_name,
+  autorun.status,
+  autorun.profile_name ?? "",
+  autorun.engine_name ?? "",
+  autorun.resolver_name ?? "",
+]
 
 function AutorunRow({
   autorun,
@@ -317,30 +328,16 @@ export function AutorunsListView() {
     void loadAll().catch(() => undefined)
   }, [autoExhaust, hasMore, loadingAll, isFetching, loadAll])
 
-  const matchesRow = useCallback(
-    (autorun: Autorun) => {
-      if (!matchesFilter(autorun.status, tokens)) return false
-      const term = search.trim().toLowerCase()
-      if (term === "") return true
-      return [
-        String(autorun.id),
-        autorun.user_friendly_name,
-        autorun.snake_case_name,
-        autorun.status,
-        autorun.profile_name ?? "",
-        autorun.engine_name ?? "",
-        autorun.resolver_name ?? "",
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(term)
-    },
-    [tokens, search],
-  )
-
+  // The filter buttons are a hard scope; the search term only ranks what's left,
+  // so the soonest-first order the rows come in is the tie-break.
   const rows = useMemo(
-    () => [...list.items.filter(matchesRow)].sort(bySoonest),
-    [list.items, matchesRow],
+    () =>
+      rankBySearch(
+        [...list.items.filter((autorun) => matchesFilter(autorun.status, tokens))].sort(bySoonest),
+        search,
+        autorunSearchFields,
+      ),
+    [list.items, tokens, search],
   )
 
   const rowIds = useMemo(() => rows.map((autorun) => autorun.id), [rows])
@@ -409,7 +406,12 @@ export function AutorunsListView() {
 
   const selectAllRows = async () => {
     const all = list.hasMore ? await list.loadAll() : list.items
-    selection.setMany(all.filter(matchesRow).map((autorun) => autorun.id))
+    const matched = rankBySearch(
+      all.filter((autorun) => matchesFilter(autorun.status, tokens)),
+      search,
+      autorunSearchFields,
+    )
+    selection.setMany(matched.map((autorun) => autorun.id))
   }
 
   // Shared by the table header and the card list head, which are never both shown.
