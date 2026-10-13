@@ -18,7 +18,6 @@ import { queryKeys, queryRoots, resolveEntityName } from "@/api/query-keys"
 import {
   DEFAULT_FILTER,
   FILTER_TOKENS,
-  isSpent,
   matchesFilter,
   shouldAutoExhaust,
   type FilterToken,
@@ -44,14 +43,9 @@ import {
   IconTrash,
   Input,
   LoadMore,
-  Panel,
-  PanelBody,
-  SkeletonRows,
+  Skeleton,
   StatusChip,
-  Table,
   Tag,
-  Td,
-  Th,
   toast,
 } from "@/ui/components"
 import { useNowTick, useSelection } from "@/ui/hooks"
@@ -107,97 +101,10 @@ const autorunSearchFields = (autorun: Autorun): readonly string[] => [
   autorun.resolver_name ?? "",
 ]
 
-function AutorunRow({
-  autorun,
-  names,
-  now,
-  selected,
-  onToggle,
-}: {
-  readonly autorun: Autorun
-  readonly names: NameMaps
-  readonly now: Date
-  readonly selected: boolean
-  readonly onToggle: (id: number) => void
-}) {
-  const spent = isSpent(autorun.status)
-  const countdown = countdownFor(autorun, now)
-
-  return (
-    <tr data-id={autorun.id} data-selected={selected} className={spent ? "text-muted" : undefined}>
-      <Td className="cell-check">
-        <Checkbox
-          aria-label={`Select ${autorun.user_friendly_name}`}
-          checked={selected}
-          onChange={() => onToggle(autorun.id)}
-        />
-      </Td>
-      <Td>
-        <StatusChip status={autorun.status} />
-      </Td>
-      <Td>
-        <Link
-          className="text-ink font-medium hover:text-brand"
-          to="/autoruns/$autorunId"
-          params={{ autorunId: String(autorun.id) }}
-        >
-          {autorun.user_friendly_name}
-        </Link>
-        <div>
-          <Tag title={autorun.snake_case_name}>
-                {autorun.snake_case_name}
-              </Tag>
-        </div>
-      </Td>
-      <Td>
-        <span className="text-truncate">
-          {formatDateTime(autorun.start_time)}
-          <span aria-hidden="true">{" → "}</span>
-          {formatDateTime(autorun.end_time)}
-        </span>
-        <div className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
-          stored UTC
-        </div>
-      </Td>
-      <Td>
-        {countdown === null ? (
-          <span className="text-dim">—</span>
-        ) : (
-          <span className="flex items-center gap-3" style={{ gap: "var(--s-1)" }}>
-            <IconClock size={14} />
-            {countdown}
-          </span>
-        )}
-      </Td>
-      <Td>
-        {resolveEntityName(autorun.resolver_name, names.resolvers, autorun.resolver_id)}
-        <span className="text-dim" aria-hidden="true">
-          {" → "}
-        </span>
-        {resolveEntityName(autorun.engine_name, names.engines, autorun.engine_id)}
-      </Td>
-      <Td>{resolveEntityName(autorun.profile_name, names.profiles, autorun.profile_id)}</Td>
-      <Td>{autorun.recording === true ? <Tag accent>REC</Tag> : <span className="text-dim">—</span>}</Td>
-      {__ADMIN__ ? (
-        <Td>
-          {autorun.requester_user_token !== undefined && autorun.requester_user_token !== "" ? (
-            <span className="mono text-truncate" title={autorun.requester_user_token}>
-              {autorun.requester_user_token}
-            </span>
-          ) : (
-            <span className="text-dim">—</span>
-          )}
-        </Td>
-      ) : null}
-      <Td actions>
-        <AutorunActionsMenu autorun={autorun} />
-      </Td>
-    </tr>
-  )
-}
-
-/** The narrow-screen stand-in for `AutorunRow`. Only the title links — a
-    whole-card click would swallow the checkbox and the actions menu. */
+/**
+    The card view — now the only one at every width. Only the title links; a
+    whole-card click would swallow the checkbox and the actions menu.
+ */
 function AutorunCard({
   autorun,
   names,
@@ -301,6 +208,29 @@ function AutorunCard({
         ) : null}
       </dl>
     </article>
+  )
+}
+
+/** Card-shaped shimmer for the first paint, matching the grid it replaces. */
+function SkeletonCards({ count = 6 }: { readonly count?: number }) {
+  return (
+    <div
+      className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4 items-start"
+      aria-busy="true"
+      aria-label="Loading scheduled recordings"
+    >
+      {Array.from({ length: count }, (_, index) => (
+        <div
+          key={index}
+          className="entity-card flex flex-col gap-3 p-4 border border-line rounded-md bg-surface-2"
+        >
+          <Skeleton width="38%" />
+          <Skeleton width="62%" />
+          <Skeleton width="52%" />
+          <Skeleton width="72%" />
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -414,7 +344,7 @@ export function AutorunsListView() {
     selection.setMany(matched.map((autorun) => autorun.id))
   }
 
-  // Shared by the table header and the card list head, which are never both shown.
+  // The grid's head row: select-all plus how many the filter left.
   const selectAllCheckbox = (
     <Checkbox
       aria-label="Select all scheduled recordings"
@@ -484,11 +414,7 @@ export function AutorunsListView() {
       </div>
 
       {list.isLoading ? (
-        <Panel>
-          <PanelBody>
-            <SkeletonRows rows={8} cols={6} />
-          </PanelBody>
-        </Panel>
+        <SkeletonCards />
       ) : list.isError ? (
         <ErrorPanel
           message={getErrorMessage(list.error, "Could not load scheduled recordings")}
@@ -513,58 +439,24 @@ export function AutorunsListView() {
         />
       ) : (
         <>
-          <Panel>
-            <PanelBody flush>
-              <div className="table-desktop block max-sm:hidden">
-                <Table>
-                  <thead>
-                    <tr>
-                      <Th className="cell-check">{selectAllCheckbox}</Th>
-                      <Th>Status</Th>
-                      <Th>Scheduled recording</Th>
-                      <Th>Window</Th>
-                      <Th>Countdown</Th>
-                      <Th>Resolver → Engine</Th>
-                      <Th>Profile</Th>
-                      <Th>Rec</Th>
-                      {__ADMIN__ ? <Th>Owner</Th> : null}
-                      <Th aria-label="Actions" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((autorun) => (
-                      <AutorunRow
-                        key={autorun.id}
-                        autorun={autorun}
-                        names={names}
-                        now={now}
-                        selected={selection.has(autorun.id)}
-                        onToggle={selection.toggle}
-                      />
-                    ))}
-                  </tbody>
-                </Table>
-              </div>
-              <div className="cards-mobile hidden max-sm:flex max-sm:flex-col max-sm:gap-3 max-sm:p-3">
-                <div className="flex items-center gap-3 px-1">
-                  {selectAllCheckbox}
-                  <span className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
-                    {rows.length} scheduled recording{rows.length === 1 ? "" : "s"}
-                  </span>
-                </div>
-                {rows.map((autorun) => (
-                  <AutorunCard
-                    key={autorun.id}
-                    autorun={autorun}
-                    names={names}
-                    now={now}
-                    selected={selection.has(autorun.id)}
-                    onToggle={selection.toggle}
-                  />
-                ))}
-              </div>
-            </PanelBody>
-          </Panel>
+          <div className="flex items-center gap-3 px-1">
+            {selectAllCheckbox}
+            <span className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
+              {rows.length} scheduled recording{rows.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4 items-start">
+            {rows.map((autorun) => (
+              <AutorunCard
+                key={autorun.id}
+                autorun={autorun}
+                names={names}
+                now={now}
+                selected={selection.has(autorun.id)}
+                onToggle={selection.toggle}
+              />
+            ))}
+          </div>
           {selection.count > 0 ? (
             <BulkBar count={selection.count} onClear={selection.clear}>
               <Button
