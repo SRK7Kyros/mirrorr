@@ -57,7 +57,7 @@ jobs:
             -destination 'generic/platform=iOS' \
             -configuration Release \
             CODE_SIGNING_ALLOWED=NO build \
-            MARKETING_VERSION=1.1 \
+            MARKETING_VERSION=1.2 \
             CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             -derivedDataPath build
         working-directory: mirrorr-web
