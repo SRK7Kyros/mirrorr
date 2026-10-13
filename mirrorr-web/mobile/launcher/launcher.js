@@ -249,5 +249,10 @@ form.addEventListener("submit", async (event) => {
   }
 })
 
+// Android's back button is consumed by the App plugin once it is linked, so the
+// picker — the app's root, with nothing behind it — has to end the app itself.
+const appPlugin = window.Capacitor?.Plugins?.App
+appPlugin?.addListener?.("backButton", () => void appPlugin.exitApp?.())
+
 render()
 void refreshSavedLogins()

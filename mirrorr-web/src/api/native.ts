@@ -21,11 +21,15 @@ const CREDENTIAL_KEY_PREFIX = "mirrorr.cred."
 
 /**
  * The shell's own bundled content — the server picker (`webDir` =
- * `mobile/launcher`), served from Capacitor's local origin. Its iOS navigation
- * policy allows a top-level navigation back to this URL, so linking here is how
- * the console hands control back to the server list.
+ * `mobile/launcher`), served from Capacitor's local origin. Each platform
+ * serves that origin under its own scheme: iOS uses `capacitor://localhost`,
+ * Android's WebView uses `https://localhost`. A top-level navigation back to it
+ * is allowed, so linking here is how the console hands control back to the
+ * server list.
  */
-export const HOST_PICKER_URL = "capacitor://localhost/"
+export function hostPickerUrl(): string {
+  return platform() === "android" ? "https://localhost/" : "capacitor://localhost/"
+}
 
 export interface HostCredential {
   readonly username: string
@@ -34,14 +38,39 @@ export interface HostCredential {
 
 type BridgeMethod = (options: Readonly<Record<string, unknown>>) => Promise<unknown>
 
+interface BackButtonPayload {
+  readonly canGoBack?: boolean
+}
+
+/**
+ * The bridge's own listener helper, which every plugin carries. Unlike a plugin
+ * method it takes its arguments positionally, not as one options object.
+ */
+type BridgeListener = (eventName: string, listener: (payload: BackButtonPayload) => void) => Promise<unknown>
+
 interface NativeBridge {
   readonly isNativePlatform?: () => boolean
-  readonly Plugins?: Readonly<Record<string, Readonly<Record<string, BridgeMethod>>>>
+  readonly getPlatform?: () => string
+  readonly Plugins?: Readonly<Record<string, Readonly<Record<string, unknown>>>>
+}
+
+interface SecureStorageBridge {
+  readonly internalGetItem?: BridgeMethod
+}
+
+interface AppBridge {
+  readonly addListener?: BridgeListener
+  readonly exitApp?: () => Promise<unknown>
 }
 
 function bridge(): NativeBridge | null {
   const candidate = (globalThis as { Capacitor?: unknown }).Capacitor
   return typeof candidate === "object" && candidate !== null ? (candidate as NativeBridge) : null
+}
+
+/** Which native platform hosts this page — `web` when no bridge is injected. */
+function platform(): string {
+  return bridge()?.getPlatform?.() ?? "web"
 }
 
 /** True only when the page is hosted by the native app — never in a browser. */
@@ -56,7 +85,7 @@ export function isNativeShell(): boolean {
  * not break the login screen.
  */
 export async function readHostCredential(origin: string): Promise<HostCredential | null> {
-  const getItem = bridge()?.Plugins?.["SecureStorage"]?.["internalGetItem"]
+  const getItem = (bridge()?.Plugins?.["SecureStorage"] as SecureStorageBridge | undefined)?.internalGetItem
   if (getItem === undefined) return null
   try {
     const result = (await getItem({
@@ -73,4 +102,23 @@ export async function readHostCredential(origin: string): Promise<HostCredential
   } catch {
     return null
   }
+}
+
+/**
+ * Android's hardware back button. Once the App plugin is linked it consumes the
+ * press, so an unhandled one does nothing at all — not even quitting. Hand the
+ * press to the WebView's own history, which is how the console walks back
+ * through its routes and finally out to the server picker, and quit only when
+ * there is nowhere left to go. iOS has no such button and a browser has no
+ * bridge, so both are no-ops.
+ */
+export function installShellBackHandler(): void {
+  if (platform() !== "android") return
+  const app = bridge()?.Plugins?.["App"] as AppBridge | undefined
+  const addListener = app?.["addListener"]
+  if (typeof addListener !== "function") return
+  void addListener("backButton", (payload) => {
+    if (payload?.canGoBack === true) window.history.back()
+    else void app?.["exitApp"]?.()
+  })
 }

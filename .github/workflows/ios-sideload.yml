@@ -63,13 +63,18 @@ jobs:
 
       - name: Build unsigned app (sideload)
         run: |
+          # Both app builds stamp mirrorr-web/mobile/shell-version.txt, so the two
+          # platforms cannot drift apart on the version a phone has to see before
+          # it will offer an update.
+          VERSION=$(cat mobile/shell-version.txt)
+          test -n "$VERSION"
           xcodebuild -quiet -project mobile/ios/App/App.xcodeproj \
             -scheme App \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -configuration Release \
             CODE_SIGNING_ALLOWED=NO build \
-            MARKETING_VERSION=1.3 \
+            MARKETING_VERSION="$VERSION" \
             CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             -derivedDataPath build
         working-directory: mirrorr-web
