@@ -32,6 +32,15 @@ credential falls back to the form instead of retrying. Worth knowing:
 - The keychain entry is deleted when the host is removed and moved when its URL
   is edited, so no orphaned secret is left behind.
 - The keychain survives app deletion; only the same app id can read it.
+- **The keychain is reached over the bridge, not through the plugin's JS.**
+  Neither page carries the plugin's typed wrapper — the picker is build-less and
+  the console never imports it — so both call its *native* methods
+  (`internalGetItem`, `internalSetItem`, `internalRemoveItem`), each taking ONE
+  options object whose key is already final: `prefixedKey`, i.e.
+  `capacitor-storage_mirrorr.cred.<origin>`. The npm dependency is there only to
+  link the plugin's Swift package. There is no `get`/`set`/`remove` on the
+  native side — calling the raw bridge positionally just throws, which is how
+  credentials once failed to save with no trace in the list.
 
 ## Getting back to the host list
 
