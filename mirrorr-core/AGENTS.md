@@ -285,7 +285,7 @@ Runtime state (gitignored, created under `base_dir`): `content/`, `plugins/`, `b
 - **`src/mirrorr/`** contains all core application code (API, event bus, services, storage, startup, core).
 - **`src/mirrorr/default_plugins/`** contains bundled plugins shipped with the package.
 - **`src/mirrorr/plugin_api/`** contains the canonical plugin interfaces (`interfaces.py`, `retry.py`) imported by plugin authors.
-- **`src/mirrorr/static_files/`** contains bundled player pages served by the API (`player.html`, `outplayer.html`, `vlc.html`).
+- **`src/mirrorr/static_files/`** contains bundled player pages served by the API (`player.html`, `outplayer.html`, `vlc.html`), copied into a session folder only when it is first created; `player.html` autoplays muted, plays HLS through the `<hlsjs-video>` media element (no hand-rolled hls.js setup), and injects a native 10-second rewind (`<media-seek-button seconds="-10">`) as the control-bar sibling immediately before the play button — the packaged skin renders its bar in a shadow root and exposes no slot for extra controls, so it is inserted by shadow-DOM lookup keyed on the public `media-play-button` element and is simply omitted if a future skin release stops rendering one.
 - **User plugin dirs** (`plugins/engines/`, `plugins/resolvers/`) are created at runtime relative to `base_dir`.
 - **Dev file serving**: `dev_serve_files=True` mounts `content_dir` as static files (dev only); production serves `/content/` via nginx (`deploy/`).
 - **`binaries/`** is for downloaded NATS server and FFmpeg binaries (gitignored).

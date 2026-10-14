@@ -10,14 +10,18 @@ const api = vi.hoisted(() => ({
 vi.mock("@/api", () => api);
 
 vi.mock("hls.js", () => ({
-  default: class {
-    static isSupported(): boolean {
-      return true;
-    }
-    loadSource = vi.fn();
-    attachMedia = vi.fn();
-    destroy = vi.fn();
-  },
+  default: Object.assign(
+    class {
+      static isSupported(): boolean {
+        return true;
+      }
+      loadSource = vi.fn();
+      attachMedia = vi.fn();
+      destroy = vi.fn();
+      on = vi.fn();
+    },
+    { Events: { MANIFEST_PARSED: "MANIFEST_PARSED" } },
+  ),
 }));
 
 function recording(overrides: Partial<Recording> = {}): Recording {
@@ -67,19 +71,28 @@ function renderCard(value: Recording) {
 }
 
 describe("RecordingCard", () => {
-  it("tapping play previews the file instead of opening it", () => {
+  it("tapping preview pins playback without opening it", () => {
     const { container } = renderCard(recording());
-    const play = screen.getByRole("button", { name: /preview recording #3/i });
+    const preview = screen.getByRole("button", { name: /preview recording #3/i });
     expect(
       container.querySelector(".session-preview")?.getAttribute("data-active"),
     ).toBe("false");
 
-    fireEvent.click(play);
+    fireEvent.click(preview);
 
-    expect(play.getAttribute("aria-pressed")).toBe("true");
     expect(
       container.querySelector(".session-preview")?.getAttribute("data-active"),
     ).toBe("true");
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("tapping the preview video does not open the file", () => {
+    const { container } = renderCard(recording());
+    const video = container.querySelector("video");
+    expect(video).not.toBeNull();
+
+    fireEvent.click(video as Element);
+
     expect(open).not.toHaveBeenCalled();
   });
 

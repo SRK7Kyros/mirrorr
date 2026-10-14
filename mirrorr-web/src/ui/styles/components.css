@@ -341,3 +341,57 @@ kbd {
   width: 1%;
   white-space: nowrap;
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   Console video player — one bottom bar at every width (no top-right pill)
+   ════════════════════════════════════════════════════════════════════ */
+.video-skin .video-controls-content {
+  inset-inline: calc(var(--media-spacing) * 2);
+  bottom: calc(var(--media-spacing) * 2);
+  z-index: 30;
+  border-radius: var(--media-controls-radius);
+  background-color: var(--media-popover);
+  color: var(--media-popover-foreground);
+  box-shadow:
+    0 0 0 1px var(--media-surface-border, var(--media-border)),
+    var(--media-shadow-surface);
+  backdrop-filter: var(--media-backdrop-filter-surface);
+  align-items: center;
+  display: flex;
+  position: absolute;
+}
+.video-skin .video-controls-content:not([data-visible]) {
+  pointer-events: none;
+  translate: 0 var(--media-hidden-offset);
+  scale: var(--media-hidden-scale) var(--media-hidden-scale);
+  opacity: 0;
+  transition-duration: var(--media-duration-controls);
+}
+.video-skin .video-controls-content::after {
+  content: "";
+  z-index: 10;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow: var(--media-shadow-surface-inset);
+  position: absolute;
+  inset: 0;
+}
+.video-skin .video-controls-primary {
+  display: contents;
+}
+.video-skin .video-controls-secondary {
+  padding: 0;
+  position: static;
+  background-color: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.video-skin .video-controls-secondary::after {
+  content: none;
+}
+.video-skin .video-controls-content:not([data-visible]) .video-controls-primary,
+.video-skin .video-controls-content:not([data-visible]) .video-controls-secondary {
+  translate: 0 0;
+  scale: 1 1;
+  opacity: 1;
+}

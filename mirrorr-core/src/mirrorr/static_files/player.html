@@ -39,7 +39,7 @@
     <body>
         <video-player>
             <video-skin>
-                <video id="media-el" playsinline></video>
+                <hlsjs-video id="media-el" autoplay muted playsinline preload="auto"></hlsjs-video>
             </video-skin>
         </video-player>
 
@@ -47,10 +47,68 @@
             type="module"
             src="https://cdn.jsdelivr.net/npm/@videojs/html/cdn/video.js"
         ></script>
-        <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+        <script
+            type="module"
+            src="https://cdn.jsdelivr.net/npm/@videojs/cdn@10.1.0/media/hlsjs-video.js"
+        ></script>
         <script>
             (function () {
-                var video = document.getElementById("media-el");
+                function mediaEl() {
+                    return document.getElementById("media-el");
+                }
+
+                // --- Rewind control ---
+                // The packaged skin renders its control bar inside a shadow root
+                // and documents no slot for extra controls, so insert a native
+                // <media-seek-button> beside the play button. Both it and the
+                // play button are public element names; if a future skin release
+                // stops rendering one, the control is simply omitted.
+                // The ring is the skin's own restart outline, left unstroked so
+                // its band stays the even 2-unit weight the built-in glyphs use;
+                // stroking it inflated the arrowhead into a blob. The number is
+                // nudged off the geometric centre because the digits' ink sits
+                // high in the em box and the "1" carries more bearing than the "0".
+                var REWIND_ICON =
+                    '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18" fill="currentColor" class="media-icon media-button-icon" aria-hidden="true">' +
+                    '<path d="M9 1a7.98 7.98 0 0 0-6.132 2.867l-1.441-1.44A.25.25 0 0 0 1 2.604V6.75c0 .138.112.25.25.25h4.146a.25.25 0 0 0 .177-.427L4.29 5.29A5.99 5.99 0 0 1 9 3a6 6 0 1 1-6 6H1a8 8 0 1 0 8-8"/>' +
+                    '<text x="8.8" y="8.72" text-anchor="middle" dominant-baseline="central" font-size="7.5" font-weight="800" fill="currentColor">10</text>' +
+                    "</svg>";
+
+                function deepFind(root, selector) {
+                    var hit = root.querySelector(selector);
+                    if (hit !== null) return hit;
+                    var all = root.querySelectorAll("*");
+                    for (var i = 0; i < all.length; i++) {
+                        if (all[i].shadowRoot !== null) {
+                            hit = deepFind(all[i].shadowRoot, selector);
+                            if (hit !== null) return hit;
+                        }
+                    }
+                    return null;
+                }
+
+                function addRewind() {
+                    if (!customElements.get("media-seek-button")) return false;
+                    var play = deepFind(document.body, "media-play-button");
+                    if (play === null) return false;
+                    if (play.parentElement.querySelector(".media-seek-button") !== null)
+                        return true;
+                    var button = document.createElement("media-seek-button");
+                    button.className =
+                        "media-button media-button--subtle media-button--icon media-seek-button";
+                    button.seconds = -10;
+                    button.setAttribute("seconds", "-10");
+                    button.innerHTML = REWIND_ICON;
+                    play.parentElement.insertBefore(button, play);
+                    return true;
+                }
+
+                // The bar appears once the skin upgrades, so retry until then.
+                var rewindDeadline = Date.now() + 15000;
+                (function awaitRewindSlot() {
+                    if (addRewind() || Date.now() > rewindDeadline) return;
+                    requestAnimationFrame(awaitRewindSlot);
+                })();
 
                 // --- Source resolution ---
                 var params = new URLSearchParams(window.location.search);
@@ -68,73 +126,40 @@
                 var sourceUrl = new URL(src, window.location.href).toString();
                 var isHls = /\.m3u8(\?|$)/.test(sourceUrl);
 
-                // --- HLS.js setup ---
-                var hls = null;
-
-                function startHlsJs() {
-                    hls = new Hls({
-                        liveSyncDurationCount: 3,
-                        liveMaxLatencyDurationCount: 6,
-                        maxBufferLength: 30,
-                        maxMaxBufferLength: 600,
-                        backBufferLength: 30,
-                        lowLatencyMode: true,
-                        enableWorker: true,
-                        testBandwidth: true,
-                    });
-
-                    hls.loadSource(sourceUrl);
-                    hls.attachMedia(video);
-
-                    hls.on(Hls.Events.MANIFEST_PARSED, function () {
-                        video.play().catch(function () {});
-                    });
-
-                    hls.on(Hls.Events.ERROR, function (event, data) {
-                        if (!data.fatal) return;
-                        switch (data.type) {
-                            case Hls.ErrorTypes.NETWORK_ERROR:
-                                hls.startLoad();
-                                break;
-                            case Hls.ErrorTypes.MEDIA_ERROR:
-                                hls.recoverMediaError();
-                                break;
-                            default:
-                                hls.destroy();
-                                break;
-                        }
-                    });
-                }
-
-                function startNative() {
-                    video.src = sourceUrl;
-                    video.play().catch(function () {});
+                // --- Start playback ---
+                // HLS (live sessions and recordings) is handled by the
+                // <hlsjs-video> media element: adaptive playback with native
+                // fallback. Anything else falls back to a plain <video>.
+                function start() {
+                    var m = mediaEl();
+                    if (m === null) return;
+                    if (isHls) {
+                        m.setAttribute("src", sourceUrl);
+                        return;
+                    }
+                    var v = document.createElement("video");
+                    v.id = "media-el";
+                    v.muted = true;
+                    v.playsInline = true;
+                    v.preload = "auto";
+                    v.autoplay = true;
+                    v.src = sourceUrl;
+                    m.replaceWith(v);
+                    v.play().catch(function () {});
                 }
 
                 // --- Init ---
-                function init() {
-                    video.controls = false;
-                    video.preload = "auto";
-
-                    if (isHls && window.Hls && Hls.isSupported()) {
-                        startHlsJs();
-                    } else if (
-                        isHls &&
-                        video.canPlayType("application/vnd.apple.mpegurl")
-                    ) {
-                        startNative();
-                    } else {
-                        startNative();
-                    }
-                }
-
+                // Muted/autoplay come from the element's attributes; wait for
+                // the custom elements so <hlsjs-video> is upgraded on first paint.
                 if (customElements && customElements.whenDefined) {
-                    customElements
-                        .whenDefined("video-player")
-                        .then(init)
-                        .catch(init);
+                    Promise.all([
+                        customElements.whenDefined("video-player"),
+                        customElements.whenDefined("hlsjs-video"),
+                    ])
+                        .then(start)
+                        .catch(start);
                 } else {
-                    init();
+                    start();
                 }
             })();
         </script>

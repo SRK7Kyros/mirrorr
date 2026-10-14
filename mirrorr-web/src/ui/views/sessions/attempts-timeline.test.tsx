@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { render, screen } from "@testing-library/react"
+import { formatDateTime } from "@/api/time"
 import { AttemptsTimeline, toAttemptView, type AttemptView } from "./attempts-timeline"
 
 describe("toAttemptView", () => {
@@ -62,8 +63,23 @@ describe("AttemptsTimeline", () => {
     expect(screen.queryByText("yt-dlp exited with code 1")).not.toBeNull()
     expect(screen.queryByText("55:00")).not.toBeNull()
     expect(screen.queryByText("exit 1")).not.toBeNull()
-    expect(screen.queryByText(/^started /)).not.toBeNull()
-    expect(screen.queryByText(/^ended /)).not.toBeNull()
+    expect(screen.queryByText("started")).not.toBeNull()
+    expect(screen.queryByText("ended")).not.toBeNull()
+    expect(screen.queryByText(formatDateTime("2026-10-13T21:09:00"))).not.toBeNull()
+    // Same day, so the end line drops the day rather than repeating it.
+    expect(screen.queryByText(formatDateTime("2026-10-13T22:04:00"))).toBeNull()
+  })
+
+  it("keeps the day on the end line when an attempt crosses midnight", () => {
+    render(
+      <AttemptsTimeline
+        attempts={[
+          attempt({ index: 4, startedAt: "2026-10-13T23:29:00", endedAt: "2026-10-14T00:38:00" }),
+        ]}
+      />,
+    )
+    expect(screen.queryByText(formatDateTime("2026-10-13T23:29:00"))).not.toBeNull()
+    expect(screen.queryByText(formatDateTime("2026-10-14T00:38:00"))).not.toBeNull()
   })
 
   it("marks only the newest attempt as latest, and points older ones at their successor", () => {
