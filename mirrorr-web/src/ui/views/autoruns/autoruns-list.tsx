@@ -24,7 +24,7 @@ import {
 } from "@/api/domain/filter-grammar"
 import { rankBySearch } from "@/api/domain/search"
 import type { Autorun } from "@/api/schemas"
-import { formatCountdown, formatDateTime } from "@/api/time"
+import { formatCountdown, formatWindow } from "@/api/time"
 import {
   BulkBar,
   Button,
@@ -102,6 +102,12 @@ const autorunSearchFields = (autorun: Autorun): readonly string[] => [
 ]
 
 /**
+ * The schedule is the card's hero: a sunken panel with a three-step type
+ * scale (date eyebrow → time → countdown) so *when* reads first. Everything
+ * else — pipeline, profile, owner — drops to one muted meta line.
+ */
+
+/**
     The card view — now the only one at every width. Only the title links; a
     whole-card click would swallow the checkbox and the actions menu.
  */
@@ -119,94 +125,91 @@ function AutorunCard({
   readonly onToggle: (id: number) => void
 }) {
   const countdown = countdownFor(autorun, now)
+  const windowText = formatWindow(autorun.start_time, autorun.end_time)
   const owner = autorun.requester_user_token
+  const resolver = resolveEntityName(autorun.resolver_name, names.resolvers, autorun.resolver_id)
+  const engine = resolveEntityName(autorun.engine_name, names.engines, autorun.engine_id)
+  const profile = resolveEntityName(autorun.profile_name, names.profiles, autorun.profile_id)
 
   return (
     <article
       className="entity-card flex flex-col gap-3 p-4 border border-line rounded-md bg-surface-2 data-[selected=true]:bg-[var(--accent-dim)] data-[selected=true]:shadow-[inset_2px_0_0_var(--accent)]"
       data-selected={selected}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3" style={{ gap: "var(--s-2)", minWidth: 0, alignItems: "flex-start" }}>
-          <span className="flex items-center">
-            <Checkbox
-              aria-label={`Select ${autorun.user_friendly_name}`}
-              checked={selected}
-              onChange={() => onToggle(autorun.id)}
-            />
-          </span>
-          <div style={{ minWidth: 0 }}>
-            <Link
-              className="text-md font-semibold text-ink [overflow-wrap:anywhere]"
-              to="/autoruns/$autorunId"
-              params={{ autorunId: String(autorun.id) }}
-            >
-              {autorun.user_friendly_name}
-            </Link>
-            <div className="text-sm text-ink-muted [&>span]:block">
-              <Tag
-                className="w-fit max-w-full overflow-hidden text-ellipsis"
-                title={autorun.snake_case_name}
-              >
-                {autorun.snake_case_name}
-              </Tag>
-            </div>
-          </div>
-        </div>
-        <div className="flex gap-1 shrink-0">
-          <AutorunActionsMenu autorun={autorun} />
+      <div className="flex flex-col gap-1 min-w-0">
+        <Link
+          className="text-md font-semibold text-ink [overflow-wrap:anywhere]"
+          to="/autoruns/$autorunId"
+          params={{ autorunId: String(autorun.id) }}
+        >
+          {autorun.user_friendly_name}
+        </Link>
+        <div className="text-sm text-ink-muted [&>span]:block">
+          <Tag
+            className="w-fit max-w-full overflow-hidden text-ellipsis"
+            title={autorun.snake_case_name}
+          >
+            {autorun.snake_case_name}
+          </Tag>
         </div>
       </div>
 
-      <div className="flex items-center gap-3" style={{ gap: "var(--s-2)" }}>
+      <div className="rounded-md border border-line bg-surface-3 px-3 py-2.5 flex flex-col gap-0.5">
+        {windowText === null ? (
+          <span className="text-dim text-sm">—</span>
+        ) : (
+          <>
+            <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-dim">
+              {windowText.date}
+            </span>
+            <span className="text-base font-semibold leading-snug text-ink">
+              {windowText.time}
+              <span className="ml-1.5 align-middle text-[11px] font-normal text-dim whitespace-nowrap">
+                stored UTC
+              </span>
+            </span>
+          </>
+        )}
+        {countdown === null ? null : (
+          <span className="mt-1 inline-flex items-center gap-1.5 text-[13px] text-ink-muted">
+            <IconClock size={14} className="shrink-0 text-brand" />
+            {countdown}
+          </span>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-0.5 min-w-0 text-[13px] leading-snug">
+        <span className="text-ink [overflow-wrap:anywhere]">
+          {resolver}
+          <span className="text-dim" aria-hidden="true">
+            {" → "}
+          </span>
+          {engine}
+        </span>
+        <span className="text-xs text-dim">
+          {profile}
+          {__ADMIN__ ? (
+            <>
+              <span aria-hidden="true">{" • "}</span>
+              <span className="mono">
+                {owner !== undefined && owner !== "" ? owner : "—"}
+              </span>
+            </>
+          ) : null}
+        </span>
+      </div>
+
+      <div className="flex items-center gap-3 border-t border-line pt-3 mt-auto">
         <StatusChip status={autorun.status} />
         {autorun.recording === true ? <Tag accent>REC</Tag> : null}
+        <div className="flex-1" />
+        <Checkbox
+          aria-label={`Select ${autorun.user_friendly_name}`}
+          checked={selected}
+          onChange={() => onToggle(autorun.id)}
+        />
+        <AutorunActionsMenu autorun={autorun} />
       </div>
-
-      <dl className="flex flex-col gap-2">
-        <div className="entity-card-fact flex flex-col gap-[2px] text-sm [&_dt]:text-ink-dim [&_dd]:text-ink [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere]">
-          <dt>Window</dt>
-          <dd>
-            {formatDateTime(autorun.start_time)}
-            <span aria-hidden="true">{" → "}</span>
-            {formatDateTime(autorun.end_time)}
-            <span className="text-dim"> stored UTC</span>
-          </dd>
-        </div>
-        <div className="entity-card-fact flex flex-col gap-[2px] text-sm [&_dt]:text-ink-dim [&_dd]:text-ink [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere]">
-          <dt>Countdown</dt>
-          <dd>
-            {countdown === null ? (
-              <span className="text-dim">—</span>
-            ) : (
-              <span className="flex items-center gap-3" style={{ gap: "var(--s-1)" }}>
-                <IconClock size={14} />
-                {countdown}
-              </span>
-            )}
-          </dd>
-        </div>
-        <div className="entity-card-fact flex flex-col gap-[2px] text-sm [&_dt]:text-ink-dim [&_dd]:text-ink [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere]">
-          <dt>Resolver → Engine</dt>
-          <dd>
-            {resolveEntityName(autorun.resolver_name, names.resolvers, autorun.resolver_id)}
-            <span className="text-dim" aria-hidden="true">
-              {" → "}
-            </span>
-            {resolveEntityName(autorun.engine_name, names.engines, autorun.engine_id)}
-          </dd>
-        </div>
-        <div className="entity-card-fact flex flex-col gap-[2px] text-sm [&_dt]:text-ink-dim [&_dd]:text-ink [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere]">
-          <dt>Profile</dt>
-          <dd>{resolveEntityName(autorun.profile_name, names.profiles, autorun.profile_id)}</dd>
-        </div>
-        {__ADMIN__ ? (
-          <div className="entity-card-fact flex flex-col gap-[2px] text-sm [&_dt]:text-ink-dim [&_dd]:text-ink [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere]">
-            <dt>Owner</dt>
-            <dd className="mono">{owner !== undefined && owner !== "" ? owner : "—"}</dd>
-          </div>
-        ) : null}
-      </dl>
     </article>
   )
 }
@@ -445,7 +448,7 @@ export function AutorunsListView() {
               {rows.length} scheduled recording{rows.length === 1 ? "" : "s"}
             </span>
           </div>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4 items-start">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4 items-stretch">
             {rows.map((autorun) => (
               <AutorunCard
                 key={autorun.id}

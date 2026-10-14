@@ -255,9 +255,12 @@ dot, icon?, sessionActions, autorunActions }`. `getStatusDescriptor(status)`
   token _names_ (`primary | secondary | success | warning | danger | neutral`),
   never hex — the stylesheet owns colour.
 - **`time.ts`** — `parseNaiveUtc` / `toNaiveUtc` (always append/strip `Z`),
-  `formatDateTime`, `formatRelativeTime`, `formatCountdown`, `formatBytes`,
-  `formatDuration`, and `datetimeLocalToNaiveUtc` / `naiveUtcToDatetimeLocal`
-  for `<input type="datetime-local">`.
+  `formatDateTime` (the year is dropped unless it is not the current one),
+  `formatDateTimePair` (start + end for stacked lines, the day printed once),
+  `formatWindow` (date line above time line), `elapsedSeconds`,
+  `formatRelativeTime`, `formatCountdown`, `formatBytes`, `formatDuration`,
+  and `datetimeLocalToNaiveUtc` / `naiveUtcToDatetimeLocal` for
+  `<input type="datetime-local">`.
 - **`domain/errors.ts`** — `getErrorMessage(error, fallback)`.
 - **`domain/dirty.ts`** — `diffDirtyFields`, `isDirty`.
 - **`domain/bundle.ts`** — bundle validation helpers, `itemBadge`, issue

@@ -14,8 +14,11 @@ import {
 import { SessionPreviewPlayer } from "@/ui/views/sessions/session-preview-player";
 import { SessionUrls } from "@/ui/views/sessions/session-urls";
 
-/** Descendants that own their own click — a card click must not hijack them. */
-const INTERACTIVE = "a, button, input, label, [role='menu'], [role='menuitem']";
+/**
+ * Descendants that own their own click — a card click must not hijack them.
+ * `[data-card-ignore]` is the preview player, never a navigation target.
+ */
+const INTERACTIVE = "a, button, input, label, [role='menu'], [role='menuitem'], [data-card-ignore]";
 
 /** Prefer the server's `media_served`; fall back to one cached HEAD probe. */
 function useMediaServed(recording: Recording): boolean | null {
@@ -100,6 +103,7 @@ export function RecordingCard({
     >
       <SessionPreviewPlayer
         src={playable}
+        htmlUrl={null}
         loop
         hovering={hovering}
         label={`recording #${recording.id}`}

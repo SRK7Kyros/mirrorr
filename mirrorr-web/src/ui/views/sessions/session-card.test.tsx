@@ -35,14 +35,18 @@ const api = vi.hoisted(() => ({
 vi.mock("@/api", () => api)
 
 vi.mock("hls.js", () => ({
-  default: class {
-    static isSupported(): boolean {
-      return true
-    }
-    loadSource = vi.fn()
-    attachMedia = vi.fn()
-    destroy = vi.fn()
-  },
+  default: Object.assign(
+    class {
+      static isSupported(): boolean {
+        return true
+      }
+      loadSource = vi.fn()
+      attachMedia = vi.fn()
+      destroy = vi.fn()
+      on = vi.fn()
+    },
+    { Events: { MANIFEST_PARSED: "MANIFEST_PARSED" } },
+  ),
 }))
 
 const names: NameMaps = { engines: new Map(), resolvers: new Map(), profiles: new Map() }
@@ -81,16 +85,60 @@ beforeEach(() => {
 })
 
 describe("SessionCard", () => {
-  it("tapping play previews the stream instead of opening the session", () => {
+  it("tapping preview pins playback without opening the session", () => {
     const { container } = renderCard(session())
-    const play = screen.getByRole("button", { name: /preview session #7/i })
+    const preview = screen.getByRole("button", { name: /preview session #7/i })
     expect(container.querySelector(".session-preview")?.getAttribute("data-active")).toBe("false")
 
-    fireEvent.click(play)
+    fireEvent.click(preview)
 
-    expect(play.getAttribute("aria-pressed")).toBe("true")
     expect(container.querySelector(".session-preview")?.getAttribute("data-active")).toBe("true")
     expect(router.navigate).not.toHaveBeenCalled()
+  })
+
+  it("tapping the preview video does not open the session", () => {
+    const { container } = renderCard(session())
+    const video = container.querySelector("video")
+    expect(video).not.toBeNull()
+
+    fireEvent.click(video as Element)
+
+    expect(router.navigate).not.toHaveBeenCalled()
+  })
+
+  it("tapping the preview still does not open the session with no stream published", () => {
+    const { container } = renderCard(session({ session_urls: [] }))
+    const preview = container.querySelector(".session-preview")
+    expect(preview).not.toBeNull()
+    expect(screen.queryByRole("button", { name: /preview session #7|play session #7/i })).toBeNull()
+
+    fireEvent.click(preview as Element)
+
+    expect(router.navigate).not.toHaveBeenCalled()
+  })
+
+  it("opens the native player instead of the session when one is published", () => {
+    const { container } = renderCard(
+      session({
+        session_urls: [
+          { label: "HTML", url: "https://example.test/player.html?src=stream.m3u8" },
+          { label: "M3U8", url: "https://example.test/stream.m3u8" },
+        ],
+      }),
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /play session #7 with controls/i }))
+
+    expect(container.querySelector("iframe")).toBeNull()
+    expect(container.querySelector(".video-skin")).not.toBeNull()
+    expect(container.querySelector(".video-skin video")).not.toBeNull()
+    expect(
+      screen.getByRole("button", { name: /seek backward 10 seconds/i }),
+    ).not.toBeNull()
+    expect(router.navigate).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole("button", { name: /close session #7 player/i }))
+    expect(container.querySelector(".video-skin")).toBeNull()
   })
 
   it("clicking anywhere else on the card opens the session", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { render, screen } from "@testing-library/react"
-import { SessionUrls, pickPlayableUrl, toSessionUrls } from "./session-urls"
+import { SessionUrls, pickPlayableUrl, stripOrigin, toSessionUrls } from "./session-urls"
 
 describe("toSessionUrls", () => {
   it("keeps labelled entries that carry a URL and drops the empty ones", () => {
@@ -46,12 +46,26 @@ describe("pickPlayableUrl", () => {
   })
 })
 
+describe("stripOrigin", () => {
+  it("keeps only the path and query of a full URL", () => {
+    expect(stripOrigin("https://mirrorr.example/content/f1/player.html?src=stream.m3u8")).toBe(
+      "/content/f1/player.html?src=stream.m3u8",
+    )
+  })
+
+  it("leaves relative and bare-host URLs alone", () => {
+    expect(stripOrigin("/content/f1/stream.m3u8")).toBe("/content/f1/stream.m3u8")
+    expect(stripOrigin("https://mirrorr.example")).toBe("https://mirrorr.example")
+  })
+})
+
 describe("SessionUrls", () => {
   it("renders one openable link and one copy button per URL", () => {
     render(<SessionUrls urls={[{ label: "M3U8", url: "https://x/stream.m3u8" }]} />)
 
-    const link = screen.getByRole("link", { name: /stream\.m3u8/ })
+    const link = screen.getByRole("link", { name: "/stream.m3u8" })
     expect(link.getAttribute("href")).toBe("https://x/stream.m3u8")
+    expect(link.textContent).toContain("/stream.m3u8")
     expect(screen.getByRole("button", { name: "Copy M3U8 URL" })).not.toBeNull()
   })
 

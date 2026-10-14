@@ -23,55 +23,15 @@ import {
 } from "@/ui/components";
 import { useLiveDurationSeconds } from "@/ui/hooks";
 import { Page } from "@/ui/views/shared/page";
+import { AttemptsTimeline, toAttemptView } from "./attempts-timeline";
 import { RemuxProgressBar } from "./remux-progress";
 import { SessionSaveProfileButton } from "./session-save-profile-button";
 import { SessionStopDeleteButton } from "./session-stop-delete-button";
 import { SessionRecordingButton } from "./session-recording-button";
-import { SessionPreviewPlayer } from "./session-preview-player";
+import { SessionPlayerFrame } from "./session-preview-player";
+import { SessionPlayer } from "./session-player";
 import { sessionTitle } from "./session-title";
-import { SessionUrls, pickPlayableUrl, toSessionUrls } from "./session-urls";
-
-export interface AttemptView {
-  readonly index: number;
-  readonly status: string;
-  readonly startedAt: string | null;
-  readonly endedAt: string | null;
-  readonly exitCode: number | null;
-  readonly reason: string | null;
-}
-
-/** Attempts arrive as loose records — read defensively, never assume a shape. */
-export function toAttemptView(
-  raw: Record<string, unknown>,
-  fallbackIndex: number,
-): AttemptView {
-  const str = (key: string): string | null => {
-    const value = raw[key];
-    return typeof value === "string" && value !== "" ? value : null;
-  };
-  const num = (key: string): number | null => {
-    const value = raw[key];
-    return typeof value === "number" ? value : null;
-  };
-  const endedAt = str("ended_at");
-  const reason = str("reason") ?? str("error");
-  return {
-    index: num("index") ?? num("attempt") ?? fallbackIndex + 1,
-    // The record has no status field. No `ended_at` means it is still running;
-    // any reason but a user stop is a failure. A stop maps to `completed`,
-    // matching the status a stopped session itself ends on.
-    status:
-      endedAt === null
-        ? "active"
-        : reason !== null && reason !== "stopped"
-          ? "failed"
-          : "completed",
-    startedAt: str("started_at"),
-    endedAt,
-    exitCode: num("returncode") ?? num("exit_code"),
-    reason,
-  };
-}
+import { SessionUrls, pickHtmlPlayerUrl, pickPlayableUrl, toSessionUrls } from "./session-urls";
 
 function KeyValue({
   label,
@@ -167,6 +127,7 @@ export function SessionDetailView({
   );
   const urls = toSessionUrls(session.session_urls);
   const playable = pickPlayableUrl(urls);
+  const playerUrl = pickHtmlPlayerUrl(urls);
   const attempts = (session.attempts ?? [])
     .map((raw, index) => toAttemptView(raw, index))
     .sort((a, b) => b.index - a.index);
@@ -253,6 +214,27 @@ export function SessionDetailView({
         </PanelBody>
       </Panel>
 
+      <Panel>
+        <PanelHead title="Live sources" />
+        <PanelBody>
+          {urls.length === 0 ? (
+            <p className="text-dim">
+              Live URLs not configured (operator must set{" "}
+              <span className="mono">web_url</span>).
+            </p>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {playable !== null ? (
+                <SessionPlayer src={playable} label={sessionTitle(session, names)} />
+              ) : playerUrl !== null ? (
+                <SessionPlayerFrame url={playerUrl} label={sessionTitle(session, names)} />
+              ) : null}
+              <SessionUrls urls={urls} />
+            </div>
+          )}
+        </PanelBody>
+      </Panel>
+
       <div className="grid grid-cols-2 gap-5 max-sm:grid-cols-1">
         <Panel>
           <PanelHead
@@ -260,84 +242,12 @@ export function SessionDetailView({
             actions={getStatusDescriptor(session.status).label}
           />
           <PanelBody>
-            {attempts.length === 0 ? (
-              <p className="text-dim">
-                Waiting for the supervisor — attempt 1 not started yet.
-              </p>
-            ) : (
-              <div
-                className="flex flex-col gap-4"
-                style={{ maxHeight: 480, overflowY: "auto" }}
-                role="list"
-                aria-label="Attempt timeline"
-              >
-                {attempts.map((attempt) => (
-                  <div
-                    key={attempt.index}
-                    className="flex flex-col gap-2"
-                    role="listitem"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="flex items-center gap-3" style={{ gap: "var(--s-2)" }}>
-                        <span className="mono tnum">#{attempt.index}</span>
-                        <StatusChip status={attempt.status} />
-                      </span>
-                      <span className="text-dim">
-                        {attempt.startedAt !== null
-                          ? formatDateTime(attempt.startedAt)
-                          : "—"}
-                        {" → "}
-                        {attempt.endedAt !== null
-                          ? formatDateTime(attempt.endedAt)
-                          : "running"}
-                      </span>
-                    </div>
-                    {attempt.exitCode !== null || attempt.reason !== null ? (
-                      <div className="flex items-center gap-3" style={{ gap: "var(--s-3)" }}>
-                        {attempt.exitCode !== null ? (
-                          <span className="mono tnum text-dim">
-                            exit {attempt.exitCode}
-                          </span>
-                        ) : null}
-                        {attempt.reason !== null ? (
-                          <span className="text-dim">{attempt.reason}</span>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            )}
+            <AttemptsTimeline attempts={attempts} />
           </PanelBody>
         </Panel>
 
-        <div className="flex flex-col gap-4">
-          <Panel>
-            <PanelHead title="Live sources" />
-            <PanelBody>
-              {urls.length === 0 ? (
-                <p className="text-dim">
-                  Live URLs not configured (operator must set{" "}
-                  <span className="mono">web_url</span>).
-                </p>
-              ) : (
-                <div className="flex flex-col gap-4">
-                  {playable !== null ? (
-                    <SessionPreviewPlayer
-                      src={playable}
-                      loop={!isLive(session.status)}
-                      autoPlay
-                      label={`session #${session.id}`}
-                    />
-                  ) : null}
-                  <SessionUrls urls={urls} />
-                </div>
-              )}
-            </PanelBody>
-          </Panel>
-
-          <Panel>
-            <PanelHead title="Config snapshot" />
+        <Panel>
+          <PanelHead title="Config snapshot" />
             <PanelBody>
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-2">
@@ -365,7 +275,6 @@ export function SessionDetailView({
               </div>
             </PanelBody>
           </Panel>
-        </div>
       </div>
     </Page>
   );

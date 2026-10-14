@@ -27,6 +27,21 @@ export function pickPlayableUrl(urls: readonly SessionUrl[]): string | null {
   return urls.find((entry) => /\.m3u8$/i.test(entry.url.split(/[?#]/)[0] ?? ""))?.url ?? null
 }
 
+/** What the list shows in place of a full URL: every published URL shares the
+    deployment's origin, so only the path (and query) carries information. */
+export function stripOrigin(url: string): string {
+  return url.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]+/i, "") || url
+}
+
+/** The session's `player.html` page, if published — embeds in an iframe. */
+export function pickHtmlPlayerUrl(urls: readonly SessionUrl[]): string | null {
+  return (
+    urls.find((entry) => entry.label.toLowerCase() === "html")?.url ??
+    urls.find((entry) => /player\.html/i.test(entry.url.split(/[?#]/)[0] ?? ""))?.url ??
+    null
+  )
+}
+
 function CopyButton({ value, label }: { readonly value: string; readonly label: string }) {
   const [copied, setCopied] = useState(false)
 
@@ -80,7 +95,7 @@ export function SessionUrls({
             rel="noreferrer"
             title={entry.url}
           >
-            {entry.url}
+            {stripOrigin(entry.url)}
             <IconExternal size={12} />
           </a>
           <CopyButton value={entry.url} label={entry.label} />

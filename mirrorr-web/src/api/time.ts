@@ -27,13 +27,82 @@ export function toNaiveUtc(date: Date): string {
   )
 }
 
-/** Display formatter — local timezone, medium date + short time. */
-export function formatDateTime(value: string | Date): string {
+const DATE_TIME = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+})
+const DATE_TIME_YEAR = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+})
+const TIME_ONLY = new Intl.DateTimeFormat(undefined, { timeStyle: "short" })
+
+/**
+ * Display formatter — local timezone, short date + short time. The year is
+ * dropped unless it is not the current one: repeating it on every row is noise
+ * nobody reads.
+ */
+export function formatDateTime(value: string | Date, now: Date = new Date()): string {
   const date = typeof value === "string" ? tryParseNaiveUtc(value) : value
   if (date === null) return "—"
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(
-    date,
+  return (date.getFullYear() === now.getFullYear() ? DATE_TIME : DATE_TIME_YEAR).format(date)
+}
+
+function sameDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
   )
+}
+
+/**
+ * A start/end pair for stacked lines: the day is printed once, on the start
+ * line, when both stamps fall on it.
+ */
+export function formatDateTimePair(
+  start: string | Date,
+  end: string | Date,
+  now: Date = new Date(),
+): { readonly start: string; readonly end: string } | null {
+  const from = typeof start === "string" ? tryParseNaiveUtc(start) : start
+  const to = typeof end === "string" ? tryParseNaiveUtc(end) : end
+  if (from === null || to === null) return null
+  return {
+    start: formatDateTime(from, now),
+    end: sameDay(from, to) ? TIME_ONLY.format(to) : formatDateTime(to, now),
+  }
+}
+
+const WINDOW_DATE = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" })
+const WINDOW_DATE_YEAR = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+})
+
+/** Start/end as two short lines — dates above times, one-day windows collapsed. */
+export function formatWindow(
+  start: string | Date,
+  end: string | Date,
+  now: Date = new Date(),
+): { readonly date: string; readonly time: string } | null {
+  const from = typeof start === "string" ? tryParseNaiveUtc(start) : start
+  const to = typeof end === "string" ? tryParseNaiveUtc(end) : end
+  if (from === null || to === null) return null
+  const thisYear =
+    from.getFullYear() === now.getFullYear() && to.getFullYear() === now.getFullYear()
+  return {
+    date: (thisYear ? WINDOW_DATE : WINDOW_DATE_YEAR).formatRange(from, to),
+    time: sameDay(from, to)
+      ? TIME_ONLY.formatRange(from, to)
+      : `${TIME_ONLY.format(from)} → ${TIME_ONLY.format(to)}`,
+  }
 }
 
 /** Relative label for list rows ("2 min ago", "in 3 hr"). */
@@ -78,15 +147,19 @@ export function naiveUtcToDatetimeLocal(value: string): string {
 /** Scheduler countdown granularity — never show seconds precision. */
 export const COUNTDOWN_TICK_MS = 10_000
 
-/** "starts in ~3 h 12 min" before `start_time`; "starting…" once it has passed. */
+/** "starts in ~10 d 4 h" / "~3 h 12 min" / "~45 min" before start; "starting…" after. */
 export function formatCountdown(startTime: string, now: Date = new Date()): string {
   const target = tryParseNaiveUtc(startTime)
   if (target === null) return "—"
   const deltaMs = target.getTime() - now.getTime()
   if (deltaMs <= 0) return "starting…"
   const totalMinutes = Math.max(1, Math.ceil(deltaMs / 60_000))
-  const hours = Math.floor(totalMinutes / 60)
+  const days = Math.floor(totalMinutes / 1440)
+  const hours = Math.floor((totalMinutes % 1440) / 60)
   const minutes = totalMinutes % 60
+  if (days > 0) {
+    return hours > 0 ? `starts in ~${days} d ${hours} h` : `starts in ~${days} d`
+  }
   if (hours > 0) {
     return minutes > 0 ? `starts in ~${hours} h ${minutes} min` : `starts in ~${hours} h`
   }
@@ -116,4 +189,13 @@ export function formatDuration(totalSeconds: number): string {
   const hours = Math.floor(total / 3600)
   if (hours > 0) return `${hours}:${pad(minutes)}:${pad(seconds)}`
   return `${Math.floor(total / 60)}:${pad(seconds)}`
+}
+
+/** Seconds between two naive-UTC stamps; `null` unless both parse. */
+export function elapsedSeconds(start: string | null, end: string | null): number | null {
+  if (start === null || end === null) return null
+  const from = tryParseNaiveUtc(start)
+  const to = tryParseNaiveUtc(end)
+  if (from === null || to === null) return null
+  return Math.max(0, Math.round((to.getTime() - from.getTime()) / 1000))
 }
