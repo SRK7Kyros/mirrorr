@@ -35,7 +35,7 @@ Mirrorr is a **live stream management service** — it resolves stream URLs, sta
 | Layer | Technology |
 |-------|-----------|
 | Backend | Python 3.14, FastAPI, SQLModel, SQLite (aiosqlite), NATS |
-| Frontend | React 19, TypeScript 6, TanStack Router + Query, Zustand, Tailwind CSS, shadcn/ui |
+| Frontend | React 19, TypeScript 6, Vite 8, TanStack Router + Query, Tailwind CSS v4, Radix primitives (shadcn-style), video.js |
 | Messaging | Embedded NATS server (JetStream) |
 | Streaming | yt-dlp, ffmpeg, HLS segments |
 | Auth | JWT (HS256), bcrypt password hashing, API keys |
@@ -44,19 +44,23 @@ Mirrorr is a **live stream management service** — it resolves stream URLs, sta
 
 ```
 mirrorr/
-├── ARCHITECTURE.md              ← This file
-├── .github/agents/              ← (empty, future agent configs)
+├── .github/workflows/           ← CI: web checks, iOS sideload IPA, Android APK
+├── deploy/                      ← Host deploy (deploy.sh + rendered templates)
+├── docs/                        ← Console design + handoff specs
 ├── mirrorr-core/                ← Python backend
+│   ├── ARCHITECTURE.md          ← This file
 │   ├── src/                     ← All source code
-│   ├── deploy/                  ← Nginx configs
-│   ├── dev_scripts/             ← Dev utility scripts
+│   ├── tests/                   ← Test suite
+│   ├── deploy/                  ← Nginx configs (http/https)
+│   ├── docs/                    ← Backend docs
 │   ├── pyproject.toml           ← Python dependencies
 │   └── .env                     ← Runtime config (not in repo)
-└── mirrorr-ui/
-    └── mirrorr-web/             ← React frontend
-        ├── src/                 ← All source code
-        ├── package.json         ← JS dependencies
-        └── vite.config.ts       ← Build config
+└── mirrorr-web/                 ← React frontend
+    ├── src/                     ← All source code ({api,ui,routes})
+    ├── mobile/                  ← Capacitor 8 shell (host picker + ios|android)
+    ├── scripts/                 ← deploy-web + CSS gates
+    ├── package.json             ← JS dependencies
+    └── vite.config.ts           ← Build config
 ```
 
 ---
@@ -66,7 +70,7 @@ mirrorr/
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │                         Browser (React SPA)                         │
-│  TanStack Router + Query · Zustand stores · WebSocket connections   │
+│  TanStack Router + Query · entity store · WebSocket connections     │
 └──────────┬──────────────────────────────┬────────────────────────────┘
            │ HTTP (REST API)              │ WebSocket
            ↓                              ↓
@@ -149,7 +153,7 @@ src/
 ├── services/                  # Business logic
 │   ├── session_supervisor.py  # SessionSupervisor class — orchestrates a session
 │   ├── session_runner.py      # Subprocess entry points (runner, main)
-│   ├── session_lifecycle.py   # update_session, delete_session, update_autorun
+│   ├── session_lifecycle.py   # update_session, delete_session, remove_session_folder, update_autorun
 │   ├── session_helpers.py     # Dir setup, URL building, DB loading
 │   ├── autorun_scheduler.py   # Background scheduler loop
 │   ├── managed_process.py     # Subprocess wrapper with telemetry
@@ -200,78 +204,68 @@ src/
 
 ```
 src/
-├── main.tsx                   # App entry point
-├── index.css                  # Global styles
-├── routeTree.gen.ts           # Auto-generated route tree
+├── main.tsx                   # Standard console entry (index.html)
+├── admin.tsx                  # Admin build entry (admin.html); fills the settings-section slot
+├── admin-surface.tsx          # Admin route surface
+├── router.tsx                 # TanStack Router setup (guards, auth navigator)
+├── app.css                    # Tailwind v4 entry (@import of ui/styles/*)
+├── vite-env.d.ts
 │
-├── routes/                    # TanStack Router file-based routing
-│   ├── __root.tsx             # Root: ThemeProvider + QueryClient + Toaster
-│   ├── _auth.tsx              # Auth layout (redirects if authenticated)
-│   ├── _auth/
-│   │   ├── login.tsx          # Login page
-│   │   └── register.tsx       # Registration page
-│   ├── _app.tsx               # App layout (redirects if unauthenticated, navbar, WS hooks)
-│   └── _app/
-│       ├── index.tsx          # Dashboard (/)
-│       ├── sessions/index.tsx # Sessions (/sessions)
-│       ├── autoruns/index.tsx # Autoruns (/autoruns)
-│       ├── recordings/index.tsx # Recordings (/recordings)
-│       ├── profiles/index.tsx # Profiles (/profiles)
-│       ├── plugins/index.tsx  # Plugins (/plugins)
-│       ├── profile.tsx        # Account settings (/profile)
-│       └── monitoring/
-│           ├── index.tsx      # System telemetry (/monitoring)
-│           └── $sessionId.tsx # Per-session telemetry (/monitoring/:id)
+├── routes/
+│   └── route-tree.tsx         # Route tree (TanStack Router)
 │
-├── stores/                    # Zustand state stores
-│   ├── auth-store.ts          # JWT token, user, isAuthenticated (persisted)
-│   └── request-log-store.ts   # HTTP/WS request log (rolling 200 entries)
+├── ui/                        # Presentational layer — owns no data access
+│   ├── chrome/                # App shell: sidebar, topbar, bottom-nav, host-switcher,
+│   │                          #   account-menu, notification bell/drawer, health-banner
+│   ├── components/            # 92 shared components (incl. components/videojs/)
+│   ├── views/                 # One directory per surface: auth, sessions, autoruns,
+│   │                          #   recordings, profiles, plugins, import-export,
+│   │                          #   settings, shared
+│   ├── lib/                   # cn, format, motion, clipboard, resolve-class-name
+│   ├── styles/                # tokens.css (single token source), tailwind.css,
+│   │                          #   base.css, components.css, layout.css, fonts.css
+│   └── hooks.ts               # Shared UI hooks
 │
-├── hooks/                     # Custom React hooks
-│   ├── use-ws-events.ts       # WS NATS mirror + React Query cache patching
-│   ├── use-ws-notifications.ts # WS notification push
-│   └── use-mobile.ts          # Viewport < 768px detector
+├── api/                       # Data layer — no React components, no routing, no styles
+│   ├── client.ts              # apiFetch, ApiError, single-flight token refresh
+│   ├── config.ts              # getApiUrl() — the only VITE_API_URL read site
+│   ├── auth.ts                # Session store + login/register/logout
+│   ├── query-keys.ts          # Query-key factories + stale-time table
+│   ├── query-client.ts        # The single QueryClient
+│   ├── entity-store.ts        # Arrival-order-independent cache merge rules
+│   ├── polling.ts             # Refetch intervals from principal + socket health
+│   ├── endpoints/             # Typed REST wrappers (one function per route)
+│   ├── schemas/               # Zod contracts for every response
+│   ├── realtime/              # WebSocket manager + frame → cache routing
+│   ├── hooks/                 # TanStack Query + external-store hooks
+│   └── domain/                # Pure logic: status, time, errors, dirty, bundle, filters
 │
-├── lib/                       # Utilities and API client
-│   ├── api.ts                 # Fetch wrapper with auth, refresh, logging
-│   ├── schemas.ts             # Zod schemas for all entities
-│   ├── utils.ts               # cn(), date formatters, formatBytes, etc.
-│   └── ws-events.ts           # WS event type contracts + query key mapping
-│
-└── components/                # Custom + shadcn/ui components
-    ├── ui/                    # 55 shadcn components
-    ├── resource-layout.tsx    # Shared sidebar/detail layout
-    ├── form-fields.tsx        # EngineOverrideSelector, RecordingToggle
-    ├── config-display.tsx     # ConfigBlock (key-value + JSON modal)
-    ├── schema-viewer.tsx      # JSON schema → visual table
-    ├── telemetry-charts.tsx   # Recharts area charts for CPU/memory
-    ├── network-monitor.tsx    # Floating HTTP/WS request log window
-    ├── dynamic-form.tsx       # Schema-driven form generation
-    ├── import-dialog.tsx      # Bundle import dialog
-    ├── status-badge.tsx       # Color-coded status indicators
-    ├── eta-display.tsx        # Remux/recording ETA countdown
-    ├── datetime-picker.tsx    # Autorun scheduling picker
-    └── ... (more custom components)
+└── test/                      # Test setup/utilities
 ```
+
+The data layer is a standalone module — see `src/api/README.md` for its full contract.
 
 ### Key Responsibilities
 
 | Module Group | Responsibility |
 |---|---|
-| `routes/` | Page components. Each route file is a page with its own data fetching. |
-| `stores/` | Global state. Auth (persisted to localStorage), request log (in-memory). |
-| `hooks/` | WebSocket connections. Real-time event mirroring and notification push. |
-| `lib/api.ts` | HTTP client. Auth header injection, 401 refresh-and-retry, request logging. |
-| `lib/schemas.ts` | Zod schemas. Validates all API payloads, provides TypeScript types. |
-| `components/` | UI building blocks. Shared layouts, forms, charts, status indicators. |
+| `ui/chrome/` | The app shell — sidebar/topbar/bottom-nav, host switcher, account menu, notifications, health banner. |
+| `ui/views/` | One directory per surface (auth, sessions, autoruns, recordings, profiles, plugins, import-export, settings, shared). Views fetch through `api/hooks`. |
+| `ui/components/` | Shared building blocks — forms, tables, charts, status indicators, media players. |
+| `ui/styles/` | The visual contract. `tokens.css` is the single token source; `tailwind.css` maps it into Tailwind v4; `components.css` keeps only the bespoke pieces. |
+| `api/client.ts` | The only HTTP path — auth cookie, single-flight 401 refresh, 422 → field errors. |
+| `api/endpoints/` | Typed REST wrappers, one per route. The layer never fetches ad hoc. |
+| `api/schemas/` | Zod parse of every response, so server shape drift surfaces at the boundary. |
+| `api/realtime/` | Two WebSockets with backoff and a polling fallback; frames route into the query cache. |
+| `api/entity-store.ts` | Pure merge rules so WS / mutation / refetch writes are arrival-order independent. |
 
 ### Data Flow
 
-1. **Page loads** → `useQuery` fetches data from REST API via `lib/api.ts`
-2. **User action** → `useMutation` sends request, updates cache on success
-3. **Backend emits NATS event** → WebSocket receives it in `use-ws-events.ts`
-4. **Cache patching** → `patchQueryCache()` updates TanStack Query cache directly (zero HTTP round-trip)
-5. **Fallback** → If no `data` payload in WS event, `invalidateQueries` triggers a refetch
+1. **Page loads** → `useEntityList`/`useQuery` (`api/hooks`) fetches via `api/endpoints` → `api/client.ts`
+2. **User action** → a mutation sends the request and writes the response through `entity-store.ts`
+3. **Backend emits a NATS event** → `api/realtime/manager.ts` receives it on `/ws/events`
+4. **Cache write** → `realtime/event-table.ts` routes the frame — authoritative frames write field-by-field, `deleted` frames remove the id
+5. **Fallback** → a frame with no `data` triggers a coalesced invalidation; a dead socket falls back to polling
 
 ---
 
@@ -818,7 +812,7 @@ mirrorr [-c .env] [--host HOST] [--port PORT] [--nats-port PORT]
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VITE_API_URL` | `http://localhost:8000` | Backend API base URL |
+| `VITE_API_URL` | `/api` (Vite dev proxy → `:8000`) | Backend API base URL. Set it only for a cross-origin API. |
 
 ---
 
@@ -871,7 +865,7 @@ Main Process (FastAPI + uvicorn)
 ### Prerequisites
 
 - Python 3.14+ (managed via `uv`)
-- Node.js + bun (for frontend)
+- bun (frontend runtime and package manager)
 - ffmpeg (auto-downloaded if not present)
 
 ### Backend
@@ -886,79 +880,87 @@ uvx ty check src           # Type checking
 ### Frontend
 
 ```bash
-cd mirrorr-ui/mirrorr-web
+cd mirrorr-web
 bun install                 # Install dependencies
-bun run dev                 # Start dev server (port 5173)
+bun run dev                 # Vite dev server (proxies /api → :8000)
 bun run build               # Production build
-bun run lint                # ESLint
-npx tsc --noEmit            # Type checking
+bun run typecheck           # tsc -p tsconfig.app.json --noEmit (+ node config)
+bun run test:unit           # Vitest
+bun run test:e2e            # Playwright (critical flows)
+bun run check:tokens        # CSS gates — also check:contrast, check:collisions
 ```
-
-### Dev Scripts
-
-| Script | Purpose |
-|--------|---------|
-| `dev_scripts/rebuild_and_rerun.ps1` | Reinstall via `uv tool`, clean data, run |
-| `dev_scripts/typecheck.ps1` | Run `uvx ty check src` |
 
 ---
 
 ## 17. File Reference
 
-### Backend — Line Counts (approximate)
+### Backend — Line Counts
+
+Measured 2026-10-14 with `wc -l` over `src/mirrorr/`.
 
 | File | Lines |
 |------|------:|
-| `core.py` | 228 |
-| `di.py` | 79 |
-| `api/api.py` | 134 |
-| `api/auth.py` | 130 |
-| `api/dependencies.py` | 122 |
-| `api/jwt.py` | 61 |
-| `api/schemas.py` | 99 |
-| `api/ws.py` | 268 |
-| `api/routers/auth.py` | 242 |
-| `api/routers/crud.py` | 329 |
-| `api/routers/import_export.py` | 374 |
-| `event_bus/event.py` | 44 |
-| `event_bus/nats.py` | 89 |
-| `event_bus/protocol.py` | 42 |
-| `event_bus/handlers/handlers.py` | 165 |
-| `plugin_api/__init__.py` | 35 |
-| `plugin_api/interfaces.py` | 173 |
-| `plugin_api/retry.py` | 70 |
-| `services/session_supervisor.py` | 314 |
-| `services/session_runner.py` | 80 |
-| `services/session_lifecycle.py` | 246 |
-| `services/session_helpers.py` | 103 |
-| `services/autorun_scheduler.py` | 132 |
-| `services/managed_process.py` | 255 |
-| `services/process_bus.py` | 60 |
-| `services/recording.py` | 340 |
-| `storage/models.py` | 250 |
-| `storage/crud.py` | 67 |
-| `storage/database.py` | 61 |
-| `storage/enums.py` | 23 |
-| `startup/config.py` | 228 |
-| `startup/ensure_db.py` | 62 |
-| `startup/ensure_ffmpeg.py` | 38 |
-| `startup/ensure_nats_server.py` | 247 |
-| `startup/ensure_engines.py` | 46 |
-| `startup/ensure_resolvers.py` | 54 |
-| `startup/ensure_plugins.py` | 126 |
-| `startup/logging.py` | 104 |
-| `default_plugins/engines/yt_dlp_piped.py` | 113 |
-| `default_plugins/resolvers/static.py` | 23 |
+| `core.py` | 454 |
+| `main.py` | 58 |
+| `di.py` | 90 |
+| `_version.py` | 7 |
+| `api/api.py` | 391 |
+| `api/auth.py` | 166 |
+| `api/dependencies.py` | 193 |
+| `api/jwt.py` | 175 |
+| `api/privileged.py` | 116 |
+| `api/schemas.py` | 376 |
+| `api/ws.py` | 502 |
+| `api/routers/auth.py` | 891 |
+| `api/routers/crud.py` | 1281 |
+| `api/routers/import_export.py` | 785 |
+| `api/routers/logs.py` | 158 |
+| `event_bus/event.py` | 138 |
+| `event_bus/nats.py` | 123 |
+| `event_bus/protocol.py` | 47 |
+| `event_bus/handlers/handlers.py` | 291 |
+| `plugin_api/__init__.py` | 49 |
+| `plugin_api/companion.py` | 189 |
+| `plugin_api/interfaces.py` | 257 |
+| `plugin_api/retry.py` | 78 |
+| `services/session_supervisor.py` | 667 |
+| `services/session_runner.py` | 99 |
+| `services/session_lifecycle.py` | 440 |
+| `services/session_helpers.py` | 136 |
+| `services/autorun_scheduler.py` | 164 |
+| `services/companions.py` | 204 |
+| `services/housekeeping.py` | 130 |
+| `services/managed_process.py` | 310 |
+| `services/process_bus.py` | 91 |
+| `services/recording.py` | 563 |
+| `storage/models.py` | 340 |
+| `storage/crud.py` | 149 |
+| `storage/database.py` | 60 |
+| `storage/enums.py` | 44 |
+| `startup/config.py` | 387 |
+| `startup/ensure_db.py` | 162 |
+| `startup/ensure_ffmpeg.py` | 56 |
+| `startup/ensure_nats_server.py` | 370 |
+| `startup/ensure_engines.py` | 51 |
+| `startup/ensure_resolvers.py` | 83 |
+| `startup/ensure_plugins.py` | 194 |
+| `startup/api_bootstrap.py` | 14 |
+| `startup/logging.py` | 125 |
+| `default_plugins/engines/yt_dlp_piped.py` | 167 |
+| `default_plugins/resolvers/static.py` | 30 |
 
-**Total: ~49 Python files, ~5,800 lines**
+**Total: 48 modules, 11,851 lines** — 55 `.py` files / 11,907 lines including the seven `__init__.py` re-export shims.
 
 ### Frontend — Key File Counts
 
+Measured 2026-10-14.
+
 | Directory | Files |
 |-----------|-------|
-| `routes/` | 14 route files |
-| `stores/` | 2 stores |
-| `hooks/` | 3 hooks |
-| `lib/` | 4 utility files |
-| `components/` (custom) | 20+ custom components |
-| `components/ui/` | 55 shadcn components |
+| `routes/` | 1 — the route tree |
+| `ui/views/` | 40 files across 9 surfaces |
+| `ui/chrome/` | 16 files (the app shell) |
+| `ui/components/` | 92 files (incl. `videojs/`) |
+| `ui/lib/` | 5 utilities |
+| `ui/styles/` | 6 stylesheets |
+| `api/` | 12 modules + `README.md`, plus `domain/`, `endpoints/`, `hooks/`, `realtime/`, `schemas/` |

@@ -73,6 +73,13 @@ Lovable's default stack, kept as-is:
 - **lucide-react** for icons (stroke icons only — see §6).
 - **motion** (framer-motion successor) for the pinned motion tokens.
 
+> **Shipped divergence (2026-10-14):** the built console did not keep this
+> stack. It runs **React 19 + TanStack Router** (not `react-router-dom`), has
+> **no Zustand** — local UI state lives in component state plus
+> `src/api/entity-store.ts` — and uses **Radix primitives** rather than a
+> shadcn/ui component package. See `mirrorr-core/ARCHITECTURE.md` §4 for the
+> shipped frontend structure.
+
 **Data-layer rule (mock-first):** Lovable previews cannot reach the operator's local
 backend. Build the app against a **typed API client** with a **mock adapter**:
 
