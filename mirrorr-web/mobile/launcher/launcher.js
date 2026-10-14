@@ -149,12 +149,6 @@ const render = () => {
       badge.textContent = "last";
       name.append(badge);
     }
-    if (state.autoUrl === server.url) {
-      const badge = document.createElement("span");
-      badge.className = "badge badge-auto";
-      badge.textContent = "auto";
-      name.append(badge);
-    }
     const username = savedLogins.get(server.url);
     if (username !== undefined) {
       const badge = document.createElement("span");
@@ -183,7 +177,20 @@ const render = () => {
     remove.setAttribute("aria-label", `Remove ${server.name || server.url}`);
     remove.addEventListener("click", () => void removeServer(server.url));
 
-    row.append(connect, edit, remove);
+    // The shell opens exactly one host, so the choice belongs on the list that
+    // knows every host — not inside a console, which only knows itself.
+    const auto = document.createElement("button");
+    auto.type = "button";
+    auto.className = "icon-action auto";
+    auto.textContent = "auto";
+    auto.setAttribute("aria-pressed", String(state.autoUrl === server.url));
+    auto.setAttribute(
+      "aria-label",
+      `${state.autoUrl === server.url ? "Stop opening" : "Open"} ${server.name || server.url} on launch`,
+    );
+    auto.addEventListener("click", () => void toggleAuto(server.url));
+
+    row.append(connect, auto, edit, remove);
     list.append(row);
   }
 };
@@ -206,6 +213,17 @@ const openServer = async (server) => {
   state = { ...state, lastUrl: server.url };
   await writeState(state);
   window.location.assign(server.url);
+};
+
+/**
+ * Enabling a host moves the shell's launch target to it rather than adding one:
+ * exactly one host can be opened on launch, so this is a single choice that the
+ * list makes visible on every row.
+ */
+const toggleAuto = async (target) => {
+  state = { ...state, autoUrl: state.autoUrl === target ? null : target };
+  await writeState(state);
+  render();
 };
 
 const removeServer = async (target) => {

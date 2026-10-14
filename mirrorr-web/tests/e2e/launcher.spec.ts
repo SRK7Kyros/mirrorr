@@ -127,4 +127,43 @@ test.describe("server picker", () => {
     await expect(page.getByText("No servers yet — add one below.")).toBeVisible()
     await expect.poll(() => keysIn(page)).not.toContain(KEYCHAIN_KEY)
   })
+
+  test("the auto toggle aims the launch at one host, and moving it takes it off the last", async ({
+    page,
+  }) => {
+    const second = "https://attic.example.org"
+    for (const [url, name] of [
+      [HOST, "Home server"],
+      [second, "Attic"],
+    ] as const) {
+      await page.getByLabel("Server URL").fill(url)
+      await page.getByLabel("Name (optional)", { exact: true }).fill(name)
+      await page.getByRole("button", { name: "Add server" }).click()
+      await expect(page.locator(".connect .name", { hasText: name })).toBeVisible()
+    }
+
+    const storedTarget = async (): Promise<unknown> =>
+      JSON.parse((await entryIn(page, SERVERS_KEY)) ?? "{}").autoUrl
+
+    await expect(page.getByRole("button", { name: "Open Home server on launch" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    )
+
+    await page.getByRole("button", { name: "Open Home server on launch" }).click()
+
+    await expect(page.getByRole("button", { name: "Stop opening Home server on launch" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    )
+    await expect.poll(storedTarget).toBe(HOST)
+
+    await page.getByRole("button", { name: "Open Attic on launch" }).click()
+
+    await expect.poll(storedTarget).toBe(second)
+    await expect(page.getByRole("button", { name: "Open Home server on launch" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    )
+  })
 })

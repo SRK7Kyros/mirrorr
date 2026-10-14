@@ -5,7 +5,6 @@ import {
   isNativeShell,
   readHostCredential,
   readShellHosts,
-  setShellAutoConnect,
 } from "./native";
 
 const internalGetItem = vi.fn();
@@ -255,93 +254,5 @@ describe("readShellHosts", () => {
       hosts: [{ name: "Home server", url: "https://a.example" }],
       autoUrl: null,
     });
-  });
-});
-
-describe("setShellAutoConnect", () => {
-  const writes: { readonly key: string; readonly value: string }[] = [];
-
-  function installPreferences(value: unknown): void {
-    writes.length = 0;
-    installBridge({
-      isNativePlatform: () => true,
-      Plugins: {
-        Preferences: {
-          get: async () => ({ value }),
-          set: async (options: {
-            readonly key: string;
-            readonly value: string;
-          }) => {
-            writes.push(options);
-          },
-        },
-      },
-    });
-  }
-
-  it("aims the shell at one host without disturbing the picker's own fields", async () => {
-    installPreferences(
-      JSON.stringify({
-        servers: [{ name: "Home server", url: "https://mirrorr.example.org" }],
-        lastUrl: "https://mirrorr.example.org",
-      }),
-    );
-
-    await expect(
-      setShellAutoConnect("https://mirrorr.example.org"),
-    ).resolves.toBe(true);
-    expect(writes).toEqual([
-      {
-        key: "mirrorr.servers.v1",
-        value: JSON.stringify({
-          servers: [
-            { name: "Home server", url: "https://mirrorr.example.org" },
-          ],
-          lastUrl: "https://mirrorr.example.org",
-          autoUrl: "https://mirrorr.example.org",
-        }),
-      },
-    ]);
-  });
-
-  it("takes the target back off", async () => {
-    installPreferences(
-      JSON.stringify({
-        servers: [],
-        lastUrl: null,
-        autoUrl: "https://mirrorr.example.org",
-      }),
-    );
-
-    await expect(setShellAutoConnect(null)).resolves.toBe(true);
-    expect(
-      (JSON.parse(writes[0]?.value ?? "") as { autoUrl?: unknown }).autoUrl,
-    ).toBeNull();
-  });
-
-  it("creates the record when the picker has stored nothing yet", async () => {
-    installPreferences(null);
-
-    await expect(
-      setShellAutoConnect("https://mirrorr.example.org"),
-    ).resolves.toBe(true);
-    expect(JSON.parse(writes[0]?.value ?? "") as unknown).toEqual({
-      servers: [],
-      autoUrl: "https://mirrorr.example.org",
-    });
-  });
-
-  it("is false when there is no store to write through", async () => {
-    await expect(
-      setShellAutoConnect("https://mirrorr.example.org"),
-    ).resolves.toBe(false);
-
-    installBridge({
-      isNativePlatform: () => true,
-      Plugins: { Preferences: { get: async () => ({ value: null }) } },
-    });
-    await expect(
-      setShellAutoConnect("https://mirrorr.example.org"),
-    ).resolves.toBe(false);
   });
 });

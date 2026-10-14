@@ -67,7 +67,7 @@ export function BottomNav() {
           <MenuPopover
             open={open}
             placement="up"
-            className="w-[min(21rem,calc(100vw-var(--s-6)))]"
+            className="w-[min(17rem,calc(100vw-var(--s-6)))]"
             onClick={() => setOpen(false)}
           >
             <HostSwitcher />
