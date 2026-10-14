@@ -11,7 +11,10 @@
     />
     <meta name="theme-color" content="#0a0a0c" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
     <title>Mirrorr</title>
     <link rel="stylesheet" href="launcher.css" />
   </head>
@@ -19,8 +22,16 @@
     <main class="shell">
       <header class="head">
         <h1>Mirrorr</h1>
-        <p class="hint">Pick a server. Each one keeps its own sign-in, so switching back is instant.</p>
+        <p class="hint">
+          Pick a server. Each one keeps its own sign-in, so switching back is
+          instant.
+        </p>
       </header>
+
+      <p class="auto" id="auto" role="status" hidden>
+        <span id="auto-text"></span>
+        <button type="button" id="auto-skip">Skip</button>
+      </p>
 
       <ul class="servers" id="servers"></ul>
 
@@ -40,7 +51,12 @@
         </label>
         <label class="field">
           <span>Name (optional)</span>
-          <input id="name" type="text" maxlength="40" placeholder="Home server" />
+          <input
+            id="name"
+            type="text"
+            maxlength="40"
+            placeholder="Home server"
+          />
         </label>
         <label class="field">
           <span>Username (optional)</span>
@@ -63,7 +79,9 @@
             placeholder="kept in the phone's keychain"
           />
         </label>
-        <p class="note">Saved credentials sign that server's console in automatically.</p>
+        <p class="note">
+          Saved credentials sign that server's console in automatically.
+        </p>
         <p class="error" id="error" role="alert" hidden></p>
         <div class="actions">
           <button type="submit" id="submit">Add server</button>
