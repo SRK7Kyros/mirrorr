@@ -1,16 +1,23 @@
-import { Link, useMatchRoute } from "@tanstack/react-router"
-import { motion } from "motion/react"
-import { IconMenu, menuAnchorClass, menuItemClass, MenuPopover, useMenuDismiss } from "@/ui/components"
-import { cn } from "@/ui/lib/cn"
-import { springs } from "@/ui/lib/motion"
-import { MOBILE_OVERFLOW, MOBILE_TABS } from "./nav-items"
+import { Link, useMatchRoute } from "@tanstack/react-router";
+import { motion } from "motion/react";
+import {
+  IconMenu,
+  menuAnchorClass,
+  menuItemClass,
+  MenuPopover,
+  useMenuDismiss,
+} from "@/ui/components";
+import { cn } from "@/ui/lib/cn";
+import { springs } from "@/ui/lib/motion";
+import { HostSwitcher } from "./host-switcher";
+import { MOBILE_OVERFLOW, MOBILE_TABS } from "./nav-items";
 
 const ITEM_CLASS =
-  "relative isolate flex h-[calc(var(--bottomnav-h)_-_var(--s-2))] flex-col items-center justify-center gap-[2px] rounded-full text-2xs transition-[color,background] duration-[var(--dur-fast)] ease-[var(--ease-out)]"
+  "relative isolate flex h-[calc(var(--bottomnav-h)_-_var(--s-2))] flex-col items-center justify-center gap-[2px] rounded-full text-2xs transition-[color,background] duration-[var(--dur-fast)] ease-[var(--ease-out)]";
 
 export function BottomNav() {
-  const matchRoute = useMatchRoute()
-  const { open, setOpen, wrapRef } = useMenuDismiss()
+  const matchRoute = useMatchRoute();
+  const { open, setOpen, wrapRef } = useMenuDismiss();
 
   return (
     <nav
@@ -19,12 +26,17 @@ export function BottomNav() {
     >
       <div className="flex h-[var(--bottomnav-h)] items-center gap-1 rounded-full border border-line-strong bg-[color-mix(in_srgb,var(--surface-2)_86%,transparent)] px-1 shadow-elev-lg backdrop-blur-[16px]">
         {MOBILE_TABS.map((item) => {
-          const active = matchRoute({ to: item.to, fuzzy: item.exact !== true }) !== false
+          const active =
+            matchRoute({ to: item.to, fuzzy: item.exact !== true }) !== false;
           return (
             <Link
               key={item.to}
               to={item.to}
-              className={cn(ITEM_CLASS, "flex-[1_1_0]", active ? "text-brand" : "text-ink-dim hover:text-ink")}
+              className={cn(
+                ITEM_CLASS,
+                "flex-[1_1_0]",
+                active ? "text-brand" : "text-ink-dim hover:text-ink",
+              )}
             >
               {active ? (
                 <motion.span
@@ -36,7 +48,7 @@ export function BottomNav() {
               {item.icon}
               <span>{item.label}</span>
             </Link>
-          )
+          );
         })}
         <div className={menuAnchorClass} ref={wrapRef}>
           <button
@@ -52,9 +64,20 @@ export function BottomNav() {
           >
             <IconMenu size={20} />
           </button>
-          <MenuPopover open={open} placement="up" onClick={() => setOpen(false)}>
+          <MenuPopover
+            open={open}
+            placement="up"
+            className="w-[min(21rem,calc(100vw-var(--s-6)))]"
+            onClick={() => setOpen(false)}
+          >
+            <HostSwitcher />
             {MOBILE_OVERFLOW.map((item) => (
-              <Link key={item.to} to={item.to} role="menuitem" className={menuItemClass}>
+              <Link
+                key={item.to}
+                to={item.to}
+                role="menuitem"
+                className={menuItemClass}
+              >
                 {item.icon}
                 <span>{item.label}</span>
               </Link>
@@ -63,5 +86,5 @@ export function BottomNav() {
         </div>
       </div>
     </nav>
-  )
+  );
 }
