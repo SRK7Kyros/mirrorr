@@ -105,34 +105,6 @@ export async function readShellHosts(): Promise<ShellHosts | null> {
  * write on the picker's field set, so editing a host here cannot drop the
  * picker's own state. False when there is no store to write through.
  */
-export async function setShellAutoConnect(
-  url: string | null,
-): Promise<boolean> {
-  const store = preferences();
-  if (store?.get === undefined || store.set === undefined) return false;
-  try {
-    const raw = (await store.get({ key: SERVERS_KEY }))?.value;
-    const parsed: unknown =
-      typeof raw === "string" && raw !== "" ? JSON.parse(raw) : null;
-    const base =
-      parsed !== null && typeof parsed === "object"
-        ? { ...(parsed as object) }
-        : {};
-    const servers = (base as { servers?: unknown }).servers;
-    await store.set({
-      key: SERVERS_KEY,
-      value: JSON.stringify({
-        ...base,
-        servers: Array.isArray(servers) ? servers : [],
-        autoUrl: url,
-      }),
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export interface HostCredential {
   readonly username: string;
   readonly password: string;

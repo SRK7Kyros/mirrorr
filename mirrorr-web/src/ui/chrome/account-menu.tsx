@@ -33,7 +33,7 @@ export function AccountMenu() {
       </button>
       <MenuPopover
         open={open}
-        className="w-[min(21rem,calc(100vw-var(--s-6)))]"
+        className="w-[min(17rem,calc(100vw-var(--s-6)))]"
         onClick={() => setOpen(false)}
       >
         <div className="py-2 px-3">
