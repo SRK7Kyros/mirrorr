@@ -43,9 +43,15 @@ async def runner(
             f"Supervisor created for session <green>{session_id}</green>"
         )
 
-        # Monitor the cross-platform shutdown event and latch a stop
+        # Monitor the cross-platform shutdown event and latch a stop. Polled on
+        # purpose: parking a worker thread in Event.wait() keeps this process
+        # alive after supervisor.run() returns (asyncio.run() joins the default
+        # executor on close), so a stopped session left a supervisor behind.
+        _SHUTDOWN_POLL_SECONDS = 0.25
+
         async def _watch_shutdown():
-            await asyncio.get_running_loop().run_in_executor(None, shutdown_event.wait)
+            while not shutdown_event.is_set():
+                await asyncio.sleep(_SHUTDOWN_POLL_SECONDS)
             logger.info(f"Session {session_id}: shutdown event received")
             supervisor.request_stop()
 

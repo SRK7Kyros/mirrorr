@@ -114,15 +114,31 @@ async def _cascade_delete_session(db: AsyncSession, session_id: int) -> dict[str
     return counts
 
 
+async def _reclaim_session(session_id: int, session_folder: str | None) -> None:
+    """Stop the supervisor serving a deleted session, then remove its folder.
+
+    Order matters: the run has to be over before its folder goes, or the media
+    processes keep writing into a directory we are removing.
+    """
+    from mirrorr.di import container
+    from mirrorr.event_bus.handlers.handlers import _kill_supervisor
+    from mirrorr.services.session_lifecycle import remove_session_folder
+
+    await _kill_supervisor(session_id)
+    await remove_session_folder(container.settings, session_folder)
+
+
 async def _cascade_delete_autorun(db: AsyncSession, autorun_id: int) -> dict[str, int]:
     """Delete an autorun and its sessions (each session's recordings are
     detached, not deleted). Emits AUTORUN_DELETED. Returns cascade counts."""
     counts: dict[str, int] = {"autoruns": 1}
     sess = (await db.exec(select(Session).where(Session.autorun_id == autorun_id))).all()
     for s in sess:
+        folder = s.session_folder
         sub = await _cascade_delete_session(db, s.id)
         for k, v in sub.items():
             counts[k] = counts.get(k, 0) + v
+        await _reclaim_session(s.id, folder)
         await _safe_emit(MirrorrEvent.SESSION_DELETED(id=s.id))
     counts["sessions"] = counts.get("sessions", 0) + len(sess)
 
@@ -144,9 +160,11 @@ async def _cascade_delete_profile(db: AsyncSession, profile_id: int) -> dict[str
         select(Session).where(Session.profile_id == profile_id, Session.autorun_id.is_(None))
     )).all()
     for s in sess:
+        folder = s.session_folder
         sub = await _cascade_delete_session(db, s.id)
         for k, v in sub.items():
             counts[k] = counts.get(k, 0) + v
+        await _reclaim_session(s.id, folder)
         await _safe_emit(MirrorrEvent.SESSION_DELETED(id=s.id))
     counts["sessions"] = counts.get("sessions", 0) + len(sess)
 
@@ -611,22 +629,17 @@ async def delete_session(id: int, db: AsyncSession = Depends(_get_db_session), a
         raise HTTPException(status_code=403, detail="Not your session")
     if obj.status == SessionStatus.REMUXING:
         raise HTTPException(status_code=409, detail="Session is remuxing. Wait for it to complete or fail before deleting.")
-    if obj.status in (SessionStatus.ACTIVE, SessionStatus.RECORDING):
+    if obj.status in (SessionStatus.ACTIVE, SessionStatus.RECORDING, SessionStatus.TERMINATING):
         try:
-            # Send stop command to the supervisor. The supervisor's cleanup
-            # (including folder removal) happens via the SESSION_DELETED event.
+            # Ask the supervisor to wind down. A supervisor that is already gone
+            # (504) is not an error here — _reclaim_session() settles it below.
             await _send_control(id, "stop")
         except HTTPException as e:
-            if e.status_code == 504:
-                # Supervisor not responding — kill it explicitly to avoid
-                # orphaned processes (ffmpeg/yt-dlp) holding the folder open.
-                from mirrorr.event_bus.handlers.handlers import _kill_supervisor
-                await _kill_supervisor(id)
-                counts = await _cascade_delete_session(db, id)
-                await _safe_emit(MirrorrEvent.SESSION_DELETED(id=id))
-                return DeleteResultResponse(status="deleted", deleted=counts)
-            raise
+            if e.status_code != 504:
+                raise
+    folder = obj.session_folder
     counts = await _cascade_delete_session(db, id)
+    await _reclaim_session(id, folder)
     await _safe_emit(MirrorrEvent.SESSION_DELETED(id=id))
     return DeleteResultResponse(status="deleted", deleted=counts)
 
