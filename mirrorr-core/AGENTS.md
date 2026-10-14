@@ -219,7 +219,7 @@ mirrorr-core/
 │   │   ├── process_bus.py       # In-process async event bus (pub/sub)
 │   │   ├── session_supervisor.py# Per-session orchestrator (runs in own OS process)
 │   │   ├── session_runner.py    # Subprocess entry points (runner, main)
-│   │   ├── session_lifecycle.py # update_session/delete_session/update_autorun helpers
+│   │   ├── session_lifecycle.py # update_session/delete_session/update_autorun + remove_session_folder
 │   │   ├── session_helpers.py   # Dir setup, URL building, DB loading
 │   │   ├── recording.py         # Segment stash + remux-to-MP4 lifecycle
 │   │   └── autorun_scheduler.py # Background loop that starts/stops autorun sessions
@@ -325,15 +325,15 @@ Runtime state (gitignored, created under `base_dir`): `content/`, `plugins/`, `b
 | `src/mirrorr/services/autorun_scheduler.py` | Background loop: creates sessions for due autoruns, stops sessions when autorun end_time passes (via NATS request/reply with feedback). |
 | `src/mirrorr/services/managed_process.py` | Subprocess wrapper with event-driven lifecycle, telemetry polling, log capture. |
 | `src/mirrorr/services/process_bus.py` | In-process async pub/sub bus. Topic-based message passing via `asyncio.Queue`. |
-| `src/mirrorr/services/session_runner.py` | Subprocess entry points (runner, main). |
-| `src/mirrorr/services/session_lifecycle.py` | `update_session`/`delete_session`/`update_autorun` helpers. |
+| `src/mirrorr/services/session_runner.py` | Subprocess entry points (runner, main). The runner polls its shutdown event instead of parking a thread in `Event.wait()` — `asyncio.run()` joins the default executor on close, so a parked thread kept the process alive after `supervisor.run()` returned and left a stopped session's supervisor behind. |
+| `src/mirrorr/services/session_lifecycle.py` | `update_session`/`delete_session`/`update_autorun` helpers, plus `remove_session_folder()` — the single owner of a deleted session's content-folder removal (only inside `content_dir`; never the reserved `autoruns`/`recordings` roots themselves, and never a folder a kept recording's artifact lives in). |
 | `src/mirrorr/services/session_helpers.py` | Dir setup, URL building, DB loading. |
 | `src/mirrorr/startup/ensure_plugins.py` | Generic plugin sync: `load_plugin_jit()` + `sync_plugins_db()` with extractors. |
 | `src/mirrorr/startup/ensure_engines.py` | Thin wrapper: `load_engine_jit()` + `sync_engines_db()` with engine-specific field extractors. |
 | `src/mirrorr/startup/ensure_resolvers.py` | Thin wrapper: `load_resolver_jit()` + `sync_resolvers_db()` with resolver extractors (incl. `search_schema`). |
 | `src/mirrorr/startup/ensure_db.py` | `ensure_db(engine)` — schema auto-migration (add/remove columns). |
 | `src/mirrorr/startup/ensure_nats_server.py` | `NatsServerManager(settings)` — downloads/runs local NATS server binary. |
-| `src/mirrorr/api/routers/crud.py` | CRUD router with protected fields + ownership-based access control + session control endpoints (stop, recording enable/disable via NATS request/reply). Orphan cleanup on 504. Subscriptions auto-created on resource creation. Also hosts the `/sources` router (`ResolverSource` CRUD) and `POST /resolvers/{id}/discover`. |
+| `src/mirrorr/api/routers/crud.py` | CRUD router with protected fields + ownership-based access control + session control endpoints (stop, recording enable/disable via NATS request/reply). Deleting a session reclaims it: `_reclaim_session()` stops the supervisor *then* removes its folder (a 504 from the stop request is tolerated — the reclaim settles it either way), and the removal itself belongs to `session_lifecycle.remove_session_folder()`. Subscriptions auto-created on resource creation. Also hosts the `/sources` router (`ResolverSource` CRUD) and `POST /resolvers/{id}/discover`. |
 | `src/mirrorr/api/auth.py` | Auth infrastructure: password hashing (`bcrypt`), API key hashing, client/user resolution, subscription/notification helpers. |
 | `src/mirrorr/api/jwt.py` | JWT token creation (`create_access_token`) and validation (`decode_access_token`) using HS256. |
 | `src/mirrorr/api/routers/auth.py` | Registration, login (`/auth/register`, `/auth/login`), `/auth/me`, password change, admin user/client management, notifications. |
