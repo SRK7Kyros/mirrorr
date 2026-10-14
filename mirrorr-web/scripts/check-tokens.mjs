@@ -16,10 +16,12 @@
  *   3. DEFINED    — every `var(--x)` used in the authored CSS layer *or in the
  *                   `var(--…)` arbitrary values that now carry the styling
  *                   inside TS/TSX class strings* resolves to a token declared in
- *                   tokens.css (or a custom property published per element at
- *                   runtime — see RUNTIME_PROPS). A reference without a fallback
- *                   that resolves to nothing is a rendering bug (the declaration
- *                   is dropped silently), so it fails the gate.
+ *                   tokens.css, in the video.js skin's own token layer (see
+ *                   SKIN_STYLES — the skin is a port that carries a `--media-*`
+ *                   namespace of its own), or a custom property published per
+ *                   element at runtime (see RUNTIME_PROPS). A reference without a
+ *                   fallback that resolves to nothing is a rendering bug (the
+ *                   declaration is dropped silently), so it fails the gate.
  *
  * A missing, drifted, or dangling token is a token-layer defect — fix
  * tokens.css (or the consuming CSS), never relax this script.
@@ -170,6 +172,12 @@ const PINNED = {
 
 const norm = (value) => value.replace(/\s+/g, "").toLowerCase()
 
+/**
+ * The skin's own stylesheets, merged into their own map rather than `declared`:
+ * a console token must be declared in tokens.css, never merely in the skin.
+ */
+const SKIN_STYLES_DIR = fileURLToPath(new URL("../src/ui/components/videojs/styles/", import.meta.url))
+
 function parseDeclarations(css) {
   const values = new Map()
   for (const match of css.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) {
@@ -206,6 +214,23 @@ for (const [name, expected] of Object.entries(PINNED)) {
   }
 }
 
+/**
+ * The video.js skin is a port with a token namespace of its own (`--media-*`),
+ * declared across its stylesheets and scoped to `.media-skin` — never in
+ * tokens.css, which owns the console's layer. The console's player chrome in
+ * components.css consumes that namespace on purpose, so a `--media-*` reference
+ * resolves here too. A typo still fails: only names the skin really declares
+ * resolve.
+ */
+const skinDeclared = new Map()
+for (const entry of readdirSync(SKIN_STYLES_DIR, { recursive: true })) {
+  const name = String(entry)
+  if (!name.endsWith(".css")) continue
+  for (const [token, value] of parseDeclarations(readFileSync(join(SKIN_STYLES_DIR, name), "utf8"))) {
+    skinDeclared.set(token, value)
+  }
+}
+
 const dangling = []
 
 // `var(--x, fallback)` is fine when --x is absent; a bare `var(--x)` is not.
@@ -213,7 +238,7 @@ function collectDangling(label, text, local) {
   for (const match of text.matchAll(/var\(\s*(--[\w-]+)\s*([,)])/g)) {
     const [, name, terminator] = match
     if (terminator === ",") continue
-    if (declared.has(name) || local.has(name) || RUNTIME_PROPS.has(name)) continue
+    if (declared.has(name) || local.has(name) || skinDeclared.has(name) || RUNTIME_PROPS.has(name)) continue
     dangling.push(`${label}: ${name}`)
   }
 }
@@ -253,5 +278,6 @@ if (missing.length > 0 || drifted.length > 0 || dangling.length > 0) {
 
 console.log(
   `[check-tokens] ok — ${Object.keys(PINNED).length} pinned tokens present and value-checked, ` +
+    `${skinDeclared.size} skin-layer tokens resolved, ` +
     `no dangling var() references in ${CSS_FILES.length} stylesheets or ${sources.length} source files`,
 )
