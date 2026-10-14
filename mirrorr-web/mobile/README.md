@@ -65,19 +65,20 @@ shared code.
 
 ## Opening straight into one host
 
-Every row on the picker carries an **auto** toggle beside edit and remove. It
-writes one origin into the same record (`autoUrl`), and on launch the picker aims
-itself at that origin instead of showing the list. Exactly one host can be the
-target, so turning it on for a host takes it off wherever it was: the choice
-lives on the list that knows every host, not inside a console that knows one. Two
-details keep it from becoming a trap:
+Each row is a card: the host's name and address are the tap target that opens it,
+and a strip underneath carries the controls — an **Open on launch** switch, then
+**Edit** and **Remove**. The switch writes one origin into the same record
+(`autoUrl`), and on launch the picker aims itself at that origin instead of
+showing the list. Exactly one host can be the target, so turning it on for a host
+takes it off wherever it was: the choice lives on the list that knows every host,
+not inside a console that knows one. Two details keep it from becoming a trap:
 
 - **The host has to answer first** — a `no-cors` `GET <origin>/health` with a 4 s
   abort. Handing the WebView to a host that is down would strand the app on an
   error page with no way back to this list, so an unreachable host leaves the
   picker up with "Could not reach …".
 - **Skip calls it off for that launch only.** The target stays set, so the next
-  launch tries again; the row's toggle turns it off for good.
+  launch tries again; the row's switch turns it off for good.
 
 Both app builds start themselves when the shell changes (`mobile/**`,
 `capacitor.config.ts`, `package.json`, `bun.lock`) on the same push filter, and
@@ -131,6 +132,6 @@ bunx cap sync ios     # copies mobile/launcher -> ios/App/App/public
 ```
 
 Switching servers: the picker is the app's launch page, so reopening the app
-returns to it — unless a row's **auto** toggle is on, which opens that host
-instead (Skip on the picker, or the toggle again, gets you back to the list).
+returns to it — unless a row's **Open on launch** switch is on, which opens that
+host instead (Skip on the picker, or the switch again, gets you back to the list).
 Each server is still signed in.

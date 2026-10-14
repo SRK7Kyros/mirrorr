@@ -163,34 +163,40 @@ const render = () => {
 
     connect.append(name, url);
 
+    const actions = document.createElement("div");
+    actions.className = "row-actions";
+
+    const launch = document.createElement("button");
+    launch.type = "button";
+    launch.className = "launch";
+    launch.setAttribute("aria-pressed", String(state.autoUrl === server.url));
+    launch.setAttribute(
+      "aria-label",
+      `Open ${server.name || server.url} on launch`,
+    );
+    const launchLabel = document.createElement("span");
+    launchLabel.textContent = "Open on launch";
+    const track = document.createElement("span");
+    track.className = "track";
+    launch.append(launchLabel, track);
+    launch.addEventListener("click", () => void toggleAuto(server.url));
+
     const edit = document.createElement("button");
     edit.type = "button";
-    edit.className = "icon-action";
-    edit.textContent = "\u270e";
+    edit.className = "row-action";
+    edit.textContent = "Edit";
     edit.setAttribute("aria-label", `Edit ${server.name || server.url}`);
     edit.addEventListener("click", () => void startEdit(server));
 
     const remove = document.createElement("button");
     remove.type = "button";
-    remove.className = "icon-action danger";
-    remove.textContent = "\u00d7";
+    remove.className = "row-action danger";
+    remove.textContent = "Remove";
     remove.setAttribute("aria-label", `Remove ${server.name || server.url}`);
     remove.addEventListener("click", () => void removeServer(server.url));
 
-    // The shell opens exactly one host, so the choice belongs on the list that
-    // knows every host — not inside a console, which only knows itself.
-    const auto = document.createElement("button");
-    auto.type = "button";
-    auto.className = "icon-action auto";
-    auto.textContent = "auto";
-    auto.setAttribute("aria-pressed", String(state.autoUrl === server.url));
-    auto.setAttribute(
-      "aria-label",
-      `${state.autoUrl === server.url ? "Stop opening" : "Open"} ${server.name || server.url} on launch`,
-    );
-    auto.addEventListener("click", () => void toggleAuto(server.url));
-
-    row.append(connect, auto, edit, remove);
+    actions.append(launch, edit, remove);
+    row.append(connect, actions);
     list.append(row);
   }
 };

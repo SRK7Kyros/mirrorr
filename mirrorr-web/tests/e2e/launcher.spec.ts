@@ -145,25 +145,17 @@ test.describe("server picker", () => {
     const storedTarget = async (): Promise<unknown> =>
       JSON.parse((await entryIn(page, SERVERS_KEY)) ?? "{}").autoUrl
 
-    await expect(page.getByRole("button", { name: "Open Home server on launch" })).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    )
+    const launch = page.getByRole("button", { name: "Open Home server on launch" })
+    await expect(launch).toHaveAttribute("aria-pressed", "false")
 
-    await page.getByRole("button", { name: "Open Home server on launch" }).click()
+    await launch.click()
 
-    await expect(page.getByRole("button", { name: "Stop opening Home server on launch" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    )
+    await expect(launch).toHaveAttribute("aria-pressed", "true")
     await expect.poll(storedTarget).toBe(HOST)
 
     await page.getByRole("button", { name: "Open Attic on launch" }).click()
 
     await expect.poll(storedTarget).toBe(second)
-    await expect(page.getByRole("button", { name: "Open Home server on launch" })).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    )
+    await expect(launch).toHaveAttribute("aria-pressed", "false")
   })
 })

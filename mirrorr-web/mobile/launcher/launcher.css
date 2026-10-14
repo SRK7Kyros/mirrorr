@@ -106,24 +106,23 @@ body {
 
 .server {
   display: flex;
-  align-items: stretch;
-  gap: 8px;
+  flex-direction: column;
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
 }
 
 .connect {
-  flex: 1;
-  min-height: 62px;
-  padding: 12px 15px;
+  padding: 13px 15px 11px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
   gap: 4px;
   text-align: left;
   color: inherit;
   font: inherit;
-  background: var(--surface-1);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  background: transparent;
+  border: 0;
   cursor: pointer;
 }
 
@@ -165,39 +164,92 @@ body {
   text-transform: none;
 }
 
-.icon-action {
-  width: 46px;
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 8px 5px 15px;
+  border-top: 1px solid var(--line);
+}
+
+.launch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+  padding: 8px 6px 8px 0;
   color: var(--ink-muted);
-  font-size: 18px;
-  background: var(--surface-1);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  font: inherit;
+  font-size: 12.5px;
+  background: transparent;
+  border: 0;
   cursor: pointer;
 }
 
-.icon-action:active {
+.launch[aria-pressed="true"] {
+  color: var(--ink);
+}
+
+.launch .track {
+  width: 36px;
+  height: 21px;
+  flex: none;
+  padding: 2px;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.launch .track::after {
+  content: "";
+  display: block;
+  width: 15px;
+  height: 15px;
+  background: var(--ink-muted);
+  border-radius: 50%;
+  transition:
+    transform 120ms ease,
+    background 120ms ease;
+}
+
+.launch[aria-pressed="true"] .track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.launch[aria-pressed="true"] .track::after {
+  transform: translateX(15px);
+  background: var(--accent-ink);
+}
+
+.row-action {
+  padding: 9px 10px;
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: 12.5px;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.row-action:active {
   color: var(--ink);
   background: var(--surface-3);
 }
 
-.icon-action.danger:active {
+.row-action.danger:active {
   color: var(--danger);
-  border-color: var(--danger);
 }
 
-/* The row's launch setting. Text, not a glyph: "auto" has no icon here, and an
-   emoji in a control reads as a sticker at this size. */
-.icon-action.auto {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.icon-action.auto[aria-pressed="true"] {
-  color: var(--accent-ink);
-  background: var(--accent);
-  border-color: var(--accent);
+@media (prefers-reduced-motion: reduce) {
+  .launch .track,
+  .launch .track::after {
+    transition: none;
+  }
 }
 
 .add {
