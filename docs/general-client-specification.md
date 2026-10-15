@@ -808,8 +808,38 @@ Client should **not** invent the link; if it's needed, it's a server addition (s
 #### 13.11.5 No true "player" — treat content_urls as progressive/link-only
 `content_url` is built as `{web_url}/content/...` and served only when the operator enables `dev_serve_files` (or proxies). It is a **static file path**, not a media API — no range/seek guarantees, no auth in the path (relies on the middleware's auth when dev-serving). Clients must treat recordings as **download/open-in-new-tab links**, not embed a guaranteed `<video>` with scrubbing. If seeking matters, flag it as a server gap, don't paper over with client hacks.
 
-#### 13.11.6 There is no "share" and no "transfer" — import/export IS sharing
-Profiles/sessions/autoruns are owner-scoped (`requester_user_token`). The only cross-user/cross-install path is **export bundle → import**. Clients should present Export as "Share / backup / migrate" — the spec's sole portability primitive. (No per-resource "make public" flag exists.)
+#### 13.11.6 Sharing is admin-managed per-user view access (supersedes "no share, no transfer")
+
+> **Superseded on 2026-10-15.** This section previously read *"There is no 'share' and no 'transfer' — import/export IS sharing"* and asserted *"No per-resource 'make public' flag exists."* That was a deliberate product decision, now overturned: the owner asked for admin-managed sharing, so the core ships it. Import/export remains the **cross-install** portability primitive (Export is still "Share / backup / migrate") — it is simply no longer the only sharing path.
+
+Ownership scoping is **unchanged**: an item is visible to its owner (`requester_user_token`) and to admins. What is new is a **per-user view grant** — an admin can grant any user **read** access to any owned item *without* changing its owner. Engines and resolvers are ownerless and are not grantable (they are listed read-only).
+
+##### The access API (admin-only)
+
+All five routes live on the admin router and answer **403 to a non-admin** (`routers/auth.py`; response shapes in `api/schemas.py`).
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| `GET` | `/admin/resources?resource_type=&owner=&limit=&offset=` | — | `{items: [{resource_type, id, label, owner, owner_missing, viewer_count, system}], total}` |
+| `PUT` | `/admin/resources/{resource_type}/{id}/owner` | `{username}` | `{resource_type, id, owner}` |
+| `GET` | `/admin/resources/{resource_type}/{id}/access` | — | `{resource_type, id, owner, viewers: [username]}` |
+| `POST` | `/admin/resources/{resource_type}/{id}/access` | `{username}` | `{viewers}` |
+| `DELETE` | `/admin/resources/{resource_type}/{id}/access/{username}` | — | `{viewers}` |
+
+- **Resource-type vocabulary.** `session \| profile \| autorun \| recording \| source` are the owner-bearing kinds (fully editable). `engine` and `resolver` are **ownerless system rows**, shown read-only (`system: true`, `owner: ""`, no viewers); any owner write or grant on them is a 400. `user` is **not** a valid access target (400).
+- **`label` is computed server-side** (the console's derived titles are a client concept): session → the console's title precedence (`user_friendly_name` → profile name), recording → its content filename, otherwise `name`, falling back to `#<id>`.
+- **`owner` is the item's `requester_user_token` verbatim** — a principal string, not a display name.
+- **`owner_missing: true`** means that owner's user row no longer exists (a deleted owner leaves their items behind with a stale token, exactly as today). The admin surface shows `<owner> (missing)` and still offers the stale owner in the transfer `Select`, so an admin can move the item away.
+- **Paging, no search:** `GET` is an offset page (`limit` ≤ 200, default 50). There is **no server-side free-text search** — the panel ranks the loaded page client-side.
+- **Idempotence / errors:** `PUT …/owner` and `POST …/access` are idempotent for an existing target; `DELETE …/access/{username}` is idempotent when no grant exists; a grant to an unknown username is a 400; an unknown type or id is a 404.
+
+##### View ≠ use (the boundary)
+
+A grant admits **reads only**: the list row, the detail, and the item's logs. It does **not** admit control (stop, recording enable/disable), update, delete, save-as-profile, export/import, or **linking the item into another principal's own object** (loading a profile/source into your own session or autorun stays owner-or-admin — a profile carries capture config that must not be smuggled into another principal's object). Core side: `_require_read_access` (owner **or** admin **or** a grant) gates read handlers only; the unchanged `_require_owner_or_admin` gates every write, control, export and linking path. A grant cascades away with its resource and with its user.
+
+##### A viewer never receives the owner token
+
+The admin-only field set (`api/privileged.py` `PRIVILEGED_FIELDS`, applied by `PrivilegedRoute` and `strip_openapi`) covers every owner-bearing response **including a granted `ResolverSourceResponse`**: a viewer — or any non-admin — never receives `requester_user_token`, whatever granted them the read.
 
 ---
 

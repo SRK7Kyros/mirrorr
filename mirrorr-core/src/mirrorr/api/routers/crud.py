@@ -7,6 +7,7 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import or_ as sa_or
 from sqlalchemy.orm import selectinload
 from loguru import logger
 from mirrorr.event_bus.nats import bus, get_control_nc
@@ -46,7 +47,7 @@ from mirrorr.api.schemas import (
     DiscoveryResponse,
     DeleteResultResponse,
 )
-from mirrorr.storage.models import Session, Autorun, Recording, Profile, Engine, Resolver, ResolverSource
+from mirrorr.storage.models import Session, Autorun, Recording, Profile, Engine, Resolver, ResolverSource, ResourceAccess
 from mirrorr.services.session_helpers import build_session_urls
 from mirrorr.storage.enums import SessionStatus, ResourceType, AutorunStatus
 from mirrorr.storage import crud
@@ -55,8 +56,13 @@ from mirrorr.storage.models import EventSubscription, Notification
 crud_routers = APIRouter()
 
 
-async def _cleanup_related_records(db: AsyncSession, resource_type: str, resource_id: int) -> None:
-    """Clean up EventSubscription and Notification records for a deleted entity."""
+async def _cleanup_related_records(db: AsyncSession, resource_type: ResourceType, resource_id: int) -> None:
+    """Clean up EventSubscription, Notification and view-grant records for a deleted entity.
+
+    Every caller passes a ``ResourceType`` member. ``resource_access.resource_type``
+    stores the enum **name** (``SESSION``) while ``event_subscriptions``/``notifications``
+    store the value (``session``); the same member binds correctly to both columns.
+    """
     from sqlmodel import delete as sql_delete
     await db.exec(
         sql_delete(EventSubscription).where(
@@ -68,6 +74,12 @@ async def _cleanup_related_records(db: AsyncSession, resource_type: str, resourc
         sql_delete(Notification).where(
             Notification.resource_type == resource_type,
             Notification.resource_id == resource_id,
+        )
+    )
+    await db.exec(
+        sql_delete(ResourceAccess).where(
+            ResourceAccess.resource_type == resource_type,
+            ResourceAccess.resource_id == resource_id,
         )
     )
     await db.flush()
@@ -189,6 +201,45 @@ def _require_owner_or_admin(auth: AuthState, obj) -> bool:
     if not auth.user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return getattr(obj, "requester_user_token", None) == auth.user.username
+
+
+# The five owner-bearing resource kinds a view grant can point at. Engines and
+# resolvers are ownerless system rows on the admin surface and are not here.
+_ACCESS_MODEL_TYPES: dict[type, ResourceType] = {
+    Session: ResourceType.SESSION,
+    Autorun: ResourceType.AUTORUN,
+    Recording: ResourceType.RECORDING,
+    Profile: ResourceType.PROFILE,
+    ResolverSource: ResourceType.SOURCE,
+}
+
+
+async def _has_read_grant(
+    db: AsyncSession, resource_type: ResourceType, resource_id: int, username: str
+) -> bool:
+    stmt = select(ResourceAccess.id).where(
+        ResourceAccess.resource_type == resource_type,
+        ResourceAccess.resource_id == resource_id,
+        ResourceAccess.username == username,
+    )
+    return (await db.exec(stmt)).first() is not None
+
+
+async def _require_read_access(db: AsyncSession, auth: AuthState, obj) -> bool:
+    """Read access to *obj*: owner, admin, or an explicit ``resource_access`` grant.
+
+    Mirrors ``_require_owner_or_admin`` (bool result, 401 when unauthenticated)
+    so read handlers can swap one for the other. It is deliberately used on
+    **read handlers only** — a grant admits reads, never control, update, delete,
+    save-as-profile, export/import or linking the item into another principal's
+    own object.
+    """
+    if _require_owner_or_admin(auth, obj):
+        return True
+    resource_type = _ACCESS_MODEL_TYPES.get(type(obj))
+    if resource_type is None:
+        return False
+    return await _has_read_grant(db, resource_type, obj.id, auth.user.username)
 
 
 async def _load_owned_profile(
@@ -325,11 +376,30 @@ async def _get_paginated_for_user(
     options: Sequence = (),
     include_total: bool = False,
 ) -> dict:
-    """Cursor-based pagination filtered by requester_user_token.
+    """Cursor-based pagination filtered by owner or explicit view grant.
+
+    A caller sees the rows they own (``requester_user_token``) *and* any row
+    granted to them through ``resource_access``. Engines/resolvers have no
+    owner column and never route through here.
 
     Returns {"items": [...], "next_cursor": ..., "has_more": ...}.
     """
-    stmt = select(model).where(model.requester_user_token == user_token)
+    owner_match = model.requester_user_token == user_token
+    resource_type = _ACCESS_MODEL_TYPES.get(model)
+    if resource_type is None:
+        predicate = owner_match
+    else:
+        granted = (
+            select(ResourceAccess.id)
+            .where(
+                ResourceAccess.resource_type == resource_type,
+                ResourceAccess.resource_id == model.id,
+                ResourceAccess.username == user_token,
+            )
+            .exists()
+        )
+        predicate = sa_or(owner_match, granted)
+    stmt = select(model).where(predicate)
     if cursor is not None:
         stmt = stmt.where(model.id < cursor)
     if options:
@@ -341,7 +411,7 @@ async def _get_paginated_for_user(
         items = items[:limit]
     total = None
     if include_total:
-        total = await crud.count(db, model, model.requester_user_token == user_token)
+        total = await crud.count(db, model, predicate)
     return {
         "items": items,
         "next_cursor": items[-1].id if has_more and items else None,
@@ -529,7 +599,7 @@ async def get_session(id: int, db: AsyncSession = Depends(_get_db_session), auth
     item = await crud.get_by_id(db, Session, id, options=_SESSION_OPTIONS)
     if not item:
         raise HTTPException(status_code=404, detail="Session not found")
-    if not _require_owner_or_admin(auth, item):
+    if not await _require_read_access(db, auth, item):
         raise HTTPException(status_code=403, detail="Not your session")
     return _serialize_session(item)
 
@@ -681,7 +751,7 @@ async def get_autorun(id: int, db: AsyncSession = Depends(_get_db_session), auth
     item = await crud.get_by_id(db, Autorun, id, options=_AUTORUN_OPTIONS)
     if not item:
         raise HTTPException(status_code=404, detail="Autorun not found")
-    if not _require_owner_or_admin(auth, item):
+    if not await _require_read_access(db, auth, item):
         raise HTTPException(status_code=403, detail="Not your autorun")
     return _serialize_autorun(item)
 
@@ -877,7 +947,7 @@ async def get_recording(id: int, db: AsyncSession = Depends(_get_db_session), au
     item = await crud.get_by_id(db, Recording, id)
     if not item:
         raise HTTPException(status_code=404, detail="Recording not found")
-    if not _require_owner_or_admin(auth, item):
+    if not await _require_read_access(db, auth, item):
         raise HTTPException(status_code=403, detail="Not your recording")
     return _serialize_recording(item)
 
@@ -934,7 +1004,7 @@ async def get_profile(id: int, db: AsyncSession = Depends(_get_db_session), auth
     item = await crud.get_by_id(db, Profile, id, options=_PROFILE_OPTIONS)
     if not item:
         raise HTTPException(status_code=404, detail="Profile not found")
-    if not _require_owner_or_admin(auth, item):
+    if not await _require_read_access(db, auth, item):
         raise HTTPException(status_code=403, detail="Not your profile")
     return _serialize_profile(item)
 
@@ -1035,7 +1105,7 @@ async def get_source(id: int, db: AsyncSession = Depends(_get_db_session), auth:
     item = await crud.get_by_id(db, ResolverSource, id, options=_SOURCE_OPTIONS)
     if not item:
         raise HTTPException(status_code=404, detail="Source not found")
-    if not _require_owner_or_admin(auth, item):
+    if not await _require_read_access(db, auth, item):
         raise HTTPException(status_code=403, detail="Not your source")
     return _serialize_source(item)
 

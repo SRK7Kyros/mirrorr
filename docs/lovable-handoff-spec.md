@@ -53,7 +53,7 @@ Build a complete SPA covering the full feature contract:
 **Explicit non-goals (do NOT build):**
 
 - No recurrence/cron/weekday scheduling — autoruns are **one-shot** (see §10.1).
-- No "share"/"make public"/"transfer" — import/export **is** the sharing primitive.
+- ~~No "share"/"make public"/"transfer" — import/export **is** the sharing primitive.~~ **Superseded 2026-10-15:** sharing is now admin-managed **per-user view access** (`GET|POST|DELETE /admin/resources/{type}/{id}/access…`, plus owner transfer and a listing, all admin-only). A grant admits **reads only** (list row, detail, logs) — never control/update/delete/export/linking. Import/export remains the cross-install portability primitive.
 - No user-creation endpoint in admin (self-register + first-user only).
 - No media player with guaranteed seeking — recordings are progressive/link-only.
 - No plugin authoring — engines/resolvers are read-only introspection.

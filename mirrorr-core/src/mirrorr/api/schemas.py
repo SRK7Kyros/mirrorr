@@ -347,6 +347,51 @@ class ResolverSourceListResponse(BaseModel):
     total: int | None = None
 
 
+# ── Admin: resource access ─────────────────────────────────────────────
+
+
+class ResourceAccessItem(BaseModel):
+    """One row of the admin resource listing: an item, its owner, its viewers."""
+
+    resource_type: str
+    id: int
+    label: str
+    owner: str = ""
+    owner_missing: bool = False
+    viewer_count: int = 0
+    system: bool = False
+
+
+class ResourceAccessListResponse(BaseModel):
+    items: list[ResourceAccessItem] = Field(default_factory=list)
+    total: int = 0
+
+
+class TransferOwnerRequest(BaseModel):
+    username: str = Field(max_length=64)
+
+
+class SetOwnerResponse(BaseModel):
+    resource_type: str
+    id: int
+    owner: str
+
+
+class ResourceViewersResponse(BaseModel):
+    resource_type: str
+    id: int
+    owner: str = ""
+    viewers: list[str] = Field(default_factory=list)
+
+
+class GrantAccessRequest(BaseModel):
+    username: str = Field(max_length=64)
+
+
+class ViewersResponse(BaseModel):
+    viewers: list[str] = Field(default_factory=list)
+
+
 # ── Logs / progress / delete-result responses ─────────────────────────
 
 

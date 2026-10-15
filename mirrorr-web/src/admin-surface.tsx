@@ -5,7 +5,7 @@
  * here decides whether it may run. `admin.tsx` contributes it to the settings
  * page through the generic section slot in `ui/views/settings/sections`.
  */
-import { useState, type FormEvent } from "react"
+import { useMemo, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   approveRegistrationRequest,
@@ -14,14 +14,22 @@ import {
   deleteClient,
   deleteUser,
   denyRegistrationRequest,
+  fetchAdminResources,
   fetchClients,
   fetchRegistrationRequests,
+  fetchResourceAccess,
   fetchUsers,
   formatRelativeTime,
   getErrorMessage,
+  grantResourceViewer,
+  revokeResourceViewer,
+  setResourceOwner,
 } from "@/api"
 import { ApiError } from "@/api/client"
-import { queryKeys, staleTimes } from "@/api/query-keys"
+import { rankBySearch } from "@/api/domain/search"
+import { PAGE_SIZE, queryKeys, queryRoots, staleTimes } from "@/api/query-keys"
+import { RESOURCE_TYPES, type AdminResource } from "@/api/schemas/privileged"
+import type { User } from "@/api/schemas/user"
 import { copyText } from "@/ui/lib/clipboard"
 import {
   Avatar,
@@ -35,6 +43,7 @@ import {
   IconButton,
   IconCheck,
   IconCopy,
+  IconEdit,
   IconPlus,
   IconTrash,
   IconX,
@@ -42,6 +51,7 @@ import {
   Panel,
   PanelBody,
   PanelHead,
+  Select,
   SkeletonRows,
   Table,
   Td,
@@ -64,6 +74,7 @@ export function AdministrationSection() {
       <UsersSection />
       <ClientsSection />
       <RegistrationRequestsSection />
+      <ResourceAccessSection />
     </>
   )
 }
@@ -601,5 +612,354 @@ function RegistrationRequestsSection() {
         }}
       />
     </Panel>
+  )
+}
+
+const RESOURCE_TYPE_LABEL: Record<string, string> = {
+  session: "Session",
+  profile: "Profile",
+  autorun: "Autorun",
+  recording: "Recording",
+  source: "Source",
+  engine: "Engine",
+  resolver: "Resolver",
+}
+
+function resourceTypeLabel(type: string): string {
+  return RESOURCE_TYPE_LABEL[type] ?? type
+}
+
+function userLabel(user: User): string {
+  return user.display_name !== "" ? user.display_name : user.username
+}
+
+/**
+ * Admin resource browser (plan: admin-ownership-and-access). One offset page of
+ * every item — owner-bearing rows plus engines/resolvers as read-only system
+ * rows. There is no server-side free-text search, so a term ranks the loaded
+ * page client-side through the same `rankBySearch` the lists use.
+ */
+function ResourceAccessSection() {
+  const [typeFilter, setTypeFilter] = useState("")
+  const [ownerFilter, setOwnerFilter] = useState("")
+  const [search, setSearch] = useState("")
+  const [offset, setOffset] = useState(0)
+  const [target, setTarget] = useState<AdminResource | null>(null)
+
+  const usersQuery = useQuery({ queryKey: queryKeys.users, queryFn: fetchUsers, staleTime: staleTimes.users })
+
+  const query = useMemo(
+    () => ({
+      resource_type: typeFilter === "" ? undefined : typeFilter,
+      owner: ownerFilter === "" ? undefined : ownerFilter,
+      limit: PAGE_SIZE,
+      offset,
+    }),
+    [typeFilter, ownerFilter, offset],
+  )
+
+  const resourcesQuery = useQuery({
+    queryKey: queryKeys.adminResources(query),
+    queryFn: () => fetchAdminResources(query),
+    staleTime: staleTimes.adminResources,
+  })
+
+  const users = usersQuery.data ?? []
+  const page = resourcesQuery.data
+  const rows = useMemo(() => {
+    const items = page?.items ?? []
+    if (search.trim() === "") return items
+    return rankBySearch(items, search, (item) => [item.label, item.owner])
+  }, [page, search])
+
+  const total = page?.total ?? 0
+
+  return (
+    <Panel>
+      <PanelHead title="Resource access" />
+      <PanelBody flush>
+        <div className="panel-body flex items-center gap-2 flex-wrap">
+          <Select
+            aria-label="Filter by resource type"
+            value={typeFilter}
+            onChange={(event) => {
+              setTypeFilter(event.target.value)
+              setOffset(0)
+            }}
+          >
+            <option value="">All types</option>
+            {RESOURCE_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {resourceTypeLabel(type)}
+              </option>
+            ))}
+          </Select>
+          <Select
+            aria-label="Filter by owner"
+            value={ownerFilter}
+            onChange={(event) => {
+              setOwnerFilter(event.target.value)
+              setOffset(0)
+            }}
+          >
+            <option value="">All owners</option>
+            {users.map((user) => (
+              <option key={user.username} value={user.username}>
+                {userLabel(user)}
+              </option>
+            ))}
+          </Select>
+          <div className="relative flex-1 min-w-[200px] max-w-[340px]">
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Filter this page…"
+              aria-label="Filter resources"
+            />
+          </div>
+        </div>
+
+        {resourcesQuery.isLoading ? (
+          <div className="panel-body">
+            <SkeletonRows cols={4} />
+          </div>
+        ) : resourcesQuery.isError ? (
+          <div className="panel-body">
+            <ErrorPanel
+              message={getErrorMessage(resourcesQuery.error, "Could not load resources")}
+              onRetry={() => void resourcesQuery.refetch()}
+            />
+          </div>
+        ) : rows.length === 0 ? (
+          <EmptyState title="No resources" text="No items match the current filter." />
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Resource</Th>
+                <Th>Type</Th>
+                <Th>Owner</Th>
+                <Th>Viewers</Th>
+                <Th className="cell-actions">
+                  <span className="sr-only">Actions</span>
+                </Th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((resource) => (
+                <tr key={`${resource.resource_type}-${resource.id}`}>
+                  <Td>{resource.label}</Td>
+                  <Td className="text-muted">{resourceTypeLabel(resource.resource_type)}</Td>
+                  <Td>
+                    {resource.system ? (
+                      <Tag>System</Tag>
+                    ) : resource.owner_missing ? (
+                      <span className="text-danger">{resource.owner} (missing)</span>
+                    ) : (
+                      resource.owner
+                    )}
+                  </Td>
+                  <Td className="text-muted">{resource.viewer_count}</Td>
+                  <Td actions>
+                    {resource.system ? null : (
+                      <IconButton
+                        label={`Manage access for ${resource.label}`}
+                        icon={<IconEdit size={16} />}
+                        size="sm"
+                        onClick={() => setTarget(resource)}
+                      />
+                    )}
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+
+        {total > PAGE_SIZE ? (
+          <div className="panel-body flex items-center justify-between gap-3">
+            <span className="text-muted">
+              {`Showing ${offset + 1}–${Math.min(offset + PAGE_SIZE, total)} of ${total}`}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={offset === 0}
+                onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+              >
+                Previous
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={offset + PAGE_SIZE >= total}
+                onClick={() => setOffset(offset + PAGE_SIZE)}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </PanelBody>
+
+      {target !== null ? (
+        <ResourceAccessDialog resource={target} users={users} onClose={() => setTarget(null)} />
+      ) : null}
+    </Panel>
+  )
+}
+
+interface ResourceAccessDialogProps {
+  readonly resource: AdminResource
+  readonly users: readonly User[]
+  readonly onClose: () => void
+}
+
+function ResourceAccessDialog({ resource, users, onClose }: ResourceAccessDialogProps) {
+  const queryClient = useQueryClient()
+  const [addTarget, setAddTarget] = useState("")
+
+  const accessQuery = useQuery({
+    queryKey: queryKeys.adminResourceAccess(resource.resource_type, resource.id),
+    queryFn: () => fetchResourceAccess(resource.resource_type, resource.id),
+    staleTime: staleTimes.adminResources,
+  })
+
+  function invalidate(): void {
+    void queryClient.invalidateQueries({ queryKey: queryRoots.adminResources })
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.adminResourceAccess(resource.resource_type, resource.id),
+    })
+  }
+
+  const setOwner = useMutation({
+    mutationFn: (username: string) => setResourceOwner(resource.resource_type, resource.id, username),
+    onSuccess: (result) => {
+      invalidate()
+      toast.success("Owner changed", `${resource.label} is now owned by ${result.owner}.`)
+    },
+    onError: (caught) => toast.error("Could not change owner", getErrorMessage(caught, "Try again")),
+  })
+
+  const addViewer = useMutation({
+    mutationFn: (username: string) => grantResourceViewer(resource.resource_type, resource.id, username),
+    onSuccess: (_result, username) => {
+      setAddTarget("")
+      invalidate()
+      toast.success("Viewer added", `${username} can now view this item.`)
+    },
+    onError: (caught) => toast.error("Could not add viewer", getErrorMessage(caught, "Try again")),
+  })
+
+  const removeViewer = useMutation({
+    mutationFn: (username: string) => revokeResourceViewer(resource.resource_type, resource.id, username),
+    onSuccess: (_result, username) => {
+      invalidate()
+      toast.success("Viewer removed", `${username} can no longer view this item.`)
+    },
+    onError: (caught) => toast.error("Could not remove viewer", getErrorMessage(caught, "Try again")),
+  })
+
+  const busy = setOwner.isPending || addViewer.isPending || removeViewer.isPending
+  const owner = accessQuery.data?.owner ?? resource.owner
+  const viewers = accessQuery.data?.viewers ?? []
+  const addable = users.filter((user) => !viewers.includes(user.username))
+
+  const ownerOptions = useMemo(() => {
+    const options = users.map((user) => ({ value: user.username, label: userLabel(user) }))
+    if (owner !== "" && !users.some((user) => user.username === owner)) {
+      options.unshift({ value: owner, label: `${owner} (missing)` })
+    }
+    return options
+  }, [users, owner])
+
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      busy={busy}
+      title={`Access · ${resource.label}`}
+      description={`${resourceTypeLabel(resource.resource_type)} · #${resource.id}`}
+      footer={
+        <Button variant="ghost" onClick={onClose} disabled={busy}>
+          Close
+        </Button>
+      }
+    >
+      {accessQuery.isLoading ? (
+        <SkeletonRows cols={2} />
+      ) : accessQuery.isError ? (
+        <ErrorPanel
+          message={getErrorMessage(accessQuery.error, "Could not load access")}
+          onRetry={() => void accessQuery.refetch()}
+        />
+      ) : (
+        <>
+          <Field label="Owner" htmlFor="resource-owner">
+            <Select
+              id="resource-owner"
+              value={owner}
+              disabled={busy}
+              onChange={(event) => setOwner.mutate(event.target.value)}
+            >
+              {ownerOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <div className="flex flex-col gap-2">
+            <span className="text-muted">Viewers</span>
+            {viewers.length === 0 ? (
+              <p className="text-muted">No extra viewers.</p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {viewers.map((viewer) => (
+                  <li key={viewer} className="flex items-center justify-between gap-3">
+                    <span className="mono text-truncate">{viewer}</span>
+                    <IconButton
+                      label={`Remove ${viewer}`}
+                      icon={<IconX size={16} />}
+                      variant="danger-ghost"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => removeViewer.mutate(viewer)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex items-center gap-2">
+              <Select
+                aria-label="Add a viewer"
+                value={addTarget}
+                disabled={busy}
+                onChange={(event) => setAddTarget(event.target.value)}
+              >
+                <option value="">Select a user…</option>
+                {addable.map((user) => (
+                  <option key={user.username} value={user.username}>
+                    {userLabel(user)}
+                  </option>
+                ))}
+              </Select>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<IconPlus size={15} />}
+                disabled={addTarget === "" || busy}
+                onClick={() => {
+                  if (addTarget !== "") addViewer.mutate(addTarget)
+                }}
+              >
+                Add
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
+    </Dialog>
   )
 }

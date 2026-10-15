@@ -17,7 +17,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from mirrorr.api.dependencies import _get_db_session, require_auth, AuthState
-from mirrorr.api.routers.crud import _require_owner_or_admin
+from mirrorr.api.routers.crud import _require_read_access
 from mirrorr.api.schemas import (
     SessionLogsResponse,
     RecordingProgressResponse,
@@ -35,12 +35,12 @@ def _require_user(auth: AuthState) -> None:
 async def _resolve_own_session(
     db: AsyncSession, session_id: int, auth: AuthState
 ) -> Session:
-    """Load a session, enforcing ownership, or raise 404/403."""
+    """Load a session the caller may read (owner, admin, or explicit grant)."""
     _require_user(auth)
     session = (await db.exec(select(Session).where(Session.id == session_id))).first()
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    if not _require_owner_or_admin(auth, session):
+    if not await _require_read_access(db, auth, session):
         raise HTTPException(status_code=403, detail="Not your session")
     return session
 

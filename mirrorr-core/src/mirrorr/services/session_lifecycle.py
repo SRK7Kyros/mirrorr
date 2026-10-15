@@ -297,11 +297,16 @@ async def delete_session(
     data loss where the folder is deleted but the DB row remains.
     """
     from mirrorr.storage import crud
+    from mirrorr.storage.enums import ResourceType
+    from mirrorr.api.routers.crud import _cleanup_related_records
 
     # 1. Delete from DB first — if this fails, we don't touch the folder
     try:
         async with _get_session_factory(settings) as session_factory:
             async with session_factory() as db:
+                # Same cleanup as the API delete path (_cascade_delete_session):
+                # subscriptions, notifications and view grants all go with the row.
+                await _cleanup_related_records(db, ResourceType.SESSION, session_id)
                 await crud.delete(db, Session, session_id)
     except Exception as e:
         logger.error(f"Failed to delete session {session_id} from DB — folder preserved: {e}")

@@ -318,6 +318,13 @@ The data layer is a standalone module — see `src/api/README.md` for its full c
       │
       ├──← EventSubscription (user_id + resource_type + resource_id)
       └──← Notification (user_id + resource info + read flag)
+
+┌────────────────┐  — per-user view grant. No FK: username matches User.username
+│ ResourceAccess │    (same convention as requester_user_token).
+│ resource_type  │    UNIQUE (resource_type, resource_id, username).
+│ resource_id    │    An item is readable by its owner, its grantees and admins;
+│ username       │    a grant admits READS ONLY (list row, detail, logs).
+└────────────────┘    Cascades away with its resource and on user delete.
 ```
 
 ### Enums
@@ -326,7 +333,7 @@ The data layer is a standalone module — see `src/api/README.md` for its full c
 |------|--------|
 | `SessionStatus` | `initializing`, `stream_pending`, `active`, `recording`, `terminating`, `remuxing`, `finalizing`, `completed`, `failed` |
 | `AutorunStatus` | `scheduled`, `active`, `recording`, `terminating`, `remuxing`, `finalizing`, `completed`, `failed` |
-| `ResourceType` | `session`, `profile`, `autorun`, `recording` |
+| `ResourceType` | `session`, `profile`, `autorun`, `recording`, `source`, `user` |
 
 ### Status State Machine (Session)
 
@@ -419,6 +426,18 @@ All authenticated endpoints require either:
 | `GET` | `/auth/clients` | List all clients | `require_admin` |
 | `POST` | `/auth/clients` | Create client | `get_auth` |
 | `DELETE` | `/auth/clients/{id}` | Delete client | `require_admin` |
+
+#### Resource Access (admin)
+
+| Method | Path | Description | Auth |
+|--------|------|-------------|------|
+| `GET` | `/admin/resources` | List every item with owner/viewer-count (`?resource_type=&owner=&limit=&offset=`) | `require_admin` |
+| `PUT` | `/admin/resources/{resource_type}/{id}/owner` | Set a resource's owner | `require_admin` |
+| `GET` | `/admin/resources/{resource_type}/{id}/access` | Read a resource's owner + viewers | `require_admin` |
+| `POST` | `/admin/resources/{resource_type}/{id}/access` | Grant a user view access | `require_admin` |
+| `DELETE` | `/admin/resources/{resource_type}/{id}/access/{username}` | Revoke a user's view access | `require_admin` |
+
+`resource_type` is `session|profile|autorun|recording|source` (owner-bearing, editable); `engine|resolver` appear as read-only `system` rows in the listing only, and `user` is not a valid access target. A grant admits **reads only**.
 
 #### Notifications
 
@@ -704,7 +723,7 @@ When a session's status changes, the `session_lifecycle.py` helper:
 | Role | Permissions |
 |------|------------|
 | `admin` | Full access to all resources |
-| `user` | Only own resources (filtered by `requester_user_token`) |
+| `user` | Own resources (filtered by `requester_user_token`) **plus items explicitly granted view** through `resource_access` (reads only — never control/update/delete/export/linking) |
 | (API key) | Client-level access, linked to users via `ClientUser` join table |
 
 ### First User Bootstrap
