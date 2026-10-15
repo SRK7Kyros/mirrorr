@@ -168,7 +168,7 @@ src/
 │
 ├── startup/                   # Bootstrap modules
 │   ├── config.py              # MirrorrSettings — all configuration
-│   ├── ensure_db.py           # Table creation + column sync
+│   ├── ensure_db.py           # Table creation + column sync, FK-safe rebuilds
 │   ├── ensure_ffmpeg.py       # ffmpeg discovery/download
 │   ├── ensure_nats_server.py  # NATS server download/start/stop
 │   ├── ensure_engines.py      # Engine plugin DB sync
