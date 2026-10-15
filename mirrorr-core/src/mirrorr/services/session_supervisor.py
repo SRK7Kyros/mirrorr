@@ -377,27 +377,28 @@ class SessionSupervisor:
 
         ready_task = asyncio.create_task(self._wait_for_playlist())
         lifecycle = [done_task, crash_task, stop_task]
-        finished, _ = await asyncio.wait([ready_task, *lifecycle], return_when=asyncio.FIRST_COMPLETED)
+        try:
+            finished, _ = await asyncio.wait([ready_task, *lifecycle], return_when=asyncio.FIRST_COMPLETED)
 
-        # A stop or an engine exit beats readiness — a dead run is never marked
-        # playable. (stop_task is pre-created, so a stop latched earlier fires
-        # immediately here.)
-        if not any(t in finished for t in lifecycle):
-            await update_session(
-                self.settings, self.session_id,
-                status=SessionStatus.RECORDING if self.session.recording else SessionStatus.ACTIVE,
-                nc=self._nc,
-            )
-            self._playable = True
-            finished, _ = await asyncio.wait(lifecycle, return_when=asyncio.FIRST_COMPLETED)
-
-        for t in [ready_task, *lifecycle]:
-            if not t.done():
-                t.cancel()
-                try:
-                    await t
-                except asyncio.CancelledError:
-                    pass
+            # A stop or an engine exit beats readiness — a dead run is never marked
+            # playable. (stop_task is pre-created, so a stop latched earlier fires
+            # immediately here.)
+            if not any(t in finished for t in lifecycle):
+                await update_session(
+                    self.settings, self.session_id,
+                    status=SessionStatus.RECORDING if self.session.recording else SessionStatus.ACTIVE,
+                    nc=self._nc,
+                )
+                self._playable = True
+                finished, _ = await asyncio.wait(lifecycle, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for t in [ready_task, *lifecycle]:
+                if not t.done():
+                    t.cancel()
+                    try:
+                        await t
+                    except asyncio.CancelledError:
+                        pass
 
         if stop_task in finished:
             logger.info("stop requested")
