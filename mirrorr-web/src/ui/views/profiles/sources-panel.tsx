@@ -1,35 +1,27 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMemo, useState } from "react"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { motion } from "motion/react"
 import {
-  ApiError,
-  createSource,
   deleteSource,
   getErrorMessage,
   removeFromInfiniteLists,
-  updateSource,
   useEntityList,
   useNameMaps,
   type NameMaps,
-  type SourceBody,
 } from "@/api"
-import { fetchAllResolvers, fetchSourcePage } from "@/api/endpoints"
-import { queryKeys, queryRoots, resolveEntityName, staleTimes } from "@/api/query-keys"
+import { fetchSourcePage } from "@/api/endpoints"
+import { queryKeys, queryRoots, resolveEntityName } from "@/api/query-keys"
 import { rankBySearch } from "@/api/domain/search"
-import type { Resolver, ResolverSource } from "@/api/schemas"
+import type { ResolverSource } from "@/api/schemas"
 import { showingLabel } from "@/ui/lib/format"
 import { staggerContainer, staggerItem } from "@/ui/lib/motion"
 import {
-  Banner,
   BulkBar,
   Button,
   Checkbox,
   ConfirmDialog,
-  Dialog,
   EmptyState,
   ErrorPanel,
-  Fab,
-  Field,
   IconButton,
   IconEdit,
   IconPlus,
@@ -42,20 +34,14 @@ import {
   LoadMore,
   Panel,
   PanelBody,
-  SchemaForm,
-  Select,
   SkeletonRows,
   Table,
   Td,
   Th,
-  asObject,
-  defaultsFromSchema,
   toast,
-  panelTitleClass,
 } from "@/ui/components"
 import { useSelection } from "@/ui/hooks"
 import { Section } from "@/ui/views/shared/page"
-import { DiscoveryDrawer } from "./discovery-drawer"
 
 /**
  * Sources — the "resolver-only profile". A saved `(resolver_id, resolver_config)`
@@ -146,201 +132,24 @@ function SourceCard({ source, names, selected, onToggle, onEdit, onDelete }: Sou
   )
 }
 
-interface SourceDialogProps {
-  readonly open: boolean
-  readonly onClose: () => void
-  readonly source: ResolverSource | null
-  readonly resolvers: readonly Resolver[]
-  readonly schemasLoading: boolean
-  readonly existingNames: readonly { id: number; name: string }[]
-}
-
-function SourceDialog({ open, onClose, source, resolvers, schemasLoading, existingNames }: SourceDialogProps) {
-  const queryClient = useQueryClient()
-  const [name, setName] = useState(source?.name ?? "")
-  const [resolverId, setResolverId] = useState(source !== null ? String(source.resolver_id) : "")
-  const [resolverConfig, setResolverConfig] = useState<Record<string, unknown>>(source?.resolver_config ?? {})
-  const [error, setError] = useState<string | null>(null)
-  const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, string>>>({})
-  const [browseOpen, setBrowseOpen] = useState(false)
-
-  // Reset the form each time the dialog opens (create after create, or a new row).
-  useEffect(() => {
-    if (!open) return
-    setName(source?.name ?? "")
-    setResolverId(source !== null ? String(source.resolver_id) : "")
-    setResolverConfig(source?.resolver_config ?? {})
-    setError(null)
-    setFieldErrors({})
-    setBrowseOpen(false)
-  }, [open, source])
-
-  const resolver = resolvers.find((item) => String(item.id) === resolverId)
-  const canBrowse = resolver !== undefined && Object.keys(asObject(resolver.search_schema)).length > 0
-
-  const duplicate =
-    name.trim() !== "" &&
-    existingNames.some(
-      (item) => item.id !== (source?.id ?? -1) && item.name.toLowerCase() === name.trim().toLowerCase(),
-    )
-
-  const save = useMutation({
-    mutationFn: (body: SourceBody) => (source === null ? createSource(body) : updateSource(source.id, body)),
-    onSuccess: (saved) => {
-      void queryClient.invalidateQueries({ queryKey: queryRoots.sources })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.source(saved.id) })
-      toast.success(source === null ? "Source created" : "Source updated", saved.name)
-      onClose()
-    },
-    onError: (caught) => {
-      if (caught instanceof ApiError && caught.fieldErrors !== undefined) setFieldErrors(caught.fieldErrors)
-      setError(getErrorMessage(caught, "Could not save the source"))
-    },
-  })
-
-  function changeResolver(nextId: string): void {
-    setResolverId(nextId)
-    setResolverConfig(defaultsFromSchema(resolvers.find((item) => String(item.id) === nextId)?.config_schema))
-  }
-
-  function onSubmit(event: FormEvent<HTMLFormElement>): void {
-    event.preventDefault()
-    if (save.isPending) return
-    setError(null)
-    setFieldErrors({})
-    if (name.trim() === "") {
-      setError("Name is required")
-      return
-    }
-    if (resolverId === "") {
-      setError("Pick a resolver")
-      return
-    }
-    save.mutate({ name: name.trim(), resolver_id: Number(resolverId), resolver_config: resolverConfig })
-  }
-
-  const nameError = duplicate ? "A source with this name already exists." : (fieldErrors.name ?? null)
-
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      size="lg"
-      title={source === null ? "New source" : "Edit source"}
-      description="A source saves a resolver and its config, reusable anywhere a resolver is configured."
-      busy={save.isPending}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={save.isPending}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            type="submit"
-            form="source-form"
-            loading={save.isPending}
-            disabled={duplicate || name.trim() === ""}
-          >
-            {source === null ? "Create source" : "Save changes"}
-          </Button>
-        </>
-      }
-    >
-      <form id="source-form" className="flex flex-col gap-4" onSubmit={onSubmit}>
-        {error !== null ? <Banner kind="danger" title={error} /> : null}
-
-        <Field label="Name" htmlFor="source-name" required error={nameError}>
-          <Input
-            id="source-name"
-            value={name}
-            autoComplete="off"
-            placeholder="e.g. sky-sports-main"
-            onChange={(event) => setName(event.target.value)}
-          />
-        </Field>
-
-        <Field label="Resolver" htmlFor="source-resolver" required error={fieldErrors.resolver_id ?? null}>
-          <Select id="source-resolver" value={resolverId} onChange={(event) => changeResolver(event.target.value)}>
-            <option value="">Select a resolver…</option>
-            {resolvers.map((item) => (
-              <option key={item.id} value={String(item.id)}>
-                {item.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-
-        {canBrowse ? (
-          <div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              icon={<IconSearch size={15} />}
-              onClick={() => setBrowseOpen(true)}
-            >
-              Browse {resolver.name}…
-            </Button>
-          </div>
-        ) : null}
-
-        <section className="flex flex-col gap-2">
-          <h3 className={panelTitleClass}>Resolver config</h3>
-          {schemasLoading ? (
-            <SkeletonRows rows={3} cols={2} />
-          ) : resolver === undefined ? (
-            <p className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
-              Pick a resolver to configure it.
-            </p>
-          ) : (
-            <SchemaForm
-              schema={resolver.config_schema}
-              value={resolverConfig}
-              onChange={setResolverConfig}
-              idPrefix="source-resolver-config"
-            />
-          )}
-          {fieldErrors.resolver_config !== undefined ? (
-            <span className="flex items-center gap-1 text-sm text-danger" role="alert">
-              {fieldErrors.resolver_config}
-            </span>
-          ) : null}
-        </section>
-      </form>
-
-      <DiscoveryDrawer
-        open={browseOpen}
-        onClose={() => setBrowseOpen(false)}
-        resolver={resolver ?? null}
-        onUse={(item) => {
-          setResolverConfig(item.config ?? {})
-          setBrowseOpen(false)
-        }}
-      />
-    </Dialog>
-  )
-}
-
 const sourceSearchFields = (source: ResolverSource): readonly string[] => [
   source.name,
   source.resolver_name ?? "",
 ]
 
-export function SourcesPanel() {
+export interface SourcesPanelProps {
+  /** Opens the shared preset dialog on the source tab. */
+  readonly onCreate: () => void
+  readonly onEdit: (source: ResolverSource) => void
+}
+
+export function SourcesPanel({ onCreate, onEdit }: SourcesPanelProps) {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState("")
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [editing, setEditing] = useState<ResolverSource | null>(null)
   const [pending, setPending] = useState<ResolverSource | null>(null)
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
   const selection = useSelection<number>()
   const names = useNameMaps()
-
-  const resolversQuery = useQuery({
-    queryKey: queryKeys.resolvers,
-    queryFn: () => fetchAllResolvers(),
-    staleTime: staleTimes.lookup,
-  })
 
   const list = useEntityList<ResolverSource>({
     queryKey: queryKeys.sources(),
@@ -379,15 +188,6 @@ export function SourcesPanel() {
     onError: (error) => toast.error("Could not delete the sources", getErrorMessage(error, "Request failed")),
   })
 
-  const openCreate = (): void => {
-    setEditing(null)
-    setDialogOpen(true)
-  }
-  const openEdit = (source: ResolverSource): void => {
-    setEditing(source)
-    setDialogOpen(true)
-  }
-
   const columnCount = 5
 
   return (
@@ -395,7 +195,7 @@ export function SourcesPanel() {
       title="Sources"
       description="Saved resolver configs. Pick one wherever a resolver asks for a config."
       actions={
-        <Button variant="primary" className="max-sm:hidden" icon={<IconPlus size={16} />} onClick={openCreate}>
+        <Button variant="primary" className="max-sm:hidden" icon={<IconPlus size={16} />} onClick={onCreate}>
           New source
         </Button>
       }
@@ -440,7 +240,7 @@ export function SourcesPanel() {
           }
           action={
             list.items.length === 0 ? (
-              <Button variant="primary" icon={<IconPlus size={16} />} onClick={openCreate}>
+              <Button variant="primary" icon={<IconPlus size={16} />} onClick={onCreate}>
                 New source
               </Button>
             ) : undefined
@@ -475,7 +275,7 @@ export function SourcesPanel() {
                         names={names}
                         selected={selection.has(source.id)}
                         onToggle={selection.toggle}
-                        onEdit={openEdit}
+                        onEdit={onEdit}
                         onDelete={setPending}
                       />
                     ))}
@@ -490,7 +290,7 @@ export function SourcesPanel() {
                     names={names}
                     selected={selection.has(source.id)}
                     onToggle={selection.toggle}
-                    onEdit={openEdit}
+                    onEdit={onEdit}
                     onDelete={setPending}
                   />
                 ))}
@@ -520,17 +320,6 @@ export function SourcesPanel() {
           />
         </>
       )}
-
-      <Fab label="New source" icon={<IconPlus size={22} />} onClick={openCreate} />
-
-      <SourceDialog
-        open={dialogOpen}
-        onClose={() => setDialogOpen(false)}
-        source={editing}
-        resolvers={resolversQuery.data ?? []}
-        schemasLoading={resolversQuery.isLoading}
-        existingNames={list.items.map((item) => ({ id: item.id, name: item.name }))}
-      />
 
       <ConfirmDialog
         open={pending !== null}
