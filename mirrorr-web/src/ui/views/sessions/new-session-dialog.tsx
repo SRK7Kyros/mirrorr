@@ -20,12 +20,11 @@ import {
   Select,
   Switch,
   TabPanel,
-  asObject,
   defaultsFromSchema,
   toast,
   panelTitleClass,
 } from "@/ui/components"
-import { DiscoveryDrawer } from "@/ui/views/shared/discovery-drawer"
+import { DiscoveryDrawer, canBrowseResolver } from "@/ui/views/shared/discovery-drawer"
 import { SourcePicker } from "@/ui/views/shared/source-picker"
 
 export function NewSessionDialog({
@@ -78,7 +77,7 @@ export function NewSessionDialog({
   })
 
   const resolver = resolvers.find((item) => String(item.id) === resolverId)
-  const canBrowse = resolver !== undefined && Object.keys(asObject(resolver.search_schema)).length > 0
+  const canBrowse = canBrowseResolver(resolver)
   const canSubmit = mode === "profile" ? profileId !== "" : engineId !== "" && resolverId !== ""
 
   function changeResolver(nextId: string): void {

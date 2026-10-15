@@ -214,7 +214,7 @@ body: { "query": "…"?, "params": {…}, "cursor": "…"? }
 reuse them. `profiles-view.tsx` imports them back. Pure move, with one deliberate
 addition: `SchemaField` had **no `type === "string"` branch**, so a plain text field
 (e.g. `StaticConfig.url`) fell through to the JSON textarea. The extraction adds a
-text `Input` branch, so text config fields and text discovery filters render as
+text `Input` branch, so text config fields render as
 inputs instead of raw JSON.
 
 ### 6.2 New view + route + nav
@@ -238,13 +238,13 @@ entry and no `/sources` route of its own.
 
 ### 6.3 The discovery panel
 
-`src/ui/views/profiles/discovery-drawer.tsx` — a **large panel, not a modal**:
+`src/ui/views/shared/discovery-drawer.tsx` — a **large panel, not a modal**:
 full-height, near-full-width on desktop (e.g. right-side sheet `w-[min(1100px,92vw)]`),
 full-screen sheet on mobile. Scrollable body; header fixed.
 
 ```
 ┌─ Discovery · <resolver name> ───────────────────────── [×] ┐
-│ [🔎 query…………………]  [filter] [filter] [filter]  (inline)  │
+│ [🔎 query…………………]  <n> of <m> matches "…"             │
 ├───────────────────────────────────────────────────────────┤
 │  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐   ← mosaics grid     │
 │  │ img  │ │ img  │ │ img  │ │ img  │     (catalog)        │
@@ -254,12 +254,16 @@ full-screen sheet on mobile. Scrollable body; header fixed.
 └───────────────────────────────────────────────────────────┘
 ```
 
-- **Filters inline in the search row**, rendered from `resolver.search_schema`
-  with `SchemaForm` (a `Select` for `enum`, a text `Input` for `string`). No
-  overflow popover — the drawer body scrolls, which is sufficient.
-- **Catalog vs search**: if `discovery_has_catalog`, the body opens with
-  `browse` results; typing a query switches to `search` results ("replaces the
-  mosaics"). If not, the body is empty until a query arrives (search-only).
+- **One searchbox, no filter form.** The resolver's discovery filter model
+  (`search_schema` / `discovery_model`) is deliberately **not** rendered — the row
+  above is the panel's only control. A catalog resolver filters what it already
+  holds, so a server-side filter would either duplicate or contradict that.
+- **Catalog vs search**: if `has_catalog`, the body reads every page once (a
+  background exhaust, not a scroll-gated one) and ranks the accumulated items
+  locally through `rankBySearch` on each keystroke — no per-input request. A
+  readout (`<n> of <m> matches "…"`) makes the re-rank visible, and says so when
+  the catalog is still loading. Otherwise the panel is search-only: each debounced
+  query hits `search`, and the body is empty until one arrives.
 - **Mosaic card**: `image` (when present), `title`, `subtitle`, `description`, and
   one action — **Use**, which fills the open form's `resolver_config`. A
   **Save as source** action on the card was dropped as redundant: the panel is
@@ -268,10 +272,11 @@ full-screen sheet on mobile. Scrollable body; header fixed.
 - **Scroll, not pages**: `useInfiniteQuery` with `getNextPageParam` (the existing
   cursor contract) + an intersection-observer sentinel. Debounced (~250 ms) search
   input; requests cancelled via AbortController on new keystrokes.
-- Entered from the source form — a **Browse `<resolver>`…** button, shown only
-  when the chosen resolver declares a `search_schema`. Wiring a Discover entry into
-  the resolver section of the profile / session / autorun dialogs is still a
-  follow-up; those carry a saved-source control instead (§6.4).
+- Entered from the source form, the profile / session / autorun dialogs — a
+  **Browse `<resolver>`…** button, shown when `canBrowseResolver` is true: the
+  resolver declares a browsable catalog (`has_catalog`) **or** a discovery model
+  (`search_schema`, how a search-only plugin announces searchability, which the core
+  always serializes as non-empty for such a plugin).
 
 ### 6.4 Saved sources in the other dialogs
 

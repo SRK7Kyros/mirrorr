@@ -36,7 +36,7 @@ import {
   toast,
   panelTitleClass,
 } from "@/ui/components"
-import { DiscoveryDrawer } from "@/ui/views/shared/discovery-drawer"
+import { DiscoveryDrawer, canBrowseResolver } from "@/ui/views/shared/discovery-drawer"
 
 /**
  * The create/edit dialog for both things the Presets page holds.
@@ -238,10 +238,10 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
   const pickedSource = sources.find((item) => String(item.id) === pickedSourceId)
 
   const sourceResolver = resolvers.find((item) => String(item.id) === sourceResolverId)
-  const canBrowse = sourceResolver !== undefined && Object.keys(asObject(sourceResolver.search_schema)).length > 0
+  const canBrowse = canBrowseResolver(sourceResolver)
   // The profile body gets the same panel: a resolver that declares discovery has
   // a catalog to browse wherever it is configured.
-  const canBrowseProfile = resolver !== undefined && Object.keys(asObject(resolver.search_schema)).length > 0
+  const canBrowseProfile = canBrowseResolver(resolver)
 
   const editing = tab === "profile" ? profile !== null : source !== null
   // The kind switcher is a phone affordance: there the "+" is the only create
