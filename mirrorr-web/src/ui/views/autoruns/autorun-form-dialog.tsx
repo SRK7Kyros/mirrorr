@@ -27,12 +27,11 @@ import {
   Select,
   Switch,
   TabPanel,
-  asObject,
   defaultsFromSchema,
   toast,
   panelTitleClass,
 } from "@/ui/components"
-import { DiscoveryDrawer } from "@/ui/views/shared/discovery-drawer"
+import { DiscoveryDrawer, canBrowseResolver } from "@/ui/views/shared/discovery-drawer"
 import { SourcePicker } from "@/ui/views/shared/source-picker"
 
 /** Slug grammar enforced live in the wizard (spec §5.5). */
@@ -172,7 +171,7 @@ export function AutorunFormDialog({
     endLocal !== "" &&
     new Date(endLocal).getTime() < parseNaiveUtc(autorun.end_time).getTime()
   const resolver = resolvers.find((item) => String(item.id) === resolverId)
-  const canBrowse = resolver !== undefined && Object.keys(asObject(resolver.search_schema)).length > 0
+  const canBrowse = canBrowseResolver(resolver)
   const canSubmit = mode === "profile" ? profileId !== "" : engineId !== "" && resolverId !== ""
 
   function changeResolver(nextId: string): void {

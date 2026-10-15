@@ -167,6 +167,9 @@ test.describe("presets page", () => {
 
     const drawer = page.getByRole("dialog", { name: "Browse Wide IPTV" })
     await expect(drawer).toBeVisible()
+    // The resolver's discovery filter model is not rendered — the box below is
+    // the only searchbox this panel has.
+    await expect(drawer.getByLabel("Category")).toHaveCount(0)
     // Every page is read in the background: the whole catalog ends up held here.
     await expect(drawer.getByText("Eurosport 1")).toBeVisible()
     expect(api.callsTo("/discover")).toHaveLength(2)
@@ -176,7 +179,18 @@ test.describe("presets page", () => {
     await drawer.getByLabel("Search the catalog").fill("euro")
     await expect(drawer.getByText("Eurosport 1")).toBeVisible()
     await expect(drawer.getByText("Sky Sports Main Event")).toHaveCount(0)
+    // The readout makes the re-rank visible: how much of the catalog matched.
+    await expect(drawer.getByText("1 of 3 matches")).toBeVisible()
     expect(api.callsTo("/discover")).toHaveLength(2)
+  })
+
+  test("a catalog resolver with no filter model still offers the browser", async ({ page, api }) => {
+    api.data.resolvers = [...(api.data.resolvers ?? []), resolver({ id: 3, name: "Catalog Only", has_catalog: true })]
+    await page.goto("/profiles")
+    await page.getByRole("button", { name: "New profile" }).first().click()
+    await page.getByRole("combobox", { name: /^Resolver/ }).selectOption("3")
+
+    await expect(page.getByRole("button", { name: "Browse Catalog Only…" })).toBeVisible()
   })
 
   test("the profile form's browser fills the resolver config", async ({ page, api }) => {

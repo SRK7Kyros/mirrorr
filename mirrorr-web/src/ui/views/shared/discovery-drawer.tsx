@@ -10,14 +10,23 @@ import {
   ErrorPanel,
   IconSearch,
   Input,
-  SchemaForm,
   SkeletonRows,
   asObject,
-  defaultsFromSchema,
 } from "@/ui/components"
 
 /** Debounce window for the search box of a search-only resolver (design spec §6.3). */
 const SEARCH_DEBOUNCE_MS = 250
+
+/**
+ * Whether a resolver is worth opening this panel for: it either declares a
+ * browsable catalog, or declares a discovery model (which is how a search-only
+ * plugin announces it can be searched at all). A resolver with neither has no
+ * discovery surface to show.
+ */
+export function canBrowseResolver(resolver: Resolver | null | undefined): resolver is Resolver {
+  if (resolver === null || resolver === undefined) return false
+  return resolver.has_catalog === true || Object.keys(asObject(resolver.search_schema)).length > 0
+}
 
 /**
  * Discovery overlay — browse or search a resolver's catalog and hand the chosen
@@ -31,6 +40,11 @@ const SEARCH_DEBOUNCE_MS = 250
  * Asking the server per keystroke made the plugin refetch its upstream catalog
  * each time and its rate limiter noticed. A search-only resolver has nothing to
  * filter, so there the text does go to the server, debounced.
+ *
+ * The resolver's discovery filter model is deliberately not rendered: the text
+ * box is the only searchbox over a catalog, and a free-text filter over event
+ * categories (all any plugin ever declared) narrowed nothing a user could see.
+ * Server-side filters keep the defaults the plugin declares.
  *
  * `raised` because it opens from on top of the dialog that asked for a config.
  */
@@ -47,7 +61,6 @@ export function DiscoveryDrawer({
 }) {
   const [query, setQuery] = useState("")
   const [debouncedQuery, setDebouncedQuery] = useState("")
-  const [filters, setFilters] = useState<Record<string, unknown>>({})
   const sentinelRef = useRef<HTMLDivElement | null>(null)
 
   const catalog = resolver?.has_catalog === true
@@ -59,7 +72,6 @@ export function DiscoveryDrawer({
     if (!open) return
     setQuery("")
     setDebouncedQuery("")
-    setFilters(defaultsFromSchema(resolver?.search_schema))
   }, [open, resolver])
 
   useEffect(() => {
@@ -69,14 +81,13 @@ export function DiscoveryDrawer({
   }, [catalog, query])
 
   const page = useInfiniteQuery({
-    queryKey: ["discovery", resolver?.id ?? 0, catalog ? "catalog" : "search", serverQuery, filters],
+    queryKey: ["discovery", resolver?.id ?? 0, catalog ? "catalog" : "search", serverQuery],
     enabled: open && resolver !== null,
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) => {
       if (resolver === null) throw new Error("No resolver selected")
       return discoverResolver(resolver.id, {
         ...(serverQuery === "" ? {} : { query: serverQuery }),
-        params: filters,
         cursor: pageParam ?? null,
       })
     },
@@ -110,8 +121,13 @@ export function DiscoveryDrawer({
     return () => observer.disconnect()
   }, [catalog, hasNextPage, isFetchingNextPage, fetchNextPage, items.length])
 
-  const hasFilters = Object.keys(asObject(resolver?.search_schema)).length > 0
   const readingCatalog = catalog && hasNextPage
+  const matches =
+    catalog && typed !== "" && (items.length > 0 || readingCatalog)
+      ? `${items.length} of ${loaded.length} ${items.length === 1 ? "matches" : "match"} “${typed}”${
+          readingCatalog ? " — still loading the catalog…" : ""
+        }`
+      : null
 
   return (
     <Drawer
@@ -135,13 +151,10 @@ export function DiscoveryDrawer({
           />
         </div>
 
-        {hasFilters ? (
-          <SchemaForm
-            schema={resolver?.search_schema}
-            value={filters}
-            onChange={setFilters}
-            idPrefix="discovery-filters"
-          />
+        {matches !== null ? (
+          <p className="text-ink-dim" style={{ fontSize: "var(--fs-sm)" }}>
+            {matches}
+          </p>
         ) : null}
 
         {page.isLoading ? (
@@ -152,11 +165,7 @@ export function DiscoveryDrawer({
             onRetry={() => void page.refetch()}
           />
         ) : items.length === 0 ? (
-          readingCatalog && typed !== "" ? (
-            <p className="text-ink-dim" style={{ fontSize: "var(--fs-sm)" }}>
-              Nothing read so far matches “{typed}” — still loading the catalog…
-            </p>
-          ) : readingCatalog ? (
+          readingCatalog ? (
             <SkeletonRows rows={4} cols={2} />
           ) : (
             <EmptyState
