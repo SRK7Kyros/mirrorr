@@ -148,4 +148,21 @@ describe("SessionDetailView live sources", () => {
     expect(container.querySelector('[data-slot="session-starting"]')).toBeNull()
     expect(container.querySelector(".video-skin")).not.toBeNull()
   })
+
+  it("keeps the loading affordance and drops the 'not configured' copy when a starting session has no published URLs", async () => {
+    for (const status of ["initializing", "stream_pending"]) {
+      endpoints.fetchSession.mockResolvedValue(session({ status, session_urls: [] }))
+
+      const { container, unmount } = renderDetail()
+
+      await screen.findByRole("button", { name: /stop session #7/i })
+      expect(container.querySelector('[data-slot="session-starting"]')).not.toBeNull()
+      expect(screen.queryByText(/Live URLs not configured/i)).toBeNull()
+      expect(container.querySelector(".url-list")).toBeNull()
+      expect(container.querySelector("video")).toBeNull()
+      expect(container.querySelector("iframe")).toBeNull()
+
+      unmount()
+    }
+  })
 })
