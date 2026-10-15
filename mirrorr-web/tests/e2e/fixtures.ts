@@ -114,6 +114,17 @@ export function profile(overrides: Row = {}): Row {
   }
 }
 
+export function source(overrides: Row = {}): Row {
+  return {
+    id: 1,
+    name: "Sky Sports",
+    resolver_id: 1,
+    resolver_name: "Wide IPTV",
+    resolver_config: { url: "http://sky.example/playlist.m3u8" },
+    ...overrides,
+  }
+}
+
 /* ── the stub ─────────────────────────────────────────────────────── */
 
 export interface ApiCall {
@@ -131,6 +142,7 @@ export interface ApiData {
   autoruns?: readonly Row[]
   recordings?: readonly Row[]
   profiles?: readonly Row[]
+  sources?: readonly Row[]
   engines?: readonly Row[]
   resolvers?: readonly Row[]
   /** `POST /import-export/validate` — the staged-item report. */
@@ -160,6 +172,9 @@ function parseBody(raw: string | null): unknown {
 async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
   const calls: ApiCall[] = []
 
+  /** Ids for rows the stub "creates" — the collection list is the spec's own. */
+  let createdIds = 0
+
   await page.route(/^https?:\/\/[^/]+\/api\//, async (route: Route) => {
     const request = route.request()
     const method = request.method()
@@ -182,13 +197,22 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
     }
     if (path === "/auth/logout") return answer(200, {})
 
+    // A create echoes the row the server would have stored. The list branch
+    // below answers ANY method, so without this a `create*()` call would parse
+    // a list envelope as one row and warn.
+    const create = /^\/(autoruns|sessions|profiles|recordings|sources)\/$/.exec(path)
+    if (create !== null && method === "POST") {
+      createdIds += 1
+      return answer(200, { id: createdIds, ...((body as Row | undefined) ?? {}) })
+    }
+
     if (path === "/sessions/") return list(data.sessions)
     if (path === "/autoruns/") return list(data.autoruns)
     if (path === "/recordings/") return list(data.recordings)
     if (path === "/profiles/") return list(data.profiles)
     if (path === "/engines/") return list(data.engines)
     if (path === "/resolvers/") return list(data.resolvers)
-    if (path === "/sources/") return list([])
+    if (path === "/sources/") return list(data.sources)
     if (path === "/notifications/") return list([])
 
     // Item routes: echo the stored row with the patch applied, so a spec can
@@ -202,7 +226,7 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
         sessions: data.sessions,
         profiles: data.profiles,
         recordings: data.recordings,
-        sources: [],
+        sources: data.sources,
       }
       const existing = (rows[collection] ?? []).find((row) => String(row.id) === id) ?? { id: Number(id) }
       return answer(200, { ...existing, ...((body as Row | undefined) ?? {}) })
@@ -258,6 +282,7 @@ export const test = base.extend<{ api: ApiStub }>({
         autoruns: [],
         recordings: [],
         profiles: [],
+        sources: [],
         engines: [],
         resolvers: [],
       })

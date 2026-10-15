@@ -222,12 +222,14 @@ inputs instead of raw JSON.
 Sources live **inside the Profiles tab** (§9.1), so there is no new top-level nav
 entry and no `/sources` route of its own.
 
-- `src/ui/views/profiles/profiles-view.tsx` — `ProfilesView` owns the tab state and
-  switches between `ProfilesPanel` and `SourcesPanel`; the segmented toggle
-  (**Profiles | Sources**) lives in `src/ui/views/profiles/profiles-tabs.tsx`.
+- `src/ui/views/profiles/profiles-view.tsx` — `ProfilesView` renders `ProfilesPanel`
+  and `SourcesPanel` as two stacked `Section`s under one `Page title="Presets"` (the
+  Profiles|Sources tab switcher this view used to own was deleted Oct 8 2026; the
+  only kind toggle left is the one inside the create dialog, §6.5).
 - `src/ui/views/profiles/sources-panel.tsx` — list (table ≥640px / cards <640px,
-  mirroring profiles), `SourceDialog` for create/edit, delete via `BulkBar`/row action.
-  Implemented beside the profiles view rather than in a separate `views/sources/` dir.
+  mirroring profiles), delete via `BulkBar`/row action; create/edit is the Source tab
+  of `presets-dialog.tsx` (§6.5). Implemented beside the profiles view rather than in a
+  separate `views/sources/` dir.
 - `src/api/query-keys.ts` — `sources`/`source` keys, `queryRoots.sources`, reuse
   `staleTimes`.
 - `src/api/endpoints/index.ts` — `fetchSourcePage/fetchSource/createSource/updateSource/deleteSource`
@@ -266,17 +268,39 @@ full-screen sheet on mobile. Scrollable body; header fixed.
 - **Scroll, not pages**: `useInfiniteQuery` with `getNextPageParam` (the existing
   cursor contract) + an intersection-observer sentinel. Debounced (~250 ms) search
   input; requests cancelled via AbortController on new keystrokes.
-- Entered from the `SourceDialog` — a **Browse `<resolver>`…** button, shown only
+- Entered from the source form — a **Browse `<resolver>`…** button, shown only
   when the chosen resolver declares a `search_schema`. Wiring a Discover entry into
-  the resolver section of the Profile / Session / Autorun dialogs is a follow-up;
-  those dialogs carry the `SourcePicker` (load a saved source) instead.
+  the resolver section of the profile / session / autorun dialogs is still a
+  follow-up; those carry a saved-source control instead (§6.4).
 
-### 6.4 Source picker in the other dialogs
+### 6.4 Saved sources in the other dialogs
 
-In the resolver section of `ProfileDialog`, `AutorunFormDialog` and the session
-create dialog: a **Source** `Select` filtered to the currently-chosen resolver,
-plus "Save current config as source". Picking one sets `resolver_id` +
-`resolver_config` (client-side; the create/update payloads are unchanged).
+`SourcePicker` (`src/ui/views/shared/source-picker.tsx`) is a **Source** `Select`
+filtered to the currently-chosen resolver; picking one sets `resolver_id` +
+`resolver_config` client-side (the create/update payloads are unchanged). It is
+mounted by `AutorunFormDialog` and the session create dialog.
+
+### 6.5 The Presets dialog (Oct 15 2026)
+
+`src/ui/views/profiles/presets-dialog.tsx` — `PresetsDialog` — is one create/edit
+dialog for both kinds the Presets page holds, opened by the page's single **New
+preset** `Fab` and by either section's primary button (which lands on its own tab).
+Each panel used to pin its own `Fab` to the same corner: on a phone the two overlay
+exactly, so the source one won every tap and a profile could not be created.
+
+A segmented **Profile | Source** control picks the kind on create; **editing locks
+the dialog to the kind being edited** (no switcher, no cross-kind retarget). Only the
+active tab's `<form>` is mounted, and the shared footer submits it via `form=` +
+`type="submit"`.
+
+The profile body reads top-to-bottom in numbered blocks — Identity · Engine · Source ·
+Retry, each a bordered `bg-surface-1` panel with an accent step index, an uppercase
+title and a muted note on the right — and the *Source* block opens with the input-mode
+control: **Pick a resolver** (picker + the generated `config_schema` form) or **Use a
+saved source** (picker + an accent-tinted card showing the copied `resolver_config`).
+Exactly one mode is rendered, so the two origins can no longer both be live; switching
+to *Pick a resolver* keeps the copied resolver and config — only the link to the source
+is dropped — and the copy stays editable.
 
 ---
 
@@ -302,14 +326,17 @@ plus "Save current config as source". Picking one sets `resolver_id` +
 | **P2 — plugin contract** | `DiscoveryItem`/`DiscoveryPage`, optional `ResolverInterface` methods, `search_schema` column + extractor, `POST /resolvers/{id}/discover` | ✅ done (`cb49cec`) |
 | **P3 — web foundations** | extract `schema-form.tsx` (+ `string` branch); sources sub-tab + query keys + endpoints | ✅ done |
 | **P4 — discovery panel** | overlay drawer + cards + inline filters + infinite scroll | ✅ done |
-| **P5 — pickers** | source picker in the profile / session / autorun dialogs | ✅ done |
+| **P5 — pickers** | saved-source control in the profile / session / autorun dialogs (the profile form's is the mode switcher in §6.5) | ✅ done |
 | **P5b — import/export bundles** | `sources` array in bundles (§7) | ⏳ deferred |
 
 Verified: core `pytest` (incl. `tests/test_resolver_discovery.py`); web `typecheck` /
 80 unit tests / `build` / `check:tokens` 97 / `check:contrast` 43; and a
 route-fulfilled Playwright pass at 375 + 1280 (`.omo/verify-sources.mjs`) exercising
-the Sources tab, source create, discovery catalog + search + Use, and the profile
-dialog's `SourcePicker` — 0 console errors, 0 failed requests.
+the Sources section, source create, discovery catalog + search + Use, and the profile
+form's saved-source mode — 0 console errors, 0 failed requests. **Oct 15 2026:** the
+saved-source picker left the profile form (it is a mode of it now, §6.5) and the
+Presets create/edit path is covered by `mirrorr-web/tests/e2e/presets.spec.ts` (5
+cases) with the visual gate untouched at 52/52.
 
 Each phase keeps the existing gates green: core `pytest`; web `typecheck` / `test:unit`
 / `build` / `check-tokens` / `check-contrast`.
@@ -336,4 +363,4 @@ Each phase keeps the existing gates green: core `pytest`; web `typecheck` / `tes
 - Sync: `startup/ensure_resolvers.py` — `_extract_db_fields` (26–33), `sync_resolvers_db` (47–57); generic `startup/ensure_plugins.py`.
 - Routers: `api/routers/crud.py` (profiles 790–855, `_serialize_profile` 356–361, `_create_profile_from_entity` 631–664); `api/api.py` `include_router(crud_routers)`.
 - Events/enums: `event_bus/event.py` (`ProfileCreated` 85–87); `storage/enums.py` `ResourceType`.
-- Web: `ui/views/profiles/profiles-view.tsx` (`SchemaForm` 257–297, `SchemaField` 156–255, `ProfileDialog` 440–673); `routes/route-tree.tsx`; `ui/chrome/nav-items.tsx`; `api/query-keys.ts` (cursor contract); `api/endpoints/index.ts`.
+- Web: `ui/views/profiles/profiles-view.tsx` (`ProfilesView`, `ProfilesPanel`), `ui/views/profiles/sources-panel.tsx` (`SourcesPanel`), `ui/views/profiles/presets-dialog.tsx` (`PresetsDialog` — create/edit for both kinds; `SchemaForm`/`SchemaField` have lived in `ui/components/schema-form.tsx` since Oct 8 2026); `routes/route-tree.tsx`; `ui/chrome/nav-items.tsx`; `api/query-keys.ts` (cursor contract); `api/endpoints/index.ts`.

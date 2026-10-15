@@ -1,38 +1,31 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMemo, useState } from "react"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { motion } from "motion/react"
 import {
-  ApiError,
-  createProfile,
   deleteProfile,
   downloadJson,
   fetchProfileExport,
   getErrorMessage,
   mergeBundles,
   removeFromInfiniteLists,
-  updateProfile,
   useEntityList,
   useNameMaps,
   type NameMaps,
-  type ProfileBody,
 } from "@/api"
-import { fetchAllEngines, fetchAllResolvers, fetchProfilePage } from "@/api/endpoints"
-import { queryKeys, queryRoots, resolveEntityName, staleTimes } from "@/api/query-keys"
+import { fetchProfilePage } from "@/api/endpoints"
+import { queryKeys, queryRoots, resolveEntityName } from "@/api/query-keys"
 import { rankBySearch } from "@/api/domain/search"
-import type { Engine, Profile, Resolver } from "@/api/schemas"
+import type { Profile, ResolverSource } from "@/api/schemas"
 import { humanize, showingLabel } from "@/ui/lib/format"
 import { staggerContainer, staggerItem } from "@/ui/lib/motion"
 import {
-  Banner,
   BulkBar,
   Button,
   Checkbox,
   ConfirmDialog,
-  Dialog,
   EmptyState,
   ErrorPanel,
   Fab,
-  Field,
   IconButton,
   IconDownload,
   IconEdit,
@@ -46,28 +39,23 @@ import {
   LoadMore,
   Panel,
   PanelBody,
-  SchemaForm,
-  Select,
   SkeletonRows,
   Table,
   Tag,
   Td,
   Th,
-  asObject,
-  defaultsFromSchema,
   toast,
-  panelTitleClass,
 } from "@/ui/components"
 import { useSelection } from "@/ui/hooks"
 import { Page, Section } from "@/ui/views/shared/page"
-import { SourcePicker } from "@/ui/views/shared/source-picker"
 import { SourcesPanel } from "./sources-panel"
+import { PresetsDialog, type PresetKind } from "./presets-dialog"
 
 /**
  * Profiles — the one resource here with create + update + delete (spec §5.8).
- * The dialog renders `resolver_config` from the resolver's `config_schema` and
- * the retry params from the engine's `retry_modes_schema`, both plain JSON
- * Schemas, so no plugin-specific fields are hardcoded.
+ * The view owns the page's single "+" and the one create/edit dialog for both
+ * halves of the page (`presets-dialog.tsx`); each panel below it only lists,
+ * filters and deletes its own rows.
  */
 
 interface ProfileRowProps {
@@ -201,265 +189,37 @@ function ProfileCard({ profile, names, selected, onToggle, onEdit, onDelete, onE
   )
 }
 
-interface ProfileDialogProps {
-  readonly open: boolean
-  readonly onClose: () => void
+/** What the page's single "+" (or a section button) opened. */
+interface PresetDialogTarget {
+  readonly kind: PresetKind
   readonly profile: Profile | null
-  readonly engines: readonly Engine[]
-  readonly resolvers: readonly Resolver[]
-  readonly schemasLoading: boolean
-  readonly existingNames: readonly { id: number; name: string }[]
-}
-
-function ProfileDialog({
-  open,
-  onClose,
-  profile,
-  engines,
-  resolvers,
-  schemasLoading,
-  existingNames,
-}: ProfileDialogProps) {
-  const queryClient = useQueryClient()
-  const [name, setName] = useState(profile?.name ?? "")
-  const [engineId, setEngineId] = useState(profile !== null ? String(profile.default_engine_id) : "")
-  const [resolverId, setResolverId] = useState(profile !== null ? String(profile.resolver_id) : "")
-  const [resolverConfig, setResolverConfig] = useState<Record<string, unknown>>(profile?.resolver_config ?? {})
-  const [retryMode, setRetryMode] = useState(profile?.retry_mode ?? "")
-  const [retryConfig, setRetryConfig] = useState<Record<string, unknown>>(profile?.retry_config ?? {})
-  const [error, setError] = useState<string | null>(null)
-  const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, string>>>({})
-
-  // Reset the form each time the dialog opens (create after create, or a
-  // different row) — `profile` identity is stable while the dialog is open.
-  useEffect(() => {
-    if (!open) return
-    setName(profile?.name ?? "")
-    setEngineId(profile !== null ? String(profile.default_engine_id) : "")
-    setResolverId(profile !== null ? String(profile.resolver_id) : "")
-    setResolverConfig(profile?.resolver_config ?? {})
-    setRetryMode(profile?.retry_mode ?? "")
-    setRetryConfig(profile?.retry_config ?? {})
-    setError(null)
-    setFieldErrors({})
-  }, [open, profile])
-
-  const engine = engines.find((item) => String(item.id) === engineId)
-  const resolver = resolvers.find((item) => String(item.id) === resolverId)
-  const retryModes = asObject(engine?.retry_modes_schema)
-  const retryModeKeys = Object.keys(retryModes)
-  const retryEntry = asObject(retryModeKeys.includes(retryMode) ? retryModes[retryMode] : undefined)
-  const retrySchema = asObject(retryEntry["schema"])
-
-  const duplicate =
-    name.trim() !== "" &&
-    existingNames.some(
-      (item) => item.id !== (profile?.id ?? -1) && item.name.toLowerCase() === name.trim().toLowerCase(),
-    )
-
-  const save = useMutation({
-    mutationFn: (body: ProfileBody) => (profile === null ? createProfile(body) : updateProfile(profile.id, body)),
-    onSuccess: (saved) => {
-      void queryClient.invalidateQueries({ queryKey: queryRoots.profiles })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.profile(saved.id) })
-      toast.success(profile === null ? "Profile created" : "Profile updated", saved.name)
-      onClose()
-    },
-    onError: (caught) => {
-      if (caught instanceof ApiError && caught.fieldErrors !== undefined) setFieldErrors(caught.fieldErrors)
-      setError(getErrorMessage(caught, "Could not save the profile"))
-    },
-  })
-
-  function changeEngine(nextId: string): void {
-    setEngineId(nextId)
-    setRetryMode("")
-    setRetryConfig({})
-  }
-
-  function changeResolver(nextId: string): void {
-    setResolverId(nextId)
-    setResolverConfig(defaultsFromSchema(resolvers.find((item) => String(item.id) === nextId)?.config_schema))
-  }
-
-  function changeRetryMode(nextMode: string): void {
-    setRetryMode(nextMode)
-    setRetryConfig(asObject(asObject(retryModes[nextMode])["default_params"]))
-  }
-
-  function onSubmit(event: FormEvent<HTMLFormElement>): void {
-    event.preventDefault()
-    if (save.isPending) return
-    setError(null)
-    setFieldErrors({})
-    if (name.trim() === "") {
-      setError("Name is required")
-      return
-    }
-    if (engineId === "" || resolverId === "") {
-      setError("Pick an engine and a resolver")
-      return
-    }
-    save.mutate({
-      name: name.trim(),
-      default_engine_id: Number(engineId),
-      resolver_id: Number(resolverId),
-      resolver_config: resolverConfig,
-      ...(retryMode === "" ? {} : { retry_mode: retryMode, retry_config: retryConfig }),
-    })
-  }
-
-  const nameError = duplicate
-    ? "A profile with this name already exists."
-    : (fieldErrors.name ?? null)
-  const engineError = fieldErrors.default_engine_id ?? fieldErrors.engine_id ?? null
-  const resolverError = fieldErrors.resolver_id ?? null
-
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      size="lg"
-      title={profile === null ? "New profile" : "Edit profile"}
-      description="A profile saves an engine, resolver and retry policy for reuse."
-      busy={save.isPending}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={save.isPending}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            type="submit"
-            form="profile-form"
-            loading={save.isPending}
-            disabled={duplicate || name.trim() === ""}
-          >
-            {profile === null ? "Create profile" : "Save changes"}
-          </Button>
-        </>
-      }
-    >
-      <form id="profile-form" className="flex flex-col gap-4" onSubmit={onSubmit}>
-        {error !== null ? <Banner kind="danger" title={error} /> : null}
-
-        <Field label="Name" htmlFor="profile-name" required error={nameError}>
-          <Input
-            id="profile-name"
-            value={name}
-            autoComplete="off"
-            placeholder="e.g. nightly-news"
-            onChange={(event) => setName(event.target.value)}
-          />
-        </Field>
-
-        <div className="grid grid-cols-2 gap-5 max-sm:grid-cols-1">
-          <Field label="Engine" htmlFor="profile-engine" required error={engineError}>
-            <Select id="profile-engine" value={engineId} onChange={(event) => changeEngine(event.target.value)}>
-              <option value="">Select an engine…</option>
-              {engines.map((item) => (
-                <option key={item.id} value={String(item.id)}>
-                  {item.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Resolver" htmlFor="profile-resolver" required error={resolverError}>
-            <Select id="profile-resolver" value={resolverId} onChange={(event) => changeResolver(event.target.value)}>
-              <option value="">Select a resolver…</option>
-              {resolvers.map((item) => (
-                <option key={item.id} value={String(item.id)}>
-                  {item.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-
-        <SourcePicker
-          idPrefix="profile"
-          resolverId={resolverId}
-          onPick={(source) => {
-            setResolverId(String(source.resolver_id))
-            setResolverConfig(source.resolver_config ?? {})
-          }}
-        />
-
-        <section className="flex flex-col gap-2">
-          <h3 className={panelTitleClass}>Resolver config</h3>
-          {schemasLoading ? (
-            <SkeletonRows rows={3} cols={2} />
-          ) : resolver === undefined ? (
-            <p className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
-              Pick a resolver to configure it.
-            </p>
-          ) : (
-            <SchemaForm
-              schema={resolver.config_schema}
-              value={resolverConfig}
-              onChange={setResolverConfig}
-              idPrefix="profile-resolver-config"
-            />
-          )}
-          {fieldErrors.resolver_config !== undefined ? (
-            <span className="flex items-center gap-1 text-sm text-danger" role="alert">
-              {fieldErrors.resolver_config}
-            </span>
-          ) : null}
-        </section>
-
-        <section className="flex flex-col gap-2">
-          <h3 className={panelTitleClass}>Retry policy</h3>
-          {engine === undefined ? (
-            <p className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
-              Pick an engine to configure retries.
-            </p>
-          ) : retryModeKeys.length === 0 ? (
-            <p className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
-              This engine declares no retry modes.
-            </p>
-          ) : (
-            <>
-              <Field label="Mode" htmlFor="profile-retry-mode" error={fieldErrors.retry_mode ?? null}>
-                <Select
-                  id="profile-retry-mode"
-                  value={retryMode}
-                  onChange={(event) => changeRetryMode(event.target.value)}
-                >
-                  <option value="">No retry</option>
-                  {retryModeKeys.map((key) => (
-                    <option key={key} value={key}>
-                      {humanize(key)}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              {retryMode !== "" ? (
-                <SchemaForm
-                  schema={retrySchema}
-                  value={retryConfig}
-                  onChange={setRetryConfig}
-                  idPrefix="profile-retry-config"
-                />
-              ) : null}
-              {fieldErrors.retry_config !== undefined ? (
-                <span className="flex items-center gap-1 text-sm text-danger" role="alert">
-                  {fieldErrors.retry_config}
-                </span>
-              ) : null}
-            </>
-          )}
-        </section>
-      </form>
-    </Dialog>
-  )
+  readonly source: ResolverSource | null
 }
 
 export function ProfilesView() {
+  const [target, setTarget] = useState<PresetDialogTarget | null>(null)
+
+  const create = (kind: PresetKind): void => setTarget({ kind, profile: null, source: null })
+  const editProfile = (profile: Profile): void => setTarget({ kind: "profile", profile, source: null })
+  const editSource = (source: ResolverSource): void => setTarget({ kind: "source", profile: null, source })
+
   return (
     <Page title="Presets" description="Reusable profiles and saved resolver configs.">
-      <ProfilesPanel />
-      <SourcesPanel />
+      <ProfilesPanel onCreate={() => create("profile")} onEdit={editProfile} />
+      <SourcesPanel onCreate={() => create("source")} onEdit={editSource} />
+
+      {/* One "+" for the whole page. It used to be one per panel, stacked in the
+          same corner — the source one was painted last, so on touch layouts a
+          profile could not be created at all. */}
+      <Fab label="New preset" icon={<IconPlus size={22} />} onClick={() => create("profile")} />
+
+      <PresetsDialog
+        open={target !== null}
+        kind={target?.kind ?? "profile"}
+        profile={target?.profile ?? null}
+        source={target?.source ?? null}
+        onClose={() => setTarget(null)}
+      />
     </Page>
   )
 }
@@ -471,26 +231,19 @@ const profileSearchFields = (profile: Profile): readonly string[] => [
   profile.retry_mode ?? "",
 ]
 
-function ProfilesPanel() {
+function ProfilesPanel({
+  onCreate,
+  onEdit,
+}: {
+  readonly onCreate: () => void
+  readonly onEdit: (profile: Profile) => void
+}) {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState("")
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [editing, setEditing] = useState<Profile | null>(null)
   const [pending, setPending] = useState<Profile | null>(null)
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
   const selection = useSelection<number>()
   const names = useNameMaps()
-
-  const enginesQuery = useQuery({
-    queryKey: queryKeys.engines,
-    queryFn: () => fetchAllEngines(),
-    staleTime: staleTimes.lookup,
-  })
-  const resolversQuery = useQuery({
-    queryKey: queryKeys.resolvers,
-    queryFn: () => fetchAllResolvers(),
-    staleTime: staleTimes.lookup,
-  })
 
   const list = useEntityList<Profile>({
     queryKey: queryKeys.profiles(),
@@ -559,15 +312,6 @@ function ProfilesPanel() {
 
   const selectedProfiles = list.items.filter((profile) => selection.has(profile.id))
 
-  const openCreate = (): void => {
-    setEditing(null)
-    setDialogOpen(true)
-  }
-  const openEdit = (profile: Profile): void => {
-    setEditing(profile)
-    setDialogOpen(true)
-  }
-
   const columnCount = 6
 
   return (
@@ -575,7 +319,7 @@ function ProfilesPanel() {
       title="Profiles"
       description="Reusable engine + resolver + retry presets. Start a session or autorun from one."
       actions={
-        <Button variant="primary" className="max-sm:hidden" icon={<IconPlus size={16} />} onClick={openCreate}>
+        <Button variant="primary" className="max-sm:hidden" icon={<IconPlus size={16} />} onClick={onCreate}>
           New profile
         </Button>
       }
@@ -620,7 +364,7 @@ function ProfilesPanel() {
           }
           action={
             list.items.length === 0 ? (
-              <Button variant="primary" icon={<IconPlus size={16} />} onClick={openCreate}>
+              <Button variant="primary" icon={<IconPlus size={16} />} onClick={onCreate}>
                 New profile
               </Button>
             ) : undefined
@@ -656,7 +400,7 @@ function ProfilesPanel() {
                         names={names}
                         selected={selection.has(profile.id)}
                         onToggle={selection.toggle}
-                        onEdit={openEdit}
+                        onEdit={onEdit}
                         onDelete={setPending}
                         onExport={(target) => exportProfile.mutate(target)}
                       />
@@ -672,7 +416,7 @@ function ProfilesPanel() {
                     names={names}
                     selected={selection.has(profile.id)}
                     onToggle={selection.toggle}
-                    onEdit={openEdit}
+                    onEdit={onEdit}
                     onDelete={setPending}
                     onExport={(target) => exportProfile.mutate(target)}
                   />
@@ -712,18 +456,6 @@ function ProfilesPanel() {
           />
         </>
       )}
-
-      <Fab label="New profile" icon={<IconPlus size={22} />} onClick={openCreate} />
-
-      <ProfileDialog
-        open={dialogOpen}
-        onClose={() => setDialogOpen(false)}
-        profile={editing}
-        engines={enginesQuery.data ?? []}
-        resolvers={resolversQuery.data ?? []}
-        schemasLoading={enginesQuery.isLoading || resolversQuery.isLoading}
-        existingNames={list.items.map((item) => ({ id: item.id, name: item.name }))}
-      />
 
       <ConfirmDialog
         open={pending !== null}
