@@ -1,122 +1,152 @@
 /**
- * Order-agnostic, character-level search scoring.
+ * Token-anchored, typo-tolerant search.
  *
- * A query is a bag of words, and each word is matched against a candidate's
- * text as *groups* — the runs of characters the two share — never index by
- * index. Every word a candidate shares adds to its score, so a word it lacks
- * never excludes it; it only leaves it behind the candidates that do share it.
+ * A query is a bag of words and a candidate is a bag of tokens — the maximal
+ * runs of letters and digits in its fields. Every word must find a token it
+ * relates to; the candidate is dropped otherwise. That single rule is what the
+ * previous character-run scorer lacked: it admitted any word sharing two
+ * letters *anywhere* in the text, so "sky sport fl italy" kept 1,106 of 1,590
+ * channel titles, 488 of which shared no whole word with the query at all
+ * ("TVI Reality Portugal" rode in on "or"/"rt" shared with "sport"). Here
+ * "TVI Reality Portugal" relates to nothing and is gone.
  *
- * A run is worth its length squared, so the same characters in one unbroken run
- * beat them broken apart by typos, and a longer run earns a bonus. A word is
- * then scaled by the share of its own characters that actually landed, so junk
- * a query carries costs it: "salamanleko" (one letter moved) keeps more of the
- * perfect score than "salamahadhasdahdahsleko" (a pile of junk in the middle),
- * even though both share exactly "salama" and "leko".
+ * A word and a token relate in a fixed order of quality:
+ *
+ *   1.00  the same token                       `sport` → `sport`
+ *   0.90+ a token the word starts              `euros` → `eurosport`
+ *   0.60+ a token the word sits inside         `sport` → `eurosport`
+ *   0.45  the same token once look-alike glyphs are merged  `fl` → `f1`
+ *   0.90·(1 − distance/length) a typo within the distance a word that long
+ *         deserves (0 up to two letters, 1 up to five, 2 beyond — the
+ *         thresholds Elasticsearch's `fuzziness: AUTO` uses)  `spprt` → `sport`
+ *
+ * Everything below "the same token" is discounted in proportion to what is
+ * missing, so a typo is tolerated but never beats the literal match. A
+ * candidate's score is the average of its words' best relations: the perfect
+ * title scores 1, one word at arm's length drags it below that, and a candidate
+ * admitted on an arm's-length relation alone can no longer outrank a tight one.
+ *
+ * Ties are frequent now — a score is a handful of relations, not a sum of run
+ * lengths — so they fall, in order, to the tighter title (fewer tokens left
+ * unaccounted for), then the shorter title, then the order the caller supplied.
  */
 
 const WORD_BOUNDARY = /[^\p{L}\p{N}]+/u
-
-/** A shared run shorter than this is noise — unless the query word itself is. */
-const MIN_GROUP = 2
-
-/** The distinct, lowercased words of a query, e.g. `"Live  Sport!"` → `["live", "sport"]`. */
-export function queryWords(query: string): readonly string[] {
-  const words = query.toLowerCase().split(WORD_BOUNDARY).filter((word) => word !== "")
-  return [...new Set(words)]
-}
+const COMBINING_MARKS = /\p{M}+/gu
 
 /**
- * The sizes of every run `word[fromWord:toWord]` and `text[fromText:toText]`
- * share, found the way diff tools find them: take the longest run, then the
- * longest on each side of it, and so on.
+ * Glyphs that read as one another in a channel list. The first member of each
+ * group is the canonical form; folding is only ever *tried*, so a literal match
+ * always outranks a folded one.
  */
-function sharedGroups(
-  word: string,
-  text: string,
-  fromWord: number,
-  toWord: number,
-  fromText: number,
-  toText: number,
-): readonly number[] {
-  const sizes: number[] = []
-  const pending: (readonly [number, number, number, number])[] = [
-    [fromWord, toWord, fromText, toText],
-  ]
-  let frame = pending.pop()
-  while (frame !== undefined) {
-    const [wordLo, wordHi, textLo, textHi] = frame
-    const width = textHi - textLo
-    let previous = new Array<number>(width).fill(0)
-    let size = 0
-    let endInWord = 0
-    let endInText = 0
-    for (let i = wordLo; i < wordHi; i++) {
-      const current = new Array<number>(width).fill(0)
-      for (let j = textLo; j < textHi; j++) {
-        if (word[i] !== text[j]) continue
-        const run = (j > textLo ? previous[j - textLo - 1] : 0) + 1
-        current[j - textLo] = run
-        if (run > size) {
-          size = run
-          endInWord = i
-          endInText = j
-        }
-      }
-      previous = current
-    }
-    if (size > 0) {
-      sizes.push(size)
-      const startInWord = endInWord - size + 1
-      const startInText = endInText - size + 1
-      if (startInWord > wordLo && startInText > textLo) {
-        pending.push([wordLo, startInWord, textLo, startInText])
-      }
-      if (endInWord + 1 < wordHi && endInText + 1 < textHi) {
-        pending.push([endInWord + 1, wordHi, endInText + 1, textHi])
-      }
-    }
-    frame = pending.pop()
-  }
-  return sizes
+const LOOKALIKES: readonly string[] = ["1l|", "0o"]
+const LOOKALIKE_OF = new Map<string, string>(
+  LOOKALIKES.flatMap((group) => [...group].map((glyph) => [glyph, group[0]] as const)),
+)
+
+/** The distance a typo in a word of `length` letters is allowed (AUTO, capped at 2). */
+function maxDistance(length: number): number {
+  if (length <= 2) return 0
+  if (length <= 5) return 1
+  return 2
 }
 
-/** True when `word` and `text` share a run long enough to count as a group. */
-function sharesGroup(word: string, text: string): boolean {
-  const min = Math.min(MIN_GROUP, word.length)
-  if (min <= 1) return text.includes(word)
-  for (let i = 0; i + min <= word.length; i++) {
-    if (text.includes(word.slice(i, i + min))) return true
-  }
-  return false
+/** Casefolded, diacritic-free form — `Sky Spört` and `SKY SPORT` compare equal. */
+function normalize(text: string): string {
+  return text.normalize("NFD").replace(COMBINING_MARKS, "").toLowerCase()
+}
+
+/** `normalize`d with look-alike glyphs merged. */
+function fold(text: string): string {
+  let folded = ""
+  for (const glyph of text) folded += LOOKALIKE_OF.get(glyph) ?? glyph
+  return folded
 }
 
 /**
- * What each of `words` shares with `text`, summed — a missing word adds nothing.
- * Sharing earns the runs (`length²` each); getting characters wrong costs, as
- * those runs are scaled by the share of the word's own characters that landed.
+ * Damerau-Levenshtein (adjacent transpositions count as one edit) over two
+ * rows, abandoned as soon as every cell of a row exceeds `limit` — the cost
+ * never decreases, so a word that long cannot rescue it.
+ */
+function editDistance(a: string, b: string, limit: number): number {
+  if (Math.abs(a.length - b.length) > limit) return limit + 1
+  let beforePrevious = new Array<number>(b.length + 1).fill(0)
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index)
+  let current = new Array<number>(b.length + 1).fill(0)
+  for (let i = 1; i <= a.length; i++) {
+    current[0] = i
+    let best = i
+    for (let j = 1; j <= b.length; j++) {
+      let distance = Math.min(
+        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+        previous[j] + 1,
+        current[j - 1] + 1,
+      )
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        distance = Math.min(distance, beforePrevious[j - 2] + 1)
+      }
+      current[j] = distance
+      if (distance < best) best = distance
+    }
+    if (best > limit) return limit + 1
+    const spent = beforePrevious
+    beforePrevious = previous
+    previous = current
+    current = spent
+  }
+  return previous[b.length]
+}
+
+/** How well one query word is answered by one token; 0 means "not at all". */
+function tokenScore(word: string, token: string): number {
+  if (token === word) return 1
+  if (token.startsWith(word)) return 0.9 + (0.1 * word.length) / token.length
+  if (word.length >= 3 && token.includes(word)) return 0.6 + (0.4 * word.length) / token.length
+  const foldedWord = fold(word)
+  const foldedToken = fold(token)
+  if (foldedToken === foldedWord) return 0.45
+  const limit = maxDistance(word.length)
+  if (limit === 0) return 0
+  const distance = editDistance(foldedWord, foldedToken, limit)
+  if (distance > limit) return 0
+  return (1 - distance / Math.max(word.length, token.length)) * 0.9
+}
+
+/** The distinct, normalized words of a query, e.g. `"Live  Sport!"` → `["live", "sport"]`. */
+export function queryWords(query: string): readonly string[] {
+  return [...new Set(normalize(query).split(WORD_BOUNDARY).filter((word) => word !== ""))]
+}
+
+/** The tokens of one text (fields joined), the unit a query word is matched against. */
+function textTokens(text: string): readonly string[] {
+  return normalize(text).split(WORD_BOUNDARY).filter((token) => token !== "")
+}
+
+/**
+ * How well `text` answers `words`, averaged over the words — 0 when any word
+ * answers nothing, because such a text is not a match at all.
  */
 export function scoreMatch(text: string, words: readonly string[]): number {
-  const haystack = text.toLowerCase()
-  let score = 0
+  if (words.length === 0) return 0
+  const tokens = textTokens(text)
+  let total = 0
   for (const word of words) {
-    if (!sharesGroup(word, haystack)) continue
-    const min = Math.min(MIN_GROUP, word.length)
-    let matched = 0
-    let runs = 0
-    for (const size of sharedGroups(word, haystack, 0, word.length, 0, haystack.length)) {
-      if (size < min) continue
-      matched += size
-      runs += size * size
+    let best = 0
+    for (const token of tokens) {
+      const score = tokenScore(word, token)
+      if (score > best) best = score
+      if (best === 1) break
     }
-    score += (runs * matched) / Math.max(word.length, 1)
+    if (best === 0) return 0
+    total += best
   }
-  return score
+  return total / words.length
 }
 
 /**
- * The `items` sharing anything with `query`, best match first. Items sharing
- * nothing are dropped; ties keep the order they came in. An empty query is a
- * no-op, so a list keeps its own order until the user types.
+ * The `items` every word of `query` can answer, best match first. A word answered
+ * by nothing drops the item; the empty query is a no-op, so a list keeps its own
+ * order until the user types.
  */
 export function rankBySearch<T>(
   items: readonly T[],
@@ -125,9 +155,31 @@ export function rankBySearch<T>(
 ): readonly T[] {
   const words = queryWords(query)
   if (words.length === 0) return items
-  return items
-    .map((item) => ({ item, score: scoreMatch(fields(item).join(" "), words) }))
-    .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .map((entry) => entry.item)
+  const ranked: { item: T; score: number; loose: number; length: number; order: number }[] = []
+  items.forEach((item, order) => {
+    const text = normalize(fields(item).join(" "))
+    const tokens = text.split(WORD_BOUNDARY).filter((token) => token !== "")
+    let total = 0
+    let answered = 0
+    for (const word of words) {
+      let best = 0
+      for (const token of tokens) {
+        const score = tokenScore(word, token)
+        if (score > best) best = score
+        if (best === 1) break
+      }
+      if (best === 0) return
+      total += best
+      answered++
+    }
+    ranked.push({ item, score: total / words.length, loose: tokens.length - answered, length: text.length, order })
+  })
+  ranked.sort(
+    (left, right) =>
+      right.score - left.score ||
+      left.loose - right.loose ||
+      left.length - right.length ||
+      left.order - right.order,
+  )
+  return ranked.map((entry) => entry.item)
 }
