@@ -510,7 +510,7 @@ Status vocabulary and actions come from §1.4. All lists use cursor pagination
 |---|---|
 | Data reads | `GET /autoruns/`, name lookups as 5.3, WS `autorun.*` + `session.created` (spawn detection), countdown tick `COUNTDOWN_TICK_MS` 10s |
 | Framing | **One-shot**: "Scheduled recording — runs once." No weekday/cron pickers anywhere (API 13.11.1). Rows show: status chip (includes `scheduled`), `user_friendly_name`, `snake_case_name` (mono chip), window (local start→end + "stored UTC" note), countdown "starts in 12m" (tick-granular — never second precision), profile/engine→resolver |
-| Filter | default "Upcoming" (client-side): `scheduled` shown; "Spent" (completed/failed — will never run again) collapsed behind a toggle; live ones always shown |
+| Filter | default "All" (client-side; Oct 14 2026 — was "Upcoming"): every status is shown, spent rows included, and picking a chip narrows to it ("Spent" = completed/failed — will never run again) |
 | Primary action | "New scheduled recording" — wizard: name + auto-slug preview (`^[a-zA-Z0-9_-]+$` live-validated, manual override), start/end datetime pickers ("Your local time — stored as UTC"), profile or direct config, recording toggle (default on) |
 | Empty | "No scheduled recordings." + "A scheduled recording runs once at its start time and then retires." + primary button |
 | Loading | skeleton rows as 5.3 |
@@ -1087,7 +1087,8 @@ scale is unchanged.
 labelled as sugar; no endpoint is invented.
 
 11.16 **Autoruns are one-shot**: no recurrence UI anywhere (no cron, no weekday
-pickers). "Spent vs upcoming" is a client-side filter; default hides spent.
+pickers). "Spent vs upcoming" is a client-side filter; the default view is All
+(Oct 14 2026), so nothing is hidden until a status chip is picked.
 
 11.17 **Remuxing/finalizing hide Delete** (absent, not disabled) per API 12.2;
 a raced 409 still toasts "Cannot delete while remuxing."

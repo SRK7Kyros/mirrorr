@@ -10,7 +10,7 @@ export const LIVE_STATUSES: ReadonlySet<string> = new Set([
 ])
 export const SPENT_STATUSES: ReadonlySet<string> = new Set(["completed", "failed"])
 
-export const DEFAULT_FILTER: readonly FilterToken[] = ["scheduled", "live"]
+export const DEFAULT_FILTER: readonly FilterToken[] = ["all"]
 
 export function parseFilterTokens(raw: string | null | undefined): {
   tokens: FilterToken[]
@@ -30,7 +30,6 @@ export function parseFilterTokens(raw: string | null | undefined): {
   return { tokens, dropped }
 }
 
-/** Absent `?filter=` → default `scheduled+live`; present-but-empty → `all`. */
 export function parseFilter(raw: string | null | undefined): FilterToken[] {
   if (raw === null || raw === undefined) return [...DEFAULT_FILTER]
   const { tokens } = parseFilterTokens(raw)
