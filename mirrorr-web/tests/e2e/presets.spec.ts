@@ -184,6 +184,27 @@ test.describe("presets page", () => {
     expect(api.callsTo("/discover")).toHaveLength(2)
   })
 
+  test("the best match leads, even when the near-misses share more of its text", async ({ page, api }) => {
+    // The behaviour the user went looking for: for "sky sport fl italy" the
+    // near-exact "Sky Sport F1 Italy" must lead, not "Sky Sport 3 NZ" — which
+    // shares neither "italy" nor any run with "fl" — and not "Sky Sport 258
+    // Italia", whose "italia" only ever shares "ital" with "italy".
+    api.data.discovery = [
+      { id: "1", title: "Sky Sport 258 Italia", config: { channel: "a" } },
+      { id: "2", title: "Sky Sport 3 NZ", config: { channel: "b" } },
+      { id: "3", title: "Sky Sport F1 Italy", config: { channel: "c" } },
+    ]
+    await page.goto("/profiles")
+    await page.getByRole("button", { name: "New profile" }).first().click()
+    await page.getByRole("combobox", { name: /^Resolver/ }).selectOption("1")
+    await page.getByRole("button", { name: "Browse Wide IPTV…" }).click()
+
+    const drawer = page.getByRole("dialog", { name: "Browse Wide IPTV" })
+    await drawer.getByLabel("Search the catalog").fill("sky sport fl italy")
+
+    await expect(drawer.locator("li").first()).toContainText("Sky Sport F1 Italy")
+  })
+
   test("a catalog resolver with no filter model still offers the browser", async ({ page, api }) => {
     api.data.resolvers = [...(api.data.resolvers ?? []), resolver({ id: 3, name: "Catalog Only", has_catalog: true })]
     await page.goto("/profiles")
