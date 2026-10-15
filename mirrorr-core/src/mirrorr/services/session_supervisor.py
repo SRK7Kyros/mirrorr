@@ -505,6 +505,9 @@ class SessionSupervisor:
         if command == "stop":
             logger.info(f"received stop command")
             await update_session(self.settings, self.session_id, status=SessionStatus.TERMINATING, nc=self._nc)
+            # The run is ending: drop the latch so a later recording toggle
+            # cannot publish RECORDING/ACTIVE over TERMINATING.
+            self._playable = False
             self.request_stop()
         elif command == "enable_recording":
             if not self.session.recording:
