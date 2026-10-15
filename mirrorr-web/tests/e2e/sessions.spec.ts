@@ -51,19 +51,20 @@ test.describe("sessions list", () => {
     await page.goto("/sessions")
     await expect(page.locator(".session-grid .session-card")).toHaveCount(4)
 
+    await expect(page.getByRole("button", { name: "Scheduled" })).toHaveCount(0)
+
     // Naming any status drops `all`, so Spent alone leaves the completed run.
     await page.getByRole("button", { name: "Spent" }).click()
     await expect(page.locator(".session-grid .session-card")).toHaveCount(1)
     await expect(page.locator(".session-grid")).toContainText("Archive")
 
-    await page.getByRole("button", { name: "Scheduled" }).click()
-    await expect(page.locator(".session-grid .session-card")).toHaveCount(2)
+    // Adding Live widens the set to live + spent; the tokens are additive.
     await page.getByRole("button", { name: "Live" }).click()
-    await expect(page.locator(".session-grid .session-card")).toHaveCount(4)
-
-    // Dropping Spent again leaves the two live runs plus the scheduled one.
-    await page.getByRole("button", { name: "Spent" }).click()
     await expect(page.locator(".session-grid .session-card")).toHaveCount(3)
+
+    // Dropping Spent again leaves the two live runs.
+    await page.getByRole("button", { name: "Spent" }).click()
+    await expect(page.locator(".session-grid .session-card")).toHaveCount(2)
   })
 
   test("the search box narrows the cards", async ({ page }) => {

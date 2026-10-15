@@ -12,7 +12,6 @@ import { fetchSessionPage } from "@/api/endpoints";
 import { queryKeys, queryRoots } from "@/api/query-keys";
 import {
   DEFAULT_FILTER,
-  FILTER_TOKENS,
   isLive,
   isSpent,
   matchesFilter,
@@ -49,12 +48,17 @@ import { Page } from "@/ui/views/shared/page";
 import { NewSessionDialog } from "./new-session-dialog";
 import { SessionCard } from "./session-card";
 
-const FILTER_LABELS: Record<FilterToken, string> = {
-  scheduled: "Scheduled",
+/**
+ * Sessions are never `scheduled` (only `AutorunStatus` has that member in core),
+ * so this view shows the subset of the shared `FILTER_TOKENS` that can match one.
+ */
+const SESSION_FILTER_TOKENS = ["live", "spent", "all"] as const satisfies readonly FilterToken[];
+
+const FILTER_LABELS = {
   live: "Live",
   spent: "Spent",
   all: "All",
-};
+} as const satisfies Record<(typeof SESSION_FILTER_TOKENS)[number], string>;
 
 /** Card-shaped shimmer for the first paint, matching the grid it replaces. */
 function SkeletonCards({ count = 6 }: { readonly count?: number }) {
@@ -152,15 +156,13 @@ export function SessionsListView() {
   const tally = useMemo(() => {
     let live = 0;
     let recording = 0;
-    let scheduled = 0;
     let spent = 0;
     for (const session of list.items) {
       if (isLive(session.status)) live += 1;
       if (session.status === "recording") recording += 1;
-      if (session.status === "scheduled") scheduled += 1;
       if (isSpent(session.status)) spent += 1;
     }
-    return { live, recording, scheduled, spent };
+    return { live, recording, spent };
   }, [list.items]);
 
   const toggleToken = (token: FilterToken) => {
@@ -207,7 +209,7 @@ export function SessionsListView() {
           }
         />
         <PanelBody>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <Stat
               label="Live"
               value={
@@ -222,7 +224,6 @@ export function SessionsListView() {
                 </>
               }
             />
-            <Stat label="Scheduled" value={tally.scheduled} />
             <Stat label="Spent" value={tally.spent} />
           </div>
         </PanelBody>
@@ -230,7 +231,7 @@ export function SessionsListView() {
 
       <div className="flex items-center gap-2 flex-wrap">
         <div className="flex items-center gap-3">
-          {FILTER_TOKENS.map((token) => (
+          {SESSION_FILTER_TOKENS.map((token) => (
             <Button
               key={token}
               size="sm"
