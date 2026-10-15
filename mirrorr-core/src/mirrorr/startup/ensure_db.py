@@ -46,34 +46,47 @@ def _rebuild_table_sqlite(sync_conn, table_name: str, model_table, dialect) -> N
         )
         sync_conn.execute(text(f"DROP TABLE {_safe_identifier(temp_name)}"))
 
-    # 1. Rename existing table aside
-    sync_conn.execute(text(f"ALTER TABLE {_safe_identifier(table_name)} RENAME TO {_safe_identifier(temp_name)}"))
+    # RENAME on SQLite >= 3.25 rewrites each child table's REFERENCES clause to
+    # follow it, so the final DROP would trip the FK check. Both pragmas are
+    # needed: foreign_keys=OFF lifts that check (honoured because DDL autocommits,
+    # so no transaction is open) and legacy_alter_table=ON stops the rewrite —
+    # the children must keep naming the real table the new one now occupies.
+    legacy = sync_conn.execute(text("PRAGMA legacy_alter_table")).scalar()
+    foreign_keys = sync_conn.execute(text("PRAGMA foreign_keys")).scalar()
+    sync_conn.execute(text("PRAGMA foreign_keys = OFF"))
+    sync_conn.execute(text("PRAGMA legacy_alter_table = ON"))
+    try:
+        # 1. Rename existing table aside
+        sync_conn.execute(text(f"ALTER TABLE {_safe_identifier(table_name)} RENAME TO {_safe_identifier(temp_name)}"))
 
-    # 2. Create the new table with correct schema
-    model_table.create(sync_conn, checkfirst=False)
+        # 2. Create the new table with correct schema
+        model_table.create(sync_conn, checkfirst=False)
 
-    # 3. Determine overlapping columns
-    old_cols = {c["name"] for c in inspect(sync_conn).get_columns(temp_name)}
-    new_cols = [c.name for c in model_table.columns]
-    common = [c for c in new_cols if c in old_cols]
-    cols_csv = ", ".join(_safe_identifier(c) for c in common)
+        # 3. Determine overlapping columns
+        old_cols = {c["name"] for c in inspect(sync_conn).get_columns(temp_name)}
+        new_cols = [c.name for c in model_table.columns]
+        common = [c for c in new_cols if c in old_cols]
+        cols_csv = ", ".join(_safe_identifier(c) for c in common)
 
-    # 4. Copy data
-    sync_conn.execute(text(
-        f"INSERT INTO {_safe_identifier(table_name)} ({cols_csv}) SELECT {cols_csv} FROM {_safe_identifier(temp_name)}"
-    ))
+        # 4. Copy data
+        sync_conn.execute(text(
+            f"INSERT INTO {_safe_identifier(table_name)} ({cols_csv}) SELECT {cols_csv} FROM {_safe_identifier(temp_name)}"
+        ))
 
-    # Validate row counts match
-    old_count = sync_conn.execute(text(f"SELECT COUNT(*) FROM [{temp_name}]")).scalar()
-    new_count = sync_conn.execute(text(f"SELECT COUNT(*) FROM [{table_name}]")).scalar()
-    if old_count != new_count:
-        logger.error(f"Row count mismatch after rebuild: old={old_count} new={new_count}")
-        # Roll back by renaming old table back
-        sync_conn.execute(text(f"ALTER TABLE [{temp_name}] RENAME TO [{table_name}]"))
-        return
+        # Validate row counts match
+        old_count = sync_conn.execute(text(f"SELECT COUNT(*) FROM [{temp_name}]")).scalar()
+        new_count = sync_conn.execute(text(f"SELECT COUNT(*) FROM [{table_name}]")).scalar()
+        if old_count != new_count:
+            logger.error(f"Row count mismatch after rebuild: old={old_count} new={new_count}")
+            # Roll back by renaming old table back
+            sync_conn.execute(text(f"ALTER TABLE [{temp_name}] RENAME TO [{table_name}]"))
+            return
 
-    # 5. Drop old table
-    sync_conn.execute(text(f"DROP TABLE {_safe_identifier(temp_name)}"))
+        # 5. Drop old table
+        sync_conn.execute(text(f"DROP TABLE {_safe_identifier(temp_name)}"))
+    finally:
+        sync_conn.execute(text(f"PRAGMA legacy_alter_table = {'ON' if legacy else 'OFF'}"))
+        sync_conn.execute(text(f"PRAGMA foreign_keys = {'ON' if foreign_keys else 'OFF'}"))
 
     logger.info(f"Rebuilt table {table_name} with updated column constraints")
 
