@@ -16,13 +16,16 @@ import {
   Field,
   SchemaForm,
   Segmented,
+  IconSearch,
   Select,
   Switch,
   TabPanel,
+  asObject,
   defaultsFromSchema,
   toast,
   panelTitleClass,
 } from "@/ui/components"
+import { DiscoveryDrawer } from "@/ui/views/shared/discovery-drawer"
 import { SourcePicker } from "@/ui/views/shared/source-picker"
 
 export function NewSessionDialog({
@@ -42,6 +45,7 @@ export function NewSessionDialog({
   const [engineId, setEngineId] = useState("")
   const [resolverId, setResolverId] = useState("")
   const [resolverConfig, setResolverConfig] = useState<Record<string, unknown>>({})
+  const [browseOpen, setBrowseOpen] = useState(false)
   const [recording, setRecording] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -74,6 +78,7 @@ export function NewSessionDialog({
   })
 
   const resolver = resolvers.find((item) => String(item.id) === resolverId)
+  const canBrowse = resolver !== undefined && Object.keys(asObject(resolver.search_schema)).length > 0
   const canSubmit = mode === "profile" ? profileId !== "" : engineId !== "" && resolverId !== ""
 
   function changeResolver(nextId: string): void {
@@ -191,6 +196,19 @@ export function NewSessionDialog({
                   ))}
                 </Select>
               </Field>
+              {canBrowse ? (
+                <div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    icon={<IconSearch size={15} />}
+                    onClick={() => setBrowseOpen(true)}
+                  >
+                    Browse {resolver.name}…
+                  </Button>
+                </div>
+              ) : null}
               <SourcePicker
                 idPrefix="new-session"
                 resolverId={resolverId}
@@ -220,6 +238,16 @@ export function NewSessionDialog({
           onChange={(event) => setRecording(event.target.checked)}
         />
       </div>
+
+      <DiscoveryDrawer
+        open={browseOpen}
+        onClose={() => setBrowseOpen(false)}
+        resolver={resolver ?? null}
+        onUse={(item) => {
+          setResolverConfig(item.config ?? {})
+          setBrowseOpen(false)
+        }}
+      />
     </Dialog>
   )
 }
