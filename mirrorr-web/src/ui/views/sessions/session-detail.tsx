@@ -219,12 +219,7 @@ export function SessionDetailView({
       <Panel>
         <PanelHead title="Live sources" />
         <PanelBody>
-          {urls.length === 0 ? (
-            <p className="text-dim">
-              Live URLs not configured (operator must set{" "}
-              <span className="mono">web_url</span>).
-            </p>
-          ) : (
+          {starting || urls.length > 0 ? (
             <div className="flex flex-col gap-4">
               {starting ? (
                 <SessionStarting
@@ -236,8 +231,13 @@ export function SessionDetailView({
               ) : playerUrl !== null ? (
                 <SessionPlayerFrame url={playerUrl} label={sessionTitle(session, names)} />
               ) : null}
-              <SessionUrls urls={urls} />
+              {urls.length > 0 ? <SessionUrls urls={urls} /> : null}
             </div>
+          ) : (
+            <p className="text-dim">
+              Live URLs not configured (operator must set{" "}
+              <span className="mono">web_url</span>).
+            </p>
           )}
         </PanelBody>
       </Panel>

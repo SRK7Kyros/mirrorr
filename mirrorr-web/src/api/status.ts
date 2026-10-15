@@ -128,16 +128,14 @@ export const STATUS_MAP = {
 export type StatusKey = keyof typeof STATUS_MAP
 
 /** The pre-playback gate: resolver checks running, or engine up but no playlist yet. */
-export type StartingStatus = "initializing" | "stream_pending"
+export const STARTING_STATUSES = ["initializing", "stream_pending"] as const
+export type StartingStatus = (typeof STARTING_STATUSES)[number]
 
-const STARTING_STATUSES: ReadonlySet<string> = new Set<string>([
-  "initializing",
-  "stream_pending",
-])
+const STARTING_STATUS_SET: ReadonlySet<string> = new Set<string>(STARTING_STATUSES)
 
 /** True while a session's stream is not playable yet — the one gate every player hides behind. */
 export function isStarting(status: string): status is StartingStatus {
-  return STARTING_STATUSES.has(status)
+  return STARTING_STATUS_SET.has(status)
 }
 
 const KNOWN_KEYS = new Set<string>(Object.keys(STATUS_MAP))

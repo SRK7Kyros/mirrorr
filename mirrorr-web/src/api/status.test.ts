@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
-import { STATUS_MAP, getStatusDescriptor, isStarting } from "./status"
+import { STARTING_STATUSES, STATUS_MAP, getStatusDescriptor, isStarting } from "./status"
+import { LIVE_STATUSES } from "./domain/filter-grammar"
 
 describe("getStatusDescriptor", () => {
   it("labels the two stream-readiness states", () => {
@@ -37,6 +38,14 @@ describe("isStarting", () => {
     for (const status of Object.keys(STATUS_MAP)) {
       if (status === "initializing" || status === "stream_pending") continue
       expect(isStarting(status)).toBe(false)
+    }
+  })
+})
+
+describe("STARTING_STATUSES ⊆ LIVE_STATUSES", () => {
+  it("keeps every pre-playback state inside the live set", () => {
+    for (const status of STARTING_STATUSES) {
+      expect(LIVE_STATUSES.has(status)).toBe(true)
     }
   })
 })
