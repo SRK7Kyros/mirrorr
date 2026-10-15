@@ -2,31 +2,42 @@
  * Token-anchored, typo-tolerant search.
  *
  * A query is a bag of words and a candidate is a bag of tokens — the maximal
- * runs of letters and digits in its fields. Every word must find a token it
- * relates to; the candidate is dropped otherwise. That single rule is what the
- * previous character-run scorer lacked: it admitted any word sharing two
- * letters *anywhere* in the text, so "sky sport fl italy" kept 1,106 of 1,590
- * channel titles, 488 of which shared no whole word with the query at all
- * ("TVI Reality Portugal" rode in on "or"/"rt" shared with "sport"). Here
- * "TVI Reality Portugal" relates to nothing and is gone.
- *
- * A word and a token relate in a fixed order of quality:
+ * runs of letters and digits in its fields. A word and a token relate in a
+ * fixed order of quality:
  *
  *   1.00  the same token                       `sport` → `sport`
  *   0.90+ a token the word starts              `euros` → `eurosport`
- *   0.60+ a token the word sits inside         `sport` → `eurosport`
+ *   0.60+ the word sits inside a token (≥3 letters)  `sport` → `eurosport`
  *   0.45  the same token once look-alike glyphs are merged  `fl` → `f1`
  *   0.90·(1 − distance/length) a typo within the distance a word that long
  *         deserves (0 up to two letters, 1 up to five, 2 beyond — the
  *         thresholds Elasticsearch's `fuzziness: AUTO` uses)  `spprt` → `sport`
  *
  * Everything below "the same token" is discounted in proportion to what is
- * missing, so a typo is tolerated but never beats the literal match. A
- * candidate's score is the average of its words' best relations: the perfect
- * title scores 1, one word at arm's length drags it below that, and a candidate
- * admitted on an arm's-length relation alone can no longer outrank a tight one.
+ * missing, so a typo is tolerated but never beats the literal match.
  *
- * Ties are frequent now — a score is a handful of relations, not a sum of run
+ * Relevance is then decided in two steps:
+ *
+ *   1. admission — the words a title answers must carry the majority of the
+ *      query's *informativeness* (BM25's idf, computed over the list in hand).
+ *      A title that lacks one word, or answers only the rare ones, is still a
+ *      match; a title leaning on `sport` in a sports catalog — or a bare `2`
+ *      among numbered channels — is not. A word no title answers is ignored, so
+ *      a half-typed word cannot empty the list.
+ *   2. order — by coordination (how many words it answers), then quality (the
+ *      mean relation over every word, an unanswered word scoring 0). A title
+ *      answering more of the query leads; at equal coordination, the tighter
+ *      match leads.
+ *
+ * This is the rule the previous character-run scorer lacked: it admitted any word
+ * sharing two letters *anywhere* in the text, so "sky sport fl italy" kept 1,106
+ * of 1,590 channel titles, 488 of which shared no whole word with the query at
+ * all ("TVI Reality Portugal" rode in on "or"/"rt" shared with "sport"). A
+ * relation here is a token-level match, so "TVI Reality Portugal" answers nothing
+ * and is gone, while "Sky Sports F1 UK" — which merely lacks "italy" — stays,
+ * below the title that answers every word.
+ *
+ * Ties are frequent — a score is a handful of relations, not a sum of run
  * lengths — so they fall, in order, to the tighter title (fewer tokens left
  * unaccounted for), then the shorter title, then the order the caller supplied.
  */
@@ -112,6 +123,28 @@ function tokenScore(word: string, token: string): number {
   return (1 - distance / Math.max(word.length, token.length)) * 0.9
 }
 
+/** How well one query word is answered by `tokens` — 0 when no token answers it. */
+function bestRelation(word: string, tokens: readonly string[]): number {
+  let best = 0
+  for (const token of tokens) {
+    const score = tokenScore(word, token)
+    if (score > best) best = score
+    if (best === 1) break
+  }
+  return best
+}
+
+/**
+ * What each query word is worth for *admission*: BM25's idf, so a word the whole
+ * list already shares — `sport` in a sports catalog, a bare `2` among numbered
+ * channels — cannot admit a title on its own. Computed per query from the list
+ * in hand; no index is kept.
+ */
+function wordWeights(frequency: readonly number[], documents: number): readonly number[] {
+  const weights = frequency.map((seen) => Math.log(1 + (documents - seen + 0.5) / (seen + 0.5)))
+  return weights.every((weight) => weight === 0) ? weights.map(() => 1) : weights
+}
+
 /** The distinct, normalized words of a query, e.g. `"Live  Sport!"` → `["live", "sport"]`. */
 export function queryWords(query: string): readonly string[] {
   return [...new Set(normalize(query).split(WORD_BOUNDARY).filter((word) => word !== ""))]
@@ -123,30 +156,29 @@ function textTokens(text: string): readonly string[] {
 }
 
 /**
- * How well `text` answers `words`, averaged over the words — 0 when any word
- * answers nothing, because such a text is not a match at all.
+ * How well `text` answers `words` when it answers *all* of them — 0 when any
+ * word is left unaccounted for, because such a text is only a partial match and
+ * `rankBySearch` grades those separately.
  */
 export function scoreMatch(text: string, words: readonly string[]): number {
-  if (words.length === 0) return 0
   const tokens = textTokens(text)
   let total = 0
   for (const word of words) {
-    let best = 0
-    for (const token of tokens) {
-      const score = tokenScore(word, token)
-      if (score > best) best = score
-      if (best === 1) break
-    }
+    const best = bestRelation(word, tokens)
     if (best === 0) return 0
     total += best
   }
-  return total / words.length
+  return words.length === 0 ? 0 : total / words.length
 }
 
 /**
- * The `items` every word of `query` can answer, best match first. A word answered
- * by nothing drops the item; the empty query is a no-op, so a list keeps its own
- * order until the user types.
+ * The `items` the query says something about, best match first. Admission is by
+ * weight — a title must answer words carrying the majority of the query's
+ * informativeness, so a near-miss that lacks one word (or answers only the rare
+ * ones) stays, while a title leaning on a single ubiquitous word does not. Order
+ * is by coordination (how many words it answers), then quality (the mean
+ * relation), then the tighter title, the shorter one, and finally call order.
+ * The empty query is a no-op, so a list keeps its own order until the user types.
  */
 export function rankBySearch<T>(
   items: readonly T[],
@@ -155,29 +187,40 @@ export function rankBySearch<T>(
 ): readonly T[] {
   const words = queryWords(query)
   if (words.length === 0) return items
-  const ranked: { item: T; score: number; loose: number; length: number; order: number }[] = []
-  items.forEach((item, order) => {
+  const frequency = new Array<number>(words.length).fill(0)
+  const held = items.map((item, order) => {
     const text = normalize(fields(item).join(" "))
     const tokens = text.split(WORD_BOUNDARY).filter((token) => token !== "")
-    let total = 0
-    let answered = 0
-    for (const word of words) {
-      let best = 0
-      for (const token of tokens) {
-        const score = tokenScore(word, token)
-        if (score > best) best = score
-        if (best === 1) break
-      }
-      if (best === 0) return
-      total += best
-      answered++
-    }
-    ranked.push({ item, score: total / words.length, loose: tokens.length - answered, length: text.length, order })
+    const bests = words.map((word) => bestRelation(word, tokens))
+    bests.forEach((best, index) => {
+      if (best > 0) frequency[index] = (frequency[index] ?? 0) + 1
+    })
+    return { item, bests, tokens: tokens.length, length: text.length, order }
   })
+  const weights = wordWeights(frequency, items.length)
+  // A word no title answers is not weighed: a half-typed word cannot veto every
+  // candidate by demanding company nobody has.
+  const worth = weights.reduce((sum, weight, index) => ((frequency[index] ?? 0) > 0 ? sum + weight : sum), 0)
+  const ranked = held
+    .map((entry) => {
+      let answered = 0
+      let gained = 0
+      let quality = 0
+      entry.bests.forEach((best, index) => {
+        if (best > 0) {
+          answered++
+          gained += weights[index] ?? 1
+        }
+        quality += best
+      })
+      return { ...entry, answered, gained, score: quality / words.length }
+    })
+    .filter((entry) => entry.gained * 2 > worth)
   ranked.sort(
     (left, right) =>
+      right.answered - left.answered ||
       right.score - left.score ||
-      left.loose - right.loose ||
+      left.tokens - left.answered - (right.tokens - right.answered) ||
       left.length - right.length ||
       left.order - right.order,
   )
