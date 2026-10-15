@@ -110,6 +110,36 @@
                     requestAnimationFrame(awaitRewindSlot);
                 })();
 
+                // --- Square corners ---
+                // The skin is shadow-DOM and hard-codes the radii that make the
+                // player chrome pill-shaped (control bar, buttons, seek thumb,
+                // menus). No custom property reaches those from the light DOM, so
+                // the only lever is a rule injected inside each shadow root.
+                var SQUARE_RULE = "*{border-radius:0 !important}";
+
+                function squareShadowRoots(root) {
+                    var nodes = root.querySelectorAll("*");
+                    for (var i = 0; i < nodes.length; i++) {
+                        var sr = nodes[i].shadowRoot;
+                        if (sr === null) continue;
+                        if (sr.querySelector("style[data-square]") === null) {
+                            var style = document.createElement("style");
+                            style.setAttribute("data-square", "1");
+                            style.textContent = SQUARE_RULE;
+                            sr.appendChild(style);
+                        }
+                        squareShadowRoots(sr);
+                    }
+                }
+
+                var squareDeadline = Date.now() + 15000;
+                (function awaitSkinToSquare() {
+                    squareShadowRoots(document);
+                    if (deepFind(document.body, "media-controls") !== null || Date.now() > squareDeadline)
+                        return;
+                    requestAnimationFrame(awaitSkinToSquare);
+                })();
+
                 // --- Source resolution ---
                 var params = new URLSearchParams(window.location.search);
                 var src = params.get("src");
