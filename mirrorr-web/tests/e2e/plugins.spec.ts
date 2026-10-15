@@ -3,13 +3,12 @@ import { engine, expect, resolver, test } from "./fixtures"
 
 /**
  * The plugins view renders two panels (Engines, Resolvers), each with its own
- * table/card pair — so every assertion is scoped to one `section.panel` rather
- * than to a bare `.table-desktop`, which would match twice.
+ * table/card pair — so every assertion is scoped to the section whose header
+ * carries that title, rather than to a bare `.table-desktop`, which would match
+ * twice.
  */
 function panel(page: Page, title: string) {
-  return page
-    .locator("section.panel")
-    .filter({ has: page.getByRole("heading", { name: title, exact: true }) })
+  return page.locator(`section:has(> header > h2:text-is("${title}"))`)
 }
 
 test.describe("plugins", () => {
@@ -60,6 +59,7 @@ test.describe("plugins", () => {
 
     const resolvers = panel(page, "Resolvers")
     await expect(resolvers).toContainText("Wide IPTV")
-    await expect(resolvers.locator(".capability-stack")).toHaveCount(0)
+    await expect(resolvers.getByTitle("Record: supported")).toHaveCount(0)
+    await expect(resolvers.getByTitle("Stream: supported")).toHaveCount(0)
   })
 })

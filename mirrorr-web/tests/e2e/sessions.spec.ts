@@ -32,33 +32,38 @@ test.describe("sessions list", () => {
     api.data.sessions = [LIVE, RECORDING, SCHEDULED, SPENT]
   })
 
-  test("counts every loaded session but only cards the default filter's statuses", async ({ page }) => {
+  test("cards every loaded session under the default all view", async ({ page }) => {
     await page.goto("/sessions")
 
     await expect(page.getByRole("heading", { level: 1, name: "Sessions" })).toBeVisible()
-    // Default filter is `scheduled+live`, so the completed session is excluded.
-    await expect(page.locator(".session-grid .session-card")).toHaveCount(3)
-    await expect(page.getByText("3 sessions")).toBeVisible()
+    // The default view is `all`, so the completed session is carded too.
+    await expect(page.locator(".session-grid .session-card")).toHaveCount(4)
+    await expect(page.getByText("4 sessions")).toBeVisible()
     await expect(page.getByText("over 4 loaded")).toBeVisible()
   })
 
-  test("narrowing the status filter down to Spent leaves the completed session", async ({ page }) => {
+  test("the status tokens are additive, and dropping one widens the set again", async ({ page }) => {
     await page.goto("/sessions")
-    await expect(page.locator(".session-grid .session-card")).toHaveCount(3)
-
-    // The tokens are additive, so Spent has to be added and the other two dropped.
-    await page.getByRole("button", { name: "Spent" }).click()
     await expect(page.locator(".session-grid .session-card")).toHaveCount(4)
-    await page.getByRole("button", { name: "Scheduled" }).click()
-    await page.getByRole("button", { name: "Live" }).click()
 
+    // Naming any status drops `all`, so Spent alone leaves the completed run.
+    await page.getByRole("button", { name: "Spent" }).click()
     await expect(page.locator(".session-grid .session-card")).toHaveCount(1)
     await expect(page.locator(".session-grid")).toContainText("Archive")
+
+    await page.getByRole("button", { name: "Scheduled" }).click()
+    await expect(page.locator(".session-grid .session-card")).toHaveCount(2)
+    await page.getByRole("button", { name: "Live" }).click()
+    await expect(page.locator(".session-grid .session-card")).toHaveCount(4)
+
+    // Dropping Spent again leaves the two live runs plus the scheduled one.
+    await page.getByRole("button", { name: "Spent" }).click()
+    await expect(page.locator(".session-grid .session-card")).toHaveCount(3)
   })
 
   test("the search box narrows the cards", async ({ page }) => {
     await page.goto("/sessions")
-    await expect(page.locator(".session-grid .session-card")).toHaveCount(3)
+    await expect(page.locator(".session-grid .session-card")).toHaveCount(4)
 
     await page.getByLabel("Filter sessions").fill("news")
 
@@ -71,6 +76,6 @@ test.describe("sessions list", () => {
 
     await page.goto("/sessions")
 
-    await expect(page.locator(".session-grid .session-card")).toHaveCount(3)
+    await expect(page.locator(".session-grid .session-card")).toHaveCount(4)
   })
 })

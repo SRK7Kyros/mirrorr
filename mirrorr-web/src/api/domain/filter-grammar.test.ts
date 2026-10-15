@@ -20,8 +20,8 @@ describe("parseFilterTokens", () => {
 })
 
 describe("parseFilter", () => {
-  it("defaults to scheduled+live when the param is absent", () => {
-    expect(parseFilter(null)).toEqual(["scheduled", "live"])
+  it("defaults to the all view when the param is absent", () => {
+    expect(parseFilter(null)).toEqual(["all"])
     expect(parseFilter(undefined)).toEqual([...DEFAULT_FILTER])
   })
 
@@ -66,11 +66,11 @@ describe("matchesFilter", () => {
     expect(run("weird", "all")).toBe(true)
   })
 
-  it("default filter = scheduled + live", () => {
+  it("default filter = all, so a spent status is in too", () => {
     expect(run("scheduled", null)).toBe(true)
     expect(run("active", null)).toBe(true)
-    expect(run("completed", null)).toBe(false)
-    expect(run("failed", null)).toBe(false)
+    expect(run("completed", null)).toBe(true)
+    expect(run("failed", null)).toBe(true)
   })
 })
 

@@ -2,8 +2,8 @@ import { autorun, expect, profile, test } from "./fixtures"
 
 /**
  * `next_run_at` is deliberately out of id order so "soonest first" cannot pass
- * by accident, and one row is `completed` so the default Upcoming filter has
- * something to hide.
+ * by accident, and one row is `completed` so the Upcoming filter has something
+ * to hide.
  */
 const ZULU = autorun({
   id: 1,
@@ -39,27 +39,27 @@ test.describe("scheduled recordings", () => {
     ]
   })
 
-  test("orders the cards soonest first and hides spent ones by default", async ({ page }) => {
+  test("orders the cards soonest first, spent ones included by default", async ({ page }) => {
     await page.goto("/autoruns")
 
     // Cards at desktop width too — the table variant is gone for good.
     await expect(page.locator("table")).toHaveCount(0)
 
     const cards = page.locator(".entity-card")
-    await expect(cards).toHaveCount(3)
+    await expect(cards).toHaveCount(4)
     await expect(cards.nth(0)).toContainText("Alpha")
-    await expect(cards.nth(1)).toContainText("Mike")
-    await expect(cards.nth(2)).toContainText("Zulu")
+    await expect(cards.nth(3)).toContainText("Zulu")
+    await expect(page.getByRole("link", { name: "Done" })).toBeVisible()
   })
 
-  test("the All filter reveals the completed recording", async ({ page }) => {
+  test("the Upcoming filter hides the completed recording again", async ({ page }) => {
     await page.goto("/autoruns")
-    await expect(page.locator(".entity-card")).toHaveCount(3)
-
-    await page.getByRole("button", { name: "All" }).click()
-
     await expect(page.locator(".entity-card")).toHaveCount(4)
-    await expect(page.getByRole("link", { name: "Done" })).toBeVisible()
+
+    await page.getByRole("button", { name: "Upcoming" }).click()
+
+    await expect(page.locator(".entity-card")).toHaveCount(3)
+    await expect(page.getByRole("link", { name: "Done" })).toHaveCount(0)
   })
 
   test("keeps the card layout at both phone and desktop widths", async ({ page }) => {
@@ -71,9 +71,9 @@ test.describe("scheduled recordings", () => {
       await expect(page.locator("table"), `no table at ${width}px`).toHaveCount(0)
 
       const cards = page.locator(".entity-card")
-      await expect(cards).toHaveCount(3)
+      await expect(cards).toHaveCount(4)
       await expect(cards.nth(0)).toContainText("Alpha")
-      await expect(cards.nth(2)).toContainText("Zulu")
+      await expect(cards.nth(3)).toContainText("Zulu")
     }
   })
 
@@ -83,12 +83,12 @@ test.describe("scheduled recordings", () => {
     await page.getByLabel("Select all scheduled recordings").check()
 
     const bulk = page.getByRole("region", { name: "Bulk actions" })
-    await expect(bulk).toContainText("3 selected items")
+    await expect(bulk).toContainText("4 selected items")
 
     await bulk.getByRole("button", { name: "Set profile" }).click()
     const dialog = page.getByRole("dialog")
     await expect(
-      dialog.getByRole("heading", { name: "Set the profile on 3 scheduled recordings" }),
+      dialog.getByRole("heading", { name: "Set the profile on 4 scheduled recordings" }),
     ).toBeVisible()
 
     await dialog.getByLabel("Profile").selectOption("2")
@@ -101,6 +101,7 @@ test.describe("scheduled recordings", () => {
       "/autoruns/1",
       "/autoruns/2",
       "/autoruns/3",
+      "/autoruns/4",
     ])
     for (const call of puts) expect(call.body).toEqual({ profile_id: 2 })
   })

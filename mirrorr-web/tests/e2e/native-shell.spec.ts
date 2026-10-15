@@ -8,11 +8,28 @@ import { expect, test } from "./fixtures"
  * of that seam: native-only affordances appear, and a browser never sees them.
  * The keychain answers only for its own origin's key, so a console that asked
  * for the wrong one would come back empty here exactly as it would on a phone.
+ * The picker's record names the host this console was opened from, which is
+ * what the account menu's Server block renders.
  */
 async function installShell(page: Page, credential: string | null = null): Promise<void> {
   await page.addInitScript((stored: string | null) => {
     const pageOrigin = (globalThis as unknown as { location: { origin: string } }).location.origin
-    const Plugins: Record<string, unknown> = {}
+    const Plugins: Record<string, unknown> = {
+      Preferences: {
+        get: async (options: { key: string }) => ({
+          value:
+            options.key === "mirrorr.servers.v1"
+              ? JSON.stringify({
+                  servers: [
+                    { name: "Studio box", url: pageOrigin },
+                    { name: "Spare box", url: "https://spare.example/" },
+                  ],
+                  autoUrl: null,
+                })
+              : null,
+        }),
+      },
+    }
     if (stored !== null) {
       Plugins["SecureStorage"] = {
         internalGetItem: async (options: { prefixedKey: string }) => ({
@@ -32,7 +49,7 @@ test.describe("native shell", () => {
 
     await page.getByRole("button", { name: "Account menu" }).click()
 
-    await expect(page.getByRole("menuitem", { name: "Servers" })).toHaveCount(0)
+    await expect(page.getByRole("menuitem", { name: "Switch server" })).toHaveCount(0)
     await expect(page.getByRole("menuitem", { name: "Settings" })).toBeVisible()
   })
 
@@ -42,10 +59,11 @@ test.describe("native shell", () => {
 
     await page.getByRole("button", { name: "Account menu" }).click()
 
-    await expect(page.getByRole("menuitem", { name: "Servers" })).toHaveAttribute(
+    await expect(page.getByRole("menuitem", { name: "Switch server" })).toHaveAttribute(
       "href",
       "capacitor://localhost/",
     )
+    await expect(page.getByText("Studio box")).toBeVisible()
   })
 
   test("saved credentials sign in without the form", async ({ page, api }) => {
