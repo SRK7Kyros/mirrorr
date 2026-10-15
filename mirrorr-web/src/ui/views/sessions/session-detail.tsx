@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ApiError, getErrorMessage, useNameMaps } from "@/api";
 import { fetchSession } from "@/api/endpoints";
 import { queryKeys, resolveEntityName, staleTimes } from "@/api/query-keys";
-import { getStatusDescriptor } from "@/api/status";
+import { getStatusDescriptor, isStarting } from "@/api/status";
 import { isLive } from "@/api/domain/filter-grammar";
 import { formatDateTime, formatDuration } from "@/api/time";
 import {
@@ -30,6 +30,7 @@ import { SessionStopDeleteButton } from "./session-stop-delete-button";
 import { SessionRecordingButton } from "./session-recording-button";
 import { SessionPlayerFrame } from "./session-preview-player";
 import { SessionPlayer } from "./session-player";
+import { SessionStarting } from "./session-starting";
 import { sessionTitle } from "./session-title";
 import { SessionUrls, pickHtmlPlayerUrl, pickPlayableUrl, toSessionUrls } from "./session-urls";
 
@@ -133,6 +134,7 @@ export function SessionDetailView({
     .sort((a, b) => b.index - a.index);
   const remuxing =
     session.status === "remuxing" || session.status === "finalizing";
+  const starting = isStarting(session.status);
   const retryCount = session.retry_attempts ?? 0;
   const hasResolverConfig =
     session.resolver_config !== undefined &&
@@ -224,7 +226,12 @@ export function SessionDetailView({
             </p>
           ) : (
             <div className="flex flex-col gap-4">
-              {playable !== null ? (
+              {starting ? (
+                <SessionStarting
+                  label={getStatusDescriptor(session.status).label}
+                  className="aspect-video w-full rounded-md"
+                />
+              ) : playable !== null ? (
                 <SessionPlayer src={playable} label={sessionTitle(session, names)} />
               ) : playerUrl !== null ? (
                 <SessionPlayerFrame url={playerUrl} label={sessionTitle(session, names)} />

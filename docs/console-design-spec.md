@@ -256,6 +256,8 @@ the `-deep` set where the base hue fails 3:1 on surface. Tone keys match
 | Status key | Word | Tone | Indicator hue (shape) | Dot | Icon (shape) | Actions (API 12.2) |
 |---|---|---|---|---|---|---|
 | `scheduled` | Scheduled | primary | `#1856FF` 3px left bar + dot (5.51:1) | static | clock — circle, two hands | edit, delete, run-now |
+| `initializing` | Initializing… | secondary | `#3A344E` dot (11.79:1) | spinner | loader — circular arc | stop |
+| `stream_pending` | Waiting for stream… | secondary | `#3A344E` dot (11.79:1) | spinner | hourglass — two triangles | stop |
 | `active` | Running | success | `#05A257` dot + bar (3.33:1) | static | play — triangle in circle | stop, enable/disable recording |
 | `recording` | Recording | danger | `#EA2143` filled record dot (4.38:1) | pulse | record — filled disc in ring | stop, disable recording |
 | `terminating` | Stopping… | warning | `#C9722F` dot (3.54:1) | spinner | stop — square in circle | wait, delete |
@@ -275,7 +277,10 @@ unrecognized status string (API 12.2: render "unknown" + log) and is styled with
 no hue at all so a new server status can never be misread as a known one.
 `active` is included although the brief's shorthand lifecycle omits it: Part 3
 §4 and §12.2 both define it ("Running", green), and inventing fewer statuses than
-the API sends is a defect.
+the API sends is a defect. `initializing`/`stream_pending` (added Oct 2026) are the
+two-stage startup gate (API §13.2.1): both bind the spinner dot like
+`remuxing`/`finalizing`, carry **stop** only, and expose no recording toggle until
+the row reaches `active`.
 
 ## 2. Glass placement rule
 

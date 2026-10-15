@@ -70,14 +70,14 @@ def test_stop_during_bootstrap_ends_the_attempt(tmp_path):
         sup.request_stop()
         return Source(url="http://example/x")
 
-    resolver = SimpleNamespace(resolve=resolve, stop=AsyncMock())
+    resolver = SimpleNamespace(resolve=resolve, smoke_test=AsyncMock(), stop=AsyncMock())
     sup = _supervisor(tmp_path, resolver)
 
     assert _run_attempt(tmp_path, resolver, sup) == ("stopped", None)
 
 
 def test_stop_before_attempt_skips_start(tmp_path):
-    resolver = SimpleNamespace(resolve=AsyncMock(), stop=AsyncMock())
+    resolver = SimpleNamespace(resolve=AsyncMock(), smoke_test=AsyncMock(), stop=AsyncMock())
     sup = _supervisor(tmp_path, resolver)
     sup.request_stop()
 

@@ -145,15 +145,15 @@ A **Session** = one live recording attempt (usually one-shot; may be tied to an 
 
 **`SessionResponse`:** `{id, profile_id?, autorun_id?, engine_id, resolver_id, resolver_config, retry_mode, retry_config, status, recording, retry_attempts, started_at?, ended_at?, requester_user_token, session_urls: [], attempts: []}`
 
-**`status`: `active | recording | terminating | remuxing | finalizing | completed | failed`** (string enum — client must map & render all).
+**`status`: `initializing | stream_pending | active | recording | terminating | remuxing | finalizing | completed | failed`** (string enum — client must map & render all). A created session is born **`initializing`** and passes the startup gate (§13.2.1) before it becomes playable; the player MUST NOT mount until `active`/`recording`.
 
 | Endpoint | Auth | Behavior |
 |---|---|---|
 | `GET /sessions/` | auth | Paginated |
-| `POST /sessions/ {profile_id? | engine_id, resolver_id, resolver_config?, retry_mode?, retry_config?, recording?}` | auth | Create **immediately starts** supervision. `recording` defaults false. Emits `session.created`. `requester_user_token` = current user. |
+| `POST /sessions/ {profile_id? | engine_id, resolver_id, resolver_config?, retry_mode?, retry_config?, recording?}` | auth | Create **immediately starts** supervision. The row is born `initializing` (resolver smoke check, then engine start — §13.2.1); `recording` defaults false. Emits `session.created`. `requester_user_token` = current user. |
 | `GET /sessions/{id}` | auth | Enriched. |
-| `DELETE /sessions/{id}` | auth | **204.** 409 if status==`remuxing` (forbidden — remux can't be interrupted). If active/recording → sends stop control (`session.stop_requested`) then deletes after cleanup. |
-| `POST /sessions/{id}/stop` | auth+owner | Sends `stop` control; supervisor finalizes (completed) instead of failed. |
+| `DELETE /sessions/{id}` | auth | **204.** 409 if status==`remuxing` (forbidden — remux can't be interrupted). If `active`/`recording` → sends stop control (`session.stop_requested`) then deletes after cleanup; a **pre-playable** session (`initializing`/`stream_pending`) is hard-killed (its supervisor is killed directly, no graceful finalize). |
+| `POST /sessions/{id}/stop` | auth+owner | Sends `stop` control; supervisor finalizes (completed) instead of failed. Valid in every live state, including `initializing`/`stream_pending` (aborts the gate; no `active` row is produced). |
 | `POST /sessions/{session_id}/recording/enable` | auth+owner | Mid-run: flips `recording=true`, status→`recording`, starts stash. |
 | `POST /sessions/{session_id}/recording/disable` | auth+owner | Flips `recording=false`, status→`active`, stops stash. |
 | `POST /sessions/{session_id}/save-as-profile {name}` | auth+owner | Copys session's engine/resolver/config/retry into a new Profile. |
@@ -163,8 +163,8 @@ A **Session** = one live recording attempt (usually one-shot; may be tied to an 
 ### 4.1 Client requirements — Sessions
 - **Start session** form: pick Profile (prefill) or set engine+resolver+config directly; recording toggle; retry policy. Date/time NOT needed (immediate).
 - **Live monitor:** card/row per session reflecting status transitions via WS (see 11) — colors/icons per status:
-  - `active` (running, not recording) · `recording` · `terminating` (stop requested) · `remuxing` (finalizing media — show spinner, disable delete) · `finalizing` · `completed` (green, done) · `failed` (red, error summary from attempts).
-- **Actions per status:** stop (active/recording), enable/disable recording (active), delete (any except remuxing), save-as-profile (completed/failed).
+  - `initializing` (resolver + smoke check running — show a loading affordance, **no player**) · `stream_pending` (engine started, HLS playlist not yet on disk — same loading affordance) · `active` (running, not recording) · `recording` · `terminating` (stop requested) · `remuxing` (finalizing media — show spinner, disable delete) · `finalizing` · `completed` (green, done) · `failed` (red, error summary from attempts).
+- **Actions per status:** stop (`initializing`/`stream_pending`/`active`/`recording`), enable/disable recording (`active`), delete (any except remuxing), save-as-profile (completed/failed).
 - **Detail view:** attempts timeline (per attempt: status, started/ended, exit code), `session_urls` → HLS links (open in player; **only populated when operator sets `web_url`** — if empty, show "live URLs unavailable" with hint), duration (from started_at→ended_at), owner.
 - **Auto-refresh:** prefer WS events + `GET /sessions/{id}` on important transitions; fallback poll every 10–30s when WS down.
 - **Recording toggle:** optimistic UI + confirm; surfaces server 400 if mid-remux etc.
@@ -281,6 +281,20 @@ No POST/PUT/DELETE — plugins are discovered from disk on boot (custom plugin d
 ### 8.2 Client requirements — plugin surfaces
 - **Engines/Resolvers admin page**: cards with name, description, origin_hash (copyable), capabilities badges; read-only.
 - Dynamic config editors reused across Profile/Session/Autorun forms (single shared widget).
+
+### 8.3 Resolver startup gate — `resolve()` + optional `smoke_test()`
+
+The core runs a resolver's `resolve(source, config, context)` and then, **unconditionally**, its
+optional hook:
+
+```python
+async def smoke_test(self, source: Source, config: ConfigT, context: ResolverContext) -> None
+```
+
+`smoke_test` returns `None` on success and **raises to fail**; the base `ResolverInterface`
+implementation is a **no-op**, so a resolver that defines no check simply passes (e.g. `static`).
+The call is wrapped in `asyncio.wait_for(…, smoke_test_timeout_s)` (setting `smoke_test_timeout_s`,
+default **30 s**). See §13.2.1 for the ordering, the readiness poll, and the failure semantics.
 
 ---
 
@@ -405,6 +419,8 @@ Frame:
 Client MUST define one reusable status→(label, color/icon, action-set) map used across lists, cards, badges:
 ```
 scheduled   → "Scheduled"   (blue)      [edit, delete, run-now]
+initializing → "Initializing…"    (grey spinner) [stop]
+stream_pending → "Waiting for stream…" (grey spinner) [stop]
 active      → "Running"     (green)     [stop, enable/disable rec]
 recording   → "Recording"   (red pulse) [stop, disable rec]
 terminating → "Stopping…"   (amber)     [wait, delete]
@@ -472,21 +488,64 @@ Never loop step 2 more than once per boot, and never re-attempt refresh after a 
 | Event | Detail |
 |---|---|
 | Client sends | `POST /sessions/ {profile_id? \| engine_id, resolver_id, resolver_config?, retry_mode?, retry_config?, recording?}` |
-| Server does | Validates FK + config; inserts row (`status=active`, `requester_user_token=you`); `subscribe_requester` (so your WS gets its events); emits `session.created` on NATS → your `/ws/events` gets `session.created` + enriched entity |
-| 200 body | Full `SessionResponse` (status `active`, `retry_attempts:0`, `attempts:[]`, `session_urls:[]`, `started_at:null`) |
+| Server does | Validates FK + config; inserts row (`status=initializing`, `requester_user_token=you`); `subscribe_requester` (so your WS gets its events); emits `session.created` on NATS → your `/ws/events` gets `session.created` + enriched entity |
+| 200 body | Full `SessionResponse` (status `initializing`, `retry_attempts:0`, `attempts:[]`, `session_urls:[]`, `started_at:null`) |
 | Errors | 400 duplicate name/IntegrityError; 409 conflict; 422 validation (incl. invalid engine/resolver IDs) |
-| When expected | Within ~1 round-trip; the supervisor spawn happens async — **session is `active` immediately, before any process actually starts** |
+| When expected | Within ~1 round-trip; the supervisor spawn happens async — **the row is `initializing` immediately, before any process actually starts**, and only becomes playable after the two-stage startup gate (§13.2.1) |
+
+#### 13.2.1 Startup gate — resolve → smoke_test → stream readiness
+
+Between `POST /sessions/` and the row becoming playable, every session passes a two-stage gate.
+The gate is **status-encoded**, so a client needs no extra API: it renders the row loading (with
+**no player**) while the status is `initializing` or `stream_pending`, and mounts the media element
+only once the row is `active`/`recording`.
+
+**Ordering** (all server-side, inside the supervisor's per-attempt run):
+1. **`initializing`** — row visible with this status and `session_urls` already published;
+   `started_at` still `null`. The supervisor resolves the source (`resolve()`), then runs the
+   resolver's optional **`smoke_test`** (§8.3). The smoke call is bounded by
+   `asyncio.wait_for(…, smoke_test_timeout_s)` (default 30 s).
+2. **`stream_pending`** — the engine (e.g. yt-dlp → ffmpeg) has started, but its HLS playlist is
+   not yet on disk. The supervisor polls `stream.m3u8` for **existence and `size > 0`** every
+   `STREAM_READY_POLL_S` (0.5 s).
+3. **`active`** — the playlist is non-empty, so the session is playable; `started_at` is stamped
+   **only here** (never at `initializing`/`stream_pending`). With `recording:true` the row moves to
+   `recording` instead.
+
+**Readiness poll — deliberately no wall-clock timeout.** The poll ends only on ready, process death
+(`engine.done`/`engine.crashed`), or the stop latch. A slow-but-working source is therefore never
+failed for taking long; a hung process simply stays `stream_pending` and remains stoppable. There is
+no m3u8 timeout setting.
+
+**Failure semantics — the row is kept.** A `resolve()` or `smoke_test` exception (including a smoke
+timeout) is an ordinary failed attempt: it is returned on the engine's crash path, the existing
+per-attempt **retry policy applies uniformly** (no new retry taxonomy or exception type), and when
+retries are exhausted the row ends **`failed`** with a non-empty `attempts[-1].reason`
+(`resolve failed: …` / `smoke test failed: …` / `smoke test timed out after Ns`). The pre-gate row is
+**no longer deleted** on this path — it stays listed. A retry resets the row to `initializing` and
+re-runs the whole gate.
+
+**`stop` is valid in both states.** `POST /sessions/{id}/stop` aborts a gated session cleanly (the
+supervisor's stop latch is checked between stages and during the poll); no `active` row is produced.
+Recording enable/disable is refused pre-gate, so a client cannot fabricate `active`/`recording` from
+a gated row.
+
+**Orphan recovery.** Both `initializing` and `stream_pending` are **live** statuses, so a core
+restart while a session is gated is covered by the orphan failer: the row is marked `failed` with a
+reason rather than left stranded. (Server-internal: `session_lifecycle.LIVE_STATUSES`/`_STATUS_MAP`
+and the supervisor watchdog treat the two states exactly like `active`.)
 
 **Live status sequencing (what the client sees over WS after create):**
 
 | Time | WS event | Session state | Client UX (allowed affordance) |
 |---|---|---|---|
-| t+0ms | `session.created` (enriched) | `active`, retry_attempts 0, attempts [] | 🔄 row appears as "Starting…" (status active); ⏳ if you show a detail view |
-| t+ε | `session.updated` | `status=recording` (if `recording:true`) or stays `active`; `attempts:[{index:1, started_at:..., ended_at:null,...}]`; `session_urls:[...]` if `web_url` configured (`[{label:"M3U8"|"HTML"|"Outplayer",url:...}]` — empty list otherwise) | 🔄 live status chip flips; 🔄 attempt list shows attempt 1 "running"; 🔄 HLS player can mount from the M3U8 `session_urls` entry — but if `web_url` unset the list is empty and the client must show "live URLs unavailable" instead of a dead player |
-| during | `session.updated` on retry-attempt boundary | `retry_attempts` increments, `attempts` appends | 🔄 attempt timeline grows; "retry N of M" indicator |
+| t+0ms | `session.created` (enriched) | `initializing`, retry_attempts 0, attempts []; `session_urls:[...]` already published if `web_url` configured (`[{label:"M3U8"|"HTML"|"Outplayer",url:...}]` — empty list otherwise); `started_at:null` | 🔄 row appears as "Initializing…"; ⏳ loading affordance; the URLs exist but the **player MUST NOT mount yet**; if `web_url` unset the list is empty → show "live URLs unavailable" |
+| t+ε | `session.updated` | `stream_pending` — engine up, `stream.m3u8` exists but is still empty | 🔄 chip → "Waiting for stream…"; ⏳ still loading; **no player** |
+| t+ε′ | `session.updated` | `active` (or `recording` if `recording:true`); `started_at` stamped **now**; `attempts:[{index:1, started_at:..., ended_at:null,...}]` | 🔄 chip → "Running"/"Recording"; 🔄 attempt list shows attempt 1 "running"; 🔄 HLS player may **now** mount from the M3U8 `session_urls` entry |
+| during | `session.updated` on retry-attempt boundary | `retry_attempts` increments, `attempts` appends; the row re-enters `initializing` and re-runs the gate | 🔄 attempt timeline grows; "retry N of M" indicator |
 | stop pressed | (client) `POST /sessions/{id}/stop` → 200 `{"ok":true}`; then server emits `session.updated` `status=terminating` | `terminating` | 🔄 "Stopping…" chip; disable stop button; 🛑 504 (supervisor unresponsive) → offer hard-delete |
 | done | `session.updated` `status=completed` (or `failed`); then `session.stopped`/`session.crashed` | `completed`/`failed`, `ended_at` set | ✅ "Completed" toast (configurable); 🔄 final chip; 🧹 refetch detail |
-| crash | `session.crashed` (+ `session.updated` status=`failed`) | `failed`, `reason` in attempts | 🛑 "Session failed/crashed" toast with reason; 🔄 attempts detail |
+| crash | `session.crashed` (+ `session.updated` status=`failed`) | `failed`, `reason` in attempts | 🛑 "Session failed/crashed" toast with reason; 🔄 attempts detail; the row is **kept** (`failed` + `attempts[-1].reason`) — a resolve/smoke failure never deletes it |
 
 **Every `session.updated` = full serialized entity** (enriched by server). Client MUST coalesce rapid bursts (e.g. attempt-start + status-change arrive back-to-back) — use a microtask/30ms batcher.
 
@@ -495,7 +554,7 @@ Never loop step 2 more than once per boot, and never re-attempt refresh after a 
 |---|---|---|
 | Enable recording | `POST /sessions/{id}/recording/enable` | 200 `{"ok":true}` → WS `session.updated` `status=recording`, `recording=true`. **409/400** if e.g. already recording or supervisor refuses (status not `active`) — 🛑 toast |
 | Disable recording | `POST /sessions/{id}/recording/disable` | 200 `{"ok":true}` → WS `session.updated` `status=active`, `recording=false` |
-| Delete | `DELETE /sessions/{id}` | **204** (body empty). If `status=remuxing` → **409** "can't delete while remuxing"; if active → server sends stop control, finalizes, then deletes (client sees `session.deleted` WS event after) |
+| Delete | `DELETE /sessions/{id}` | **204** (body empty). If `status=remuxing` → **409** "can't delete while remuxing"; if `active`/`recording` → server sends stop control, finalizes, then deletes; a pre-gate session (`initializing`/`stream_pending`) is hard-killed (client sees `session.deleted` WS event after) |
 
 **Critical timing facts for UI:**
 - The control endpoints are **asynchronous NATS requests with 5s timeout**: 200 = supervisor *accepted*; **504** = supervisor not responding (dead/stuck); **502** = transport error. 🛑 504/502 = "control unavailable — session may be stuck"; offer delete.

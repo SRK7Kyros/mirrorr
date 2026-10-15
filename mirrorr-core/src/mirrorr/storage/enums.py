@@ -9,6 +9,8 @@ from enum import Enum as PyEnum
 
 
 class SessionStatus(str, PyEnum):
+    INITIALIZING = "initializing"      # resolver pre-flight (resolve + smoke test) running
+    STREAM_PENDING = "stream_pending"  # engine up, playlist not yet on disk
     ACTIVE = "active"
     RECORDING = "recording"
     TERMINATING = "terminating"

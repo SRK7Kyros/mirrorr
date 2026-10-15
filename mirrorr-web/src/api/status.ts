@@ -41,6 +41,7 @@ export interface StatusDescriptor {
 const NO_ACTIONS: readonly RowAction[] = []
 const DELETE_ONLY: readonly RowAction[] = ["delete"]
 const SAVE_DELETE: readonly RowAction[] = ["save-as-profile", "delete"]
+const STOP_ONLY: readonly RowAction[] = ["stop"]
 
 export const STATUS_MAP = {
   scheduled: {
@@ -49,6 +50,20 @@ export const STATUS_MAP = {
     dot: "static",
     sessionActions: NO_ACTIONS,
     autorunActions: ["edit", "delete", "run-now"],
+  },
+  initializing: {
+    label: "Initializing…",
+    tone: "secondary",
+    dot: "spinner",
+    sessionActions: STOP_ONLY,
+    autorunActions: NO_ACTIONS,
+  },
+  stream_pending: {
+    label: "Waiting for stream…",
+    tone: "secondary",
+    dot: "spinner",
+    sessionActions: STOP_ONLY,
+    autorunActions: NO_ACTIONS,
   },
   active: {
     label: "Running",
@@ -111,6 +126,19 @@ export const STATUS_MAP = {
 } as const satisfies Record<string, StatusDescriptor>
 
 export type StatusKey = keyof typeof STATUS_MAP
+
+/** The pre-playback gate: resolver checks running, or engine up but no playlist yet. */
+export type StartingStatus = "initializing" | "stream_pending"
+
+const STARTING_STATUSES: ReadonlySet<string> = new Set<string>([
+  "initializing",
+  "stream_pending",
+])
+
+/** True while a session's stream is not playable yet — the one gate every player hides behind. */
+export function isStarting(status: string): status is StartingStatus {
+  return STARTING_STATUSES.has(status)
+}
 
 const KNOWN_KEYS = new Set<string>(Object.keys(STATUS_MAP))
 

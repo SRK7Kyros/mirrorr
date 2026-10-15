@@ -145,6 +145,7 @@ class MirrorrSettings(BaseModel):
 
     # ── behaviour ──────────────────────────────────────────────────────
     nats_port: int = 4222
+    smoke_test_timeout_s: float = 30.0  # max seconds a resolver's smoke_test may take
     use_system_ffmpeg: bool = False
     use_system_nats: bool = False
     api_host: str = "localhost"

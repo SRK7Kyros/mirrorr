@@ -34,16 +34,23 @@ const api = vi.hoisted(() => ({
 
 vi.mock("@/api", () => api)
 
+const hls = vi.hoisted(() => ({
+  loadSource: vi.fn(),
+  attachMedia: vi.fn(),
+  destroy: vi.fn(),
+  on: vi.fn(),
+}))
+
 vi.mock("hls.js", () => ({
   default: Object.assign(
     class {
       static isSupported(): boolean {
         return true
       }
-      loadSource = vi.fn()
-      attachMedia = vi.fn()
-      destroy = vi.fn()
-      on = vi.fn()
+      loadSource = hls.loadSource
+      attachMedia = hls.attachMedia
+      destroy = hls.destroy
+      on = hls.on
     },
     { Events: { MANIFEST_PARSED: "MANIFEST_PARSED" } },
   ),
@@ -82,6 +89,8 @@ beforeEach(() => {
   HTMLMediaElement.prototype.load = vi.fn()
   router.navigate.mockClear()
   api.setSessionRecording.mockClear()
+  hls.loadSource.mockClear()
+  hls.attachMedia.mockClear()
 })
 
 describe("SessionCard", () => {
@@ -115,6 +124,22 @@ describe("SessionCard", () => {
     fireEvent.click(preview as Element)
 
     expect(router.navigate).not.toHaveBeenCalled()
+  })
+
+  it("mounts no player and shows the loading affordance while starting", () => {
+    for (const status of ["initializing", "stream_pending"]) {
+      const { container, unmount } = renderCard(session({ status }))
+
+      expect(container.querySelector('[data-slot="session-starting"]')).not.toBeNull()
+      expect(container.querySelector("video")).toBeNull()
+      expect(container.querySelector("iframe")).toBeNull()
+      expect(container.querySelector(".session-preview")).toBeNull()
+      expect(container.querySelector(".video-skin")).toBeNull()
+
+      unmount()
+    }
+    expect(hls.loadSource).not.toHaveBeenCalled()
+    expect(hls.attachMedia).not.toHaveBeenCalled()
   })
 
   it("opens the native player instead of the session when one is published", () => {

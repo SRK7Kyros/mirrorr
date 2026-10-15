@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
   DEFAULT_FILTER,
+  isLive,
+  isSpent,
   matchesFilter,
   parseFilter,
   parseFilterTokens,
@@ -41,6 +43,8 @@ describe("matchesFilter", () => {
   const run = (status: string, raw: string | null) => matchesFilter(status, parseFilter(raw))
 
   it("covers the live set", () => {
+    expect(run("initializing", "live")).toBe(true)
+    expect(run("stream_pending", "live")).toBe(true)
     expect(run("active", "live")).toBe(true)
     expect(run("recording", "live")).toBe(true)
     expect(run("terminating", "live")).toBe(true)
@@ -54,6 +58,8 @@ describe("matchesFilter", () => {
     expect(run("completed", "spent")).toBe(true)
     expect(run("failed", "spent")).toBe(true)
     expect(run("active", "spent")).toBe(false)
+    expect(run("initializing", "spent")).toBe(false)
+    expect(run("stream_pending", "spent")).toBe(false)
   })
 
   it("matches scheduled only", () => {
@@ -71,6 +77,18 @@ describe("matchesFilter", () => {
     expect(run("active", null)).toBe(true)
     expect(run("completed", null)).toBe(true)
     expect(run("failed", null)).toBe(true)
+  })
+})
+
+describe("isLive / isSpent", () => {
+  it("counts the pre-playback states as live", () => {
+    expect(isLive("initializing")).toBe(true)
+    expect(isLive("stream_pending")).toBe(true)
+  })
+
+  it("never counts them as spent", () => {
+    expect(isSpent("initializing")).toBe(false)
+    expect(isSpent("stream_pending")).toBe(false)
   })
 })
 

@@ -2,6 +2,7 @@ import { useState, type MouseEvent } from "react"
 import { Link, useNavigate } from "@tanstack/react-router"
 import type { NameMaps } from "@/api"
 import { isLive } from "@/api/domain/filter-grammar"
+import { getStatusDescriptor, isStarting } from "@/api/status"
 import { resolveEntityName } from "@/api/query-keys"
 import type { Session } from "@/api/schemas"
 import { formatDateTime, formatDuration } from "@/api/time"
@@ -42,7 +43,8 @@ export function SessionCard({
   const [hovering, setHovering] = useState(false)
   const navigate = useNavigate()
   const duration = useLiveDurationSeconds(session.started_at, session.ended_at)
-  const live = isLive(session.status)
+  const starting = isStarting(session.status)
+  const live = isLive(session.status) && !starting
   const remuxing = session.status === "remuxing" || session.status === "finalizing"
   const urls = toSessionUrls(session.session_urls)
   const playable = pickPlayableUrl(urls)
@@ -70,7 +72,7 @@ export function SessionCard({
       onFocusCapture={() => setHovering(true)}
       onBlurCapture={() => setHovering(false)}
     >
-      <SessionPreviewPlayer src={playable} htmlUrl={playerUrl} loop={!live} hovering={hovering} label={`session #${session.id}`} badge={<StatusChip status={session.status} />}>
+      <SessionPreviewPlayer src={playable} htmlUrl={playerUrl} loop={!live} hovering={hovering} loading={starting} loadingLabel={getStatusDescriptor(session.status).label} label={`session #${session.id}`} badge={<StatusChip status={session.status} />}>
         <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 px-3 py-2 [background-image:linear-gradient(to_top,var(--overlay-scrim),transparent)] pointer-events-none">
           <StatusChip status={session.status} />
           {live ? (

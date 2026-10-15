@@ -221,6 +221,11 @@ class ResolverInterface(ABC, Generic[ConfigT]):
         bus to tell the engine to re-resolve (e.g., URL expiry)."""
         ...
 
+    async def smoke_test(self, source: Source, config: ConfigT, context: ResolverContext) -> None:
+        """Optional pre-flight check of the resolved source, called by the
+        backend right after ``resolve``. Raise to fail the session."""
+        return None
+
     async def stop(self, context: ResolverContext) -> None:
         """Called when the supervisor shuts down. Override to clean up."""
         ...
