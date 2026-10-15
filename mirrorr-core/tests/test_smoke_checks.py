@@ -9,6 +9,8 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlmodel import SQLModel
@@ -371,5 +373,58 @@ def test_started_at_is_stamped_only_once_playable(tmp_path):
         finally:
             container.reset()
         await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+# ── a raise from the playable publish must not leak the gate tasks ──────
+
+def test_failed_playable_publish_still_reaps_the_gate_tasks(tmp_path):
+    """A raise from the playable publish must still reap the gate tasks.
+
+    The publish (and the follow-up wait) is the only await between the race
+    and the cancel/park loop, so a raise there — e.g. the session row was
+    deleted concurrently and the UPDATE matched no row — must still cancel
+    ``ready_task`` and the three lifecycle tasks. The raise is not swallowed:
+    it propagates out of ``_run_attempt`` (the caller's retry loop owns it);
+    this test asserts the leak, not the handling.
+    """
+    sup = _supervisor(tmp_path, _resolver(), _engine(playlist_after=0.05))
+
+    captured: list[asyncio.Task] = []
+    real_wait = asyncio.wait
+
+    async def _capturing_wait(tasks, **kw):
+        tasks = list(tasks)
+        if len(tasks) == 4 and not captured:
+            captured.extend(tasks)
+        return await real_wait(tasks, **kw)
+
+    async def _update(settings, session_id, **fields):
+        if fields.get("status") in (SessionStatus.ACTIVE, SessionStatus.RECORDING):
+            raise RuntimeError("UPDATE matched no row")
+        return {}
+
+    async def scenario():
+        ctx = (
+            patch.object(session_supervisor, "build_session_urls", lambda *a, **k: []),
+            patch.object(session_supervisor, "update_session", _update),
+            patch.object(asyncio, "wait", _capturing_wait),
+            patch("mirrorr.startup.ensure_resolvers.get_validated_config", lambda **k: {}),
+        )
+        for p in ctx:
+            p.start()
+        try:
+            with pytest.raises(RuntimeError, match="UPDATE matched no row"):
+                await asyncio.wait_for(sup._run_attempt(), timeout=5)
+
+            assert len(captured) == 4, "the readiness race never ran"
+            assert all(t.done() for t in captured), [t for t in captured if not t.done()]
+            assert not [
+                t for t in asyncio.all_tasks() if "wait_for_playlist" in repr(t.get_coro())
+            ]
+        finally:
+            for p in ctx:
+                p.stop()
 
     asyncio.run(scenario())
