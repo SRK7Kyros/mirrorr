@@ -527,7 +527,8 @@ re-runs the whole gate.
 
 **`stop` is valid in both states.** `POST /sessions/{id}/stop` aborts a gated session cleanly (the
 supervisor's stop latch is checked between stages and during the poll); no `active` row is produced.
-Recording enable/disable is refused pre-gate, so a client cannot fabricate `active`/`recording` from
+Recording enable/disable changes only the `recording` flag pre-gate (the `status` write is withheld
+until the gate publishes `active`/`recording`), so a client cannot fabricate `active`/`recording` from
 a gated row.
 
 **Orphan recovery.** Both `initializing` and `stream_pending` are **live** statuses, so a core
@@ -539,7 +540,7 @@ and the supervisor watchdog treat the two states exactly like `active`.)
 
 | Time | WS event | Session state | Client UX (allowed affordance) |
 |---|---|---|---|
-| t+0ms | `session.created` (enriched) | `initializing`, retry_attempts 0, attempts []; `session_urls:[...]` already published if `web_url` configured (`[{label:"M3U8"|"HTML"|"Outplayer",url:...}]` — empty list otherwise); `started_at:null` | 🔄 row appears as "Initializing…"; ⏳ loading affordance; the URLs exist but the **player MUST NOT mount yet**; if `web_url` unset the list is empty → show "live URLs unavailable" |
+| t+0ms | `session.created` (enriched) | `initializing`, retry_attempts 0, attempts []; `session_urls:[]` (the supervisor publishes them in its first `initializing` update, t+ε); `started_at:null` | 🔄 row appears as "Initializing…"; ⏳ loading affordance; **no player**; the URL list is empty until t+ε (then `[{label:"M3U8"|"HTML"|"Outplayer",url:...}]`, or empty if `web_url` unset → show "live URLs unavailable") |
 | t+ε | `session.updated` | `stream_pending` — engine up, `stream.m3u8` exists but is still empty | 🔄 chip → "Waiting for stream…"; ⏳ still loading; **no player** |
 | t+ε′ | `session.updated` | `active` (or `recording` if `recording:true`); `started_at` stamped **now**; `attempts:[{index:1, started_at:..., ended_at:null,...}]` | 🔄 chip → "Running"/"Recording"; 🔄 attempt list shows attempt 1 "running"; 🔄 HLS player may **now** mount from the M3U8 `session_urls` entry |
 | during | `session.updated` on retry-attempt boundary | `retry_attempts` increments, `attempts` appends; the row re-enters `initializing` and re-runs the gate | 🔄 attempt timeline grows; "retry N of M" indicator |

@@ -324,7 +324,7 @@ The data layer is a standalone module — see `src/api/README.md` for its full c
 
 | Enum | Values |
 |------|--------|
-| `SessionStatus` | `active`, `recording`, `terminating`, `remuxing`, `finalizing`, `completed`, `failed` |
+| `SessionStatus` | `initializing`, `stream_pending`, `active`, `recording`, `terminating`, `remuxing`, `finalizing`, `completed`, `failed` |
 | `AutorunStatus` | `scheduled`, `active`, `recording`, `terminating`, `remuxing`, `finalizing`, `completed`, `failed` |
 | `ResourceType` | `session`, `profile`, `autorun`, `recording` |
 
@@ -543,8 +543,13 @@ class ResolverInterface(ABC):
     config_model: Type[ConfigT]  # Pydantic model for configuration
 
     async def resolve(config: ConfigT, context: ResolverContext) -> Source
+    async def smoke_test(source: Source, config: ConfigT, context: ResolverContext) -> None
     def stop(context: ResolverContext) -> None
 ```
+
+The optional `smoke_test` runs **unconditionally** after `resolve()`, bounded by
+`smoke_test_timeout_s` (default 30 s), and **raises to fail**; the base implementation is a no-op.
+The startup gate it belongs to is `initializing` → `stream_pending` → `active`/`recording` (Oct 15 2026).
 
 ### Loading Pipeline
 
