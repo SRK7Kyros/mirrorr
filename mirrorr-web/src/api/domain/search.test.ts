@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest"
 import { queryWords, rankBySearch, scoreMatch } from "./search"
 
-/** The channel titles the report was filed against, in the catalog's own order. */
+/**
+ * The shape of the catalog the report was filed against, in its own order: half
+ * the rows are "Sky Sport …" (so `sky` and `sport` answer almost everything and
+ * carry little weight on their own) and the distinctive words — `f1`, `italy` —
+ * are rare. A fixture of one title cannot show this: informativeness is a
+ * property of the list.
+ */
 const SPELLING = [
   "Sky Sport 258 Italia",
   "Sky Sport 3 NZ",
@@ -13,6 +19,16 @@ const SPELLING = [
   "Sky Sports Main Event",
   "Sky Sports Tennis UK",
   "Sky Sports+ Plus",
+  "Sky Sports F1 UK",
+  "Sky Sports F1 DE",
+  "F1 DE Stream",
+  "AppleTV F1",
+  "DAZN F1 ES",
+  "F1 Italy",
+  "Eurosport 1",
+  "Rai Sport Italy",
+  "TVI Reality Portugal",
+  "beIN Sports 1",
 ]
 
 const names = (rows: readonly { name: string }[]) => rows.map((row) => row.name)
@@ -92,11 +108,47 @@ describe("rankBySearch", () => {
     expect(rank(["qq"], "qq")).toEqual(["qq"])
   })
 
-  it("leads with the near-exact match and drops the titles that only share words", () => {
+  it("leads with the exact match", () => {
     // The report: "sky sport fl italy" put "Sky Sport 258 Italia" first, three
-    // rows above "Sky Sport F1 Italy". Only the F1 row answers all four words.
-    expect(rank(SPELLING, "sky sport fl italy")).toEqual(["Sky Sport F1 Italy"])
-    expect(rank(SPELLING, "sky sport f1 italy")).toEqual(["Sky Sport F1 Italy"])
+    // rows above "Sky Sport F1 Italy". The F1 row answers every word and leads.
+    expect(rank(SPELLING, "sky sport fl italy")[0]).toBe("Sky Sport F1 Italy")
+    expect(rank(SPELLING, "sky sport f1 italy")[0]).toBe("Sky Sport F1 Italy")
+  })
+
+  it("keeps the near-misses the query is still mostly about", () => {
+    // "the user might also want those": a Sky Sports F1 of another region lacks
+    // only "italy", and "F1 Italy" answers only the two distinctive words — both
+    // stay, below the title that answers everything.
+    const ranked = rank(SPELLING, "sky sport fl italy")
+    expect(ranked[0]).toBe("Sky Sport F1 Italy")
+    expect(ranked).toContain("Sky Sports F1 UK")
+    expect(ranked).toContain("Sky Sports F1 DE")
+    expect(ranked).toContain("Sky Sport Tennis Italy")
+    expect(ranked).toContain("F1 Italy")
+  })
+
+  it("holds a word to the edit budget its own length deserves", () => {
+    // "italy" is five letters, so AUTO allows one edit: a title carrying the
+    // literal "Italy" answers it, but "Italia" — two edits away — does not.
+    expect(rank(["Sky Sport 24 Italy", "Sky Sport 258 Italia"], "sky sport fl italy")).toEqual([
+      "Sky Sport 24 Italy",
+    ])
+  })
+
+  it("drops a title leaning only on words the query's own catalog is full of", () => {
+    // "Sky Sport 3 NZ" answers "sky" and "sport" — the two words half the titles
+    // already hold — and is not a match; nor is a title answering nothing.
+    const ranked = rank(SPELLING, "sky sport fl italy")
+    expect(ranked).not.toContain("Sky Sport 3 NZ")
+    expect(ranked).not.toContain("Sky Sports Main Event")
+    expect(ranked).not.toContain("TVI Reality Portugal")
+    expect(ranked).not.toContain("Eurosport 1")
+  })
+
+  it("drops every title the query has nothing to say about", () => {
+    expect(rank(["dfdfslfsfs", "Brazzers", "Sky Sport F1 Italy"], "dfdfslfsfs")).toEqual(["dfdfslfsfs"])
+    expect(rank(["Brazzers"], "zz")).toEqual([])
+    expect(rank(["qq"], "qq")).toEqual(["qq"])
   })
 
   it("puts a literal match above the typo that answers the same word", () => {
@@ -107,7 +159,11 @@ describe("rankBySearch", () => {
   })
 
   it("does not let a neighbour ride along on a shared number", () => {
-    expect(rank(["Sportklub 10 Croatia", "Sportklub 2 Croatia"], "sportklub 2")).toEqual(["Sportklub 2 Croatia"])
+    // "10" answers "sportklub" but not "2"; a title has to answer the query, not
+    // just share one of its words with half the catalog.
+    expect(rank(["Sportklub 10 Croatia", "Sportklub 2 Croatia"], "sportklub 2")).toEqual([
+      "Sportklub 2 Croatia",
+    ])
   })
 
   it("finds a word typed short, inside a longer token", () => {
@@ -131,6 +187,8 @@ describe("rankBySearch", () => {
       { name: "F1 Weekend", engine: "yt-dlp" },
     ]
     const found = rankBySearch(rows, "f1 yt", (row) => [row.name, row.engine])
+    // Only the yt-dlp row answers "yt"; the other answers "f1" alone, which is
+    // not enough of this two-word query.
     expect(found).toHaveLength(1)
     expect(found[0]?.engine).toBe("yt-dlp")
   })

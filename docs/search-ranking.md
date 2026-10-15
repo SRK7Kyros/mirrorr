@@ -113,16 +113,18 @@ relative cutoffs (`score ≥ best × k`).
 ## 3. The design
 
 The corpus is ~1,600 short titles, ranked client-side on every keystroke, identical in
-every browser and testable in bun. That rules out anything needing an index (BM25,
-MiniSearch, FTS5), anything position/threshold-shaped (Bitap's `location`/`distance`), and
-the parametric automaton (state explosion for a needle scanned per candidate). Pure
-*subsequence* matchers — fzf, fzy, VS Code, Sublime — are also out as the primary: they
+every browser and testable in bun. That rules out anything needing a *persistent* index
+(MiniSearch's radix tree, FTS5's tables), anything position/threshold-shaped (Bitap's
+`location`/`distance`), and the parametric automaton (state explosion for a needle scanned
+per candidate). BM25 itself is not ruled out — only its *index* is: its idf is a statistic
+over the list in hand, so it is computed per query on the pass that is already happening.
+Pure *subsequence* matchers — fzf, fzy, VS Code, Sublime — are also out as the primary: they
 have **no typo tolerance at all** (a misspelled letter simply fails to match), and our
 reported failure was precisely a spelling-adjacent case (`fl` for `f1`).
 
 What replaced it: **token-anchored matching with a bounded edit distance**, i.e. the
-field's *admission* discipline (AND semantics, word-anchored) married to the field's
-*typo budget* (ES `AUTO:3,6`), and fzf's `--tiebreak length` idea for ordering.
+field's *admission* discipline (word-anchored matching, weighted like BM25) married to the
+field's *typo budget* (ES `AUTO:3,6`), and fzf's `--tiebreak length` idea for ordering.
 
 1. **Normalise** — NFD, strip combining marks, lowercase. `Sky Spört` and `SKY SPORT`
    compare equal, and length arithmetic happens after folding so indices never drift.
@@ -145,10 +147,22 @@ field's *admission* discipline (AND semantics, word-anchored) married to the fie
    is caught inside longer words too. Everything below the literal match is discounted in
    proportion to what is missing, so **a typo is tolerated but can never beat the word it
    misspells.**
-4. **Admit** a candidate only when *every* query word related to something — the AND
-   semantics that production search uses, and the rule that removes the 488 junk rows.
-5. **Order** by the mean relation, then by the tighter title (fewer tokens left
-   unaccounted for), then the shorter title, then the order the caller supplied.
+4. **Weigh** each query word by its informativeness across the list in hand — BM25's
+   `idf = ln(1 + (N − n + 0.5)/(n + 0.5))`, `n` the titles answering that word. No index is
+   built or kept: the list is already being walked, so the counts come free on the same
+   pass. A word *no* title answers is left out of the weighing, so a half-typed word cannot
+   empty the list.
+5. **Admit** a title when the words it answers carry the **majority of the query's
+   informativeness**. This is the step that both keeps the near-misses and shuts out the
+   noise: `Sky Sports F1 UK` lacks only `italy` and stays, `F1 Italy` answers only the two
+   rare words and stays, while `Sky Sport 3 NZ` (only `sky` and `sport`, which half the
+   catalog holds) and `RTE 2` (only the ubiquitous `2`) do not. Note the shape: a 2-word
+   query needs both words, because their weights *are* the whole query — the tolerance
+   grows with how much of the query is distinctive.
+6. **Order** by coordination (how many words answered), then the mean relation, then the
+   tighter title (fewer tokens unaccounted for), then the shorter title, then call order.
+   Coordination first is what keeps the reported case intuitive: the title answering all
+   four words leads, and the titles answering three or two follow it.
 
 The look-alike groups (`1 l |`, `0 o`) exist for exactly the reported case: `fl` for `f1`.
 They are only ever *tried*, and a folded match scores `0.45` against the literal `1`, so
@@ -158,31 +172,38 @@ They are only ever *tried*, and a folded match scores `0.45` against the literal
 
 | Query | Before | After |
 |---|---|---|
-| `sky sport fl italy` | 1,106 survivors; `Sky Sport 258 Italia` rendered first | **1** survivor — `Sky Sport F1 Italy` (0.863) |
+| `sky sport fl italy` | 1,106 survivors; `Sky Sport 258 Italia` rendered first | **30** survivors, led by `Sky Sport F1 Italy`, then the other `Sky Sport … Italy` channels, then `Sky Sports F1` / `4K` / `DE` / `UK`, with `F1 Italy` last — every near-miss the report named is present |
 | `dfdfslfsfs` | 44 survivors (0.8 each) | **0** |
 | `zz` | 1 (*Brazzers*) | **0** |
-| `sportklub 2` | 991 survivors; `Sportklub 10 Croatia` at 81 vs 82 | **1** — `Sportklub 2 Croatia` |
-| `euro sport italy` | 1,110 survivors | **2** — `EuroSport 1 Italy`, `EuroSport 2 Italy` (0.922) |
+| `sportklub 2` | 991 survivors; `Sportklub 10 Croatia` at 81 vs 82 | **7** — `Sportklub 2 Croatia` first, then 3/5/7/8/9/10; `RTE 2` (the digit alone) excluded |
+| `euro sport italy` | 1,110 survivors | **27** — `EuroSport 1 Italy`, `EuroSport 2 Italy` first, then the other-Italy and other-region EuroSport rows |
 | `nba` | 79 survivors, exact matches tied with `WNBA` | **12** — exact `NBA` rows first, `WNBA` at 0.900 |
+| `bein arabic` | — | **14** — `Bein Arabic Baclup` first, then the `beIN Sports … Arabic` rows |
+| `tvi reality` | — | **2** — `TVI Reality Portugal`, then `RealityKings` |
 | `TVI Reality Portugal` on `sky sport fl italy` | survived | **excluded** |
-| exact-title query | rank 1 but tied with 8 neighbours; one case at rank 0 | **rank 1 of 1** for all eight probed titles |
+| exact-title query | rank 1 but tied with 8 neighbours; one case at rank 0 | **rank 1** in every case of the unit-test judgment set (MRR 1.0) |
 
 Typo tolerance is retained, not traded away: `sprot` still finds 259 title rows (all at
-0.720 — below any literal `sport`), and the intended title leads its own query in every
-case of the unit-test judgment set (mean reciprocal rank 1.0).
+0.720 — below any literal `sport`). The one place the `AUTO` budget bites is a spelling two
+edits from a five-letter word: `Sky Sport 258 Italia` is not a match for `italy` (that is
+`Italia`, two edits away). That is `AUTO`'s rule working as designed, and it is asserted in
+the unit tests so it cannot drift silently.
 
-Cost: **~4–6 ms** per keystroke over 1,590 items (mean of 20 runs, bun on this host),
-dominated by the per-item normalisation — so no index, cache or precompute is warranted.
+Cost: **~5 ms** per keystroke for a one- or two-word query and **~20 ms** for a four-word
+one over 1,590 items (bun on this host), dominated by per-item normalisation; the idf
+weighing adds a counter to the pass already being made. No index, cache or precompute is
+warranted.
 
 ## 4. Residual limits
 
-- No IDF/weighting: every query word counts equally, so a ubiquity-heavy query (`sport`
-  alone → 550 rows, correctly, they all contain the word) is broad. Weighting each word by
-  how rare it is would sharpen multi-word queries further, but it costs a second pass and
-  was not needed for the reported case.
-- AND is strict: one unfindable word returns nothing. That is honest and predictable, and
-  a typo is absorbed by the edit budget; "all but one" would be the next step if a
-  use-case appears.
+- Weighting is **corpus-relative** — a statistic over the list being ranked, not a
+  catalogue-wide constant. On a tiny list (a handful of rows) it has little to weigh, and
+  ranking there is close to plain coordination + quality. That is the price of needing no
+  index.
+- Admission is a **weighted majority, not strict AND**. A 2-word query needs both words
+  (their weights are the whole query); a 4-word query tolerates one miss. A query made
+  mostly of very common words therefore stays broad — `sport` alone correctly returns 548
+  rows, all of which contain it.
 - Substring relations need a word of 3+ characters, so a two-letter query word matches
   whole tokens or token prefixes only. Two letters carry too little signal to justify
   anything looser.
