@@ -98,6 +98,8 @@ export function resolver(overrides: Row = {}): Row {
     origin: "user",
     origin_hash: "0a1b2c3",
     config_schema: { type: "object" },
+    /** The core's own default: a resolver with no catalog is search-only. */
+    has_catalog: false,
     ...overrides,
   }
 }
@@ -145,6 +147,10 @@ export interface ApiData {
   sources?: readonly Row[]
   engines?: readonly Row[]
   resolvers?: readonly Row[]
+  /** `POST /resolvers/{id}/discover` — the catalog the channel browser reads. */
+  discovery?: readonly Row[]
+  /** Page size the stub slices `discovery` with (default: one page). */
+  discoveryPageSize?: number
   /** `POST /import-export/validate` — the staged-item report. */
   validate?: unknown
   /** `POST /import-export/apply` — the applied-import summary. */
@@ -204,6 +210,18 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
     if (create !== null && method === "POST") {
       createdIds += 1
       return answer(200, { id: createdIds, ...((body as Row | undefined) ?? {}) })
+    }
+
+    // Discovery: a paged catalog, so a spec can watch the browser read it and
+    // then filter locally without asking again.
+    const discover = /^\/resolvers\/(\d+)\/discover$/.exec(path)
+    if (discover !== null) {
+      const catalog = data.discovery ?? []
+      const asked = (body as { cursor?: string | null } | undefined)?.cursor
+      const start = typeof asked === "string" ? Number(asked) : 0
+      const size = data.discoveryPageSize ?? catalog.length
+      const items = catalog.slice(start, start + size)
+      return answer(200, { items, next_cursor: start + size < catalog.length ? String(start + size) : null })
     }
 
     if (path === "/sessions/") return list(data.sessions)

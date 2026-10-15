@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useInfiniteQuery } from "@tanstack/react-query"
 import { discoverResolver, getErrorMessage } from "@/api"
+import { rankBySearch } from "@/api/domain/search"
 import type { DiscoveryItem, Resolver } from "@/api/schemas"
 import {
   Button,
@@ -15,13 +16,23 @@ import {
   defaultsFromSchema,
 } from "@/ui/components"
 
-/** Debounce window for the search box (design spec §6.3). */
+/** Debounce window for the search box of a search-only resolver (design spec §6.3). */
 const SEARCH_DEBOUNCE_MS = 250
 
 /**
  * Discovery overlay — browse or search a resolver's catalog and hand the chosen
- * item's config back. Mode is inferred: a query searches, no query browses.
- * `raised` because it opens from on top of the source dialog.
+ * item's config back.
+ *
+ * A resolver that declares a catalog (`has_catalog`, i.e. the plugin's
+ * `discovery_has_catalog`) is read **once**: every page is pulled in the
+ * background and the search box ranks what is already here with the same
+ * typo-tolerant ranking the lists use (`rankBySearch` — the resolver plugin
+ * ranks identically on its own search path), so typing costs no request at all.
+ * Asking the server per keystroke made the plugin refetch its upstream catalog
+ * each time and its rate limiter noticed. A search-only resolver has nothing to
+ * filter, so there the text does go to the server, debounced.
+ *
+ * `raised` because it opens from on top of the dialog that asked for a config.
  */
 export function DiscoveryDrawer({
   open,
@@ -39,6 +50,10 @@ export function DiscoveryDrawer({
   const [filters, setFilters] = useState<Record<string, unknown>>({})
   const sentinelRef = useRef<HTMLDivElement | null>(null)
 
+  const catalog = resolver?.has_catalog === true
+  const serverQuery = catalog ? "" : debouncedQuery
+  const typed = query.trim()
+
   // A fresh run each time the overlay opens or the resolver changes.
   useEffect(() => {
     if (!open) return
@@ -48,18 +63,19 @@ export function DiscoveryDrawer({
   }, [open, resolver])
 
   useEffect(() => {
+    if (catalog) return
     const timer = setTimeout(() => setDebouncedQuery(query.trim()), SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timer)
-  }, [query])
+  }, [catalog, query])
 
   const page = useInfiniteQuery({
-    queryKey: ["discovery", resolver?.id ?? 0, debouncedQuery, filters],
+    queryKey: ["discovery", resolver?.id ?? 0, catalog ? "catalog" : "search", serverQuery, filters],
     enabled: open && resolver !== null,
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) => {
       if (resolver === null) throw new Error("No resolver selected")
       return discoverResolver(resolver.id, {
-        ...(debouncedQuery === "" ? {} : { query: debouncedQuery }),
+        ...(serverQuery === "" ? {} : { query: serverQuery }),
         params: filters,
         cursor: pageParam ?? null,
       })
@@ -67,21 +83,35 @@ export function DiscoveryDrawer({
     getNextPageParam: (last) => last.next_cursor ?? undefined,
   })
 
-  const items = useMemo(() => page.data?.pages.flatMap((entry) => entry.items ?? []) ?? [], [page.data])
+  const loaded = useMemo(() => page.data?.pages.flatMap((entry) => entry.items ?? []) ?? [], [page.data])
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = page
 
-  // Infinite scroll: the sentinel is only observed while another page exists.
+  const items = useMemo(
+    () => (catalog ? rankBySearch(loaded, query, (item) => [item.title]) : loaded),
+    [catalog, loaded, query],
+  )
+
+  // A catalog is read to its end, not to the fold: the filtering happens here,
+  // so a match on page twenty cannot wait for a scroll that may never come.
+  useEffect(() => {
+    if (!open || !catalog || !hasNextPage || isFetchingNextPage) return
+    void fetchNextPage()
+  }, [open, catalog, hasNextPage, isFetchingNextPage, fetchNextPage, loaded.length])
+
+  // Infinite scroll: the sentinel is only observed while another page exists
+  // and the pages are not already being pulled in the background.
   useEffect(() => {
     const node = sentinelRef.current
-    if (node === null || !hasNextPage || isFetchingNextPage) return
+    if (node === null || catalog || !hasNextPage || isFetchingNextPage) return
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) void fetchNextPage()
     })
     observer.observe(node)
     return () => observer.disconnect()
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage, items.length])
+  }, [catalog, hasNextPage, isFetchingNextPage, fetchNextPage, items.length])
 
   const hasFilters = Object.keys(asObject(resolver?.search_schema)).length > 0
+  const readingCatalog = catalog && hasNextPage
 
   return (
     <Drawer
@@ -100,7 +130,7 @@ export function DiscoveryDrawer({
             value={query}
             autoFocus
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search…"
+            placeholder={catalog ? "Filter…" : "Search…"}
             aria-label="Search the catalog"
           />
         </div>
@@ -122,10 +152,18 @@ export function DiscoveryDrawer({
             onRetry={() => void page.refetch()}
           />
         ) : items.length === 0 ? (
-          <EmptyState
-            title="No results"
-            text={debouncedQuery === "" ? "This catalog returned nothing." : `Nothing matches “${debouncedQuery}”.`}
-          />
+          readingCatalog && typed !== "" ? (
+            <p className="text-ink-dim" style={{ fontSize: "var(--fs-sm)" }}>
+              Nothing read so far matches “{typed}” — still loading the catalog…
+            </p>
+          ) : readingCatalog ? (
+            <SkeletonRows rows={4} cols={2} />
+          ) : (
+            <EmptyState
+              title="No results"
+              text={typed === "" ? "This catalog returned nothing." : `Nothing matches “${typed}”.`}
+            />
+          )
         ) : (
           <>
             <ul className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3 m-0 p-0 list-none">

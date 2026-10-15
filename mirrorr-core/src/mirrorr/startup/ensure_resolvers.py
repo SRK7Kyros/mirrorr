@@ -31,6 +31,7 @@ def _extract_db_fields(instance: ResolverInterface, module_hash: str) -> dict[st
         "origin_hash": module_hash,
         "config_schema": instance.config_model.model_json_schema(),
         "search_schema": instance.discovery_model.model_json_schema() if instance.discovery_model else {},
+        "has_catalog": instance.discovery_has_catalog,
     }
 
 
@@ -43,6 +44,7 @@ def _schema_changed(instance: ResolverInterface, existing: Resolver | None, modu
         existing.origin_hash != module_hash
         or existing.config_schema != new_config
         or existing.search_schema != new_search
+        or existing.has_catalog != instance.discovery_has_catalog
         or bool(existing.config_schema == {} and new_config.get("properties"))
     )
 

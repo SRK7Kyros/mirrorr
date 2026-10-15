@@ -61,6 +61,14 @@ class _Discoverable(_Plain):
         return DiscoveryPage(items=[DiscoveryItem(id=query, title=query, config={})])
 
 
+class _DiscoverableNoCatalog(_Discoverable):
+    """Same discovery model, no catalog - the browse/search split."""
+
+    @property
+    def discovery_has_catalog(self) -> bool:
+        return False
+
+
 def _context() -> ResolverContext:
     return ResolverContext(bus=None, session_folder=Path("."))
 
@@ -100,6 +108,17 @@ def test_schema_changed_when_search_schema_missing():
 def test_schema_changed_when_discovery_appears():
     row = _row(_Plain())
     assert _schema_changed(_Discoverable(), row, "h") is True
+
+
+def test_extract_has_catalog():
+    assert _extract_db_fields(_Plain(), "h")["has_catalog"] is False
+    assert _extract_db_fields(_Discoverable(), "h")["has_catalog"] is True
+
+
+def test_schema_changed_when_catalog_flag_flips():
+    row = _row(_Discoverable())
+    assert row.has_catalog is True
+    assert _schema_changed(_DiscoverableNoCatalog(), row, "h") is True
 
 
 def test_discovery_search_returns_items():

@@ -190,6 +190,9 @@ class Resolver(SQLModel, table=True):
     origin_hash: str
     config_schema: dict[str, Any] = Field(default_factory=dict, sa_column=Column(SAJSON))
     search_schema: dict[str, Any] = Field(default_factory=dict, sa_column=Column(SAJSON))
+    #: The plugin's discovery_has_catalog: True means the discovery panel can read
+    #: a catalog once and filter it in the browser; False is search-only.
+    has_catalog: bool = Field(default=False)
 
     profiles: list[Profile] = Relationship(back_populates="resolver")
     sessions: list[Session] = Relationship(back_populates="resolver")

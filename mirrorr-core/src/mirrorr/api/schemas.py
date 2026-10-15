@@ -259,6 +259,8 @@ class ResolverResponse(BaseModel):
     origin_hash: str
     config_schema: dict[str, Any] = Field(default_factory=dict)
     search_schema: dict[str, Any] = Field(default_factory=dict)
+    #: True when the plugin declares a browsable catalog (discovery_has_catalog).
+    has_catalog: bool = False
 
 
 # ── Typed list responses (for OpenAPI schema + runtime validation) ────

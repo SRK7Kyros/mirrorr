@@ -23,13 +23,16 @@ import {
   Input,
   SchemaForm,
   Segmented,
+  IconSearch,
   Select,
   Switch,
   TabPanel,
+  asObject,
   defaultsFromSchema,
   toast,
   panelTitleClass,
 } from "@/ui/components"
+import { DiscoveryDrawer } from "@/ui/views/shared/discovery-drawer"
 import { SourcePicker } from "@/ui/views/shared/source-picker"
 
 /** Slug grammar enforced live in the wizard (spec §5.5). */
@@ -107,6 +110,7 @@ export function AutorunFormDialog({
   const [engineId, setEngineId] = useState("")
   const [resolverId, setResolverId] = useState("")
   const [resolverConfig, setResolverConfig] = useState<Record<string, unknown>>({})
+  const [browseOpen, setBrowseOpen] = useState(false)
   const [recording, setRecording] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [slugError, setSlugError] = useState<string | null>(null)
@@ -168,6 +172,7 @@ export function AutorunFormDialog({
     endLocal !== "" &&
     new Date(endLocal).getTime() < parseNaiveUtc(autorun.end_time).getTime()
   const resolver = resolvers.find((item) => String(item.id) === resolverId)
+  const canBrowse = resolver !== undefined && Object.keys(asObject(resolver.search_schema)).length > 0
   const canSubmit = mode === "profile" ? profileId !== "" : engineId !== "" && resolverId !== ""
 
   function changeResolver(nextId: string): void {
@@ -418,6 +423,19 @@ export function AutorunFormDialog({
 
             {!live && mode === "custom" ? (
               <>
+                {canBrowse ? (
+                  <div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      icon={<IconSearch size={15} />}
+                      onClick={() => setBrowseOpen(true)}
+                    >
+                      Browse {resolver.name}…
+                    </Button>
+                  </div>
+                ) : null}
                 <SourcePicker
                   idPrefix="autorun"
                   resolverId={resolverId}
@@ -452,6 +470,16 @@ export function AutorunFormDialog({
           />
         </div>
       </Dialog>
+
+      <DiscoveryDrawer
+        open={browseOpen}
+        onClose={() => setBrowseOpen(false)}
+        resolver={resolver ?? null}
+        onUse={(item) => {
+          setResolverConfig(item.config ?? {})
+          setBrowseOpen(false)
+        }}
+      />
 
       <ConfirmDialog
         open={confirmEnd}

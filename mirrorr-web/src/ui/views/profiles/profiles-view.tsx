@@ -192,6 +192,7 @@ function ProfileCard({ profile, names, selected, onToggle, onEdit, onDelete, onE
 /** What the page's single "+" (or a section button) opened. */
 interface PresetDialogTarget {
   readonly kind: PresetKind
+  readonly allowKindSwitch: boolean
   readonly profile: Profile | null
   readonly source: ResolverSource | null
 }
@@ -199,23 +200,29 @@ interface PresetDialogTarget {
 export function ProfilesView() {
   const [target, setTarget] = useState<PresetDialogTarget | null>(null)
 
-  const create = (kind: PresetKind): void => setTarget({ kind, profile: null, source: null })
-  const editProfile = (profile: Profile): void => setTarget({ kind: "profile", profile, source: null })
-  const editSource = (source: ResolverSource): void => setTarget({ kind: "source", profile: null, source })
+  const create = (kind: PresetKind, allowKindSwitch: boolean): void =>
+    setTarget({ kind, allowKindSwitch, profile: null, source: null })
+  const editProfile = (profile: Profile): void =>
+    setTarget({ kind: "profile", allowKindSwitch: false, profile, source: null })
+  const editSource = (source: ResolverSource): void =>
+    setTarget({ kind: "source", allowKindSwitch: false, profile: null, source })
 
   return (
     <Page title="Presets" description="Reusable profiles and saved resolver configs.">
-      <ProfilesPanel onCreate={() => create("profile")} onEdit={editProfile} />
-      <SourcesPanel onCreate={() => create("source")} onEdit={editSource} />
+      <ProfilesPanel onCreate={() => create("profile", false)} onEdit={editProfile} />
+      <SourcesPanel onCreate={() => create("source", false)} onEdit={editSource} />
 
-      {/* One "+" for the whole page. It used to be one per panel, stacked in the
+      {/* One "+" for the whole page, and the phone's only create entry (the Fab
+          exists under `sm` only). It used to be one per panel, stacked in the
           same corner — the source one was painted last, so on touch layouts a
-          profile could not be created at all. */}
-      <Fab label="New preset" icon={<IconPlus size={22} />} onClick={() => create("profile")} />
+          profile could not be created at all. It is also the one entry where the
+          kind still has to be asked for, so it carries the switcher. */}
+      <Fab label="New preset" icon={<IconPlus size={22} />} onClick={() => create("profile", true)} />
 
       <PresetsDialog
         open={target !== null}
         kind={target?.kind ?? "profile"}
+        allowKindSwitch={target?.allowKindSwitch ?? false}
         profile={target?.profile ?? null}
         source={target?.source ?? null}
         onClose={() => setTarget(null)}

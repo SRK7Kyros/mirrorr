@@ -284,23 +284,37 @@ mounted by `AutorunFormDialog` and the session create dialog.
 
 `src/ui/views/profiles/presets-dialog.tsx` — `PresetsDialog` — is one create/edit
 dialog for both kinds the Presets page holds, opened by the page's single **New
-preset** `Fab` and by either section's primary button (which lands on its own tab).
-Each panel used to pin its own `Fab` to the same corner: on a phone the two overlay
-exactly, so the source one won every tap and a profile could not be created.
+preset** `Fab` and by either section's primary button. Each panel used to pin its own
+`Fab` to the same corner: on a phone the two overlay exactly, so the source one won
+every tap and a profile could not be created.
 
-A segmented **Profile | Source** control picks the kind on create; **editing locks
-the dialog to the kind being edited** (no switcher, no cross-kind retarget). Only the
-active tab's `<form>` is mounted, and the shared footer submits it via `form=` +
-`type="submit"`.
+The kind switcher is a **phone affordance** — the `Fab` only exists under `sm` and is
+the only create entry there, so it is the one entry that still has to ask, and it
+carries a segmented **Profile | Source** control (`allowKindSwitch`). On a wide screen
+each section keeps its own button and the dialog opens scoped to that kind, titled
+after it, with nothing to choose. **Editing always locks the dialog to the kind being
+edited** (no switcher, no cross-kind retarget). Only the active tab's `<form>` is
+mounted, and the shared footer submits it via `form=` + `type="submit"`.
 
-The profile body reads top-to-bottom in numbered blocks — Identity · Engine · Source ·
-Retry, each a bordered `bg-surface-1` panel with an accent step index, an uppercase
-title and a muted note on the right — and the *Source* block opens with the input-mode
-control: **Pick a resolver** (picker + the generated `config_schema` form) or **Use a
-saved source** (picker + an accent-tinted card showing the copied `resolver_config`).
+The profile body reads top-to-bottom in numbered blocks — Identity · Resolver · Engine &
+retry, each a bordered `bg-surface-1` panel with an accent step index, an uppercase
+title and, on the right, a lowercase clause saying what the block *decides* (`what it's
+called` / `how the stream is found` / `how it's recorded`) — never an instruction, never
+a question, and worded identically in the source form's Identity and Resolver blocks.
+The *Resolver* block opens with the input-mode control, labelled `Config source`:
+**Pick a resolver** (picker + the generated `config_schema` form) or **Use a saved
+source** (picker + an accent-tinted card showing the copied `resolver_config`), and both
+modes carry the same `Resolver config` sub-heading — the generated fields in one, the
+copied values in the other.
 Exactly one mode is rendered, so the two origins can no longer both be live; switching
 to *Pick a resolver* keeps the copied resolver and config — only the link to the source
-is dropped — and the copy stays editable.
+is dropped — and the copy stays editable. Resolver before engine is deliberate (the
+resolver decides *what* is recorded, the engine only *how*), and the retry group in the
+third block stays dimmed and disabled until an engine is chosen, because the modes are
+the engine's — picking an engine selects its `none` mode, which is the same thing the
+core falls back to when a profile carries no mode at all, so the picker has no extra
+“no retry” entry beside the schema. Both segmented controls size to their own content (`self-start`) rather
+than stretching into an empty full-width strip.
 
 ---
 
