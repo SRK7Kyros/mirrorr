@@ -312,6 +312,25 @@ def test_recording_toggle_moves_a_playable_session(tmp_path):
     assert calls == [{"recording": True, "status": SessionStatus.RECORDING}]
 
 
+def test_stop_drops_the_playable_latch(tmp_path):
+    """A stopped session must not let a later recording toggle rewrite its status.
+
+    Once a playable session is stopped the run is ending, so the latch is gone:
+    enable/disable_recording may still flag intent but must never publish
+    RECORDING/ACTIVE over the TERMINATING written by the stop.
+    """
+    sup = _supervisor(tmp_path, _resolver(), _engine())
+    sup._playable = True
+
+    stop_calls = _toggle(sup, "stop")
+    enable_calls = _toggle(sup, "enable_recording")
+    disable_calls = _toggle(sup, "disable_recording")
+
+    assert stop_calls == [{"status": SessionStatus.TERMINATING}]
+    assert enable_calls == [{"recording": True}]
+    assert disable_calls == [{"recording": False}]
+
+
 # ── started_at belongs to the playable transition, not the gate states ──
 
 def _engine_and_maker():
