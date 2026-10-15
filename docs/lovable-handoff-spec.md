@@ -91,7 +91,7 @@ VITE_USE_MOCKS        # "true" in Lovable preview, "false" against a real server
 - One `src/lib/api/client.ts` with a `request()` helper (adds auth header, parses Zod, throws typed errors).
 - One `src/lib/api/mocks/` module returning realistic fixtures (see §10 of the design spec for realistic content) for every endpoint.
 - Every query/mutation goes through the client; only the client knows whether it is mock or live.
-- The WebSocket layer has a **mock event simulator** that emits realistic status transitions (e.g. `active → recording → terminating → remuxing → finalizing → completed`) on a timer so the live UI is demonstrable in preview.
+- The WebSocket layer has a **mock event simulator** that emits realistic status transitions (e.g. `initializing → stream_pending → active → recording → terminating → remuxing → finalizing → completed`) on a timer so the live UI is demonstrable in preview.
 
 **Code conventions:** small files (200–400 lines), no `any`, Zod at every boundary, no
 mutation of objects (spread/copy), no `console.log` in shipped code, conventional commits
@@ -105,8 +105,8 @@ All timestamps are **naive-UTC strings** unless noted (see §10.2). IDs are inte
 
 ```ts
 type Status =
-  | "scheduled" | "active" | "recording" | "terminating"
-  | "remuxing" | "finalizing" | "completed" | "failed";
+  | "scheduled" | "initializing" | "stream_pending" | "active" | "recording"
+  | "terminating" | "remuxing" | "finalizing" | "completed" | "failed";
 
 type Profile = {
   id: number;
@@ -234,6 +234,8 @@ hardcode a status colour or label anywhere else. Unknown status strings render a
 | Status key | Label | Tone | Indicator | Dot | Icon (lucide) | Row actions |
 |---|---|---|---|---|---|---|
 | `scheduled` | Scheduled | primary | blue bar + dot | static | `Clock` | edit, delete, run-now |
+| `initializing` | Initializing… | secondary | dark dot | spinner | `Loader` | stop |
+| `stream_pending` | Waiting for stream… | secondary | dark dot | spinner | `Hourglass` | stop |
 | `active` | Running | success | green dot | static | `CirclePlay` | stop, enable/disable recording |
 | `recording` | Recording | danger | red filled dot | **pulse** | `Disc` / `CircleDot` | stop, disable recording |
 | `terminating` | Stopping… | warning | amber dot | spinner | `CircleStop` | wait, delete |
@@ -462,13 +464,16 @@ permanent). 401 → "wrong credentials". On success → `/sessions`.
 ### 7.3 Session detail
 
 - Header: status chip + id + engine → resolver + profile + owner; actions per status.
-- **Live block:** when `session_urls` non-empty, offer the HLS links; when empty (the
-  default) show a calm "Live URLs not configured (operator must set `web_url`)" — never a
-  dead player or a spinner.
+- **Live block:** while status is `initializing`/`stream_pending` (a created session runs a
+  resolver smoke check, then waits for the engine's first playlist before it is playable),
+  show a loading affordance and mount **no** player even though `session_urls` may already be
+  present; once `active`/`recording`, when `session_urls` non-empty, offer the HLS links; when
+  empty (the default) show a calm "Live URLs not configured (operator must set `web_url`)" —
+  never a dead player or a spinner.
 - **Attempts timeline:** per attempt — index, status, started/ended, exit code, reason.
   "Retry N of M" when `retry_attempts > 0`.
 - **Remux progress:** determinate bar during `remuxing` from `session.{id}.remux.progress`.
-- Actions: stop (active/recording), enable/disable recording (active), delete (any except
+- Actions: stop (initializing/stream_pending/active/recording), enable/disable recording (active), delete (any except
   remuxing), save-as-profile (completed/failed).
 
 ### 7.4 Autoruns list / detail
@@ -542,8 +547,10 @@ with "session expired". Never loop refresh. Refresh proactively at ~23h. On
 
 **8.2 Create session.** Pick profile (prefill) or set engine+resolver+config directly;
 recording toggle (disabled if engine `can_record:false`); retry policy. Submit →
-`POST /sessions/` → the session appears immediately as `active` ("Starting…"), then WS
-events drive the status. No date/time input (starts immediately).
+`POST /sessions/` → the session appears immediately as `initializing`
+("Initializing…"), moves to `stream_pending` ("Waiting for stream…") once the engine starts,
+then `active`/`recording` when the playlist is ready — WS events drive the status, and no
+player mounts until it is playable. No date/time input (starts immediately).
 
 **8.3 Live monitoring.** On load, HTTP list is the source of truth; WS is the delta layer.
 Connect `/ws/events` after auth; upsert on `created/updated` (prefer `payload.data`),

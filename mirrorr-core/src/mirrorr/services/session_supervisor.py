@@ -25,6 +25,7 @@ from mirrorr.event_bus.event import MirrorrEvent
 from nats.aio.client import Client as NATS
 
 _HEARTBEAT_INTERVAL = 60.0
+STREAM_READY_POLL_S = 0.5
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -62,6 +63,9 @@ class SessionSupervisor:
         # an attempt is still bootstrapping (resolve/engine start) must not be
         # lost the way a one-shot bus message is.
         self._stop = asyncio.Event()
+        # True once the current attempt has published ACTIVE/RECORDING. The gate
+        # owns the status, so a recording toggle must not move a pre-gate session.
+        self._playable = False
         self.processes: list[ManagedProcess] = []
         self._nc: NATS | None = None
         self.engine_ctx: EngineContext | None = None
@@ -179,7 +183,8 @@ class SessionSupervisor:
                     return
 
                 if outcome == "failed":
-                    # Resolver or start failure — session already deleted in _run_attempt
+                    # Process-start failure — the row was already marked FAILED
+                    # in _run_attempt (and kept, so the reason stays visible).
                     return
 
                 # Check retry for both crashes and done signals
@@ -253,7 +258,7 @@ class SessionSupervisor:
             )
 
     async def _run_attempt(self) -> tuple[str, EngineCrashed | EngineDone | None]:
-        """Single resolve→start→wait cycle. Returns (outcome, signal)."""
+        """Single resolve→smoke→start→ready cycle. Returns (outcome, signal)."""
         await make_session_dirs(self.session_folder, self.logs_folder, self.segments_folder, self.settings)
 
         self.engine_ctx = EngineContext(
@@ -279,15 +284,19 @@ class SessionSupervisor:
             logger.info("stop requested before start — skipping attempt")
             return "stopped", None
 
+        # 2. Publish the session as initializing. URLs are published now, before
+        # the playlist exists, so the player can mount the instant the status
+        # turns playable; the web client gates rendering on the status.
         await update_session(
             self.settings, self.session_id,
-            status=SessionStatus.RECORDING if self.session.recording else SessionStatus.ACTIVE,
+            status=SessionStatus.INITIALIZING,
             session_urls=build_session_urls(self.session_folder, self.segments_folder, self.settings),
             session_folder=str(self.session_folder),
             nc=self._nc,
         )
 
-        # 2. Resolve source via resolver
+        # 3. Resolve the source, then run the resolver's pre-flight smoke test.
+        # Either failing feeds the ordinary retry/FAILED path with a reason.
         try:
             from mirrorr.startup.ensure_resolvers import get_validated_config
 
@@ -302,14 +311,29 @@ class SessionSupervisor:
             source = await self.resolver.resolve(config, self.resolver_ctx)
         except Exception as e:
             logger.error(f"Failed to resolve source: {e}")
-            await update_session(self.settings, self.session_id, status=SessionStatus.FAILED, nc=self._nc)
-            await delete_session(
-                self.settings, self.session_id, self.session_folder,
-                nc=self._nc, autorun_id=self.session.autorun_id,
-            )
-            return "failed", None
+            return "crashed", EngineCrashed(reason=f"resolve failed: {e}")
 
-        # 2. Start engine
+        try:
+            await asyncio.wait_for(
+                self.resolver.smoke_test(source, config, self.resolver_ctx),
+                timeout=self.settings.smoke_test_timeout_s,
+            )
+        except asyncio.TimeoutError:
+            reason = f"smoke test timed out after {self.settings.smoke_test_timeout_s:g}s"
+            logger.opt(colors=True).error(f"<red>Smoke test timed out</red>: {reason}")
+            return "crashed", EngineCrashed(reason=reason)
+        except Exception as e:
+            logger.opt(colors=True).error(f"<red>Smoke test failed</red>: {e}")
+            return "crashed", EngineCrashed(reason=f"smoke test failed: {e}")
+
+        # A stop that landed during the pre-flight must not start the engine.
+        if self._stop.is_set():
+            logger.info("stop requested during pre-flight — aborting attempt")
+            return "stopped", None
+
+        # 4. Start the engine. A playlist left by a previous attempt must not
+        # read as ready, so clear it before the engine writes a fresh one.
+        (self.session_folder / "stream.m3u8").unlink(missing_ok=True)
         try:
             self.processes = await self.engine.start(self.engine_ctx, source)
         except Exception as e:
@@ -318,7 +342,7 @@ class SessionSupervisor:
             await self.bus.emit("engine.crashed", crash)
             return "crashed", crash
 
-        # 3. Subscribe BEFORE starting processes (C4 fix). Stop is a latched
+        # 5. Subscribe BEFORE starting processes (C4 fix). Stop is a latched
         # Event, not a bus message, so a stop emitted during bootstrap (before
         # this point) is still observed here.
         done_q = self.bus.subscribe("engine.done")
@@ -343,21 +367,31 @@ class SessionSupervisor:
         logger.opt(colors=True).success(f"<green>Session</green> bootstrapped — "
                        f"{len(self.processes)} processes running")
 
-        # 4. Wire telemetry + recording stash
+        # 6. Wire telemetry + recording stash
         self._wire_telemetry()
         if self._recording:
             self._recording.start_stash()
 
-        # 5. Wait for engine lifecycle signal or stop command
+        # 7. Publish stream_pending, then wait for the first playable playlist.
+        await update_session(self.settings, self.session_id, status=SessionStatus.STREAM_PENDING, nc=self._nc)
 
-        finished, _ = await asyncio.wait(
-            [done_task, crash_task, stop_task],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
+        ready_task = asyncio.create_task(self._wait_for_playlist())
+        lifecycle = [done_task, crash_task, stop_task]
+        finished, _ = await asyncio.wait([ready_task, *lifecycle], return_when=asyncio.FIRST_COMPLETED)
 
-        stop_also_pending = stop_task in finished
+        # A stop or an engine exit beats readiness — a dead run is never marked
+        # playable. (stop_task is pre-created, so a stop latched earlier fires
+        # immediately here.)
+        if not any(t in finished for t in lifecycle):
+            await update_session(
+                self.settings, self.session_id,
+                status=SessionStatus.RECORDING if self.session.recording else SessionStatus.ACTIVE,
+                nc=self._nc,
+            )
+            self._playable = True
+            finished, _ = await asyncio.wait(lifecycle, return_when=asyncio.FIRST_COMPLETED)
 
-        for t in [done_task, crash_task, stop_task]:
+        for t in [ready_task, *lifecycle]:
             if not t.done():
                 t.cancel()
                 try:
@@ -365,7 +399,7 @@ class SessionSupervisor:
                 except asyncio.CancelledError:
                     pass
 
-        if stop_also_pending:
+        if stop_task in finished:
             logger.info("stop requested")
             await self._cleanup(reason="stop")
             return "stopped", None
@@ -377,6 +411,21 @@ class SessionSupervisor:
             return "crashed", result
         logger.opt(colors=True).success(f"<green>Session</green> completed: {result.reason}")
         return "done", result
+
+    async def _wait_for_playlist(self) -> None:
+        """Block until the engine has written a non-empty ``stream.m3u8``.
+
+        The poll ends only on readiness; process death and the stop latch are
+        observed by the tasks racing this one in ``_run_attempt``.
+        """
+        playlist = self.session_folder / "stream.m3u8"
+        while True:
+            try:
+                if playlist.stat().st_size > 0:
+                    return
+            except OSError:
+                pass
+            await asyncio.sleep(STREAM_READY_POLL_S)
 
     # ── recording / remux ────────────────────────────────────────────
 
@@ -472,7 +521,12 @@ class SessionSupervisor:
                     nc=self._nc,
                 )
                 self._recording.start_stash()
-                await update_session(self.settings, self.session_id, recording=True, status=SessionStatus.RECORDING, nc=self._nc)
+                # The gate owns the status: before it publishes ACTIVE/RECORDING
+                # a toggle only flags the intent (no premature playable state).
+                fields: dict[str, Any] = {"recording": True}
+                if self._playable:
+                    fields["status"] = SessionStatus.RECORDING
+                await update_session(self.settings, self.session_id, nc=self._nc, **fields)
                 logger.info(f"recording enabled mid-run")
         elif command == "disable_recording":
             if self.session.recording:
@@ -480,7 +534,10 @@ class SessionSupervisor:
                 if self._recording:
                     await self._recording.stop_stash()
                     self._recording = None
-                await update_session(self.settings, self.session_id, recording=False, status=SessionStatus.ACTIVE, nc=self._nc)
+                fields = {"recording": False}
+                if self._playable:
+                    fields["status"] = SessionStatus.ACTIVE
+                await update_session(self.settings, self.session_id, nc=self._nc, **fields)
                 logger.info(f"recording disabled mid-run")
 
 
@@ -634,6 +691,11 @@ class SessionSupervisor:
         self.processes.clear()
         self.engine_ctx = None
         self.resolver_ctx = None
+
+        # The gate re-runs from scratch: not playable until the next attempt's
+        # playlist is ready, and the row drops back to initializing meanwhile.
+        self._playable = False
+        await update_session(self.settings, self.session_id, status=SessionStatus.INITIALIZING, nc=self._nc)
 
     async def _disconnect_nats(self) -> None:
         """Disconnect NATS. Call LAST, after all status updates are sent."""

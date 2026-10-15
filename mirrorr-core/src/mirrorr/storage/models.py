@@ -120,7 +120,7 @@ class Session(SQLModel, table=True):
     retry_config: dict[str, Any] = Field(default_factory=dict, sa_column=Column(SAJSON))
 
     status: SessionStatus = Field(
-        default=SessionStatus.ACTIVE, sa_column=Column(SQLEnum(SessionStatus))
+        default=SessionStatus.INITIALIZING, sa_column=Column(SQLEnum(SessionStatus))
     )
     recording: bool = Field(default=False)
     retry_attempts: int = Field(default=0)

@@ -26,6 +26,11 @@ const SPENT = session({
   ended_at: "2026-10-10 10:00:00",
   profile_name: "Archive",
 })
+const STARTING = session({
+  id: 5,
+  status: "stream_pending",
+  session_urls: [{ label: "M3U8", url: "https://example.test/stream.m3u8" }],
+})
 
 test.describe("sessions list", () => {
   test.beforeEach(async ({ api }) => {
@@ -77,5 +82,42 @@ test.describe("sessions list", () => {
     await page.goto("/sessions")
 
     await expect(page.locator(".session-grid .session-card")).toHaveCount(4)
+  })
+
+  test("a starting card shows the loading affordance and mounts no player", async ({ page, api }) => {
+    api.data.sessions = [STARTING]
+
+    await page.goto("/sessions")
+
+    await expect(page.locator(".session-grid .session-card")).toHaveCount(1)
+    await expect(page.locator('.session-card [data-slot="session-starting"]')).toBeVisible()
+    await expect(page.locator(".session-card video")).toHaveCount(0)
+    await expect(page.locator(".session-card iframe")).toHaveCount(0)
+  })
+
+  test("the live filter keeps the starting states", async ({ page, api }) => {
+    api.data.sessions = [LIVE, STARTING, SCHEDULED, SPENT]
+
+    await page.goto("/sessions")
+    await expect(page.locator(".session-grid .session-card")).toHaveCount(4)
+
+    await page.getByRole("button", { name: "Live" }).click()
+    await expect(page.locator(".session-grid .session-card")).toHaveCount(2)
+  })
+
+  test("a starting session's detail panel mounts no player", async ({ page, api }) => {
+    api.data.sessions = [
+      session({
+        id: 5,
+        status: "initializing",
+        session_urls: [{ label: "M3U8", url: "https://example.test/stream.m3u8" }],
+      }),
+    ]
+
+    await page.goto("/sessions/5")
+
+    await expect(page.locator('[data-slot="session-starting"]')).toBeVisible()
+    await expect(page.locator("video")).toHaveCount(0)
+    await expect(page.locator("iframe")).toHaveCount(0)
   })
 })

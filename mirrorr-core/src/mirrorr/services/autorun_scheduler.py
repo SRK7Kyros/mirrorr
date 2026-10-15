@@ -126,7 +126,12 @@ async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) 
             select(Session)
             .where(
                 Session.autorun_id.is_not(None),  # ty:ignore
-                Session.status.in_([SessionStatus.ACTIVE, SessionStatus.RECORDING]),  # ty:ignore
+                Session.status.in_([  # ty:ignore
+                    SessionStatus.INITIALIZING,
+                    SessionStatus.STREAM_PENDING,
+                    SessionStatus.ACTIVE,
+                    SessionStatus.RECORDING,
+                ]),
             )
             .options(selectinload(Session.autorun))  # ty:ignore
         )

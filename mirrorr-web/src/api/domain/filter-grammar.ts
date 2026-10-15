@@ -2,6 +2,8 @@ export const FILTER_TOKENS = ["scheduled", "live", "spent", "all"] as const
 export type FilterToken = (typeof FILTER_TOKENS)[number]
 
 export const LIVE_STATUSES: ReadonlySet<string> = new Set([
+  "initializing",
+  "stream_pending",
   "active",
   "recording",
   "terminating",

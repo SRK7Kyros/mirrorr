@@ -64,6 +64,8 @@ if TYPE_CHECKING:
 # ── Status mapping: Session → Autorun ────────────────────────────────
 
 _STATUS_MAP: dict[SessionStatus, AutorunStatus] = {
+    SessionStatus.INITIALIZING: AutorunStatus.ACTIVE,
+    SessionStatus.STREAM_PENDING: AutorunStatus.ACTIVE,
     SessionStatus.ACTIVE: AutorunStatus.ACTIVE,
     SessionStatus.RECORDING: AutorunStatus.RECORDING,
     SessionStatus.TERMINATING: AutorunStatus.TERMINATING,
@@ -212,6 +214,8 @@ async def update_session(
 # these at boot, or after its supervisor died, has nobody left to drive it.
 # Shared with the liveness watchdog in event_bus.handlers.
 LIVE_STATUSES = (
+    SessionStatus.INITIALIZING,
+    SessionStatus.STREAM_PENDING,
     SessionStatus.ACTIVE,
     SessionStatus.RECORDING,
     SessionStatus.TERMINATING,

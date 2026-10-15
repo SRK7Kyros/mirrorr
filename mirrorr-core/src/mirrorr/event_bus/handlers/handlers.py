@@ -83,7 +83,12 @@ async def handle_autorun_deleted(data: MirrorrEvent.AUTORUN_DELETED):
             result = await db.exec(stmt)
             session = result.first()
 
-            if session and session.status in (SessionStatus.ACTIVE, SessionStatus.RECORDING):
+            if session and session.status in (
+                SessionStatus.INITIALIZING,
+                SessionStatus.STREAM_PENDING,
+                SessionStatus.ACTIVE,
+                SessionStatus.RECORDING,
+            ):
                 logger.info(f"Autorun {data.id} deleted — stopping & deleting session {session.id}")
                 await _kill_supervisor(session.id)
                 # Delete the session (DB row + folder) so we don't leak

@@ -3,6 +3,7 @@ import { IconPlay, IconX } from "@/ui/components"
 import { cn } from "@/ui/lib/cn"
 import { SessionPlayer } from "./session-player"
 import { SessionPreview } from "./session-preview"
+import { SessionStarting } from "./session-starting"
 
 const CENTER_BUTTON =
   "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 grid place-items-center size-[46px] p-0 border border-line-strong rounded-full bg-[var(--overlay-scrim)] text-ink cursor-pointer transition-[translate,scale,background-color] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-surface-3 hover:scale-[1.06]"
@@ -51,12 +52,18 @@ export function SessionPlayerFrame({
  * session and recording cards list among the descendants whose clicks they must
  * not hijack, so a tap on the bare video never opens the card — only the card
  * body outside the preview does.
+ *
+ * While `loading` (the caller's `isStarting` gate) no player is mounted at all:
+ * the box shows the `SessionStarting` affordance instead of attaching hls.js to
+ * a playlist the engine has not written yet.
  */
 export function SessionPreviewPlayer({
   src,
   htmlUrl,
   loop,
   hovering = false,
+  loading = false,
+  loadingLabel,
   label,
   badge,
   className,
@@ -66,6 +73,8 @@ export function SessionPreviewPlayer({
   readonly htmlUrl: string | null
   readonly loop: boolean
   readonly hovering?: boolean
+  readonly loading?: boolean
+  readonly loadingLabel?: string
   readonly label: string
   readonly badge?: ReactNode
   readonly className?: string
@@ -108,7 +117,15 @@ export function SessionPreviewPlayer({
       className={cn("relative aspect-video bg-sunken overflow-hidden", className)}
       onMouseLeave={() => setLocked(false)}
     >
-      {expanded && canExpand ? (
+      {loading ? (
+        <>
+          <SessionStarting
+            label={loadingLabel ?? label}
+            className="absolute inset-0"
+          />
+          {children}
+        </>
+      ) : expanded && canExpand ? (
         <>
           {src !== null ? (
             <SessionPlayer
