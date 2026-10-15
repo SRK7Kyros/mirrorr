@@ -328,9 +328,15 @@ than stretching into an empty full-width strip.
 - **Events** (`event_bus/event.py`): `ResolverSourceCreated/Updated/Deleted`
   (`resolver_source.created|updated|deleted`, `id: int`), emitted via `_safe_emit` like profiles.
   Add `SOURCE` to `ResourceType` and a handler branch if notifications are wanted.
-- **Permissions**: sources are user-scoped exactly like profiles
-  (`requester_user_token` + `_get_paginated_for_user` + `_require_owner_or_admin`).
-  No admin-only fields → nothing added to `privileged.py`.
+- **Permissions**: sources are user-scoped exactly like profiles — **ownership is
+  unchanged** (`requester_user_token` + `_get_paginated_for_user`; writes/control still
+  `_require_owner_or_admin`). **Plus admin-granted per-user view access** (2026-10-15): an
+  admin can grant read access on any source through `resource_access`, so source **reads**
+  go through `_require_read_access` (owner **or** admin **or** a grant) while every write,
+  delete, export/import and "load this source into my own object" path stays
+  owner-or-admin — a grant admits **reads only**. `ResolverSourceResponse` is now an entry
+  in `privileged.py`'s `PRIVILEGED_FIELDS`, so a granted (non-admin) reader still never
+  receives `requester_user_token`.
 - **Import/export** (`routers/import_export.py`): add a `sources` array to bundles
   (`{name, resolver:{name,origin_hash}, resolver_config, content_hash}`), mirroring
   `_profile_to_bundle`. Can ship in a later phase; bundles without sources still apply.

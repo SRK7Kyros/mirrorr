@@ -6,7 +6,10 @@ import secrets
 import threading
 import time
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Response, Request
+from pathlib import PurePosixPath
+from urllib.parse import urlparse
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, Request
 from fastapi.responses import JSONResponse
 from loguru import logger
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -24,10 +27,16 @@ from mirrorr.api.schemas import (
     AuthResponse, ClientResponse, RegisterRequest, LoginRequest, RefreshRequest,
     ChangePasswordRequest, CreateClientRequest, UserResponse,
     RegistrationPendingResponse, RegistrationRequestResponse, DenyRequest,
+    ResourceAccessItem, ResourceAccessListResponse, TransferOwnerRequest,
+    SetOwnerResponse, GrantAccessRequest, ResourceViewersResponse, ViewersResponse,
+)
+from mirrorr.api.routers.crud import (
+    _AUTORUN_OPTIONS, _PROFILE_OPTIONS, _SESSION_OPTIONS, _SOURCE_OPTIONS,
 )
 from mirrorr.storage.models import (
     Client, User, ClientUser, EventSubscription, Notification,
     RefreshTokenRecord, RegistrationRequest,
+    Autorun, Engine, Profile, Recording, Resolver, ResolverSource, ResourceAccess, Session,
 )
 from mirrorr.storage.enums import ResourceType
 from mirrorr.storage import crud
@@ -35,6 +44,7 @@ from mirrorr._version import __version__ as _MIRRORR_VERSION
 
 auth_router = APIRouter(prefix="/auth")
 notifications_router = APIRouter(prefix="/notifications")
+admin_router = APIRouter(prefix="/admin", dependencies=[Depends(require_admin)])
 
 
 # ── Cookie helpers ─────────────────────────────────────────────────
@@ -670,6 +680,7 @@ async def delete_user(
         await db.exec(sql_delete(EventSubscription).where(sa_col(EventSubscription.user_id) == user.id))
         await db.exec(sql_delete(Notification).where(sa_col(Notification.user_id) == user.id))
         await db.exec(sql_delete(RefreshTokenRecord).where(sa_col(RefreshTokenRecord.user_id) == user.id))
+        await db.exec(sql_delete(ResourceAccess).where(sa_col(ResourceAccess.username) == username))
         await crud.delete(db, User, user.id)
     except Exception:
         await db.rollback()
@@ -805,6 +816,234 @@ async def delete_client(
         await db.rollback()
         raise HTTPException(status_code=500, detail="Failed to delete client and related records")
     return {"status": "deleted"}
+
+
+# ── Resource Access (Admin) ─────────────────────────────────────────
+# Security boundary: a grant admits READS only. Control, update, delete,
+# save-as-profile, export/import and linking stay owner-or-admin — see
+# crud._require_read_access vs crud._require_owner_or_admin.
+
+_ACCESS_TYPES: dict[str, tuple[ResourceType, type]] = {
+    "session": (ResourceType.SESSION, Session),
+    "autorun": (ResourceType.AUTORUN, Autorun),
+    "recording": (ResourceType.RECORDING, Recording),
+    "profile": (ResourceType.PROFILE, Profile),
+    "source": (ResourceType.SOURCE, ResolverSource),
+}
+_SYSTEM_TYPES: dict[str, type] = {"engine": Engine, "resolver": Resolver}
+_LIST_TAGS = ("session", "autorun", "recording", "profile", "source", "engine", "resolver")
+_TYPE_OPTIONS: dict[str, tuple] = {
+    "session": _SESSION_OPTIONS,
+    "autorun": _AUTORUN_OPTIONS,
+    "recording": (),
+    "profile": _PROFILE_OPTIONS,
+    "source": _SOURCE_OPTIONS,
+}
+
+
+def _text(obj, attr: str) -> str:
+    if obj is None:
+        return ""
+    return getattr(obj, attr, "") or ""
+
+
+def _access_label(tag: str, obj) -> str:
+    """A server-computed label for an admin row (the console's titles live in
+    the client). Falls back to ``#id`` when the item carries no name."""
+    if tag == "session":
+        name = _text(getattr(obj, "autorun", None), "user_friendly_name") or _text(
+            getattr(obj, "profile", None), "name"
+        )
+    elif tag == "autorun":
+        name = _text(obj, "user_friendly_name")
+    elif tag == "recording":
+        name = PurePosixPath(urlparse(obj.content_url or "").path).name or _text(obj, "user_friendly_name")
+    else:
+        name = _text(obj, "name")
+    return name or f"#{obj.id}"
+
+
+async def _known_username(db: AsyncSession, username: str) -> None:
+    if not (await db.exec(select(User.id).where(User.username == username))).first():
+        raise HTTPException(status_code=400, detail=f"Unknown username: {username}")
+
+
+def _access_target(resource_type: str) -> tuple[str, ResourceType, type]:
+    if resource_type == ResourceType.USER.value:
+        raise HTTPException(status_code=400, detail="user is not a valid access target")
+    if resource_type in _SYSTEM_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"System resource '{resource_type}' has no owner or grants",
+        )
+    if resource_type not in _ACCESS_TYPES:
+        raise HTTPException(status_code=404, detail=f"Unknown resource type: {resource_type}")
+    rt, model = _ACCESS_TYPES[resource_type]
+    return resource_type, rt, model
+
+
+async def _load_access_target(db: AsyncSession, resource_type: str, resource_id: int):
+    tag, rt, model = _access_target(resource_type)
+    obj = await crud.get_by_id(db, model, resource_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail=f"{model.__name__} {resource_id} not found")
+    return tag, rt, obj
+
+
+async def _viewers(db: AsyncSession, resource_type: ResourceType, resource_id: int) -> list[str]:
+    rows = await db.exec(
+        select(ResourceAccess.username)
+        .where(
+            ResourceAccess.resource_type == resource_type,
+            ResourceAccess.resource_id == resource_id,
+        )
+        .order_by(ResourceAccess.username)
+    )
+    return list(rows.all())
+
+
+def _admin_row(tag: str, obj, usernames: set[str], counts: dict[tuple[str, int], int]) -> ResourceAccessItem:
+    if tag in _SYSTEM_TYPES:
+        return ResourceAccessItem(resource_type=tag, id=obj.id, label=_access_label(tag, obj), system=True)
+    owner_token = getattr(obj, "requester_user_token", "") or ""
+    return ResourceAccessItem(
+        resource_type=tag,
+        id=obj.id,
+        label=_access_label(tag, obj),
+        owner=owner_token,
+        owner_missing=bool(owner_token) and owner_token not in usernames,
+        viewer_count=counts.get((tag, obj.id), 0),
+    )
+
+
+@admin_router.get("/resources", response_model=ResourceAccessListResponse)
+async def list_resources(
+    resource_type: str | None = Query(None),
+    owner: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(_get_db_session),
+    auth: AuthState = Depends(require_admin),
+):
+    """Every item with its owner and viewer count. Admin only."""
+    if resource_type is None:
+        tags = list(_LIST_TAGS)
+    elif resource_type in _LIST_TAGS:
+        tags = [resource_type]
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown resource type: {resource_type}")
+    if owner is not None:
+        tags = [tag for tag in tags if tag not in _SYSTEM_TYPES]
+
+    rows: list[tuple[str, object]] = []
+    for tag in tags:
+        model = _SYSTEM_TYPES.get(tag) or _ACCESS_TYPES[tag][1]
+        stmt = select(model)
+        options = _TYPE_OPTIONS.get(tag, ())
+        if options:
+            stmt = stmt.options(*options)
+        if owner is not None:
+            stmt = stmt.where(model.requester_user_token == owner)
+        rows.extend((tag, row) for row in (await db.exec(stmt.order_by(model.id))).all())
+
+    usernames = set((await db.exec(select(User.username))).all())
+    counts: dict[tuple[str, int], int] = {}
+    for rt, rid in (await db.exec(select(ResourceAccess.resource_type, ResourceAccess.resource_id))).all():
+        counts[(rt.value, rid)] = counts.get((rt.value, rid), 0) + 1
+
+    items = [_admin_row(tag, obj, usernames, counts) for tag, obj in rows]
+    return ResourceAccessListResponse(items=items[offset : offset + limit], total=len(items))
+
+
+@admin_router.put("/resources/{resource_type}/{resource_id}/owner", response_model=SetOwnerResponse)
+async def transfer_owner(
+    resource_type: str,
+    resource_id: int,
+    item: TransferOwnerRequest,
+    db: AsyncSession = Depends(_get_db_session),
+    auth: AuthState = Depends(require_admin),
+):
+    """Set a resource's owner. Admin only."""
+    tag, _rt, obj = await _load_access_target(db, resource_type, resource_id)
+    await _known_username(db, item.username)
+    obj.requester_user_token = item.username
+    db.add(obj)
+    await db.commit()
+    return SetOwnerResponse(resource_type=tag, id=obj.id, owner=item.username)
+
+
+@admin_router.get("/resources/{resource_type}/{resource_id}/access", response_model=ResourceViewersResponse)
+async def get_resource_access(
+    resource_type: str,
+    resource_id: int,
+    db: AsyncSession = Depends(_get_db_session),
+    auth: AuthState = Depends(require_admin),
+):
+    """List a resource's owner and who is granted view. Admin only."""
+    tag, rt, obj = await _load_access_target(db, resource_type, resource_id)
+    return ResourceViewersResponse(
+        resource_type=tag,
+        id=obj.id,
+        owner=getattr(obj, "requester_user_token", "") or "",
+        viewers=await _viewers(db, rt, obj.id),
+    )
+
+
+@admin_router.post("/resources/{resource_type}/{resource_id}/access", response_model=ViewersResponse)
+async def grant_resource_access(
+    resource_type: str,
+    resource_id: int,
+    item: GrantAccessRequest,
+    db: AsyncSession = Depends(_get_db_session),
+    auth: AuthState = Depends(require_admin),
+):
+    """Grant a user view access. Idempotent for an existing grant. Admin only."""
+    _tag, rt, obj = await _load_access_target(db, resource_type, resource_id)
+    await _known_username(db, item.username)
+    existing = (
+        await db.exec(
+            select(ResourceAccess.id).where(
+                ResourceAccess.resource_type == rt,
+                ResourceAccess.resource_id == resource_id,
+                ResourceAccess.username == item.username,
+            )
+        )
+    ).first()
+    if not existing:
+        db.add(ResourceAccess(resource_type=rt, resource_id=resource_id, username=item.username))
+        try:
+            await db.commit()
+        except IntegrityError:
+            # A concurrent grant won the select→insert race (UNIQUE on
+            # resource_type/resource_id/username). The POST is documented
+            # idempotent, so roll back and report the row that now exists.
+            await db.rollback()
+    return ViewersResponse(viewers=await _viewers(db, rt, resource_id))
+
+
+@admin_router.delete("/resources/{resource_type}/{resource_id}/access/{username}", response_model=ViewersResponse)
+async def revoke_resource_access(
+    resource_type: str,
+    resource_id: int,
+    username: str,
+    db: AsyncSession = Depends(_get_db_session),
+    auth: AuthState = Depends(require_admin),
+):
+    """Revoke a user's view access. Idempotent when no grant exists. Admin only."""
+    _tag, rt, obj = await _load_access_target(db, resource_type, resource_id)
+    row = (
+        await db.exec(
+            select(ResourceAccess).where(
+                ResourceAccess.resource_type == rt,
+                ResourceAccess.resource_id == obj.id,
+                ResourceAccess.username == username,
+            )
+        )
+    ).first()
+    if row:
+        await db.delete(row)
+        await db.commit()
+    return ViewersResponse(viewers=await _viewers(db, rt, obj.id))
 
 
 # ── Notifications ────────────────────────────────────────────────────

@@ -28,6 +28,7 @@ from mirrorr.api.schemas import (
     AutorunResponse,
     ProfileResponse,
     RecordingResponse,
+    ResolverSourceResponse,
     SessionResponse,
 )
 
@@ -37,6 +38,7 @@ PRIVILEGED_FIELDS: dict[type[BaseModel], frozenset[str]] = {
     AutorunResponse: frozenset({"requester_user_token"}),
     RecordingResponse: frozenset({"requester_user_token"}),
     ProfileResponse: frozenset({"requester_user_token"}),
+    ResolverSourceResponse: frozenset({"requester_user_token"}),
 }
 
 

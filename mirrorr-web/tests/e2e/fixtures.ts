@@ -147,6 +147,14 @@ export interface ApiData {
   sources?: readonly Row[]
   engines?: readonly Row[]
   resolvers?: readonly Row[]
+  /** Admin surface: `GET /auth/users`, `/auth/clients`, `/auth/registration-requests` rows. */
+  users?: readonly Row[]
+  clients?: readonly Row[]
+  registrationRequests?: readonly Row[]
+  /** `GET /admin/resources` rows (owner-bearing items plus engines/resolvers). */
+  resources?: readonly Row[]
+  /** View grants keyed `"{type}:{id}"` for the `GET …/access` routes. */
+  resourceViewers?: Record<string, readonly string[]>
   /** `POST /resolvers/{id}/discover` — the catalog the channel browser reads. */
   discovery?: readonly Row[]
   /** Page size the stub slices `discovery` with (default: one page). */
@@ -181,6 +189,9 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
   /** Ids for rows the stub "creates" — the collection list is the spec's own. */
   let createdIds = 0
 
+  const resourceViewers: Record<string, string[]> = {}
+  for (const [key, list] of Object.entries(data.resourceViewers ?? {})) resourceViewers[key] = [...list]
+
   await page.route(/^https?:\/\/[^/]+\/api\//, async (route: Route) => {
     const request = route.request()
     const method = request.method()
@@ -202,6 +213,10 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
       return data.loginFails === true ? answer(401, { detail: "Invalid credentials" }) : answer(200, authResponse())
     }
     if (path === "/auth/logout") return answer(200, {})
+
+    if (path === "/auth/users") return answer(200, data.users ?? [])
+    if (path === "/auth/clients") return answer(200, data.clients ?? [])
+    if (path === "/auth/registration-requests") return answer(200, data.registrationRequests ?? [])
 
     // A create echoes the row the server would have stored. The list branch
     // below answers ANY method, so without this a `create*()` call would parse
@@ -265,6 +280,52 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
           discarded_autoruns: [],
         },
       )
+    }
+
+    if (path === "/admin/resources") {
+      const params = new URL(request.url()).searchParams
+      const type = params.get("resource_type")
+      const owner = params.get("owner")
+      const limit = Number(params.get("limit") ?? "50")
+      const offset = Number(params.get("offset") ?? "0")
+      const filtered = (data.resources ?? []).filter(
+        (row) => (type === null || row.resource_type === type) && (owner === null || row.owner === owner),
+      )
+      return answer(200, { items: filtered.slice(offset, offset + limit), total: filtered.length })
+    }
+
+    const accessUser = /^\/admin\/resources\/([^/]+)\/(\d+)\/access\/(.+)$/.exec(path)
+    if (accessUser !== null && method === "DELETE") {
+      const [, type, id, rawUsername] = accessUser
+      const key = `${type}:${id}`
+      const username = decodeURIComponent(rawUsername)
+      resourceViewers[key] = (resourceViewers[key] ?? []).filter((viewer) => viewer !== username)
+      return answer(200, { viewers: resourceViewers[key] })
+    }
+
+    const accessItem = /^\/admin\/resources\/([^/]+)\/(\d+)\/access$/.exec(path)
+    if (accessItem !== null) {
+      const [, type, id] = accessItem
+      const key = `${type}:${id}`
+      if (method === "POST") {
+        const username = (body as { username?: string } | undefined)?.username ?? ""
+        resourceViewers[key] = [...(resourceViewers[key] ?? []), username]
+        return answer(200, { viewers: resourceViewers[key] })
+      }
+      const row = (data.resources ?? []).find((item) => item.resource_type === type && String(item.id) === id)
+      return answer(200, {
+        resource_type: type,
+        id: Number(id),
+        owner: row?.owner ?? "",
+        viewers: resourceViewers[key] ?? [],
+      })
+    }
+
+    const ownerItem = /^\/admin\/resources\/([^/]+)\/(\d+)\/owner$/.exec(path)
+    if (ownerItem !== null && method === "PUT") {
+      const [, type, id] = ownerItem
+      const username = (body as { username?: string } | undefined)?.username ?? ""
+      return answer(200, { resource_type: type, id: Number(id), owner: username })
     }
 
     return answer(404, { detail: `No stub for ${method} ${path}` })

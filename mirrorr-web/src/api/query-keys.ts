@@ -34,6 +34,9 @@ export const queryKeys = {
   notifications: ["notifications"] as const,
   users: ["users"] as const,
   clients: ["clients"] as const,
+  adminResources: (params: ListParams = {}) => ["admin", "resources", params] as const,
+  adminResourceAccess: (resourceType: string, id: number | string) =>
+    ["admin", "resources", resourceType, id, "access"] as const,
 } as const
 
 /**
@@ -46,6 +49,7 @@ export const queryRoots = {
   recordings: ["recordings"],
   profiles: ["profiles"],
   sources: ["sources"],
+  adminResources: ["admin", "resources"],
 } as const
 
 /** staleTime table (contract §Query keys & caching). */
@@ -58,6 +62,7 @@ export const staleTimes = {
   notifications: 30_000,
   users: 30_000,
   clients: 30_000,
+  adminResources: 30_000,
 } as const
 
 export const PAGE_SIZE = 50
