@@ -7,7 +7,7 @@ from sqlalchemy import JSON as SAJSON, UniqueConstraint
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel, TypeDecorator, Enum as SQLEnum
 
 from mirrorr.plugin_api.interfaces import Capabilities
-from mirrorr.storage.enums import AutorunStatus, ResourceType, SessionStatus, UserRole
+from mirrorr.storage.enums import AutorunStatus, Capability, ResourceType, SessionStatus, UserRole
 
 
 class PydanticJSON(TypeDecorator):
@@ -218,13 +218,13 @@ class ResolverSource(SQLModel, table=True):
 
 
 class ResourceAccess(SQLModel, table=True):
-    """A per-user **view** grant on a resource.
+    """A per-user **capability** grant on a resource.
 
     An item is readable by its owner (``requester_user_token``), the users
-    granted view here, and admins. A grant admits **reads only** — the list
-    row, the detail and the item's logs; control, update, delete,
-    save-as-profile, export/import and linking the item into another
-    principal's own object all stay owner-or-admin.
+    granted here, and admins. Owner and admin hold all six capabilities
+    implicitly; a grant gives everyone else exactly the granted capabilities
+    (``VIEW``, ``OPERATE``, ``EDIT``, ``DELETE``, ``SHARE``, ``EXPORT``), with
+    no inheritance — the row set is the whole of their rights.
 
     ``username`` matches ``User.username`` without a FK (same convention as
     ``requester_user_token``): a user row that is later deleted leaves an inert
@@ -232,12 +232,17 @@ class ResourceAccess(SQLModel, table=True):
     on the admin surface.
     """
     __tablename__ = "resource_access"
-    __table_args__ = (UniqueConstraint("resource_type", "resource_id", "username"),)
+    __table_args__ = (
+        UniqueConstraint("resource_type", "resource_id", "username", "capability"),
+    )
 
     id: int | None = Field(default=None, primary_key=True)
     resource_type: ResourceType = Field(sa_column=Column(SQLEnum(ResourceType), index=True))
     resource_id: int = Field(index=True)
     username: str = Field(index=True)
+    capability: Capability = Field(
+        default=Capability.VIEW, sa_column=Column(SQLEnum(Capability), index=True)
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
