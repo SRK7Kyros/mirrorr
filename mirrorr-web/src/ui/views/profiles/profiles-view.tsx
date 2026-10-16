@@ -18,6 +18,7 @@ import { rankBySearch } from "@/api/domain/search"
 import type { Profile, ResolverSource } from "@/api/schemas"
 import { humanize, showingLabel } from "@/ui/lib/format"
 import { staggerContainer, staggerItem } from "@/ui/lib/motion"
+import { AccessButton, AccessBulkAction } from "@/ui/views/shared/resource-access-slot"
 import {
   BulkBar,
   Button,
@@ -102,6 +103,7 @@ function ProfileRow({ profile, names, selected, onToggle, onEdit, onDelete, onEx
       </Td>
       <Td actions>
         <div className="flex items-center gap-3" style={{ gap: "var(--s-2)" }}>
+          <AccessButton resourceType="profile" id={profile.id} label={profile.name} />
           <IconButton
             label={`Export profile ${profile.name}`}
             icon={<IconDownload size={15} />}
@@ -140,6 +142,7 @@ function ProfileCard({ profile, names, selected, onToggle, onEdit, onDelete, onE
           </div>
         </div>
         <div className="flex gap-1 shrink-0">
+          <AccessButton resourceType="profile" id={profile.id} label={profile.name} />
           <IconButton
             label={`Export profile ${profile.name}`}
             icon={<IconDownload size={15} />}
@@ -433,6 +436,10 @@ function ProfilesPanel({
           </Panel>
           {selection.count > 0 ? (
             <BulkBar count={selection.count} onClear={selection.clear}>
+              <AccessBulkAction
+                resourceType="profile"
+                items={selectedProfiles.map((profile) => ({ id: profile.id, label: profile.name }))}
+              />
               <Button
                 size="sm"
                 variant="outline"

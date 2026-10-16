@@ -11,6 +11,7 @@ import {
   Tag,
   toast,
 } from "@/ui/components";
+import { AccessButton } from "@/ui/views/shared/resource-access-slot";
 import { SessionPreviewPlayer } from "@/ui/views/sessions/session-preview-player";
 import { SessionUrls } from "@/ui/views/sessions/session-urls";
 
@@ -131,6 +132,11 @@ export function RecordingCard({
             #{recording.id}
           </span>
           <span className="flex-1" />
+          <AccessButton
+            resourceType="recording"
+            id={recording.id}
+            label={recording.user_friendly_name}
+          />
           <IconButton
             label={`Open recording #${recording.id}`}
             icon={<IconExternal size={16} />}

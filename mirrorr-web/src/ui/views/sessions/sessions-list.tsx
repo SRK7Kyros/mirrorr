@@ -19,6 +19,8 @@ import {
   type FilterToken,
 } from "@/api/domain/filter-grammar";
 import { rankBySearch } from "@/api/domain/search";
+import { AccessBulkAction } from "@/ui/views/shared/resource-access-slot";
+import { sessionTitle } from "./session-title";
 import type { Session } from "@/api/schemas";
 import {
   BulkBar,
@@ -332,6 +334,12 @@ export function SessionsListView() {
 
           {selection.count > 0 ? (
             <BulkBar count={selection.count} onClear={selection.clear}>
+              <AccessBulkAction
+                resourceType="session"
+                items={list.items
+                  .filter((session) => selection.has(session.id))
+                  .map((session) => ({ id: session.id, label: sessionTitle(session, names) }))}
+              />
               <Button
                 size="sm"
                 variant="danger-ghost"

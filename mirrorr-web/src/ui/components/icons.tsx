@@ -106,6 +106,13 @@ export const IconSearch = makeIcon(
   </>,
 )
 
+export const IconUser = makeIcon(
+  <>
+    <circle cx="12" cy="8" r="3.5" />
+    <path d="M5.5 20a6.5 6.5 0 0 1 13 0" />
+  </>,
+)
+
 export const IconPlus = makeIcon(<path d="M12 5v14M5 12h14" />)
 export const IconX = makeIcon(<path d="M18 6 6 18M6 6l12 12" />)
 export const IconCheck = makeIcon(<path d="M20 6 9 17l-5-5" />)

@@ -24,6 +24,9 @@ const api = vi.hoisted(() => ({
 }))
 
 vi.mock("@/api", () => api)
+// The access planner fans out over the endpoint module itself (importing the
+// barrel from a domain module would close a cycle), so it needs its own double.
+vi.mock("@/api/endpoints/access", () => api)
 
 const USERS = [
   { id: 1, username: "kyros", role: "admin", display_name: "Kyros" },
@@ -149,6 +152,7 @@ describe("ResourceAccessSection", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Manage access for F1 Weekend" }))
     fireEvent.change(await screen.findByLabelText("Owner"), { target: { value: "alice" } })
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }))
 
     await waitFor(() => expect(api.setResourceOwner).toHaveBeenCalledWith("session", 7, "alice"))
   })
@@ -161,6 +165,7 @@ describe("ResourceAccessSection", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Manage access for F1 Weekend" }))
     fireEvent.change(await screen.findByLabelText("Add a viewer"), { target: { value: "alice" } })
     fireEvent.click(screen.getByRole("button", { name: "Add" }))
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }))
 
     await waitFor(() => expect(api.grantResourceViewer).toHaveBeenCalledWith("session", 7, "alice"))
   })
@@ -178,6 +183,7 @@ describe("ResourceAccessSection", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Manage access for F1 Weekend" }))
     fireEvent.click(await screen.findByRole("button", { name: "Remove alice" }))
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }))
 
     await waitFor(() => expect(api.revokeResourceViewer).toHaveBeenCalledWith("session", 7, "alice"))
   })
