@@ -1,13 +1,17 @@
-import { useId, useMemo, useRef, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import {
   type AccessOverride,
   type AccessTarget,
   type ItemAccess,
 } from "@/api/domain/access-plan"
+import { rankBySearch } from "@/api/domain/search"
 import { CAPABILITIES, type Capability } from "@/api/schemas/privileged"
 import type { User } from "@/api/schemas/user"
-import { Button, Field, IconButton, Select } from "@/ui/components"
-import { IconPlus, IconX } from "@/ui/components/icons"
+import { Avatar, Badge, Button, Input } from "@/ui/components"
+import { IconCheck, IconCrown, IconSearch } from "@/ui/components/icons"
+import { useSelection } from "@/ui/hooks"
+import { cn } from "@/ui/lib/cn"
+import { useMarqueeSelection } from "./marquee"
 
 export const RESOURCE_TYPE_LABEL: Record<string, string> = {
   session: "Session",
@@ -32,14 +36,6 @@ export function usernameLabel(users: readonly User[], username: string): string 
   return user === undefined ? `${username} (missing)` : userLabel(user)
 }
 
-export function ownerOptions(users: readonly User[], owner: string): { value: string; label: string }[] {
-  const options = users.map((user) => ({ value: user.username, label: userLabel(user) }))
-  if (owner !== "" && !users.some((user) => user.username === owner)) {
-    options.unshift({ value: owner, label: `${owner} (missing)` })
-  }
-  return options
-}
-
 /**
  * `override.count` is the number of distinct users holding *any* capability, so
  * the copy names users, not view grants — the old "N view grants" described a
@@ -51,7 +47,7 @@ export function overrideLabel(override: AccessOverride): string {
 }
 
 /**
- * Section headings, in the frozen `CAPABILITIES` order. Only `VIEW` keeps its
+ * Capability labels, in the frozen `CAPABILITIES` order. Only `VIEW` keeps its
  * established copy ("View access") — the e2e and unit specs pin that exact
  * string, so renaming it is a contract change, not a wording preference.
  */
@@ -69,21 +65,50 @@ export function capabilityLabel(capability: Capability): string {
   return CAPABILITY_LABEL[capability]
 }
 
-function grantCapability(access: ItemAccess, capability: Capability, username: string): ItemAccess {
-  if (access.grants[capability].includes(username)) return access
-  return {
-    ...access,
-    grants: { ...access.grants, [capability]: [...access.grants[capability], username] },
+/**
+ * VIEW is the base capability: a user who holds anything at all holds VIEW,
+ * because the core implies it. Every read of a capability set goes through this
+ * so a stray OPERATE-only row still reads as visible.
+ */
+export function holdsCapability(
+  grants: Readonly<Record<Capability, readonly string[]>>,
+  capability: Capability,
+  username: string,
+): boolean {
+  if (capability === "VIEW") {
+    return CAPABILITIES.some((candidate) => grants[candidate].includes(username))
   }
+  return grants[capability].includes(username)
+}
+
+function grantCapability(access: ItemAccess, capability: Capability, username: string): ItemAccess {
+  const alreadyHeld = access.grants[capability].includes(username)
+  const needsView = capability !== "VIEW" && !access.grants.VIEW.includes(username)
+  if (alreadyHeld && !needsView) return access
+  const grants = { ...access.grants }
+  if (!alreadyHeld) grants[capability] = [...grants[capability], username]
+  if (needsView) grants.VIEW = [...grants.VIEW, username]
+  return { ...access, grants }
 }
 
 function revokeCapability(access: ItemAccess, capability: Capability, username: string): ItemAccess {
+  if (capability === "VIEW") {
+    // Clearing the base capability clears what it implies.
+    const grants = { ...access.grants }
+    let changed = false
+    for (const candidate of CAPABILITIES) {
+      if (!grants[candidate].includes(username)) continue
+      grants[candidate] = grants[candidate].filter((name) => name !== username)
+      changed = true
+    }
+    return changed ? { ...access, grants } : access
+  }
   if (!access.grants[capability].includes(username)) return access
   return {
     ...access,
     grants: {
       ...access.grants,
-      [capability]: access.grants[capability].filter((candidate) => candidate !== username),
+      [capability]: access.grants[capability].filter((name) => name !== username),
     },
   }
 }
@@ -97,6 +122,7 @@ function accessSignature(access: ItemAccess): string {
 
 export interface AccessDraft {
   readonly owner: string
+  readonly ownerMissing: boolean
   readonly grants: Readonly<Record<Capability, readonly string[]>>
   readonly dirty: boolean
   readonly target: AccessTarget
@@ -106,11 +132,12 @@ export interface AccessDraft {
 }
 
 /**
- * Capability-aware draft. Every section reads and edits one capability list,
- * and `target.grants` carries the whole record so the planner diffs it against
- * the loaded access. The `accessSignature` guard reloads the draft whenever the
- * `access` prop really changes — the signature covers the owner, ownerMissing
- * and all six capability lists, so an equal prop leaves in-flight edits intact.
+ * Capability-aware draft. The whole editor reads one `grants` record and edits
+ * it through `grant`/`revoke`; `target.grants` carries the record so the planner
+ * diffs it against the loaded access. The `accessSignature` guard reloads the
+ * draft whenever the `access` prop really changes — the signature covers the
+ * owner, ownerMissing and all six capability lists, so an equal prop leaves
+ * in-flight edits intact.
  */
 export function useAccessDraft(access: ItemAccess): AccessDraft {
   const [draft, setDraft] = useState<ItemAccess>(access)
@@ -123,6 +150,7 @@ export function useAccessDraft(access: ItemAccess): AccessDraft {
 
   return {
     owner: draft.owner ?? "",
+    ownerMissing: draft.ownerMissing,
     grants: draft.grants,
     dirty: accessSignature(draft) !== signature,
     target: { owner: draft.owner ?? undefined, grants: draft.grants },
@@ -132,85 +160,283 @@ export function useAccessDraft(access: ItemAccess): AccessDraft {
   }
 }
 
-interface CapabilitySectionProps {
-  readonly capability: Capability
+/* ── the one editor ────────────────────────────────────────────────────
+ *
+ * Both surfaces (the per-item `AccessPanel` and the settings
+ * `ResourceAccessDialog` through `ResourceAccessFields`) render this, so they
+ * cannot drift. One catalog of avatar+name cards, one search box, one upper
+ * chip row that filters the catalog to a capability's holders, and one lower
+ * chip row that applies a capability set to the selected cards.
+ */
+
+const CARD_CLASS =
+  "flex flex-col items-center gap-2 rounded-md border border-line bg-surface-2 p-2 text-center transition-colors " +
+  "[&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-3 disabled:opacity-45"
+
+const CARD_SELECTED_CLASS = "data-[granted=true]:border-brand data-[granted=true]:bg-[var(--accent-dim)]"
+
+const CHIP_BASE =
+  "inline-flex shrink-0 items-center gap-1.5 h-7 rounded-full border px-3 text-sm font-medium whitespace-nowrap " +
+  "transition-colors [&:hover:not(:disabled)]:border-line-strong disabled:opacity-45"
+
+const CHIP_ON = "border-brand bg-[var(--accent-dim)] text-ink"
+const CHIP_OFF = "border-line bg-surface-2 text-ink-muted"
+const CHIP_PARTIAL = "border-brand border-dashed bg-transparent text-ink"
+
+export interface ResourceAccessEditorProps {
+  readonly draft: AccessDraft
   readonly users: readonly User[]
-  readonly granted: readonly string[]
-  readonly busy: boolean
-  readonly onGrant: (username: string) => void
-  readonly onRevoke: (username: string) => void
+  readonly busy?: boolean
 }
 
-/**
- * One capability's user list: a `Remove <username>` control per granted user,
- * then a user picker + `Add` to grant. The standard capability keeps the
- * established accessible names ("Add a viewer" / "Remove <username>" / "Add");
- * the others are named "<verb> <Capability>" so they never collide with the
- * exact-name lookups the existing specs rely on.
- */
-function CapabilitySection({
-  capability,
-  users,
-  granted,
-  busy,
-  onGrant,
-  onRevoke,
-}: CapabilitySectionProps) {
-  const [selected, setSelected] = useState("")
-  const label = CAPABILITY_LABEL[capability]
-  const addable = users.filter((user) => !granted.includes(user.username))
-  const isView = capability === "VIEW"
+export function ResourceAccessEditor({ draft, users, busy = false }: ResourceAccessEditorProps) {
+  const [query, setQuery] = useState("")
+  const [filter, setFilter] = useState<Capability | "ALL">("ALL")
+  const [ownerMode, setOwnerMode] = useState(false)
+  const [note, setNote] = useState("")
+
+  const selection = useSelection<string>()
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const marquee = useMarqueeSelection(scrollRef, (keys) => selection.setMany(keys))
+
+  const ownerLabel = draft.owner === "" ? "No owner" : usernameLabel(users, draft.owner)
+
+  const catalog = useMemo(() => {
+    const pool = ownerMode ? users : users.filter((user) => user.username !== draft.owner)
+    const ranked = rankBySearch(pool, query, (user) => [user.display_name, user.username])
+    if (ownerMode || filter === "ALL") return ranked
+    return ranked.filter((user) => holdsCapability(draft.grants, filter, user.username))
+  }, [users, query, ownerMode, filter, draft.owner, draft.grants])
+
+  const counts = useMemo(() => {
+    const result = {} as Record<Capability, number>
+    for (const capability of CAPABILITIES) {
+      result[capability] = users.filter(
+        (user) => user.username !== draft.owner && holdsCapability(draft.grants, capability, user.username),
+      ).length
+    }
+    return result
+  }, [users, draft.owner, draft.grants])
+
+  const selectedUsernames = users
+    .filter((user) => selection.selected.has(user.username))
+    .map((user) => user.username)
+
+  function selectionState(capability: Capability): "all" | "partial" | "none" {
+    if (selectedUsernames.length === 0) return "none"
+    const holding = selectedUsernames.filter((username) =>
+      holdsCapability(draft.grants, capability, username),
+    ).length
+    if (holding === 0) return "none"
+    return holding === selectedUsernames.length ? "all" : "partial"
+  }
+
+  function clearSelection(): void {
+    selection.clear()
+    setNote("")
+  }
+
+  function toggleCapability(capability: Capability): void {
+    const turnOn = selectionState(capability) !== "all"
+    if (!turnOn && capability === "VIEW") {
+      const losesMore = selectedUsernames.some((username) =>
+        CAPABILITIES.some(
+          (candidate) => candidate !== "VIEW" && draft.grants[candidate].includes(username),
+        ),
+      )
+      setNote(losesMore ? "Clearing View access also clears every other capability." : "")
+    } else {
+      setNote("")
+    }
+    for (const username of selectedUsernames) {
+      if (turnOn) draft.grant(capability, username)
+      else draft.revoke(capability, username)
+    }
+  }
 
   return (
-    <div className="flex flex-col gap-2">
-      <span className="text-muted">{label}</span>
-      {granted.length === 0 ? (
-        isView ? <p className="text-muted">Only the owner can see this item.</p> : null
-      ) : (
-        <ul className="flex flex-col gap-2">
-          {granted.map((username) => (
-            <li key={username} className="flex items-center justify-between gap-3">
-              <span className="text-truncate">{usernameLabel(users, username)}</span>
-              <IconButton
-                label={`Remove ${username}`}
-                icon={<IconX size={16} />}
-                variant="danger-ghost"
-                size="sm"
-                disabled={busy}
-                onClick={() => onRevoke(username)}
-              />
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="flex items-center gap-2">
-        <Select
-          aria-label={isView ? "Add a viewer" : `Add user to ${label}`}
-          value={selected}
-          disabled={busy}
-          onChange={(event) => setSelected(event.target.value)}
-        >
-          <option value="">Select a user…</option>
-          {addable.map((user) => (
-            <option key={user.username} value={user.username}>
-              {userLabel(user)}
-            </option>
-          ))}
-        </Select>
-        <Button
-          size="sm"
-          variant="secondary"
-          icon={<IconPlus size={15} />}
-          aria-label={isView ? undefined : `Add to ${label}`}
-          disabled={selected === "" || busy}
-          onClick={() => {
-            onGrant(selected)
-            setSelected("")
-          }}
-        >
-          Add
-        </Button>
+    <div className="flex min-h-0 flex-col gap-3">
+      <div className="flex items-center gap-2 rounded-md border border-line-subtle bg-surface-1 px-2.5 py-1.5">
+        <IconCrown size={16} className="text-warning" />
+        <Avatar name={ownerLabel} small />
+        <span className="min-w-0 flex-1 truncate text-base">
+          {ownerLabel}
+          {draft.owner !== "" && draft.ownerMissing ? <span className="text-danger"> · missing</span> : null}
+        </span>
+        {ownerMode ? (
+          <>
+            <span className="text-sm whitespace-nowrap text-ink-muted">Pick the new owner</span>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setOwnerMode(false)}>
+              Cancel
+            </Button>
+          </>
+        ) : (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => {
+              setOwnerMode(true)
+              setNote("")
+            }}
+          >
+            Change
+          </Button>
+        )}
       </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[160px] flex-1">
+          <span
+            className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-ink-dim"
+            aria-hidden="true"
+          >
+            <IconSearch size={16} />
+          </span>
+          <Input
+            type="search"
+            autoComplete="off"
+            className="pl-9"
+            value={query}
+            placeholder="Search users…"
+            aria-label="Search users"
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
+        {ownerMode ? null : (
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy || catalog.length === 0}
+              onClick={() => selection.setMany(catalog.map((user) => user.username))}
+            >
+              Select all
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy || selectedUsernames.length === 0}
+              onClick={clearSelection}
+            >
+              Clear
+            </Button>
+          </>
+        )}
+      </div>
+
+      {ownerMode ? null : (
+        <div
+          role="group"
+          aria-label="Filter by capability"
+          className="flex items-center gap-2 overflow-x-auto pb-1"
+        >
+          <button
+            type="button"
+            aria-pressed={filter === "ALL"}
+            disabled={busy}
+            className={cn(CHIP_BASE, filter === "ALL" ? CHIP_ON : CHIP_OFF)}
+            onClick={() => setFilter("ALL")}
+          >
+            All
+          </button>
+          {CAPABILITIES.map((capability) => (
+            <button
+              key={capability}
+              type="button"
+              aria-pressed={filter === capability}
+              disabled={busy}
+              className={cn(CHIP_BASE, filter === capability ? CHIP_ON : CHIP_OFF)}
+              onClick={() => setFilter((current) => (current === capability ? "ALL" : capability))}
+            >
+              {capabilityLabel(capability)}
+              <Badge variant="neutral">{counts[capability]}</Badge>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div
+        ref={scrollRef}
+        data-testid="access-catalog"
+        className="relative max-h-[calc(100dvh-460px)] min-h-[120px] flex-1 overflow-y-auto rounded-md border border-line-subtle bg-surface-1 p-2 select-none touch-pan-y"
+      >
+        {catalog.length === 0 ? (
+          <p className="p-2 text-sm text-ink-muted">No users match.</p>
+        ) : (
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+            {catalog.map((user) => {
+              const selected = ownerMode ? draft.owner === user.username : selection.selected.has(user.username)
+              return (
+                <button
+                  key={user.username}
+                  type="button"
+                  data-marquee-key={user.username}
+                  data-granted={selected}
+                  aria-pressed={selected}
+                  disabled={busy}
+                  onClick={() =>
+                    ownerMode ? draft.setOwner(user.username) : selection.toggle(user.username)
+                  }
+                  className={cn(CARD_CLASS, selected && CARD_SELECTED_CLASS)}
+                >
+                  <Avatar name={userLabel(user)} />
+                  <span className="w-full truncate text-sm">{userLabel(user)}</span>
+                  <span className="w-full truncate text-2xs text-ink-dim [font-family:var(--font-mono)]">
+                    @{user.username}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+        {marquee.overlay === null ? null : (
+          <div
+            className="pointer-events-none absolute rounded-xs border border-brand bg-[var(--accent-dim)]"
+            style={{
+              left: marquee.overlay.left,
+              top: marquee.overlay.top,
+              width: marquee.overlay.width,
+              height: marquee.overlay.height,
+            }}
+            aria-hidden="true"
+          />
+        )}
+      </div>
+
+      {ownerMode ? null : (
+        <>
+          <div className="flex items-center justify-between gap-2 text-sm" aria-live="polite">
+            <span className="text-ink-muted">{`${selectedUsernames.length} selected`}</span>
+            {note === "" ? null : <span className="text-warning">{note}</span>}
+          </div>
+          <div
+            role="group"
+            aria-label="Capabilities for the selected users"
+            className="flex items-center gap-2 overflow-x-auto pb-1"
+          >
+            {CAPABILITIES.map((capability) => {
+              const state = selectionState(capability)
+              return (
+                <button
+                  key={capability}
+                  type="button"
+                  aria-pressed={state === "all" ? true : state === "partial" ? "mixed" : false}
+                  disabled={busy || selectedUsernames.length === 0}
+                  className={cn(
+                    CHIP_BASE,
+                    state === "all" ? CHIP_ON : state === "partial" ? CHIP_PARTIAL : CHIP_OFF,
+                  )}
+                  onClick={() => toggleCapability(capability)}
+                >
+                  {state === "all" ? <IconCheck size={14} /> : null}
+                  {capabilityLabel(capability)}
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -223,6 +449,11 @@ export interface ResourceAccessFieldsProps {
   readonly applyLabel?: string
 }
 
+/**
+ * The settings-dialog body: the shared editor plus its inline status/apply
+ * footer. `AccessPanel` renders the same editor and pins the equivalent footer
+ * in its `Dialog` footer instead.
+ */
 export function ResourceAccessFields({
   access,
   users,
@@ -231,38 +462,9 @@ export function ResourceAccessFields({
   applyLabel = "Apply changes",
 }: ResourceAccessFieldsProps) {
   const draft = useAccessDraft(access)
-  const ownerId = useId()
-  const options = useMemo(() => ownerOptions(users, draft.owner), [users, draft.owner])
-
   return (
     <div className="flex flex-col gap-4">
-      <Field label="Owner" htmlFor={ownerId}>
-        <Select
-          id={ownerId}
-          value={draft.owner}
-          disabled={busy}
-          onChange={(event) => draft.setOwner(event.target.value)}
-        >
-          {options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </Select>
-      </Field>
-
-      {CAPABILITIES.map((capability) => (
-        <CapabilitySection
-          key={capability}
-          capability={capability}
-          users={users}
-          granted={draft.grants[capability]}
-          busy={busy}
-          onGrant={(username) => draft.grant(capability, username)}
-          onRevoke={(username) => draft.revoke(capability, username)}
-        />
-      ))}
-
+      <ResourceAccessEditor draft={draft} users={users} busy={busy} />
       <div className="flex items-center justify-between gap-3">
         <span className="text-muted">{draft.dirty ? "Unsaved changes" : "Up to date"}</span>
         <Button

@@ -9,7 +9,7 @@ import {
 } from "@/api/domain/access-plan"
 import { CAPABILITIES, type Capability } from "@/api/schemas/privileged"
 import type { User } from "@/api/schemas/user"
-import { ResourceAccessFields } from "./resource-access"
+import { holdsCapability, ResourceAccessFields } from "./resource-access"
 
 // The planner fans out over the endpoint module (importing the barrel from a
 // domain module would close a cycle), so it needs its own double. Every test
@@ -45,30 +45,58 @@ function row(itemAccess: ItemAccess) {
   return { resourceType: "session", id: 1, label: "F1 Weekend", access: itemAccess }
 }
 
-/** A capability section's container, located by its heading text. */
-function section(heading: string): HTMLElement {
-  const parent = screen.getByText(heading).parentElement
-  if (parent === null) throw new Error(`no section container for ${heading}`)
-  return parent
+function catalog(): HTMLElement {
+  return screen.getByTestId("access-catalog")
+}
+
+function filterGroup(): HTMLElement {
+  return screen.getByRole("group", { name: "Filter by capability" })
+}
+
+function setGroup(): HTMLElement {
+  return screen.getByRole("group", { name: "Capabilities for the selected users" })
+}
+
+function filterChip(label: string): HTMLButtonElement {
+  return within(filterGroup()).getByRole("button", { name: new RegExp(`^${label}`) }) as HTMLButtonElement
+}
+
+function setChip(label: string): HTMLButtonElement {
+  return within(setGroup()).getByRole("button", { name: label }) as HTMLButtonElement
+}
+
+function card(name: string): HTMLButtonElement {
+  return within(catalog()).getByRole("button", { name: new RegExp(name) }) as HTMLButtonElement
 }
 
 function applyButton(): HTMLButtonElement {
   return screen.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement
 }
 
+describe("holdsCapability", () => {
+  it("reads VIEW from any held capability but the rest literally", () => {
+    const grants = { ...emptyGrants(), OPERATE: ["bob"] }
+    expect(holdsCapability(grants, "VIEW", "bob")).toBe(true)
+    expect(holdsCapability(grants, "OPERATE", "bob")).toBe(true)
+    expect(holdsCapability(grants, "EDIT", "bob")).toBe(false)
+    expect(holdsCapability(grants, "VIEW", "alice")).toBe(false)
+  })
+})
+
 describe("ResourceAccessFields", () => {
-  it("renders one section per capability in the frozen order, after the owner control", () => {
+  it("renders the owner row, one catalog, both chip rows and no per-section prose", () => {
     render(<ResourceAccessFields access={access()} users={USERS} onApply={vi.fn()} />)
 
     expect([...CAPABILITIES]).toEqual(["VIEW", "OPERATE", "EDIT", "DELETE", "SHARE", "EXPORT"])
-    const expected = ["View access", "Operate", "Edit", "Delete", "Share", "Export"]
-    const headings = expected.map((text) => screen.getByText(text))
-    for (let index = 1; index < headings.length; index += 1) {
-      const relation = headings[index - 1].compareDocumentPosition(headings[index])
-      expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByText("Kyros")).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Change" })).toBeTruthy()
+    expect(catalog()).toBeTruthy()
+    const labels = ["View access", "Operate", "Edit", "Delete", "Share", "Export"]
+    for (const label of labels) {
+      expect(filterChip(label)).toBeTruthy()
+      expect(setChip(label)).toBeTruthy()
     }
-    expect(screen.getByLabelText("Owner")).toBeTruthy()
-    expect(screen.getByText("Only the owner can see this item.")).toBeTruthy()
+    expect(screen.queryByText("Only the owner can see this item.")).toBeNull()
     expect(screen.getByText("Up to date")).toBeTruthy()
   })
 
@@ -76,41 +104,35 @@ describe("ResourceAccessFields", () => {
     render(<ResourceAccessFields access={access()} users={USERS} onApply={vi.fn()} />)
     expect(applyButton().disabled).toBe(true)
 
-    const view = section("View access")
-    fireEvent.change(within(view).getByLabelText("Add a viewer"), { target: { value: "bob" } })
-    fireEvent.click(within(view).getByRole("button", { name: "Add" }))
+    fireEvent.click(card("Bob"))
+    fireEvent.click(setChip("Operate"))
 
     expect(applyButton().disabled).toBe(false)
     expect(screen.getByText("Unsaved changes")).toBeTruthy()
   })
 
-  it("keeps the owner control single-valued", () => {
+  it("transfers ownership from the owner picker and hides the chip rows meanwhile", () => {
     const onApply = vi.fn()
     render(<ResourceAccessFields access={access()} users={USERS} onApply={onApply} />)
 
-    const owner = screen.getByLabelText("Owner") as HTMLSelectElement
-    expect(owner.tagName).toBe("SELECT")
-    expect(owner.value).toBe("kyros")
+    fireEvent.click(screen.getByRole("button", { name: "Change" }))
+    expect(screen.getByText("Pick the new owner")).toBeTruthy()
+    expect(screen.queryByRole("group", { name: "Filter by capability" })).toBeNull()
 
-    fireEvent.change(owner, { target: { value: "carol" } })
+    fireEvent.click(card("Carol"))
     fireEvent.click(applyButton())
 
     const target = onApply.mock.calls[0][0] as AccessTarget
     expect(target.owner).toBe("carol")
   })
 
-  it("grants VIEW then OPERATE for one user as two grants, each issued as a request", async () => {
+  it("implies VIEW and issues one request per resulting capability", async () => {
     const base = access()
     const onApply = vi.fn()
     render(<ResourceAccessFields access={base} users={USERS} onApply={onApply} />)
 
-    const view = section("View access")
-    fireEvent.change(within(view).getByLabelText("Add a viewer"), { target: { value: "bob" } })
-    fireEvent.click(within(view).getByRole("button", { name: "Add" }))
-
-    const operate = section("Operate")
-    fireEvent.change(within(operate).getByLabelText("Add user to Operate"), { target: { value: "bob" } })
-    fireEvent.click(within(operate).getByRole("button", { name: "Add to Operate" }))
+    fireEvent.click(card("Bob"))
+    fireEvent.click(setChip("Operate"))
 
     // Drafting alone reaches no wire — a control that only looks like it grants fails here.
     expect(endpoints.setResourceGrants).not.toHaveBeenCalled()
@@ -127,37 +149,77 @@ describe("ResourceAccessFields", () => {
 
     await applyPlans([plan])
     expect(endpoints.setResourceGrants).toHaveBeenCalledTimes(2)
-    expect(endpoints.setResourceGrants).toHaveBeenNthCalledWith(1, "session", 1, "bob", [
-      "VIEW",
-      "OPERATE",
-    ])
-    expect(endpoints.setResourceGrants).toHaveBeenNthCalledWith(2, "session", 1, "bob", [
-      "VIEW",
-      "OPERATE",
-    ])
+    expect(endpoints.setResourceGrants).toHaveBeenNthCalledWith(1, "session", 1, "bob", ["VIEW", "OPERATE"])
+    expect(endpoints.setResourceGrants).toHaveBeenNthCalledWith(2, "session", 1, "bob", ["VIEW", "OPERATE"])
     expect(endpoints.revokeResourceUser).not.toHaveBeenCalled()
   })
 
-  it("revoking VIEW leaves OPERATE intact and clears only the VIEW grant", async () => {
-    const base = access({ VIEW: ["bob"], OPERATE: ["bob"] })
+  it("clears every capability for the user when VIEW is unticked", async () => {
+    const base = access({ VIEW: ["bob"], OPERATE: ["bob"], EDIT: ["bob"] })
     const onApply = vi.fn()
     render(<ResourceAccessFields access={base} users={USERS} onApply={onApply} />)
 
-    fireEvent.click(within(section("View access")).getByLabelText("Remove bob"))
-    expect(within(section("View access")).getByText("Only the owner can see this item.")).toBeTruthy()
-    expect(within(section("Operate")).getByText("Bob")).toBeTruthy()
+    fireEvent.click(card("Bob"))
+    expect(setChip("View access").getAttribute("aria-pressed")).toBe("true")
+    fireEvent.click(setChip("View access"))
+    expect(screen.getByText("Clearing View access also clears every other capability.")).toBeTruthy()
 
     fireEvent.click(applyButton())
     const target = onApply.mock.calls[0][0] as AccessTarget
     expect(target.grants?.VIEW).toEqual([])
-    expect(target.grants?.OPERATE).toEqual(["bob"])
+    expect(target.grants?.OPERATE).toEqual([])
+    expect(target.grants?.EDIT).toEqual([])
 
     const plan = planItem(row(base), target, USERNAMES)
-    expect(plan.ops).toEqual([{ kind: "revoke", capability: "VIEW", username: "bob" }])
+    expect(plan.ops).toEqual([
+      { kind: "revoke", capability: "VIEW", username: "bob" },
+      { kind: "revoke", capability: "OPERATE", username: "bob" },
+      { kind: "revoke", capability: "EDIT", username: "bob" },
+    ])
 
     await applyPlans([plan])
-    expect(endpoints.setResourceGrants).toHaveBeenCalledWith("session", 1, "bob", ["OPERATE"])
-    expect(endpoints.revokeResourceUser).not.toHaveBeenCalled()
+    expect(endpoints.revokeResourceUser).toHaveBeenCalledWith("session", 1, "bob")
+    expect(endpoints.setResourceGrants).not.toHaveBeenCalled()
+  })
+
+  it("filters the catalog to a capability's holders with the upper chips", () => {
+    render(<ResourceAccessFields access={access({ VIEW: ["bob"] })} users={USERS} onApply={vi.fn()} />)
+
+    expect(card("Alice")).toBeTruthy()
+    fireEvent.click(filterChip("View access"))
+
+    expect(card("Bob")).toBeTruthy()
+    expect(within(catalog()).queryByRole("button", { name: /Alice/ })).toBeNull()
+
+    fireEvent.click(filterChip("View access"))
+    expect(card("Alice")).toBeTruthy()
+  })
+
+  it("shows a partial lower chip when only some selected users hold the capability", () => {
+    const base = access({ VIEW: ["bob"], OPERATE: ["bob"] })
+    const onApply = vi.fn()
+    render(<ResourceAccessFields access={base} users={USERS} onApply={onApply} />)
+
+    expect(setChip("Operate").getAttribute("aria-pressed")).toBe("false")
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }))
+
+    expect(setChip("Operate").getAttribute("aria-pressed")).toBe("mixed")
+    fireEvent.click(setChip("Operate"))
+    expect(setChip("Operate").getAttribute("aria-pressed")).toBe("true")
+
+    fireEvent.click(applyButton())
+    const target = onApply.mock.calls[0][0] as AccessTarget
+    expect([...(target.grants?.OPERATE ?? [])].sort()).toEqual(["alice", "bob", "carol"])
+  })
+
+  it("selects every shown card and clears the selection", () => {
+    render(<ResourceAccessFields access={access()} users={USERS} onApply={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }))
+    expect(within(catalog()).getAllByRole("button", { pressed: true })).toHaveLength(3)
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }))
+    expect(within(catalog()).queryAllByRole("button", { pressed: true })).toHaveLength(0)
   })
 
   it("reloads on a changed access prop and preserves the draft on an unchanged one", () => {
@@ -166,39 +228,35 @@ describe("ResourceAccessFields", () => {
       <ResourceAccessFields access={base} users={USERS} onApply={vi.fn()} />,
     )
 
-    const view = section("View access")
-    fireEvent.change(within(view).getByLabelText("Add a viewer"), { target: { value: "bob" } })
-    fireEvent.click(within(view).getByRole("button", { name: "Add" }))
-    expect(within(section("View access")).getByLabelText("Remove bob")).toBeTruthy()
+    fireEvent.click(card("Bob"))
+    fireEvent.click(setChip("Operate"))
     expect(screen.getByText("Unsaved changes")).toBeTruthy()
 
     // Same value → same signature → the in-flight edit survives.
     rerender(<ResourceAccessFields access={base} users={USERS} onApply={vi.fn()} />)
-    expect(within(section("View access")).getByLabelText("Remove bob")).toBeTruthy()
     expect(screen.getByText("Unsaved changes")).toBeTruthy()
 
     // Different value → the draft reloads from the server state.
     rerender(<ResourceAccessFields access={access({ VIEW: ["alice"] })} users={USERS} onApply={vi.fn()} />)
-    expect(within(section("View access")).getByLabelText("Remove alice")).toBeTruthy()
-    expect(within(section("View access")).queryByLabelText("Remove bob")).toBeNull()
     expect(screen.getByText("Up to date")).toBeTruthy()
     expect(applyButton().disabled).toBe(true)
+    // Bob is no longer visible in the refiltered catalog once VIEW is filtered.
+    fireEvent.click(filterChip("View access"))
+    expect(card("Alice")).toBeTruthy()
+    expect(within(catalog()).queryByRole("button", { name: /Bob/ })).toBeNull()
   })
 
-  it("disables Apply and every row control while busy", () => {
-    render(
-      <ResourceAccessFields access={access({ VIEW: ["bob"] })} users={USERS} busy onApply={vi.fn()} />,
-    )
+  it("disables Apply, the cards and the chip rows while busy", () => {
+    render(<ResourceAccessFields access={access({ VIEW: ["bob"] })} users={USERS} busy onApply={vi.fn()} />)
 
     // The Spinner contributes "Loading" to the button's accessible name, so
     // locate the Apply control by its label span instead of the composed name.
     const applyControl = screen.getByText("Apply changes").closest("button")
     expect(applyControl).not.toBeNull()
     expect((applyControl as HTMLButtonElement).disabled).toBe(true)
-    const view = section("View access")
-    expect((within(view).getByLabelText("Remove bob") as HTMLButtonElement).disabled).toBe(true)
-    expect((within(view).getByLabelText("Add a viewer") as HTMLSelectElement).disabled).toBe(true)
-    expect((within(view).getByRole("button", { name: "Add" }) as HTMLButtonElement).disabled).toBe(true)
+    expect(filterChip("Operate").disabled).toBe(true)
+    expect(setChip("Operate").disabled).toBe(true)
+    expect(card("Bob").disabled).toBe(true)
   })
 
   it("carries all six capability keys and grants onto an otherwise-empty capability", () => {
@@ -208,17 +266,15 @@ describe("ResourceAccessFields", () => {
     const onApply = vi.fn()
     render(<ResourceAccessFields access={base} users={USERS} onApply={onApply} />)
 
-    const exportSection = section("Export")
-    fireEvent.change(within(exportSection).getByLabelText("Add user to Export"), {
-      target: { value: "bob" },
-    })
-    fireEvent.click(within(exportSection).getByRole("button", { name: "Add to Export" }))
+    fireEvent.click(card("Bob"))
+    fireEvent.click(setChip("Export"))
     fireEvent.click(applyButton())
 
     const target = onApply.mock.calls[0][0] as AccessTarget
     expect(target.grants?.EXPORT).toEqual(["bob"])
+    expect(target.grants?.VIEW).toEqual(["bob"])
     for (const capability of CAPABILITIES) {
-      if (capability !== "EXPORT") expect(target.grants?.[capability]).toEqual([])
+      if (capability !== "EXPORT" && capability !== "VIEW") expect(target.grants?.[capability]).toEqual([])
     }
   })
 })
