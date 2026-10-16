@@ -40,9 +40,14 @@ export function ownerOptions(users: readonly User[], owner: string): { value: st
   return options
 }
 
+/**
+ * `override.count` is the number of distinct users holding *any* capability, so
+ * the copy names users, not view grants — the old "N view grants" described a
+ * flat viewer list that no longer exists.
+ */
 export function overrideLabel(override: AccessOverride): string {
   if (override.kind === "owner-missing") return "Owner account missing"
-  return override.count === 1 ? "1 view grant" : `${override.count} view grants`
+  return override.count === 1 ? "1 user with access" : `${override.count} users with access`
 }
 
 /**
@@ -50,13 +55,18 @@ export function overrideLabel(override: AccessOverride): string {
  * established copy ("View access") — the e2e and unit specs pin that exact
  * string, so renaming it is a contract change, not a wording preference.
  */
-const CAPABILITY_LABEL: Record<Capability, string> = {
+export const CAPABILITY_LABEL: Record<Capability, string> = {
   VIEW: "View access",
   OPERATE: "Operate",
   EDIT: "Edit",
   DELETE: "Delete",
   SHARE: "Share",
   EXPORT: "Export",
+}
+
+/** The established label for one capability ("View access", "Operate", …). */
+export function capabilityLabel(capability: Capability): string {
+  return CAPABILITY_LABEL[capability]
 }
 
 function grantCapability(access: ItemAccess, capability: Capability, username: string): ItemAccess {

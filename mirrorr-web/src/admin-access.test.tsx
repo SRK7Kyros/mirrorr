@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, within } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import type { ReactNode } from "react"
 import { BulkAccessAction, ResourceAccessButton } from "./admin-access"
@@ -34,15 +34,13 @@ function renderInCard(node: ReactNode) {
 }
 
 describe("access affordances keep their clicks off the card", () => {
-  it("swallows a click on the button and on the drawer panel", async () => {
+  function accessView() {
+    return { resource_type: "session", id: 7, owner: "kyros", owner_missing: false, grants: [] }
+  }
+
+  it("swallows a click on the button and on the panel", async () => {
     api.fetchUsers.mockResolvedValue(USERS)
-    api.fetchResourceAccess.mockResolvedValue({
-      resource_type: "session",
-      id: 0,
-      owner: "kyros",
-      owner_missing: false,
-      grants: [],
-    })
+    api.fetchResourceAccess.mockResolvedValue(accessView())
     const openCard = renderInCard(
       <ResourceAccessButton resourceType="session" id={7} label="F1 Weekend" />,
     )
@@ -57,15 +55,29 @@ describe("access affordances keep their clicks off the card", () => {
     expect(openCard).toHaveBeenCalledTimes(1)
   })
 
+  it("mounts one centered dialog panel, not a sheet, and keeps its body clicks off the card", async () => {
+    api.fetchUsers.mockResolvedValue(USERS)
+    api.fetchResourceAccess.mockResolvedValue(accessView())
+    const openCard = renderInCard(
+      <ResourceAccessButton resourceType="session" id={7} label="F1 Weekend" />,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Access for F1 Weekend" }))
+
+    const dialog = await screen.findByRole("dialog")
+    expect(within(dialog).getByText("Access · F1 Weekend")).toBeTruthy()
+    expect(within(dialog).getByText("Session · #7")).toBeTruthy()
+    expect(openCard).toHaveBeenCalledTimes(0)
+
+    fireEvent.click(await within(dialog).findByLabelText("Search users"))
+    fireEvent.click(within(dialog).getByText("View access"))
+    fireEvent.click(within(dialog).getByText("Only the owner can see this item."))
+    expect(openCard).toHaveBeenCalledTimes(0)
+  })
+
   it("swallows a click on the bulk panel", async () => {
     api.fetchUsers.mockResolvedValue(USERS)
-    api.fetchResourceAccess.mockResolvedValue({
-      resource_type: "session",
-      id: 0,
-      owner: "kyros",
-      owner_missing: false,
-      grants: [],
-    })
+    api.fetchResourceAccess.mockResolvedValue(accessView())
     const openCard = renderInCard(
       <BulkAccessAction resourceType="autorun" items={[{ id: 5, label: "F1 Race" }]} />,
     )

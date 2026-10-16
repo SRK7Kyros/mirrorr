@@ -154,14 +154,32 @@ test.describe("admin resource access", () => {
     await openAdmin(page)
     await openNav(page, "Autoruns")
 
-    const button = page.getByRole("button", { name: "Access for F1 Race" })
-    await button.hover()
+    await page.getByRole("button", { name: "Access for F1 Race" }).click()
 
-    await expect(page.getByText("View access")).toBeVisible()
-    await expect(page.getByText("Only the owner can see this item.")).toBeVisible()
+    const dialog = page.getByRole("dialog")
+    await expect(dialog.getByText("Access · F1 Race")).toBeVisible()
+    await expect(dialog.getByText("Autorun · #5")).toBeVisible()
+    await expect(dialog.getByText("Only the owner can see this item.")).toBeVisible()
 
-    await page.getByLabel("Owner", { exact: true }).selectOption("alice")
-    await page.getByRole("button", { name: "Apply changes" }).click()
+    // Tap the VIEW card to grant, then again to revoke — the last capability going
+    // clears the user outright (DELETE), never a bare view-grant list.
+    const view = dialog.locator('section:has(> h3:text-is("View access"))')
+    await view.getByRole("button", { name: /Alice/ }).click()
+    await dialog.getByRole("button", { name: "Apply changes" }).click()
+    await expect
+      .poll(() => api.callsTo("/shares/autorun/5").some((call) => call.method === "POST"))
+      .toBe(true)
+    await expect(dialog.getByText("Up to date")).toBeVisible()
+
+    await view.getByRole("button", { name: /Alice/ }).click()
+    await dialog.getByRole("button", { name: "Apply changes" }).click()
+    await expect
+      .poll(() => api.callsTo("/shares/autorun/5/alice").some((call) => call.method === "DELETE"))
+      .toBe(true)
+
+    const owner = dialog.locator('section:has(> h3:text-is("Owner"))')
+    await owner.getByRole("button", { name: /Alice/ }).click()
+    await dialog.getByRole("button", { name: "Apply changes" }).click()
     await expect
       .poll(() => api.callsTo("/admin/resources/autorun/5/owner").some((call) => call.method === "PUT"))
       .toBe(true)
@@ -173,13 +191,19 @@ test.describe("admin resource access", () => {
     api.data.resources = [resourceRow("session", 7, "F1 Weekend")]
 
     await openAdmin(page)
-    await accessButton(page).first().hover()
+
+    const trigger = accessButton(page).first()
+    await trigger.click()
 
     // "View access" is panel chrome, not a control — the click that used to navigate.
     await page.getByText("View access").click()
 
     await expect(page).toHaveURL(/\/sessions$/)
     await expect(page.getByText("Only the owner can see this item.")).toBeVisible()
+
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("dialog")).toHaveCount(0)
+    await expect(trigger).toBeFocused()
   })
 
   test("bulk access warns before overriding an item's own access", async ({ page, api }) => {

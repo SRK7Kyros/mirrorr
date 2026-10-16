@@ -1,17 +1,13 @@
-import { useState, type MouseEvent } from "react"
+import { useRef, useState, type MouseEvent } from "react"
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
-import { HoverCard } from "radix-ui"
 import { fetchResourceAccess, fetchUsers, getErrorMessage } from "@/api"
 import {
   applyPlans,
   grantedUsernames,
   itemAccessFromView,
-  overrideOf,
   planBulk,
-  planItem,
   type AccessRow,
   type AccessTarget,
-  type ItemAccess,
   type ItemPlan,
 } from "@/api/domain/access-plan"
 import { queryKeys, queryRoots, staleTimes } from "@/api/query-keys"
@@ -21,7 +17,6 @@ import {
   Button,
   Checkbox,
   Dialog,
-  Drawer,
   ErrorPanel,
   IconButton,
   Select,
@@ -30,22 +25,13 @@ import {
   toast,
 } from "@/ui/components"
 import { IconUser } from "@/ui/components/icons"
-import { useMediaQuery } from "@/ui/hooks"
-import {
-  ResourceAccessFields,
-  overrideLabel,
-  resourceTypeLabel,
-  userLabel,
-  usernameLabel,
-} from "@/ui/views/shared/resource-access"
+import { AccessPanel } from "@/ui/views/shared/access-panel"
+import { overrideLabel, resourceTypeLabel, userLabel, usernameLabel } from "@/ui/views/shared/resource-access"
 import type {
   ResourceAccessBulkActionProps,
   ResourceAccessButtonProps,
   ResourceAccessSlot,
 } from "@/ui/views/shared/resource-access-slot"
-
-const HOVER_CARD_CLASS =
-  "z-[var(--z-popover)] w-[360px] max-h-[70vh] overflow-y-auto p-4 bg-surface-3 border border-line-strong rounded-md shadow-elev-md"
 
 function useUsers(): readonly User[] {
   const query = useQuery({ queryKey: queryKeys.users, queryFn: fetchUsers, staleTime: staleTimes.users })
@@ -84,7 +70,7 @@ function AccessDelta({ plan, users }: { readonly plan: ItemPlan; readonly users:
         )}
       </li>
       <li className="flex items-start gap-2">
-        <span className="text-muted">View access</span>
+        <span className="text-muted">With access</span>
         {viewersChanged ? (
           <>
             <span className="text-muted line-through">{viewersText(fromViewers, users)}</span>
@@ -99,84 +85,6 @@ function AccessDelta({ plan, users }: { readonly plan: ItemPlan; readonly users:
   )
 }
 
-interface ItemAccessEditorProps {
-  readonly resourceType: ResourceType
-  readonly id: number
-  readonly label: string
-  readonly access: ItemAccess
-  readonly users: readonly User[]
-}
-
-function ItemAccessEditor({ resourceType, id, label, access, users }: ItemAccessEditorProps) {
-  const queryClient = useQueryClient()
-  const [busy, setBusy] = useState(false)
-  const override = overrideOf(access, users.map((user) => user.username))
-
-  // Not `useMutation`: the hover card unmounts on pointer-out, and a mutation
-  // observer dies with its component, dropping the toast and the invalidation
-  // while the writes themselves already landed.
-  async function apply(target: AccessTarget): Promise<void> {
-    setBusy(true)
-    const outcome = await applyPlans([
-      planItem(
-        { resourceType, id, label, access },
-        target,
-        users.map((user) => user.username),
-      ),
-    ])
-    setBusy(false)
-    invalidateAccess(queryClient)
-    if (outcome.failed.length > 0) toast.error("Could not update access", outcome.failed[0].message)
-    else toast.success("Access updated", label)
-  }
-
-  return (
-    <div className="flex flex-col gap-4">
-      {override !== null ? (
-        <Tag title="This item's access was set on the item itself, not inherited.">
-          {overrideLabel(override)}
-        </Tag>
-      ) : null}
-      <ResourceAccessFields
-        access={access}
-        users={users}
-        busy={busy}
-        onApply={(target) => void apply(target)}
-      />
-    </div>
-  )
-}
-
-function AccessPanel({ resourceType, id, label }: ResourceAccessButtonProps) {
-  const users = useUsers()
-  const accessQuery = useQuery({
-    queryKey: queryKeys.adminResourceAccess(resourceType, id),
-    queryFn: () => fetchResourceAccess(resourceType, id),
-    staleTime: staleTimes.adminResources,
-  })
-
-  if (accessQuery.isLoading) return <SkeletonRows rows={3} cols={2} />
-  if (accessQuery.isError) {
-    return (
-      <ErrorPanel
-        message={getErrorMessage(accessQuery.error, "Could not load access")}
-        onRetry={() => void accessQuery.refetch()}
-      />
-    )
-  }
-  const access = accessQuery.data
-  if (access === undefined) return <SkeletonRows rows={3} cols={2} />
-  return (
-    <ItemAccessEditor
-      resourceType={resourceType}
-      id={id}
-      label={label}
-      access={itemAccessFromView(access)}
-      users={users}
-    />
-  )
-}
-
 /**
  * Portals bubble through the React tree, not the DOM tree, so without this a click on the
  * panel's own padding, labels or backdrop reaches the card's click handler and navigates.
@@ -186,42 +94,31 @@ function swallowClick(event: MouseEvent<HTMLElement>): void {
 }
 
 export function ResourceAccessButton({ resourceType, id, label }: ResourceAccessButtonProps) {
-  const [drawerOpen, setDrawerOpen] = useState(false)
-  const hoverCapable = useMediaQuery("(hover: hover) and (pointer: fine)")
-
-  if (!hoverCapable) {
-    return (
-      <span className="contents" onClick={swallowClick}>
-        <IconButton
-          label={`Access for ${label}`}
-          icon={<IconUser size={16} />}
-          size="sm"
-          onClick={() => setDrawerOpen(true)}
-        />
-        <Drawer
-          open={drawerOpen}
-          onClose={() => setDrawerOpen(false)}
-          side="right"
-          title={`Access · ${label}`}
-        >
-          <AccessPanel resourceType={resourceType} id={id} label={label} />
-        </Drawer>
-      </span>
-    )
-  }
+  const [open, setOpen] = useState(false)
+  const restoreRef = useRef<HTMLElement | null>(null)
 
   return (
     <span className="contents" onClick={swallowClick}>
-      <HoverCard.Root openDelay={150} closeDelay={150}>
-        <HoverCard.Trigger asChild>
-          <IconButton label={`Access for ${label}`} icon={<IconUser size={16} />} size="sm" />
-        </HoverCard.Trigger>
-        <HoverCard.Portal>
-          <HoverCard.Content side="bottom" align="end" sideOffset={8} className={HOVER_CARD_CLASS}>
-            <AccessPanel resourceType={resourceType} id={id} label={label} />
-          </HoverCard.Content>
-        </HoverCard.Portal>
-      </HoverCard.Root>
+      <IconButton
+        label={`Access for ${label}`}
+        icon={<IconUser size={16} />}
+        size="sm"
+        onClick={(event) => {
+          restoreRef.current = event.currentTarget
+          setOpen(true)
+        }}
+      />
+      {open ? (
+        <AccessPanel
+          resourceType={resourceType}
+          id={id}
+          label={label}
+          onClose={() => {
+            setOpen(false)
+            restoreRef.current?.focus()
+          }}
+        />
+      ) : null}
     </span>
   )
 }
@@ -381,7 +278,7 @@ function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProp
 
           <div className="flex flex-col gap-2">
             <Checkbox
-              label="Replace view grants"
+              label="Replace view access"
               checked={changeViewers}
               disabled={busy}
               onChange={(event) => setChangeViewers(event.target.checked)}
