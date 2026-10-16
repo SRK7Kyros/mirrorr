@@ -3,9 +3,19 @@ import re
 
 from loguru import logger
 from sqlmodel import SQLModel, inspect, text
+from sqlalchemy import UniqueConstraint
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 _IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+
+
+def _unique_column_sets(table) -> set[tuple[str, ...]]:
+    """Column tuples of every UNIQUE constraint the model table declares."""
+    return {
+        tuple(sorted(column.name for column in constraint.columns))
+        for constraint in table.constraints
+        if isinstance(constraint, UniqueConstraint)
+    }
 
 
 def _safe_identifier(name: str) -> str:
@@ -107,7 +117,7 @@ async def ensure_db(engine: AsyncEngine) -> None:
                 columns = [c["name"] for c in inspector_obj.get_columns(table_name)]
                 logger.debug(f"{f'Table {table_name}'.ljust(longest_column_length)} columns: {columns}")
 
-            tables_to_rebuild: list[tuple[str, object]] = []
+            tables_to_rebuild: dict[str, object] = {}
 
             for table_name, table in SQLModel.metadata.tables.items():
                 if not inspector_obj.has_table(table_name):
@@ -132,7 +142,23 @@ async def ensure_db(engine: AsyncEngine) -> None:
                         f"for columns: {nullable_mismatches}. "
                         f"Table will be rebuilt with correct constraints."
                     )
-                    tables_to_rebuild.append((table_name, table))
+                    tables_to_rebuild[table_name] = table
+
+                # ── Check for UNIQUE-constraint mismatches ────────────
+                # e.g. a grant's uniqueness gained a column: SQLite cannot
+                # ALTER a constraint, so the table is rebuilt below.
+                db_unique = {
+                    tuple(sorted(uc["column_names"]))
+                    for uc in inspector_obj.get_unique_constraints(table_name)
+                }
+                model_unique = _unique_column_sets(table)
+                if db_unique != model_unique:
+                    logger.warning(
+                        f"UNIQUE constraint mismatch on {table_name}: "
+                        f"db={sorted(db_unique)} model={sorted(model_unique)}. "
+                        f"Table will be rebuilt."
+                    )
+                    tables_to_rebuild[table_name] = table
 
                 # ── Add new columns ──────────────────────────────────
                 for col_name, column in model_columns.items():
@@ -169,7 +195,16 @@ async def ensure_db(engine: AsyncEngine) -> None:
             # ── Rebuild tables with constraint mismatches ────────────
             # We rebuild AFTER add/drop so the schema is as close to
             # the model as possible before the rebuild.
-            for table_name, table in tables_to_rebuild:
+            for table_name, table in tables_to_rebuild.items():
                 _rebuild_table_sqlite(sync_conn, table_name, table, dialect)
+
+            # ── Backfill the capability column added to resource_access ──
+            # A column default only reaches ORM inserts, so pre-existing
+            # grants read NULL until mapped to VIEW — the one capability a
+            # grant used to mean.
+            sync_conn.execute(text(
+                "UPDATE resource_access SET capability = 'VIEW' "
+                "WHERE capability IS NULL OR capability = ''"
+            ))
 
         await conn.run_sync(sync_columns)

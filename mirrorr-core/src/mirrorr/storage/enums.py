@@ -44,3 +44,18 @@ class ResourceType(str, PyEnum):
     RECORDING = "recording"
     SOURCE = "source"
     USER = "user"
+
+
+class Capability(str, PyEnum):
+    """Per-action rights on an owner-bearing resource.
+
+    Owner and admin hold all six implicitly; everyone else holds only what
+    ``resource_access`` grants. No inheritance between capabilities — the
+    declaration order is the frozen order used to sort capability lists.
+    """
+    VIEW = "VIEW"
+    OPERATE = "OPERATE"
+    EDIT = "EDIT"
+    DELETE = "DELETE"
+    SHARE = "SHARE"
+    EXPORT = "EXPORT"
