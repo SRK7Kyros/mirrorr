@@ -1,8 +1,9 @@
-"""Admin resource-access surface + its read-only enforcement boundary.
+"""Admin resource listing/owner routes + the sharing read-only boundary.
 
-A grant admits READS only: a granted viewer sees a resource's list row, detail
-and logs, but every control / update / delete / save-as-profile / export /
-linking path stays owner-or-admin.
+Grants now flow through the ``/shares/`` surface (see ``test_shares.py``); here a
+``VIEW`` grant still admits READS only — a granted viewer sees a resource's list
+row, detail and logs, while every control / update / delete / save-as-profile /
+export / linking path stays owner-or-admin (or the matching capability).
 """
 
 from __future__ import annotations
@@ -214,28 +215,33 @@ def test_grant_revoke_transfer_and_validation(tmp_path):
             h.as_user("alice", admin=True)
             sid = ids["session"]
 
-            assert (await h.client.post(f"/admin/resources/user/1/access", json={"username": "bob"})).status_code == 400
-            assert (await h.client.post(f"/admin/resources/engine/1/access", json={"username": "bob"})).status_code == 400
-            assert (await h.client.post(f"/admin/resources/bogus/1/access", json={"username": "bob"})).status_code == 404
-            assert (await h.client.post(f"/admin/resources/session/999/access", json={"username": "bob"})).status_code == 404
-            assert (await h.client.post(f"/admin/resources/session/{sid}/access", json={"username": "nobody"})).status_code == 400
+            grant = {"username": "bob", "capabilities": ["VIEW"]}
+            assert (await h.client.post("/shares/user/1", json=grant)).status_code == 400
+            assert (await h.client.post("/shares/engine/1", json=grant)).status_code == 400
+            assert (await h.client.post("/shares/bogus/1", json=grant)).status_code == 404
+            assert (await h.client.post("/shares/session/999", json=grant)).status_code == 404
+            assert (await h.client.post(f"/shares/session/{sid}", json={"username": "nobody", "capabilities": ["VIEW"]})).status_code == 400
 
-            granted = await h.client.post(f"/admin/resources/session/{sid}/access", json={"username": "bob"})
-            assert granted.status_code == 200 and granted.json()["viewers"] == ["bob"]
-            again = await h.client.post(f"/admin/resources/session/{sid}/access", json={"username": "bob"})
-            assert again.status_code == 200 and again.json()["viewers"] == ["bob"]
+            granted = await h.client.post(f"/shares/session/{sid}", json=grant)
+            assert granted.status_code == 200
+            assert granted.json() == {
+                "resource_type": "session", "id": sid, "owner": "alice", "owner_missing": False,
+                "grants": [{"username": "bob", "capabilities": ["VIEW"]}],
+            }
+            again = await h.client.post(f"/shares/session/{sid}", json=grant)
+            assert again.status_code == 200 and again.json() == granted.json()
             assert len(await _grant_rows(h.maker, username="bob")) == 1
 
-            detail = await h.client.get(f"/admin/resources/session/{sid}/access")
+            detail = await h.client.get(f"/shares/session/{sid}")
             assert detail.status_code == 200
-            assert detail.json() == {"resource_type": "session", "id": sid, "owner": "alice", "viewers": ["bob"]}
+            assert detail.json() == granted.json()
 
             listed = (await h.client.get("/admin/resources?resource_type=session")).json()
             assert listed["items"][0]["viewer_count"] == 1
 
-            revoked = await h.client.delete(f"/admin/resources/session/{sid}/access/bob")
-            assert revoked.status_code == 200 and revoked.json()["viewers"] == []
-            assert (await h.client.delete(f"/admin/resources/session/{sid}/access/bob")).status_code == 200
+            revoked = await h.client.delete(f"/shares/session/{sid}/bob")
+            assert revoked.status_code == 200 and revoked.json()["grants"] == []
+            assert (await h.client.delete(f"/shares/session/{sid}/bob")).status_code == 200
 
             assert (await h.client.put(f"/admin/resources/session/{sid}/owner", json={"username": "nobody"})).status_code == 400
             moved = await h.client.put(f"/admin/resources/session/{sid}/owner", json={"username": "carol"})
@@ -253,13 +259,18 @@ def test_a8_admin_endpoints_reject_non_admin(tmp_path):
             sid = ids["session"]
             calls = [
                 h.client.get("/admin/resources"),
-                h.client.get(f"/admin/resources/session/{sid}/access"),
-                h.client.post(f"/admin/resources/session/{sid}/access", json={"username": "bob"}),
                 h.client.put(f"/admin/resources/session/{sid}/owner", json={"username": "bob"}),
-                h.client.delete(f"/admin/resources/session/{sid}/access/bob"),
             ]
             for response in await asyncio.gather(*calls):
                 assert response.status_code == 403, response.text
+
+            removed = [
+                h.client.get(f"/admin/resources/session/{sid}/access"),
+                h.client.post(f"/admin/resources/session/{sid}/access", json={"username": "bob"}),
+                h.client.delete(f"/admin/resources/session/{sid}/access/bob"),
+            ]
+            for response in await asyncio.gather(*removed):
+                assert response.status_code == 404, response.text
 
     asyncio.run(scenario())
 
@@ -270,7 +281,7 @@ def test_a1_granted_viewer_reads_list_detail_and_logs(tmp_path):
             ids = await _seed(h.maker)
             h.as_user("alice", admin=True)
             for tag, rid in (("session", ids["session"]), ("profile", ids["profile"])):
-                assert (await h.client.post(f"/admin/resources/{tag}/{rid}/access", json={"username": "bob"})).status_code == 200
+                assert (await h.client.post(f"/shares/{tag}/{rid}", json={"username": "bob", "capabilities": ["VIEW"]})).status_code == 200
 
             h.as_user("bob")
             sessions = (await h.client.get("/sessions/")).json()["items"]
@@ -304,12 +315,12 @@ def test_a3_revoke_removes_view(tmp_path):
             ids = await _seed(h.maker)
             sid = ids["session"]
             h.as_user("alice", admin=True)
-            await h.client.post(f"/admin/resources/session/{sid}/access", json={"username": "bob"})
+            await h.client.post(f"/shares/session/{sid}", json={"username": "bob", "capabilities": ["VIEW"]})
             h.as_user("bob")
             assert ids["session"] in [s["id"] for s in (await h.client.get("/sessions/")).json()["items"]]
 
             h.as_user("alice", admin=True)
-            await h.client.delete(f"/admin/resources/session/{sid}/access/bob")
+            await h.client.delete(f"/shares/session/{sid}/bob")
             h.as_user("bob")
             assert ids["session"] not in [s["id"] for s in (await h.client.get("/sessions/")).json()["items"]]
             assert (await h.client.get(f"/sessions/{sid}")).status_code == 403
@@ -347,7 +358,7 @@ def test_a7_a_grant_confers_no_use_edit_or_link_powers(tmp_path):
             ids = await _seed(h.maker)
             h.as_user("alice", admin=True)
             for tag in ("session", "profile", "autorun", "source", "recording"):
-                assert (await h.client.post(f"/admin/resources/{tag}/{ids[tag]}/access", json={"username": "bob"})).status_code == 200
+                assert (await h.client.post(f"/shares/{tag}/{ids[tag]}", json={"username": "bob", "capabilities": ["VIEW"]})).status_code == 200
 
             h.as_user("bob")
             sid, pid, aid = ids["session"], ids["profile"], ids["autorun"]
@@ -377,8 +388,8 @@ def test_a6_deletes_drop_grants(tmp_path):
             ids = await _seed(h.maker)
             h.as_user("alice", admin=True)
             aid, pid = ids["autorun"], ids["profile"]
-            await h.client.post(f"/admin/resources/autorun/{aid}/access", json={"username": "bob"})
-            await h.client.post(f"/admin/resources/profile/{pid}/access", json={"username": "bob"})
+            await h.client.post(f"/shares/autorun/{aid}", json={"username": "bob", "capabilities": ["VIEW"]})
+            await h.client.post(f"/shares/profile/{pid}", json={"username": "bob", "capabilities": ["VIEW"]})
             assert len(await _grant_rows(h.maker, username="bob")) == 2
 
             assert (await h.client.delete(f"/autoruns/{aid}")).status_code == 200
@@ -410,7 +421,7 @@ def test_granted_source_viewer_never_receives_owner_token(tmp_path):
             ids = await _seed(h.maker)
             source_id = ids["source"]
             h.as_user("alice", admin=True)
-            assert (await h.client.post(f"/admin/resources/source/{source_id}/access", json={"username": "bob"})).status_code == 200
+            assert (await h.client.post(f"/shares/source/{source_id}", json={"username": "bob", "capabilities": ["VIEW"]})).status_code == 200
 
             h.as_user("bob")
             detail = await h.client.get(f"/sources/{source_id}")
@@ -434,7 +445,7 @@ def test_a6_every_kind_drops_its_grants_on_delete(tmp_path):
                 ids = await _seed(h.maker)
                 rid = ids[tag]
                 h.as_user("alice", admin=True)
-                granted = await h.client.post(f"/admin/resources/{tag}/{rid}/access", json={"username": "bob"})
+                granted = await h.client.post(f"/shares/{tag}/{rid}", json={"username": "bob", "capabilities": ["VIEW"]})
                 assert granted.status_code == 200, granted.text
                 assert await _grant_rows(h.maker, resource_type=ResourceType(tag), username="bob")
 
@@ -499,7 +510,7 @@ def test_a1_granted_viewer_reads_recording_progress(tmp_path):
             ids = await _seed(h.maker)
             sid = ids["session"]
             h.as_user("alice", admin=True)
-            await h.client.post(f"/admin/resources/session/{sid}/access", json={"username": "bob"})
+            await h.client.post(f"/shares/session/{sid}", json={"username": "bob", "capabilities": ["VIEW"]})
 
             h.as_user("bob")
             assert (await h.client.get(f"/sessions/{sid}/recording/progress")).status_code == 200
@@ -516,7 +527,7 @@ def test_a7_granted_profile_cannot_be_linked_into_an_autorun(tmp_path):
         async with _harness(tmp_path) as h:
             ids = await _seed(h.maker)
             h.as_user("alice", admin=True)
-            await h.client.post(f"/admin/resources/profile/{ids['profile']}/access", json={"username": "bob"})
+            await h.client.post(f"/shares/profile/{ids['profile']}", json={"username": "bob", "capabilities": ["VIEW"]})
 
             h.as_user("bob")
             payload = {
@@ -574,8 +585,8 @@ def test_concurrent_double_grant_is_idempotent(tmp_path):
             try:
                 first, second = await asyncio.wait_for(
                     asyncio.gather(
-                        h.client.post(f"/admin/resources/session/{sid}/access", json={"username": "bob"}),
-                        h.client.post(f"/admin/resources/session/{sid}/access", json={"username": "bob"}),
+                        h.client.post(f"/shares/session/{sid}", json={"username": "bob", "capabilities": ["VIEW"]}),
+                        h.client.post(f"/shares/session/{sid}", json={"username": "bob", "capabilities": ["VIEW"]}),
                     ),
                     timeout=10,
                 )
@@ -584,8 +595,9 @@ def test_concurrent_double_grant_is_idempotent(tmp_path):
 
             assert first.status_code == 200, first.text
             assert second.status_code == 200, second.text
-            assert first.json()["viewers"] == ["bob"]
-            assert second.json()["viewers"] == ["bob"]
+            expected = {"username": "bob", "capabilities": ["VIEW"]}
+            assert first.json()["grants"] == [expected]
+            assert second.json()["grants"] == [expected]
             assert len(await _grant_rows(h.maker, resource_type=ResourceType.SESSION, username="bob")) == 1
 
     asyncio.run(scenario())
