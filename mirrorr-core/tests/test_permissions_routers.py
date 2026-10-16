@@ -88,7 +88,9 @@ async def _owner_token(maker, model, resource_id: int) -> str:
 
 
 def test_every_action_requires_exactly_its_capability(tmp_path):
-    """Granting capability C: the mapped action passes, every other one is 403."""
+    """Granting capability C: its mapped action passes, and so does any action
+    gated on VIEW (C implies VIEW). Every other mapping is a real 403, and any
+    grant admits the row to the list."""
     async def scenario():
         for tag in _actions({"session": 0, "autorun": 0, "profile": 0, "source": 0, "recording": 0}):
             for capability in _CAPS:
@@ -98,10 +100,17 @@ def test_every_action_requires_exactly_its_capability(tmp_path):
                     ids = await _seed(h.maker)
                     await _grant(h.maker, ResourceType(tag), ids[tag], "bob", capability)
                     h.as_user("bob")
+                    # Evaluated before the actions: a DELETE grant removes the row,
+                    # which would empty the list it is meant to appear in.
+                    listing = (await h.client.get(f"/{tag}s/")).json()["items"]
+                    assert ids[tag] in [row["id"] for row in listing], (
+                        f"{tag}/{capability.name}: any grant implies VIEW, so the row must list"
+                    )
                     with patch(_CONTROL_STUB, AsyncMock(return_value={"status": "stopping"})):
                         for label, method, url, body, required in _actions(ids)[tag]:
                             resp = await _request(h.client, method, url, body)
-                            if capability == required:
+                            allowed = capability == required or required == Capability.VIEW
+                            if allowed:
                                 assert resp.status_code == 200, (
                                     f"{tag}/{capability.name}/{label}: {resp.status_code} {resp.text}"
                                 )
@@ -110,9 +119,6 @@ def test_every_action_requires_exactly_its_capability(tmp_path):
                                     f"{tag}/{capability.name}/{label}: {resp.status_code} {resp.text}"
                                 )
                                 assert resp.json().get("detail"), f"{tag}/{capability.name}/{label}: empty 403 body"
-                    listing = (await h.client.get(f"/{tag}s/")).json()["items"]
-                    present = ids[tag] in [row["id"] for row in listing]
-                    assert present is (capability == Capability.VIEW), f"{tag}/{capability.name}: list membership"
 
     asyncio.run(scenario())
 

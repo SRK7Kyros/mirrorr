@@ -835,7 +835,7 @@ Ownership scoping is **unchanged**: an item is visible to its owner (`requester_
 
 ##### Capabilities
 
-Exactly six, in frozen order — `VIEW`, `OPERATE`, `EDIT`, `DELETE`, `SHARE`, `EXPORT`. The owner and `role=admin` hold all six implicitly; everyone else holds only what is granted, and **no capability implies another**. The map: list rows / detail / `GET /sessions/{id}/logs` / recording progress → `VIEW`; `stop` / `enable_recording` / `disable_recording` → `OPERATE`; `update_*` / `save_session_as_profile` / `save_autorun_as_profile` / profile-link → `EDIT`; `delete_*` → `DELETE`; export profile/autorun → `EXPORT`; the `/shares/` routes → `SHARE`.
+Exactly six, in frozen order — `VIEW`, `OPERATE`, `EDIT`, `DELETE`, `SHARE`, `EXPORT`. The owner and `role=admin` hold all six implicitly; everyone else holds only what is granted. **VIEW is the base capability**: any grant implies it, so a non-empty `POST /shares` list is stored and returned with `VIEW` added, and a `VIEW`-gated read succeeds for any grant holder — while `VIEW` itself implies no other capability and no other capability implies another (the implication is one-way). The map: list rows / detail / `GET /sessions/{id}/logs` / recording progress → `VIEW`; `stop` / `enable_recording` / `disable_recording` → `OPERATE`; `update_*` / `save_session_as_profile` / `save_autorun_as_profile` / profile-link → `EDIT`; `delete_*` → `DELETE`; export profile/autorun → `EXPORT`; the `/shares/` routes → `SHARE`.
 
 ##### The access API
 

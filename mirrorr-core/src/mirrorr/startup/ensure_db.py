@@ -279,4 +279,23 @@ async def ensure_db(engine: AsyncEngine) -> None:
                 "WHERE capability IS NULL OR capability = ''"
             ))
 
+            # ── Backfill VIEW beside every non-VIEW grant ────────────────
+            # VIEW is the base capability: any grant implies it. Rows written
+            # before that rule (or by a client that only named the action) gain
+            # the missing VIEW row here. Runs after the _old_* sweep above so a
+            # rescued row is covered too, and is idempotent via NOT EXISTS.
+            sync_conn.execute(text(
+                "INSERT INTO resource_access "
+                "(resource_type, resource_id, username, capability, created_at) "
+                "SELECT ra.resource_type, ra.resource_id, ra.username, 'VIEW', ra.created_at "
+                "FROM resource_access ra "
+                "WHERE ra.capability <> 'VIEW' AND NOT EXISTS ("
+                "    SELECT 1 FROM resource_access v "
+                "    WHERE v.resource_type = ra.resource_type "
+                "      AND v.resource_id = ra.resource_id "
+                "      AND v.username = ra.username "
+                "      AND v.capability = 'VIEW'"
+                ")"
+            ))
+
         await conn.run_sync(sync_columns)

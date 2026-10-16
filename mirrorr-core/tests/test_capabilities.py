@@ -372,6 +372,132 @@ def test_require_capability_matrix(tmp_path):
     assert out["admin_delete"] is None
 
 
+async def _seeded_granted(tmp_path, *capabilities):
+    engine, maker = create_db_engine(MirrorrSettings(base_dir=tmp_path))
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+    async with maker() as db:
+        db.add(Engine(id=1, name="e", origin="o", origin_hash="h"))
+        db.add(Resolver(id=1, name="r", description="d", origin="o", origin_hash="h", has_catalog=True))
+        db.add(Session(id=1, engine_id=1, resolver_id=1, requester_user_token="alice"))
+        for capability in capabilities:
+            db.add(ResourceAccess(
+                resource_type=ResourceType.SESSION, resource_id=1,
+                username="bob", capability=capability,
+            ))
+        await db.commit()
+    return engine, maker
+
+
+async def _granted_matrix(tmp_path, *capabilities) -> dict:
+    engine, maker = await _seeded_granted(tmp_path, *capabilities)
+    async with maker() as db:
+        s1 = await db.get(Session, 1)
+        matrix = {c: await has_capability(db, _auth("bob"), s1, c) for c in ALL_CAPABILITIES}
+    await engine.dispose()
+    return matrix
+
+
+def test_any_grant_implies_view(tmp_path):
+    """VIEW is the base: holding OPERATE alone still admits a VIEW-gated read."""
+    matrix = asyncio.run(_granted_matrix(tmp_path, Capability.OPERATE))
+
+    assert matrix[Capability.VIEW] is True, "any grant must imply VIEW"
+    assert matrix[Capability.OPERATE] is True
+
+
+def test_view_is_the_only_implication(tmp_path):
+    """The implication is one-way: VIEW alone implies exactly nothing else."""
+    matrix = asyncio.run(_granted_matrix(tmp_path, Capability.VIEW))
+
+    assert matrix == {
+        Capability.VIEW: True,
+        Capability.OPERATE: False,
+        Capability.EDIT: False,
+        Capability.DELETE: False,
+        Capability.SHARE: False,
+        Capability.EXPORT: False,
+    }, "VIEW alone must not confer any other capability"
+
+
+def test_operate_implies_only_view(tmp_path):
+    """Only VIEW is implied by the others — OPERATE must not grant EDIT/DELETE/etc."""
+    matrix = asyncio.run(_granted_matrix(tmp_path, Capability.OPERATE))
+
+    assert matrix == {
+        Capability.VIEW: True,
+        Capability.OPERATE: True,
+        Capability.EDIT: False,
+        Capability.DELETE: False,
+        Capability.SHARE: False,
+        Capability.EXPORT: False,
+    }, "no capability other than VIEW is implied"
+
+
+def test_legacy_non_view_grant_reads_and_backfills(tmp_path):
+    """A pre-existing non-VIEW row with no VIEW sibling still satisfies a
+    VIEW-gated read (the predicate is authoritative), and ``ensure_db`` fills in
+    the VIEW row."""
+    async def _run():
+        engine, maker = create_db_engine(MirrorrSettings(base_dir=tmp_path))
+        async with engine.begin() as conn:
+            await conn.run_sync(SQLModel.metadata.create_all)
+        async with maker() as db:
+            db.add(Engine(id=1, name="e", origin="o", origin_hash="h"))
+            db.add(Resolver(id=1, name="r", description="d", origin="o", origin_hash="h"))
+            db.add(Session(id=1, engine_id=1, resolver_id=1, requester_user_token="alice"))
+            db.add(ResourceAccess(
+                resource_type=ResourceType.SESSION, resource_id=1,
+                username="bob", capability=Capability.OPERATE,
+            ))
+            await db.commit()
+            s1 = await db.get(Session, 1)
+            before = await has_capability(db, _auth("bob"), s1, Capability.VIEW)
+        await ensure_db(engine)
+        async with maker() as db:
+            caps = set((await db.exec(
+                select(ResourceAccess.capability).where(
+                    ResourceAccess.resource_type == ResourceType.SESSION,
+                    ResourceAccess.resource_id == 1,
+                    ResourceAccess.username == "bob",
+                )
+            )).all())
+        await engine.dispose()
+        return before, caps
+
+    before, caps = asyncio.run(_run())
+    assert before is True
+    assert caps == {Capability.VIEW, Capability.OPERATE}
+
+
+def test_migration_backfills_view_for_non_view_grants(tmp_path):
+    """Every non-VIEW row gains a VIEW row, and the pass is idempotent."""
+    async def _run():
+        engine, _ = create_db_engine(MirrorrSettings(base_dir=tmp_path))
+        async with engine.begin() as conn:
+            await conn.run_sync(SQLModel.metadata.create_all)
+            await conn.exec_driver_sql(
+                "INSERT INTO resource_access (resource_type, resource_id, username, capability, created_at) "
+                "VALUES ('SESSION', 1, 'bob', 'OPERATE', '2024-01-01 00:00:00'), "
+                "('PROFILE', 2, 'carol', 'EDIT', '2024-01-01 00:00:00')"
+            )
+        await ensure_db(engine)
+        first = await _probe_resource_access(engine)
+        await ensure_db(engine)
+        second = await _probe_resource_access(engine)
+        await engine.dispose()
+        return first, second
+
+    first, second = asyncio.run(_run())
+    assert first["rows"] == [
+        ("SESSION", 1, "bob", "OPERATE"),
+        ("PROFILE", 2, "carol", "EDIT"),
+        ("SESSION", 1, "bob", "VIEW"),
+        ("PROFILE", 2, "carol", "VIEW"),
+    ]
+    assert first == second, "VIEW backfill must be idempotent"
+
+
 # ── Grant rows ──────────────────────────────────────────────────────────────
 
 def test_grant_defaults_to_view(tmp_path):

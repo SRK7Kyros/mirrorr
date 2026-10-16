@@ -173,6 +173,41 @@ def test_replace_set_idempotent_and_exact(tmp_path):
     asyncio.run(scenario())
 
 
+def test_nonempty_grant_list_always_includes_view(tmp_path):
+    """A non-empty POST list always carries VIEW (stored and returned)."""
+    async def scenario():
+        async with _harness(tmp_path) as h:
+            ids = await _seed(h.maker)
+            sid = ids["session"]
+            h.as_user("admin", admin=True)
+
+            resp = await h.client.post(f"/shares/session/{sid}", json={"username": "bob", "capabilities": ["OPERATE"]})
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["grants"] == [{"username": "bob", "capabilities": ["VIEW", "OPERATE"]}]
+            rows = await _grant_rows(h.maker, username="bob")
+            assert sorted(r.capability.value for r in rows) == ["OPERATE", "VIEW"]
+
+    asyncio.run(scenario())
+
+
+def test_empty_grant_list_clears_every_row(tmp_path):
+    """A POST with an empty list clears the user's grants entirely."""
+    async def scenario():
+        async with _harness(tmp_path) as h:
+            ids = await _seed(h.maker)
+            sid = ids["session"]
+            h.as_user("admin", admin=True)
+
+            await h.client.post(f"/shares/session/{sid}", json={"username": "bob", "capabilities": ["OPERATE", "SHARE"]})
+            assert len(await _grant_rows(h.maker, username="bob")) == 3
+
+            cleared = await h.client.post(f"/shares/session/{sid}", json={"username": "bob", "capabilities": []})
+            assert cleared.status_code == 200 and cleared.json()["grants"] == []
+            assert await _grant_rows(h.maker, username="bob") == []
+
+    asyncio.run(scenario())
+
+
 def test_capabilities_sorted_and_owner_excluded(tmp_path):
     async def scenario():
         async with _harness(tmp_path) as h:

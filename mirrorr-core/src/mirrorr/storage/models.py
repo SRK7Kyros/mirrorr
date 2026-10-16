@@ -222,9 +222,10 @@ class ResourceAccess(SQLModel, table=True):
 
     An item is readable by its owner (``requester_user_token``), the users
     granted here, and admins. Owner and admin hold all six capabilities
-    implicitly; a grant gives everyone else exactly the granted capabilities
-    (``VIEW``, ``OPERATE``, ``EDIT``, ``DELETE``, ``SHARE``, ``EXPORT``), with
-    no inheritance — the row set is the whole of their rights.
+    implicitly; a grant gives everyone else the granted capabilities
+    (``VIEW``, ``OPERATE``, ``EDIT``, ``DELETE``, ``SHARE``, ``EXPORT``).
+    ``VIEW`` is the base capability — any grant implies it — and nothing else is
+    inherited; the row set is the whole of their rights.
 
     ``username`` matches ``User.username`` without a FK (same convention as
     ``requester_user_token``): a user row that is later deleted leaves an inert

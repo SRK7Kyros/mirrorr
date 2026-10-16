@@ -17,7 +17,7 @@ from fastapi import Request
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from mirrorr.api.api import API
 from mirrorr.api.dependencies import AuthState, _get_db_session, get_auth
@@ -305,6 +305,31 @@ def test_a2_without_grant_viewer_is_excluded(tmp_path):
             assert (await h.client.get(f"/sessions/{ids['session']}")).status_code == 403
             assert (await h.client.get(f"/sessions/{ids['session']}/logs")).status_code == 403
             assert (await h.client.get(f"/profiles/{ids['profile']}")).status_code == 403
+
+    asyncio.run(scenario())
+
+
+def test_operate_grant_also_reads_and_stops(tmp_path):
+    """VIEW is the base: an OPERATE grant admits list, detail and the operate
+    action (via the implied VIEW), but never DELETE/EDIT."""
+    async def scenario():
+        async with _harness(tmp_path) as h:
+            ids = await _seed(h.maker)
+            sid = ids["session"]
+            h.as_user("alice", admin=True)
+            granted = await h.client.post(f"/shares/session/{sid}", json={"username": "bob", "capabilities": ["OPERATE"]})
+            assert granted.status_code == 200, granted.text
+            assert granted.json()["grants"] == [{"username": "bob", "capabilities": ["VIEW", "OPERATE"]}]
+
+            h.as_user("bob")
+            sessions = (await h.client.get("/sessions/")).json()["items"]
+            assert sid in [s["id"] for s in sessions]
+            assert (await h.client.get(f"/sessions/{sid}")).status_code == 200
+            assert (await h.client.get(f"/sessions/{sid}/logs")).status_code == 200
+            with patch("mirrorr.api.routers.crud._send_control", AsyncMock(return_value={"status": "stopping"})):
+                assert (await h.client.post(f"/sessions/{sid}/stop")).status_code == 200
+            assert (await h.client.delete(f"/sessions/{sid}")).status_code == 403
+            assert (await h.client.put(f"/profiles/{ids['profile']}", json={"name": "x"})).status_code == 403
 
     asyncio.run(scenario())
 
