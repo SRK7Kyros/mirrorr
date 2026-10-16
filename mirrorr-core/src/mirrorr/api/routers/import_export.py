@@ -30,7 +30,9 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from mirrorr.api.dependencies import AuthState, _get_db_session, require_auth
+from mirrorr.services.permissions import has_capability
 from mirrorr.storage import crud
+from mirrorr.storage.enums import Capability
 from mirrorr.storage.models import Autorun, Engine, Profile, Resolver
 
 import_export_router = APIRouter(prefix="/import-export")
@@ -162,7 +164,7 @@ async def export_profile(
     profile = await crud.get_by_id(db, Profile, id)
     if not profile:
         raise HTTPException(404, "Profile not found")
-    if not auth.is_admin and profile.requester_user_token != auth.user.username:
+    if not await has_capability(db, auth, profile, Capability.EXPORT):
         raise HTTPException(status_code=403, detail="Not authorized to export this resource")
 
     engine = await crud.get_by_id(db, Engine, profile.default_engine_id)
@@ -189,7 +191,7 @@ async def export_autorun(
     autorun = await crud.get_by_id(db, Autorun, id)
     if not autorun:
         raise HTTPException(404, "Autorun not found")
-    if not auth.is_admin and autorun.requester_user_token != auth.user.username:
+    if not await has_capability(db, auth, autorun, Capability.EXPORT):
         raise HTTPException(status_code=403, detail="Not authorized to export this resource")
 
     profile = await crud.get_by_id(db, Profile, autorun.profile_id)
