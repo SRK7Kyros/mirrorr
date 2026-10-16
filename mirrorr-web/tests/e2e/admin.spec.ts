@@ -167,6 +167,21 @@ test.describe("admin resource access", () => {
       .toBe(true)
   })
 
+  test("a click inside the access panel does not open the session detail", async ({ page, api }) => {
+    api.data.users = USERS
+    api.data.sessions = [session({ id: 7 })]
+    api.data.resources = [resourceRow("session", 7, "F1 Weekend")]
+
+    await openAdmin(page)
+    await accessButton(page).first().hover()
+
+    // "View access" is panel chrome, not a control — the click that used to navigate.
+    await page.getByText("View access").click()
+
+    await expect(page).toHaveURL(/\/sessions$/)
+    await expect(page.getByText("Only the owner can see this item.")).toBeVisible()
+  })
+
   test("bulk access warns before overriding an item's own access", async ({ page, api }) => {
     api.data.users = USERS
     api.data.autoruns = [
