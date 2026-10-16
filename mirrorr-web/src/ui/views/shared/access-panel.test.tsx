@@ -206,6 +206,24 @@ describe("AccessPanel", () => {
     expect(endpoints.setResourceGrants).toHaveBeenNthCalledWith(2, "session", 1, "bob", ["VIEW", "OPERATE"])
   })
 
+  it("wears the granted-variant highlight on the selected card alone", async () => {
+    renderPanel()
+
+    const view = await section("View access")
+    const bob = await within(view).findByRole("button", { name: /Bob/ })
+    const carol = within(view).getByRole("button", { name: /Carol/ })
+    expect(bob.className).not.toContain("data-[granted=true]:")
+
+    fireEvent.click(bob)
+
+    expect(bob.className).toContain("data-[granted=true]:border-brand")
+    expect(bob.className).toContain("data-[granted=true]:bg-[var(--accent-dim)]")
+    // The old spelling lost the cascade to `border-line`/`bg-surface-2` (equal
+    // specificity, later in the sheet), so the highlight rendered dead.
+    expect(bob.className).not.toContain("[background-color:var(--accent-dim)]")
+    expect(carol.className).not.toContain("data-[granted=true]:")
+  })
+
   it("pins the dirty indicator and Apply in the dialog footer, outside the scroll body", async () => {
     renderPanel()
     await loaded()
