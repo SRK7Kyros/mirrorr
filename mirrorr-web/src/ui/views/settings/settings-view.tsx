@@ -10,6 +10,7 @@ import {
   buttonClass,
   Field,
   IconLogout,
+  IconSessions,
   IconSettings,
   Input,
   Panel,
@@ -26,7 +27,7 @@ export function SettingsView() {
   return (
     <Page title="Settings" description="Manage your account.">
       <AccountSection />
-      <AdminConsolePanel />
+      <ConsoleDoorPanel />
       {sections.map(({ id, Component }) => (
         <Component key={id} />
       ))}
@@ -35,23 +36,38 @@ export function SettingsView() {
 }
 
 /**
- * Door to the admin console. Admin UI ships in a second build (`run/admin`,
- * served at `/admin/`) so the standard bundle carries no admin code — but that
- * build is linked from nowhere, which left the registration queue unreachable
- * for the admins it is meant for. The admin build renders those surfaces
- * natively, so `__ADMIN__` compiles this pointer out of it.
+ * Door between the app's two builds, pointing the way this one is not. The
+ * standard build points at the admin console (`run/admin`, served under
+ * `/admin/`), which is linked from nowhere else — without it the registration
+ * queue is unreachable for the admins it is meant for. The admin build points
+ * back the other way, so an admin who lands there has a way out that is not
+ * typing a URL. Either direction is a document hop: it leaves this app for the
+ * other build, so neither is a router route.
  */
-function AdminConsolePanel() {
+function ConsoleDoorPanel() {
   const auth = useAuthState()
-  if (__ADMIN__ || auth.auth?.user?.role !== "admin") return null
+  if (auth.auth?.user?.role !== "admin") return null
+  const door = __ADMIN__
+    ? {
+        title: "Console",
+        blurb: "Sessions, presets, plugins and recordings.",
+        href: "/sessions",
+        icon: <IconSessions size={16} />,
+      }
+    : {
+        title: "Administration",
+        blurb: "Approve sign-ups, manage users and API clients.",
+        href: "/admin/settings",
+        icon: <IconSettings size={16} />,
+      }
   return (
     <Panel>
-      <PanelHead title="Administration" />
+      <PanelHead title={door.title} />
       <PanelBody>
         <div className="flex items-center justify-between gap-3">
-          <span className="text-muted">Approve sign-ups, manage users and API clients.</span>
-          <a className={buttonClass({ variant: "secondary" })} href="/admin/settings">
-            <IconSettings size={16} />
+          <span className="text-muted">{door.blurb}</span>
+          <a className={buttonClass({ variant: "secondary" })} href={door.href}>
+            {door.icon}
             <span data-slot="button-label">Open console</span>
           </a>
         </div>
