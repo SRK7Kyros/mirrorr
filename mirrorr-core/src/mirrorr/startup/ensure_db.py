@@ -40,6 +40,62 @@ async def reset_database(engine: AsyncEngine) -> None:
     logger.warning("DEV_RESET_DATABASE: all tables truncated")
 
 
+def _drop_named_indexes(sync_conn, table_name: str) -> None:
+    """Drop every explicitly-created index on ``table_name``.
+
+    A SQLite ``RENAME TO`` moves a table's named indexes along with it, keeping
+    their names; the follow-up ``CREATE TABLE`` then collides on those names
+    (``index ix_… already exists``) before a single row is copied. The
+    constraint-backed ``sqlite_autoindex_*`` indexes cannot be dropped and are
+    left alone.
+    """
+    rows = sync_conn.execute(
+        text(f"PRAGMA index_list({_safe_identifier(table_name)})")
+    ).fetchall()
+    for row in rows:
+        index_name = row[1]
+        if index_name.startswith("sqlite_autoindex"):
+            continue
+        sync_conn.execute(text(f"DROP INDEX {_safe_identifier(index_name)}"))
+
+
+def _rescue_then_drop_orphan(sync_conn, table_name: str, orphan_name: str) -> None:
+    """Move rows from an abandoned ``_old_<table>`` sibling into the live table, then drop it.
+
+    An interrupted rebuild leaves the real rows in the sibling while the live
+    table holds none (the rebuild died before its data copy, and the restart's
+    matching schema then skips the rebuild). Dropping the sibling blindly would
+    silently truncate the table. Only the columns common to both are copied,
+    with ``INSERT OR IGNORE`` so rows the live table already holds (by its
+    PK/UNIQUE) are not duplicated.
+    """
+    _safe_identifier(table_name)
+    _safe_identifier(orphan_name)
+    inspector_obj = inspect(sync_conn)
+    common = sorted(
+        {c["name"] for c in inspector_obj.get_columns(table_name)}
+        & {c["name"] for c in inspector_obj.get_columns(orphan_name)}
+    )
+    live_count = sync_conn.execute(text(f"SELECT COUNT(*) FROM {_safe_identifier(table_name)}")).scalar()
+    orphan_count = sync_conn.execute(text(f"SELECT COUNT(*) FROM {_safe_identifier(orphan_name)}")).scalar()
+
+    logger.warning(
+        f"Found stale {orphan_name} ({orphan_count} row(s)) from a previous "
+        f"interrupted rebuild — rescuing rows before dropping it"
+    )
+    if orphan_count and common and (live_count == 0 or live_count < orphan_count):
+        cols_csv = ", ".join(_safe_identifier(c) for c in common)
+        sync_conn.execute(text(
+            f"INSERT OR IGNORE INTO {_safe_identifier(table_name)} ({cols_csv}) "
+            f"SELECT {cols_csv} FROM {_safe_identifier(orphan_name)}"
+        ))
+        recovered = sync_conn.execute(
+            text(f"SELECT COUNT(*) FROM {_safe_identifier(table_name)}")
+        ).scalar() - live_count
+        logger.warning(f"Recovered {recovered} row(s) from {orphan_name} into {table_name}")
+    sync_conn.execute(text(f"DROP TABLE {_safe_identifier(orphan_name)}"))
+
+
 def _rebuild_table_sqlite(sync_conn, table_name: str, model_table, dialect) -> None:
     """Rebuild a SQLite table in-place to fix column constraints.
 
@@ -49,12 +105,9 @@ def _rebuild_table_sqlite(sync_conn, table_name: str, model_table, dialect) -> N
     _safe_identifier(table_name)
     temp_name = f"_old_{table_name}"
 
-    # 0. Clean up a stale _old_* table from a previous interrupted rebuild
+    # 0. Recover a stale _old_* table from a previous interrupted rebuild
     if inspect(sync_conn).has_table(temp_name):
-        logger.warning(
-            f"Found stale {temp_name} from a previous interrupted rebuild — dropping it"
-        )
-        sync_conn.execute(text(f"DROP TABLE {_safe_identifier(temp_name)}"))
+        _rescue_then_drop_orphan(sync_conn, table_name, temp_name)
 
     # RENAME on SQLite >= 3.25 rewrites each child table's REFERENCES clause to
     # follow it, so the final DROP would trip the FK check. Both pragmas are
@@ -68,6 +121,11 @@ def _rebuild_table_sqlite(sync_conn, table_name: str, model_table, dialect) -> N
     try:
         # 1. Rename existing table aside
         sync_conn.execute(text(f"ALTER TABLE {_safe_identifier(table_name)} RENAME TO {_safe_identifier(temp_name)}"))
+
+        # 1a. The RENAME carried the table's named indexes with it, still under
+        # their original names; free them or step 2 collides on "index ix_…
+        # already exists" — before step 4 ever copies a row.
+        _drop_named_indexes(sync_conn, temp_name)
 
         # 2. Create the new table with correct schema
         model_table.create(sync_conn, checkfirst=False)
@@ -161,20 +219,25 @@ async def ensure_db(engine: AsyncEngine) -> None:
                     tables_to_rebuild[table_name] = table
 
                 # ── Add new columns ──────────────────────────────────
-                for col_name, column in model_columns.items():
-                    if col_name not in db_columns:
-                        logger.warning(f"New column detected: {table_name}.{col_name}. Adding it...")
-                        type_str = column.type.compile(dialect=dialect)
-                        statement = f"ALTER TABLE {_safe_identifier(table_name)} ADD COLUMN {_safe_identifier(col_name)} {type_str}"
-                        if not column.nullable and column.default is None:
-                            # Use JSON-compatible default for JSON columns
-                            if type_str.upper() == "JSON":
-                                statement += " DEFAULT '{}'"
-                            else:
-                                statement += " DEFAULT ''"
-                        logger.debug(f"SQL: {statement}")
-                        sync_conn.execute(text(statement))
-                        logger.info(f"Added column {table_name}.{col_name}")
+                # Skipped for a table already queued for rebuild: the rebuild
+                # recreates the full model schema and copies the overlapping
+                # columns, so an ADD COLUMN here is noise — and it leaves the
+                # interrupted state carrying a column the rebuild re-creates.
+                if table_name not in tables_to_rebuild:
+                    for col_name, column in model_columns.items():
+                        if col_name not in db_columns:
+                            logger.warning(f"New column detected: {table_name}.{col_name}. Adding it...")
+                            type_str = column.type.compile(dialect=dialect)
+                            statement = f"ALTER TABLE {_safe_identifier(table_name)} ADD COLUMN {_safe_identifier(col_name)} {type_str}"
+                            if not column.nullable and column.default is None:
+                                # Use JSON-compatible default for JSON columns
+                                if type_str.upper() == "JSON":
+                                    statement += " DEFAULT '{}'"
+                                else:
+                                    statement += " DEFAULT ''"
+                            logger.debug(f"SQL: {statement}")
+                            sync_conn.execute(text(statement))
+                            logger.info(f"Added column {table_name}.{col_name}")
 
                 # ── Drop removed columns ──────────────────────────────
                 for db_col_name in db_columns.keys():
@@ -197,6 +260,15 @@ async def ensure_db(engine: AsyncEngine) -> None:
             # the model as possible before the rebuild.
             for table_name, table in tables_to_rebuild.items():
                 _rebuild_table_sqlite(sync_conn, table_name, table, dialect)
+
+            # ── Heal abandoned _old_* siblings ──────────────────────
+            # A table whose schema already matches (the rebuild above is
+            # skipped) can still have an _old_ sibling left by an interrupted
+            # rebuild; rescue its rows rather than leaving them stranded.
+            for table_name in SQLModel.metadata.tables:
+                orphan_name = f"_old_{table_name}"
+                if inspect(sync_conn).has_table(orphan_name):
+                    _rescue_then_drop_orphan(sync_conn, table_name, orphan_name)
 
             # ── Backfill the capability column added to resource_access ──
             # A column default only reaches ORM inserts, so pre-existing
