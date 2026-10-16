@@ -347,6 +347,42 @@ class ResolverSourceListResponse(BaseModel):
     total: int | None = None
 
 
+# ── Sharing (the frozen AccessView) ────────────────────────────────────
+
+
+class GrantEntry(BaseModel):
+    """One user's granted capabilities on a resource.
+
+    ``capabilities`` holds ``Capability`` values sorted by the frozen enum
+    order (``VIEW, OPERATE, EDIT, DELETE, SHARE, EXPORT``).
+    """
+
+    username: str
+    capabilities: list[str] = Field(default_factory=list)
+
+
+class AccessView(BaseModel):
+    """The one sharing shape, served by every ``/shares/`` route.
+
+    ``grants`` excludes the owner (their rights are implicit) and every user
+    with no capabilities. ``owner`` is the owner's username; the privileged
+    ``requester_user_token`` field never appears in this view.
+    """
+
+    resource_type: str
+    id: int
+    owner: str = ""
+    owner_missing: bool = False
+    grants: list[GrantEntry] = Field(default_factory=list)
+
+
+class SetGrantsRequest(BaseModel):
+    """Replace-set body: exactly these capabilities for exactly this user."""
+
+    username: str = Field(max_length=64)
+    capabilities: list[str] = Field(default_factory=list)
+
+
 # ── Admin: resource access ─────────────────────────────────────────────
 
 
@@ -375,21 +411,6 @@ class SetOwnerResponse(BaseModel):
     resource_type: str
     id: int
     owner: str
-
-
-class ResourceViewersResponse(BaseModel):
-    resource_type: str
-    id: int
-    owner: str = ""
-    viewers: list[str] = Field(default_factory=list)
-
-
-class GrantAccessRequest(BaseModel):
-    username: str = Field(max_length=64)
-
-
-class ViewersResponse(BaseModel):
-    viewers: list[str] = Field(default_factory=list)
 
 
 # ── Logs / progress / delete-result responses ─────────────────────────

@@ -28,7 +28,7 @@ from mirrorr.api.schemas import (
     ChangePasswordRequest, CreateClientRequest, UserResponse,
     RegistrationPendingResponse, RegistrationRequestResponse, DenyRequest,
     ResourceAccessItem, ResourceAccessListResponse, TransferOwnerRequest,
-    SetOwnerResponse, GrantAccessRequest, ResourceViewersResponse, ViewersResponse,
+    SetOwnerResponse, AccessView, GrantEntry, SetGrantsRequest,
 )
 from mirrorr.api.routers.crud import (
     _AUTORUN_OPTIONS, _PROFILE_OPTIONS, _SESSION_OPTIONS, _SOURCE_OPTIONS,
@@ -38,13 +38,15 @@ from mirrorr.storage.models import (
     RefreshTokenRecord, RegistrationRequest,
     Autorun, Engine, Profile, Recording, Resolver, ResolverSource, ResourceAccess, Session,
 )
-from mirrorr.storage.enums import ResourceType
+from mirrorr.storage.enums import Capability, ResourceType
 from mirrorr.storage import crud
+from mirrorr.services.permissions import require_capability
 from mirrorr._version import __version__ as _MIRRORR_VERSION
 
 auth_router = APIRouter(prefix="/auth")
 notifications_router = APIRouter(prefix="/notifications")
 admin_router = APIRouter(prefix="/admin", dependencies=[Depends(require_admin)])
+shares_router = APIRouter(prefix="/shares")
 
 
 # ── Cookie helpers ─────────────────────────────────────────────────
@@ -890,16 +892,96 @@ async def _load_access_target(db: AsyncSession, resource_type: str, resource_id:
     return tag, rt, obj
 
 
-async def _viewers(db: AsyncSession, resource_type: ResourceType, resource_id: int) -> list[str]:
-    rows = await db.exec(
-        select(ResourceAccess.username)
-        .where(
-            ResourceAccess.resource_type == resource_type,
-            ResourceAccess.resource_id == resource_id,
+_CAPABILITY_ORDER: dict[Capability, int] = {cap: index for index, cap in enumerate(Capability)}
+
+
+def _parse_capabilities(names: list[str]) -> list[Capability]:
+    """Validate capability names and return them deduped in frozen enum order."""
+    try:
+        caps = {Capability(name) for name in names}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Unknown capability: {exc}") from exc
+    return sorted(caps, key=_CAPABILITY_ORDER.__getitem__)
+
+
+async def _access_view(
+    db: AsyncSession, tag: str, rt: ResourceType, resource_id: int, owner: str
+) -> AccessView:
+    """The frozen sharing view for one resource.
+
+    Owner rights are implicit, so the owner is never listed as a grant, and a
+    user with no capability rows is omitted. A grant whose username no longer
+    exists still lists — the row is the source of truth, and such a row is
+    inert rather than an error. Takes plain values, never the ORM object: a
+    replace-set race rolls the session back, which expires the loaded instance
+    and would turn a later attribute access into a synchronous lazy load.
+    """
+    usernames = set((await db.exec(select(User.username))).all())
+    rows = (
+        await db.exec(
+            select(ResourceAccess).where(
+                ResourceAccess.resource_type == rt,
+                ResourceAccess.resource_id == resource_id,
+            )
         )
-        .order_by(ResourceAccess.username)
+    ).all()
+    by_user: dict[str, set[Capability]] = {}
+    for row in rows:
+        by_user.setdefault(row.username, set()).add(row.capability)
+    grants = [
+        GrantEntry(
+            username=username,
+            capabilities=[cap.value for cap in sorted(caps, key=_CAPABILITY_ORDER.__getitem__)],
+        )
+        for username, caps in sorted(by_user.items())
+        if caps and username != owner
+    ]
+    return AccessView(
+        resource_type=tag,
+        id=resource_id,
+        owner=owner,
+        owner_missing=bool(owner) and owner not in usernames,
+        grants=grants,
     )
-    return list(rows.all())
+
+
+async def _replace_grants(
+    db: AsyncSession, rt: ResourceType, resource_id: int, username: str, caps: list[Capability]
+) -> None:
+    """Set *username*'s grants on the resource to exactly *caps*.
+
+    Replace-set and idempotent: rows for capabilities not wanted are removed,
+    rows for missing capabilities are added, untouched capabilities are left
+    alone. A concurrent writer can win the read→write race, so a duplicate
+    insert (UNIQUE on resource_type/resource_id/username/capability) is caught
+    and the replace is retried once against the now-settled rows.
+    """
+    wanted = set(caps)
+    for _ in range(2):
+        rows = (
+            await db.exec(
+                select(ResourceAccess).where(
+                    ResourceAccess.resource_type == rt,
+                    ResourceAccess.resource_id == resource_id,
+                    ResourceAccess.username == username,
+                )
+            )
+        ).all()
+        have = {row.capability for row in rows}
+        for row in rows:
+            if row.capability not in wanted:
+                await db.delete(row)
+        for cap in wanted - have:
+            db.add(
+                ResourceAccess(
+                    resource_type=rt, resource_id=resource_id, username=username, capability=cap
+                )
+            )
+        try:
+            await db.commit()
+            return
+        except IntegrityError:
+            await db.rollback()
 
 
 def _admin_row(tag: str, obj, usernames: set[str], counts: dict[tuple[str, int], int]) -> ResourceAccessItem:
@@ -948,7 +1030,14 @@ async def list_resources(
 
     usernames = set((await db.exec(select(User.username))).all())
     counts: dict[tuple[str, int], int] = {}
-    for rt, rid in (await db.exec(select(ResourceAccess.resource_type, ResourceAccess.resource_id))).all():
+    distinct = await db.exec(
+        select(
+            ResourceAccess.resource_type,
+            ResourceAccess.resource_id,
+            ResourceAccess.username,
+        ).distinct()
+    )
+    for rt, rid, _username in distinct.all():
         counts[(rt.value, rid)] = counts.get((rt.value, rid), 0) + 1
 
     items = [_admin_row(tag, obj, usernames, counts) for tag, obj in rows]
@@ -972,78 +1061,52 @@ async def transfer_owner(
     return SetOwnerResponse(resource_type=tag, id=obj.id, owner=item.username)
 
 
-@admin_router.get("/resources/{resource_type}/{resource_id}/access", response_model=ResourceViewersResponse)
-async def get_resource_access(
+@shares_router.get("/{resource_type}/{resource_id}", response_model=AccessView)
+async def get_shares(
     resource_type: str,
     resource_id: int,
     db: AsyncSession = Depends(_get_db_session),
-    auth: AuthState = Depends(require_admin),
+    auth: AuthState = Depends(get_auth),
 ):
-    """List a resource's owner and who is granted view. Admin only."""
+    """Owner, admin or a SHARE holder reads the resource's grants."""
     tag, rt, obj = await _load_access_target(db, resource_type, resource_id)
-    return ResourceViewersResponse(
-        resource_type=tag,
-        id=obj.id,
-        owner=getattr(obj, "requester_user_token", "") or "",
-        viewers=await _viewers(db, rt, obj.id),
-    )
+    await require_capability(db, auth, obj, Capability.SHARE)
+    return await _access_view(db, tag, rt, obj.id, getattr(obj, "requester_user_token", "") or "")
 
 
-@admin_router.post("/resources/{resource_type}/{resource_id}/access", response_model=ViewersResponse)
-async def grant_resource_access(
+@shares_router.post("/{resource_type}/{resource_id}", response_model=AccessView)
+async def set_shares(
     resource_type: str,
     resource_id: int,
-    item: GrantAccessRequest,
+    item: SetGrantsRequest,
     db: AsyncSession = Depends(_get_db_session),
-    auth: AuthState = Depends(require_admin),
+    auth: AuthState = Depends(get_auth),
 ):
-    """Grant a user view access. Idempotent for an existing grant. Admin only."""
-    _tag, rt, obj = await _load_access_target(db, resource_type, resource_id)
+    """Replace-set one user's capabilities. Idempotent."""
+    tag, rt, obj = await _load_access_target(db, resource_type, resource_id)
+    await require_capability(db, auth, obj, Capability.SHARE)
     await _known_username(db, item.username)
-    existing = (
-        await db.exec(
-            select(ResourceAccess.id).where(
-                ResourceAccess.resource_type == rt,
-                ResourceAccess.resource_id == resource_id,
-                ResourceAccess.username == item.username,
-            )
-        )
-    ).first()
-    if not existing:
-        db.add(ResourceAccess(resource_type=rt, resource_id=resource_id, username=item.username))
-        try:
-            await db.commit()
-        except IntegrityError:
-            # A concurrent grant won the select→insert race (UNIQUE on
-            # resource_type/resource_id/username). The POST is documented
-            # idempotent, so roll back and report the row that now exists.
-            await db.rollback()
-    return ViewersResponse(viewers=await _viewers(db, rt, resource_id))
+    target_id = obj.id
+    owner = getattr(obj, "requester_user_token", "") or ""
+    await _replace_grants(db, rt, target_id, item.username, _parse_capabilities(item.capabilities))
+    return await _access_view(db, tag, rt, target_id, owner)
 
 
-@admin_router.delete("/resources/{resource_type}/{resource_id}/access/{username}", response_model=ViewersResponse)
-async def revoke_resource_access(
+@shares_router.delete("/{resource_type}/{resource_id}/{username}", response_model=AccessView)
+async def revoke_shares(
     resource_type: str,
     resource_id: int,
     username: str,
     db: AsyncSession = Depends(_get_db_session),
-    auth: AuthState = Depends(require_admin),
+    auth: AuthState = Depends(get_auth),
 ):
-    """Revoke a user's view access. Idempotent when no grant exists. Admin only."""
-    _tag, rt, obj = await _load_access_target(db, resource_type, resource_id)
-    row = (
-        await db.exec(
-            select(ResourceAccess).where(
-                ResourceAccess.resource_type == rt,
-                ResourceAccess.resource_id == obj.id,
-                ResourceAccess.username == username,
-            )
-        )
-    ).first()
-    if row:
-        await db.delete(row)
-        await db.commit()
-    return ViewersResponse(viewers=await _viewers(db, rt, obj.id))
+    """Clear every grant row for one user. Idempotent."""
+    tag, rt, obj = await _load_access_target(db, resource_type, resource_id)
+    await require_capability(db, auth, obj, Capability.SHARE)
+    target_id = obj.id
+    owner = getattr(obj, "requester_user_token", "") or ""
+    await _replace_grants(db, rt, target_id, username, [])
+    return await _access_view(db, tag, rt, target_id, owner)
 
 
 # ── Notifications ────────────────────────────────────────────────────
