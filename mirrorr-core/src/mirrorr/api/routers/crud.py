@@ -48,8 +48,9 @@ from mirrorr.api.schemas import (
     DeleteResultResponse,
 )
 from mirrorr.storage.models import Session, Autorun, Recording, Profile, Engine, Resolver, ResolverSource, ResourceAccess
+from mirrorr.services.permissions import has_capability
 from mirrorr.services.session_helpers import build_session_urls
-from mirrorr.storage.enums import SessionStatus, ResourceType, AutorunStatus
+from mirrorr.storage.enums import SessionStatus, ResourceType, AutorunStatus, Capability
 from mirrorr.storage import crud
 from mirrorr.storage.models import EventSubscription, Notification
 
@@ -194,17 +195,9 @@ async def _cascade_delete_profile(db: AsyncSession, profile_id: int) -> dict[str
     return counts
 
 
-def _require_owner_or_admin(auth: AuthState, obj) -> bool:
-    """Check ownership or admin status. Raises 401/403 if not authorized."""
-    if auth.is_admin:
-        return True
-    if not auth.user:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    return getattr(obj, "requester_user_token", None) == auth.user.username
-
-
-# The five owner-bearing resource kinds a view grant can point at. Engines and
-# resolvers are ownerless system rows on the admin surface and are not here.
+# The five owner-bearing resource kinds a grant can point at, mapped to the
+# ``resource_access`` tag. Engines and resolvers are ownerless system rows on
+# the admin surface and are not here.
 _ACCESS_MODEL_TYPES: dict[type, ResourceType] = {
     Session: ResourceType.SESSION,
     Autorun: ResourceType.AUTORUN,
@@ -214,50 +207,35 @@ _ACCESS_MODEL_TYPES: dict[type, ResourceType] = {
 }
 
 
-async def _has_read_grant(
-    db: AsyncSession, resource_type: ResourceType, resource_id: int, username: str
-) -> bool:
-    stmt = select(ResourceAccess.id).where(
-        ResourceAccess.resource_type == resource_type,
-        ResourceAccess.resource_id == resource_id,
-        ResourceAccess.username == username,
-    )
-    return (await db.exec(stmt)).first() is not None
-
-
 async def _require_read_access(db: AsyncSession, auth: AuthState, obj) -> bool:
-    """Read access to *obj*: owner, admin, or an explicit ``resource_access`` grant.
+    """``VIEW`` access to *obj*: owner, admin, or an explicit ``VIEW`` grant.
 
-    Mirrors ``_require_owner_or_admin`` (bool result, 401 when unauthenticated)
-    so read handlers can swap one for the other. It is deliberately used on
-    **read handlers only** — a grant admits reads, never control, update, delete,
-    save-as-profile, export/import or linking the item into another principal's
-    own object.
+    A bool wrapper over the frozen ``has_capability`` predicate, so read handlers
+    (and ``routers/logs.py``) keep their 403 shape while the decision moves to
+    capabilities. Deliberately used on **read handlers only** — ``VIEW`` admits
+    reads, never control, update, delete, save-as-profile, export/import or
+    linking the item into another principal's own object. Authentication is owned
+    by the ``require_auth`` dependency, so no anonymous caller reaches a handler.
     """
-    if _require_owner_or_admin(auth, obj):
-        return True
-    resource_type = _ACCESS_MODEL_TYPES.get(type(obj))
-    if resource_type is None:
-        return False
-    return await _has_read_grant(db, resource_type, obj.id, auth.user.username)
+    return await has_capability(db, auth, obj, Capability.VIEW)
 
 
 async def _load_owned_profile(
     db: AsyncSession, profile_id: int | None, auth: AuthState
 ) -> Profile | None:
-    """Load a profile a request points at, enforcing ownership.
+    """Load a profile a request points at, enforcing ``EDIT``.
 
     A profile carries capture config (resolver_config, retry policy), so a
-    caller may only link to a profile they own — otherwise pointing at another
-    user's profile would leak that config into their own session/autorun.
-    Admins may reference any profile.
+    caller may only link to a profile they hold ``EDIT`` on — otherwise pointing
+    at another user's profile would leak that config into their own
+    session/autorun. Owner, admin, and an ``EDIT`` grantee may reference it.
     """
     if profile_id is None:
         return None
     profile = await crud.get_by_id(db, Profile, profile_id)
     if not profile:
         raise HTTPException(status_code=400, detail=f"Profile {profile_id} not found")
-    if not _require_owner_or_admin(auth, profile):
+    if not await has_capability(db, auth, profile, Capability.EDIT):
         raise HTTPException(status_code=403, detail="Not your profile")
     return profile
 
@@ -376,11 +354,11 @@ async def _get_paginated_for_user(
     options: Sequence = (),
     include_total: bool = False,
 ) -> dict:
-    """Cursor-based pagination filtered by owner or explicit view grant.
+    """Cursor-based pagination filtered by owner or explicit ``VIEW`` grant.
 
     A caller sees the rows they own (``requester_user_token``) *and* any row
-    granted to them through ``resource_access``. Engines/resolvers have no
-    owner column and never route through here.
+    carrying a ``VIEW`` grant for them in ``resource_access``. Engines/resolvers
+    have no owner column and never route through here.
 
     Returns {"items": [...], "next_cursor": ..., "has_more": ...}.
     """
@@ -395,6 +373,7 @@ async def _get_paginated_for_user(
                 ResourceAccess.resource_type == resource_type,
                 ResourceAccess.resource_id == model.id,
                 ResourceAccess.username == user_token,
+                ResourceAccess.capability == Capability.VIEW,
             )
             .exists()
         )
@@ -695,7 +674,7 @@ async def delete_session(id: int, db: AsyncSession = Depends(_get_db_session), a
     obj = await crud.get_by_id(db, Session, id)
     if not obj:
         raise HTTPException(status_code=404, detail="Not found")
-    if not _require_owner_or_admin(auth, obj):
+    if not await has_capability(db, auth, obj, Capability.DELETE):
         raise HTTPException(status_code=403, detail="Not your session")
     if obj.status == SessionStatus.REMUXING:
         raise HTTPException(status_code=409, detail="Session is remuxing. Wait for it to complete or fail before deleting.")
@@ -800,7 +779,7 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
     existing = await crud.get_by_id(db, Autorun, id)
     if not existing:
         raise HTTPException(status_code=404, detail="Autorun not found")
-    if not _require_owner_or_admin(auth, existing):
+    if not await has_capability(db, auth, existing, Capability.EDIT):
         raise HTTPException(status_code=403, detail="Not your autorun")
     payload_data = item.model_dump(exclude_unset=True)
     _enforce_autorun_update_guard(existing, payload_data)
@@ -836,7 +815,7 @@ async def delete_autorun(id: int, db: AsyncSession = Depends(_get_db_session), a
     obj = await crud.get_by_id(db, Autorun, id)
     if not obj:
         raise HTTPException(status_code=404, detail="Not found")
-    if not _require_owner_or_admin(auth, obj):
+    if not await has_capability(db, auth, obj, Capability.DELETE):
         raise HTTPException(status_code=403, detail="Not your autorun")
     counts = await _cascade_delete_autorun(db, id)
     return DeleteResultResponse(status="deleted", deleted=counts)
@@ -885,7 +864,7 @@ async def save_autorun_as_profile(autorun_id: int, req: SaveProfileRequest, db: 
     autorun = await crud.get_by_id(db, Autorun, autorun_id)
     if not autorun:
         raise HTTPException(status_code=404, detail="Autorun not found")
-    if not _require_owner_or_admin(auth, autorun):
+    if not await has_capability(db, auth, autorun, Capability.EDIT):
         raise HTTPException(status_code=403, detail="Not your autorun")
     return await _create_profile_from_entity(
         db, auth, req.name,
@@ -904,7 +883,7 @@ async def save_session_as_profile(session_id: int, req: SaveProfileRequest, db: 
     session = await crud.get_by_id(db, Session, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    if not _require_owner_or_admin(auth, session):
+    if not await has_capability(db, auth, session, Capability.EDIT):
         raise HTTPException(status_code=403, detail="Not your session")
     return await _create_profile_from_entity(
         db, auth, req.name,
@@ -957,7 +936,7 @@ async def delete_recording(id: int, db: AsyncSession = Depends(_get_db_session),
     obj = await crud.get_by_id(db, Recording, id)
     if not obj:
         raise HTTPException(status_code=404, detail="Not found")
-    if not _require_owner_or_admin(auth, obj):
+    if not await has_capability(db, auth, obj, Capability.DELETE):
         raise HTTPException(status_code=403, detail="Not your recording")
 
     counts = await _count_related_records(db, ResourceType.RECORDING, id)
@@ -1038,13 +1017,15 @@ async def update_profile(id: int, item: UpdateProfileRequest, db: AsyncSession =
     existing = await crud.get_by_id(db, Profile, id)
     if not existing:
         raise HTTPException(status_code=404, detail="Profile not found")
-    if not _require_owner_or_admin(auth, existing):
+    if not await has_capability(db, auth, existing, Capability.EDIT):
         raise HTTPException(status_code=403, detail="Not your profile")
     payload_data = item.model_dump(exclude_unset=True)
     payload = Profile.model_validate({**existing.model_dump(), **payload_data})
     if not auth.user:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    payload.requester_user_token = auth.user.username
+    # An EDIT-grantee must never take ownership — only fill a blank token.
+    if not payload.requester_user_token:
+        payload.requester_user_token = auth.user.username
     try:
         obj = await crud.update(db, Profile, id, payload)
     except ValueError:
@@ -1062,7 +1043,7 @@ async def delete_profile(id: int, db: AsyncSession = Depends(_get_db_session), a
     obj = await crud.get_by_id(db, Profile, id)
     if not obj:
         raise HTTPException(status_code=404, detail="Not found")
-    if not _require_owner_or_admin(auth, obj):
+    if not await has_capability(db, auth, obj, Capability.DELETE):
         raise HTTPException(status_code=403, detail="Not your profile")
     counts = await _cascade_delete_profile(db, id)
     return DeleteResultResponse(status="deleted", deleted=counts)
@@ -1133,7 +1114,7 @@ async def update_source(id: int, item: UpdateResolverSourceRequest, db: AsyncSes
     existing = await crud.get_by_id(db, ResolverSource, id)
     if not existing:
         raise HTTPException(status_code=404, detail="Source not found")
-    if not _require_owner_or_admin(auth, existing):
+    if not await has_capability(db, auth, existing, Capability.EDIT):
         raise HTTPException(status_code=403, detail="Not your source")
     if not auth.user:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -1141,7 +1122,9 @@ async def update_source(id: int, item: UpdateResolverSourceRequest, db: AsyncSes
     if data.get("resolver_id") is not None and not await crud.get_by_id(db, Resolver, data["resolver_id"]):
         raise HTTPException(status_code=400, detail=f"Resolver {data['resolver_id']} not found")
     payload = ResolverSource.model_validate({**existing.model_dump(), **data})
-    payload.requester_user_token = auth.user.username
+    # An EDIT-grantee must never take ownership — only fill a blank token.
+    if not payload.requester_user_token:
+        payload.requester_user_token = auth.user.username
     try:
         obj = await crud.update(db, ResolverSource, id, payload)
     except ValueError:
@@ -1159,7 +1142,7 @@ async def delete_source(id: int, db: AsyncSession = Depends(_get_db_session), au
     obj = await crud.get_by_id(db, ResolverSource, id)
     if not obj:
         raise HTTPException(status_code=404, detail="Not found")
-    if not _require_owner_or_admin(auth, obj):
+    if not await has_capability(db, auth, obj, Capability.DELETE):
         raise HTTPException(status_code=403, detail="Not your source")
     counts = await _count_related_records(db, ResourceType.SOURCE, id)
     await _cleanup_related_records(db, ResourceType.SOURCE, id)
@@ -1312,10 +1295,11 @@ async def _send_control(session_id: int, command: str, timeout: float = 5.0) -> 
 
 
 async def _require_session_owner(session_id: int, auth: AuthState, db: AsyncSession) -> Session:
+    """Load a session and require ``OPERATE`` on it (owner, admin, or grant)."""
     obj = await crud.get_by_id(db, Session, session_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Session not found")
-    if not _require_owner_or_admin(auth, obj):
+    if not await has_capability(db, auth, obj, Capability.OPERATE):
         raise HTTPException(status_code=403, detail="Not your session")
     return obj
 
