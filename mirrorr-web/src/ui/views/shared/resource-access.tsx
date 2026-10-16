@@ -1,5 +1,11 @@
 import { useId, useMemo, useRef, useState } from "react"
-import type { AccessOverride, AccessTarget, ItemAccess } from "@/api/domain/access-plan"
+import {
+  grantedUsernames,
+  type AccessOverride,
+  type AccessTarget,
+  type ItemAccess,
+} from "@/api/domain/access-plan"
+import { CAPABILITIES, type Capability } from "@/api/schemas/privileged"
 import type { User } from "@/api/schemas/user"
 import { Button, Field, IconButton, Select } from "@/ui/components"
 import { IconPlus, IconX } from "@/ui/components/icons"
@@ -40,8 +46,30 @@ export function overrideLabel(override: AccessOverride): string {
   return override.count === 1 ? "1 view grant" : `${override.count} view grants`
 }
 
+function grantCapability(access: ItemAccess, capability: Capability, username: string): ItemAccess {
+  if (access.grants[capability].includes(username)) return access
+  return {
+    ...access,
+    grants: { ...access.grants, [capability]: [...access.grants[capability], username] },
+  }
+}
+
+function revokeCapability(access: ItemAccess, capability: Capability, username: string): ItemAccess {
+  if (!access.grants[capability].includes(username)) return access
+  return {
+    ...access,
+    grants: {
+      ...access.grants,
+      [capability]: access.grants[capability].filter((candidate) => candidate !== username),
+    },
+  }
+}
+
 function accessSignature(access: ItemAccess): string {
-  return `${access.owner}\u0000${[...access.viewers].sort().join("\u0000")}`
+  const grants = CAPABILITIES.map(
+    (capability) => `${capability}:${[...access.grants[capability]].sort().join(",")}`,
+  ).join("\u0001")
+  return `${access.owner ?? ""}\u0000${access.ownerMissing}\u0000${grants}`
 }
 
 export interface AccessDraft {
@@ -54,6 +82,12 @@ export interface AccessDraft {
   readonly removeViewer: (username: string) => void
 }
 
+/**
+ * Behavior-preserving bridge for this wave: today's flat viewer list maps onto
+ * the VIEW capability (add = grant VIEW, remove = revoke VIEW), and the
+ * rendered list is the union of usernames across every capability so a future
+ * non-VIEW grant still shows as a row instead of vanishing.
+ */
 export function useAccessDraft(access: ItemAccess): AccessDraft {
   const [draft, setDraft] = useState<ItemAccess>(access)
   const loaded = useRef(accessSignature(access))
@@ -64,22 +98,13 @@ export function useAccessDraft(access: ItemAccess): AccessDraft {
   }
 
   return {
-    owner: draft.owner,
-    viewers: draft.viewers,
+    owner: draft.owner ?? "",
+    viewers: grantedUsernames(draft),
     dirty: accessSignature(draft) !== signature,
-    target: { owner: draft.owner, viewers: draft.viewers },
+    target: { owner: draft.owner ?? undefined, grants: draft.grants },
     setOwner: (username) => setDraft((current) => ({ ...current, owner: username })),
-    addViewer: (username) =>
-      setDraft((current) =>
-        current.viewers.includes(username)
-          ? current
-          : { ...current, viewers: [...current.viewers, username] },
-      ),
-    removeViewer: (username) =>
-      setDraft((current) => ({
-        ...current,
-        viewers: current.viewers.filter((viewer) => viewer !== username),
-      })),
+    addViewer: (username) => setDraft((current) => grantCapability(current, "VIEW", username)),
+    removeViewer: (username) => setDraft((current) => revokeCapability(current, "VIEW", username)),
   }
 }
 

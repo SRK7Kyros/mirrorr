@@ -4,11 +4,14 @@ import { HoverCard } from "radix-ui"
 import { fetchResourceAccess, fetchUsers, getErrorMessage } from "@/api"
 import {
   applyPlans,
+  grantedUsernames,
+  itemAccessFromView,
   overrideOf,
   planBulk,
   planItem,
   type AccessRow,
   type AccessTarget,
+  type ItemAccess,
   type ItemPlan,
 } from "@/api/domain/access-plan"
 import { queryKeys, queryRoots, staleTimes } from "@/api/query-keys"
@@ -60,9 +63,11 @@ function viewersText(viewers: readonly string[], users: readonly User[]): string
 
 function AccessDelta({ plan, users }: { readonly plan: ItemPlan; readonly users: readonly User[] }) {
   const ownerChanged = plan.from.owner !== plan.to.owner
+  const fromViewers = grantedUsernames(plan.from)
+  const toViewers = grantedUsernames(plan.to)
   const viewersChanged =
-    plan.from.viewers.length !== plan.to.viewers.length ||
-    plan.from.viewers.some((viewer) => !plan.to.viewers.includes(viewer))
+    fromViewers.length !== toViewers.length ||
+    fromViewers.some((viewer) => !toViewers.includes(viewer))
 
   return (
     <ul className="flex flex-col gap-1 text-sm">
@@ -70,24 +75,24 @@ function AccessDelta({ plan, users }: { readonly plan: ItemPlan; readonly users:
         <span className="text-muted">Owner</span>
         {ownerChanged ? (
           <>
-            <span className="text-muted line-through">{usernameLabel(users, plan.from.owner)}</span>
+            <span className="text-muted line-through">{usernameLabel(users, plan.from.owner ?? "")}</span>
             <span aria-hidden="true">→</span>
-            <span>{usernameLabel(users, plan.to.owner)}</span>
+            <span>{usernameLabel(users, plan.to.owner ?? "")}</span>
           </>
         ) : (
-          <span>{usernameLabel(users, plan.from.owner)}</span>
+          <span>{usernameLabel(users, plan.from.owner ?? "")}</span>
         )}
       </li>
       <li className="flex items-start gap-2">
         <span className="text-muted">View access</span>
         {viewersChanged ? (
           <>
-            <span className="text-muted line-through">{viewersText(plan.from.viewers, users)}</span>
+            <span className="text-muted line-through">{viewersText(fromViewers, users)}</span>
             <span aria-hidden="true">→</span>
-            <span>{viewersText(plan.to.viewers, users)}</span>
+            <span>{viewersText(toViewers, users)}</span>
           </>
         ) : (
-          <span>{viewersText(plan.from.viewers, users)}</span>
+          <span>{viewersText(fromViewers, users)}</span>
         )}
       </li>
     </ul>
@@ -98,7 +103,7 @@ interface ItemAccessEditorProps {
   readonly resourceType: ResourceType
   readonly id: number
   readonly label: string
-  readonly access: { readonly owner: string; readonly viewers: readonly string[] }
+  readonly access: ItemAccess
   readonly users: readonly User[]
 }
 
@@ -166,7 +171,7 @@ function AccessPanel({ resourceType, id, label }: ResourceAccessButtonProps) {
       resourceType={resourceType}
       id={id}
       label={label}
-      access={access}
+      access={itemAccessFromView(access)}
       users={users}
     />
   )
@@ -257,14 +262,14 @@ function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProp
         resourceType,
         id: item.id,
         label: item.label,
-        access: { owner: data.owner, viewers: data.viewers },
+        access: itemAccessFromView(data),
       },
     ]
   })
 
   const target: AccessTarget = {
     ...(changeOwner ? { owner } : {}),
-    ...(changeViewers ? { viewers } : {}),
+    ...(changeViewers ? { grants: { VIEW: viewers } } : {}),
   }
   const plan = planBulk(rows, target, usernames)
   /** Items carrying their own access — read out whether or not the target touches them. */
