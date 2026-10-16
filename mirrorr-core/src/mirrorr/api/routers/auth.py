@@ -823,7 +823,7 @@ async def delete_client(
 # ── Resource Access (Admin) ─────────────────────────────────────────
 # Security boundary: a grant admits READS only. Control, update, delete,
 # save-as-profile, export/import and linking stay owner-or-admin — see
-# crud._require_read_access vs crud._require_owner_or_admin.
+# crud._require_read_access vs require_capability (any capability).
 
 _ACCESS_TYPES: dict[str, tuple[ResourceType, type]] = {
     "session": (ResourceType.SESSION, Session),
