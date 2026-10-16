@@ -134,11 +134,15 @@ def test_migration_backfills_view_and_widens_unique(tmp_path):
 
     # A no-op migration would leave the column absent and these rows unnamed.
     assert "capability" in after["columns"]
+    assert "group_id" in after["columns"]
     assert after["rows"] == [
         ("SESSION", 1, "bob", "VIEW"),
         ("PROFILE", 2, "carol", "VIEW"),
     ]
-    assert after["unique"] == [("resource_type", "resource_id", "username", "capability")]
+    assert set(after["unique"]) == {
+        ("resource_type", "resource_id", "username", "capability"),
+        ("resource_type", "resource_id", "group_id", "capability"),
+    }
     assert not after["orphan"]
 
 
@@ -177,7 +181,10 @@ def test_rebuild_with_named_indexes_keeps_rows(tmp_path):
         ("SESSION", 1, "bob", "VIEW"),
         ("PROFILE", 2, "carol", "VIEW"),
     ]
-    assert after["unique"] == [("resource_type", "resource_id", "username", "capability")]
+    assert set(after["unique"]) == {
+        ("resource_type", "resource_id", "username", "capability"),
+        ("resource_type", "resource_id", "group_id", "capability"),
+    }
     assert "ix_resource_access_username" in after["indexes"]
     assert "ix_resource_access_capability" in after["indexes"]
     assert not after["orphan"], "rebuild left an _old_resource_access behind"

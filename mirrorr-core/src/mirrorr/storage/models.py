@@ -227,20 +227,28 @@ class ResourceAccess(SQLModel, table=True):
     ``VIEW`` is the base capability — any grant implies it — and nothing else is
     inherited; the row set is the whole of their rights.
 
+    A grant names exactly one principal — a user (``username`` set, ``group_id``
+    NULL) or a group (``group_id`` set, ``username`` NULL). SQLite treats NULLs
+    as distinct in a UNIQUE, so each constraint below is vacuous for the other
+    kind's rows and the pair still yields one row per (principal, capability).
+
     ``username`` matches ``User.username`` without a FK (same convention as
     ``requester_user_token``): a user row that is later deleted leaves an inert
     grant behind, and an owner row that is gone shows up as ``owner_missing``
-    on the admin surface.
+    on the admin surface. A group grant follows the group by ``group_id``, so
+    renaming a group costs nothing and a deleted group drops its own rows.
     """
     __tablename__ = "resource_access"
     __table_args__ = (
         UniqueConstraint("resource_type", "resource_id", "username", "capability"),
+        UniqueConstraint("resource_type", "resource_id", "group_id", "capability"),
     )
 
     id: int | None = Field(default=None, primary_key=True)
     resource_type: ResourceType = Field(sa_column=Column(SQLEnum(ResourceType), index=True))
     resource_id: int = Field(index=True)
-    username: str = Field(index=True)
+    username: str | None = Field(default=None, index=True)
+    group_id: int | None = Field(default=None, index=True)
     capability: Capability = Field(
         default=Capability.VIEW, sa_column=Column(SQLEnum(Capability), index=True)
     )
@@ -371,3 +379,60 @@ class Notification(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     user: "User" = Relationship(back_populates="notifications")
+
+
+EVERYONE_GROUP_NAME = "everyone"
+"""The reserved base group: every authenticated user is a member.
+
+Seeded by ``ensure_db`` and never creatable, renamable or deletable through the
+API. It has no ``group_members`` rows at all — "every authenticated user" is
+resolved in the permission predicate, so a user created tomorrow is a member
+with no bookkeeping and no new-user hook.
+"""
+
+
+class Group(SQLModel, table=True):
+    """A named set of users that can own items and hold capability grants."""
+    __tablename__ = "groups"
+
+    id: int = Field(default=None, primary_key=True)
+    name: str = Field(unique=True, index=True)
+    display_name: str = Field(default="")
+    system: bool = Field(default=False)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class GroupMember(SQLModel, table=True):
+    """One user's membership in one group.
+
+    ``username`` matches ``User.username`` without a FK (the same convention as
+    ``resource_access.username``), so a deleted user leaves an inert row that
+    ``deleteUser`` cleans up; ``deleteGroup`` drops a group's rows.
+    """
+    __tablename__ = "group_members"
+    __table_args__ = (
+        UniqueConstraint("group_id", "username"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    group_id: int = Field(index=True)
+    username: str = Field(index=True)
+
+
+class ResourceOwnerGroup(SQLModel, table=True):
+    """An additive *group* owner of one resource.
+
+    Ownership is additive: the single user owner (``requester_user_token``) is
+    untouched and each row here gives every member of the group all six
+    capabilities on the item, exactly like the owner. Keyed by ``group_id``, so
+    renaming a group needs no cascade.
+    """
+    __tablename__ = "resource_owner_groups"
+    __table_args__ = (
+        UniqueConstraint("resource_type", "resource_id", "group_id"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    resource_type: ResourceType = Field(sa_column=Column(SQLEnum(ResourceType), index=True))
+    resource_id: int = Field(index=True)
+    group_id: int = Field(index=True)

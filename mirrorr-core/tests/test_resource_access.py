@@ -227,6 +227,7 @@ def test_grant_revoke_transfer_and_validation(tmp_path):
             assert granted.json() == {
                 "resource_type": "session", "id": sid, "owner": "alice", "owner_missing": False,
                 "grants": [{"username": "bob", "capabilities": ["VIEW"]}],
+                "owner_groups": [], "group_grants": [],
             }
             again = await h.client.post(f"/shares/session/{sid}", json=grant)
             assert again.status_code == 200 and again.json() == granted.json()
