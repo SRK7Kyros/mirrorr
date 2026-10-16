@@ -235,7 +235,7 @@ const CARD_CLASS =
   "flex items-center gap-2 rounded-md border border-line bg-surface-2 px-2 py-2 text-left transition-colors " +
   "[&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-3 disabled:opacity-45"
 
-const CARD_SELECTED_CLASS = "border-brand [background-color:var(--accent-dim)]"
+const CARD_SELECTED_CLASS = "data-[granted=true]:border-brand data-[granted=true]:bg-[var(--accent-dim)]"
 
 interface UserCardProps {
   readonly label: string
