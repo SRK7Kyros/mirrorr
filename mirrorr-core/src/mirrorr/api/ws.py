@@ -412,20 +412,13 @@ _BROADCAST_PREFIXES = (
 def _is_relevant_event(subject: str, subscribed_resources: set[tuple[str, int]]) -> bool:
     """Check if a NATS subject should be forwarded to the client.
 
-    Strategy:
-    - Broadcast CRUD events are always relevant.
-    - Per-resource events are only relevant when the user is subscribed.
-    - Session control subjects are forwarded so the UI can observe commands.
+    Broadcast CRUD events always are; a per-resource subject only to a
+    subscriber of that exact resource — ``session.1.*`` is not ``session.15.*``.
     """
     if subject in _BROADCAST_PREFIXES:
         return True
 
-    # Per-resource events — relevant if user is subscribed
-    for resource_type, resource_id in subscribed_resources:
-        if subject.startswith(f"{resource_type}.{resource_id}"):
-            return True
-
-    return False
+    return _parse_resource_from_subject(subject) in subscribed_resources
 
 
 def _parse_resource_from_subject(subject: str) -> tuple[str | None, int | None]:

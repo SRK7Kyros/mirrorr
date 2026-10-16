@@ -369,11 +369,12 @@ The `event` field = the NATS subject; `id`/`status`/`recording`… are the *orig
 
 **Event catalog (subjects):**
 `session.created|updated|deleted|started|stopped|crashed`
+`session.{id}.telemetry` (coalesced live telemetry — 13.4.1)
 `autorun.created|updated|deleted`
 `recording.created|updated|deleted`
 `profile.created|updated|deleted`
 
-**Server skips** (never sent): `*.telemetry.*` (proc telemetry 1Hz — too noisy), `*.control`, `_INBOX.*`.
+**Server skips** (never sent): per-process samples `*.telemetry.*` (one message per process per second — too noisy), `*.control`, `_INBOX.*`. The **coalesced** session-level subject `session.{id}.telemetry` *is* sent — see 13.4.1.
 
 Rules:
 - `updated` fires on any field change (incl. status) — client should coalesce.
@@ -607,6 +608,21 @@ Remuxing is the most UI-relevant async server flow — it emits **progress event
 - After `recording.created`, offer "Open recording" (content_url) + show thumbnail preview if content_url reachable; if 403/404 (server not serving media), fall back to a copy-link + hint.
 
 **Affordance summary (recordings):** 📶 progress bar during remux; 🔄 live size/duration as it finalizes; ✅ "Recording saved" toast; 🛑 delete confirm; 🧹 invalidate recording list on `recording.created`/`recording.deleted`.
+
+### 13.4.1 Live session telemetry
+
+Every managed process samples itself (psutil: CPU + RSS) at 1 Hz. The supervisor keeps the newest sample per process and publishes **one coalesced frame per session per tick** — the attempt's engine, its stream helper and anything else it runs arrive as a single message:
+
+| Event | Payload | When |
+|---|---|---|
+| `session.{id}.telemetry` | `{session_id, ts, processes:[{name, cpu_percent, rss_bytes, vms_bytes}], total_rss_bytes}` | 1 Hz, only while the attempt has live processes (`initializing` → `terminating`); nothing during `remuxing`/`finalizing` |
+
+The per-process subjects (`session.{id}.telemetry.<proc>`) are the raw samples and are **never** forwarded.
+
+**Client MUST:**
+- Route it to listeners registered for that session id and **never** invalidate list/detail queries from it — at 1 Hz that is cache thrash. Unsubscribe when the view unmounts.
+- Treat it as live-only: there is **no REST snapshot and no history**, so a late or reconnecting client sees nothing until the next frame (the same "progress can be missed" caveat as 13.4). Render nothing before the first frame.
+- Keep it out of any `aria-live` region (1 Hz announcements), and hide the readout once the session leaves the live statuses so it cannot show a frozen reading.
 
 ---
 

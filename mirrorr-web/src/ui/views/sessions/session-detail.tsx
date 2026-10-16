@@ -31,6 +31,7 @@ import { SessionRecordingButton } from "./session-recording-button";
 import { SessionPlayerFrame } from "./session-preview-player";
 import { SessionPlayer } from "./session-player";
 import { SessionStarting } from "./session-starting";
+import { SessionTelemetryReadout } from "./session-telemetry";
 import { sessionTitle } from "./session-title";
 import { SessionUrls, pickHtmlPlayerUrl, pickPlayableUrl, toSessionUrls } from "./session-urls";
 
@@ -134,6 +135,8 @@ export function SessionDetailView({
     .sort((a, b) => b.index - a.index);
   const remuxing =
     session.status === "remuxing" || session.status === "finalizing";
+  // Telemetry covers the attempt's own processes — remux/finalize sample nothing.
+  const attemptRunning = isLive(session.status) && !remuxing;
   const starting = isStarting(session.status);
   const retryCount = session.retry_attempts ?? 0;
   const hasResolverConfig =
@@ -212,6 +215,9 @@ export function SessionDetailView({
               sessionId={session.id}
               className="flex flex-col gap-2"
             />
+          ) : null}
+          {attemptRunning ? (
+            <SessionTelemetryReadout sessionId={session.id} className="mt-4" />
           ) : null}
         </PanelBody>
       </Panel>

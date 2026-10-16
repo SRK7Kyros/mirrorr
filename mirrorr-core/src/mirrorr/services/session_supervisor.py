@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -20,6 +21,11 @@ from mirrorr.services.managed_process import ManagedProcess
 from mirrorr.services.recording import RecordingManager
 from mirrorr.services.session_lifecycle import update_session, delete_session
 from mirrorr.services.session_helpers import make_session_dirs, build_session_urls
+from mirrorr.services.telemetry import (
+    PUBLISH_INTERVAL_S as TELEMETRY_PUBLISH_INTERVAL_S,
+    build_frame,
+    record_sample,
+)
 from mirrorr.startup.config import MirrorrSettings
 from mirrorr.event_bus.event import MirrorrEvent
 from nats.aio.client import Client as NATS
@@ -612,26 +618,39 @@ class SessionSupervisor:
             logger.error(f"Failed to connect NATS: {e}")
 
     def _wire_telemetry(self) -> None:
-        """Forward per-process telemetry to NATS. Call after processes start."""
+        """Coalesce per-process samples into one session-level frame per tick.
+
+        Call after processes start. Each sample only refreshes its own entry,
+        so the session publishes at the sampler's own 1 Hz regardless of how
+        many processes the attempt runs.
+        """
         if not self._nc:
             return
+        samples: dict[str, dict[str, Any]] = {}
+
+        async def _collect(name: str, queue: asyncio.Queue) -> None:
+            while True:
+                sample = await queue.get()
+                if isinstance(sample, dict):
+                    record_sample(samples, name, sample)
+
+        async def _publish() -> None:
+            subject = f"session.{self.session_id}.telemetry"
+            while True:
+                await asyncio.sleep(TELEMETRY_PUBLISH_INTERVAL_S)
+                frame = build_frame(self.session_id, samples, time.time())
+                if frame is None:
+                    continue
+                try:
+                    await self._nc.publish(subject, json.dumps(frame).encode())
+                except Exception as e:
+                    logger.debug(f"Error publishing telemetry for session {self.session_id}: {e}")
+                    return
+
         for proc in self.processes:
-            telemetry_q = self.bus.subscribe(f"proc.{proc.name}.telemetry")
-            proc_name = proc.name
-
-            async def _forward_telemetry(q, pname):
-                topic = f"proc.{pname}.telemetry"
-                while True:
-                    data = await q.get()
-                    subject = f"session.{self.session_id}.telemetry.{pname}"
-                    try:
-                        await self._nc.publish(subject, json.dumps(data).encode())
-                    except Exception as e:
-                        logger.debug(f"Error forwarding telemetry for {pname}: {e}")
-                        self.bus.unsubscribe(topic, q)
-                        return
-
-            self._telemetry_tasks.append(asyncio.create_task(_forward_telemetry(telemetry_q, proc_name)))
+            queue = self.bus.subscribe(f"proc.{proc.name}.telemetry")
+            self._telemetry_tasks.append(asyncio.create_task(_collect(proc.name, queue)))
+        self._telemetry_tasks.append(asyncio.create_task(_publish()))
 
 
     async def _cleanup(self, reason: str = "stop") -> None:

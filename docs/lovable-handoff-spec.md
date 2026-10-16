@@ -644,7 +644,7 @@ Server-push only. Enriched frames (full entity in `data`; deleted frames carry n
 
 Event subjects: `session.created|updated|deleted|started|stopped|crashed`,
 `autorun.created|updated|deleted`, `recording.created|updated|deleted`,
-`profile.created|updated|deleted`. `*.telemetry.*` and `*.control` are never sent.
+`profile.created|updated|deleted`. Per-process `*.telemetry.*` and `*.control` are never sent (the coalesced `session.{id}.telemetry` frame of §13.4.1 is — added Oct 16 2026).
 Prefer `data`; treat top-level fields as hints. `deleted` → remove from cache immediately.
 
 ### 9.4 WebSocket `/ws/notifications`

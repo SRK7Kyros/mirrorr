@@ -28,6 +28,7 @@ const api = vi.hoisted(() => {
     deleteSession: vi.fn(),
     removeFromInfiniteLists: vi.fn(),
     subscribeRemuxProgress: vi.fn(() => () => {}),
+    subscribeSessionTelemetry: vi.fn(() => () => {}),
   }
 })
 

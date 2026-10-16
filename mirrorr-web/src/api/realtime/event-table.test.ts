@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { createEventTable, type EventTable } from "./event-table"
+import { createEventTable, subscribeSessionTelemetry, type EventTable } from "./event-table"
 
 function seedClient(): QueryClient {
   const client = new QueryClient({
@@ -38,6 +38,31 @@ describe("event table", () => {
     table.dispose()
     vi.useRealTimers()
     vi.restoreAllMocks()
+  })
+
+  it("routes a session telemetry frame to its listeners without touching the cache", () => {
+    const listener = vi.fn()
+    const unsubscribe = subscribeSessionTelemetry(5, listener)
+    const invalidate = vi.spyOn(client, "invalidateQueries")
+
+    table.handleFrame({
+      type: "event",
+      event: "session.5.telemetry",
+      processes: [{ name: "engine", cpu_percent: 12.5, rss_bytes: 2048 }],
+      total_rss_bytes: 2048,
+      ts: 1760000000,
+    })
+    vi.advanceTimersByTime(30)
+
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(listener).toHaveBeenCalledWith({
+      processes: [{ name: "engine", cpu_percent: 12.5, rss_bytes: 2048 }],
+      total_rss_bytes: 2048,
+      ts: 1760000000,
+    })
+    expect(invalidate).not.toHaveBeenCalled()
+
+    unsubscribe()
   })
 
   it("coalesces duplicate (event-family, id) frames within 30ms, newest wins", () => {
