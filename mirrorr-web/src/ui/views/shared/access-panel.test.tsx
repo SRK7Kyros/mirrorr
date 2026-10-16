@@ -205,4 +205,24 @@ describe("AccessPanel", () => {
     expect(endpoints.setResourceGrants).toHaveBeenNthCalledWith(1, "session", 1, "bob", ["VIEW", "OPERATE"])
     expect(endpoints.setResourceGrants).toHaveBeenNthCalledWith(2, "session", 1, "bob", ["VIEW", "OPERATE"])
   })
+
+  it("pins the dirty indicator and Apply in the dialog footer, outside the scroll body", async () => {
+    renderPanel()
+    await loaded()
+
+    const dialog = screen.getByRole("dialog")
+    // The catalog's nearest overflow-y-auto ancestor is the Dialog body (the scroll region).
+    const body = (await section("View access")).closest(".overflow-y-auto")
+    // Guard against a vacuous pass: the catalog really does sit inside a scroll region.
+    expect(body).not.toBeNull()
+    expect(body).not.toBe(dialog)
+
+    const indicator = screen.getByText("Up to date")
+    const apply = applyButton()
+
+    expect(body!.contains(indicator)).toBe(false)
+    expect(body!.contains(apply)).toBe(false)
+    expect(dialog.contains(indicator)).toBe(true)
+    expect(dialog.contains(apply)).toBe(true)
+  })
 })
