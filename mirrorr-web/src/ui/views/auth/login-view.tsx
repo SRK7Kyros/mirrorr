@@ -5,6 +5,7 @@ import { ApiError } from "@/api/client"
 import { useAuthStatus } from "@/api/hooks"
 import { isNativeShell, readHostCredential } from "@/api/native"
 import { Banner, Button, Field, IconDisc, Input, Panel, PanelBody } from "@/ui/components"
+import { landAfterAuth } from "./landing"
 
 export function LoginView() {
   const navigate = useNavigate()
@@ -24,8 +25,8 @@ export function LoginView() {
     setError(null)
     setFieldErrors({})
     try {
-      await login(username.trim(), password)
-      await navigate({ to: "/sessions" })
+      const auth = await login(username.trim(), password)
+      await landAfterAuth(auth.user?.role, (to) => navigate({ to }))
     } catch (caught) {
       if (caught instanceof ApiError && caught.fieldErrors !== undefined) setFieldErrors(caught.fieldErrors)
       setError(getErrorMessage(caught, "Sign-in failed"))
@@ -45,8 +46,8 @@ export function LoginView() {
       if (credential === null) return
       setAutoUsername(credential.username)
       try {
-        await login(credential.username, credential.password)
-        await navigate({ to: "/sessions" })
+        const auth = await login(credential.username, credential.password)
+        await landAfterAuth(auth.user?.role, (to) => navigate({ to }))
       } catch {
         setAutoUsername(null)
         setError("Saved credentials were rejected — sign in below.")

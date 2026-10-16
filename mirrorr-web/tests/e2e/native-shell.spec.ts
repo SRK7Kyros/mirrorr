@@ -72,7 +72,10 @@ test.describe("native shell", () => {
 
     await page.goto("/")
 
-    await expect(page).toHaveURL(/\/sessions$/)
+    // The stub user is an admin, whose home is the admin console — a second
+    // build, so the hop is a document navigation the dev server answers with
+    // the SPA fallback: the URL is what proves the redirect happened.
+    await expect(page).toHaveURL(/\/admin\/settings$/)
     expect(api.callsTo("/auth/login")).toHaveLength(1)
   })
 

@@ -4,6 +4,7 @@ import { getErrorMessage, register } from "@/api"
 import { ApiError } from "@/api/client"
 import { useAuthStatus } from "@/api/hooks"
 import { Banner, Button, buttonClass, Field, IconDisc, Input, Panel, PanelBody } from "@/ui/components"
+import { landAfterAuth } from "./landing"
 
 export function RegisterView() {
   const navigate = useNavigate()
@@ -33,7 +34,7 @@ export function RegisterView() {
         setPending(true)
         return
       }
-      await navigate({ to: "/sessions" })
+      await landAfterAuth(result.user?.role, (to) => navigate({ to }))
     } catch (caught) {
       if (caught instanceof ApiError && caught.fieldErrors !== undefined) setFieldErrors(caught.fieldErrors)
       setError(getErrorMessage(caught, "Registration failed"))
