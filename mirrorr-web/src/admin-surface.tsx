@@ -21,15 +21,18 @@ import {
   fetchUsers,
   formatRelativeTime,
   getErrorMessage,
-  grantResourceViewer,
-  revokeResourceViewer,
-  setResourceOwner,
 } from "@/api"
 import { ApiError } from "@/api/client"
+import { applyPlans, planItem, type AccessTarget } from "@/api/domain/access-plan"
 import { rankBySearch } from "@/api/domain/search"
 import { PAGE_SIZE, queryKeys, queryRoots, staleTimes } from "@/api/query-keys"
 import { RESOURCE_TYPES, type AdminResource } from "@/api/schemas/privileged"
 import type { User } from "@/api/schemas/user"
+import {
+  ResourceAccessFields,
+  resourceTypeLabel,
+  userLabel,
+} from "@/ui/views/shared/resource-access"
 import { copyText } from "@/ui/lib/clipboard"
 import {
   Avatar,
@@ -615,24 +618,6 @@ function RegistrationRequestsSection() {
   )
 }
 
-const RESOURCE_TYPE_LABEL: Record<string, string> = {
-  session: "Session",
-  profile: "Profile",
-  autorun: "Autorun",
-  recording: "Recording",
-  source: "Source",
-  engine: "Engine",
-  resolver: "Resolver",
-}
-
-function resourceTypeLabel(type: string): string {
-  return RESOURCE_TYPE_LABEL[type] ?? type
-}
-
-function userLabel(user: User): string {
-  return user.display_name !== "" ? user.display_name : user.username
-}
-
 /**
  * Admin resource browser (plan: admin-ownership-and-access). One offset page of
  * every item — owner-bearing rows plus engines/resolvers as read-only system
@@ -818,61 +803,38 @@ interface ResourceAccessDialogProps {
 
 function ResourceAccessDialog({ resource, users, onClose }: ResourceAccessDialogProps) {
   const queryClient = useQueryClient()
-  const [addTarget, setAddTarget] = useState("")
+  const [busy, setBusy] = useState(false)
 
   const accessQuery = useQuery({
     queryKey: queryKeys.adminResourceAccess(resource.resource_type, resource.id),
     queryFn: () => fetchResourceAccess(resource.resource_type, resource.id),
     staleTime: staleTimes.adminResources,
   })
+  const access = accessQuery.data
 
-  function invalidate(): void {
+  async function apply(target: AccessTarget): Promise<void> {
+    if (access === undefined) return
+    setBusy(true)
+    const outcome = await applyPlans([
+      planItem(
+        {
+          resourceType: resource.resource_type,
+          id: resource.id,
+          label: resource.label,
+          access: { owner: access.owner, viewers: access.viewers },
+        },
+        target,
+        users.map((user) => user.username),
+      ),
+    ])
+    setBusy(false)
     void queryClient.invalidateQueries({ queryKey: queryRoots.adminResources })
     void queryClient.invalidateQueries({
       queryKey: queryKeys.adminResourceAccess(resource.resource_type, resource.id),
     })
+    if (outcome.failed.length > 0) toast.error("Could not update access", outcome.failed[0].message)
+    else toast.success("Access updated", resource.label)
   }
-
-  const setOwner = useMutation({
-    mutationFn: (username: string) => setResourceOwner(resource.resource_type, resource.id, username),
-    onSuccess: (result) => {
-      invalidate()
-      toast.success("Owner changed", `${resource.label} is now owned by ${result.owner}.`)
-    },
-    onError: (caught) => toast.error("Could not change owner", getErrorMessage(caught, "Try again")),
-  })
-
-  const addViewer = useMutation({
-    mutationFn: (username: string) => grantResourceViewer(resource.resource_type, resource.id, username),
-    onSuccess: (_result, username) => {
-      setAddTarget("")
-      invalidate()
-      toast.success("Viewer added", `${username} can now view this item.`)
-    },
-    onError: (caught) => toast.error("Could not add viewer", getErrorMessage(caught, "Try again")),
-  })
-
-  const removeViewer = useMutation({
-    mutationFn: (username: string) => revokeResourceViewer(resource.resource_type, resource.id, username),
-    onSuccess: (_result, username) => {
-      invalidate()
-      toast.success("Viewer removed", `${username} can no longer view this item.`)
-    },
-    onError: (caught) => toast.error("Could not remove viewer", getErrorMessage(caught, "Try again")),
-  })
-
-  const busy = setOwner.isPending || addViewer.isPending || removeViewer.isPending
-  const owner = accessQuery.data?.owner ?? resource.owner
-  const viewers = accessQuery.data?.viewers ?? []
-  const addable = users.filter((user) => !viewers.includes(user.username))
-
-  const ownerOptions = useMemo(() => {
-    const options = users.map((user) => ({ value: user.username, label: userLabel(user) }))
-    if (owner !== "" && !users.some((user) => user.username === owner)) {
-      options.unshift({ value: owner, label: `${owner} (missing)` })
-    }
-    return options
-  }, [users, owner])
 
   return (
     <Dialog
@@ -894,71 +856,15 @@ function ResourceAccessDialog({ resource, users, onClose }: ResourceAccessDialog
           message={getErrorMessage(accessQuery.error, "Could not load access")}
           onRetry={() => void accessQuery.refetch()}
         />
+      ) : access === undefined ? (
+        <SkeletonRows cols={2} />
       ) : (
-        <>
-          <Field label="Owner" htmlFor="resource-owner">
-            <Select
-              id="resource-owner"
-              value={owner}
-              disabled={busy}
-              onChange={(event) => setOwner.mutate(event.target.value)}
-            >
-              {ownerOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <div className="flex flex-col gap-2">
-            <span className="text-muted">Viewers</span>
-            {viewers.length === 0 ? (
-              <p className="text-muted">No extra viewers.</p>
-            ) : (
-              <ul className="flex flex-col gap-2">
-                {viewers.map((viewer) => (
-                  <li key={viewer} className="flex items-center justify-between gap-3">
-                    <span className="mono text-truncate">{viewer}</span>
-                    <IconButton
-                      label={`Remove ${viewer}`}
-                      icon={<IconX size={16} />}
-                      variant="danger-ghost"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() => removeViewer.mutate(viewer)}
-                    />
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="flex items-center gap-2">
-              <Select
-                aria-label="Add a viewer"
-                value={addTarget}
-                disabled={busy}
-                onChange={(event) => setAddTarget(event.target.value)}
-              >
-                <option value="">Select a user…</option>
-                {addable.map((user) => (
-                  <option key={user.username} value={user.username}>
-                    {userLabel(user)}
-                  </option>
-                ))}
-              </Select>
-              <Button
-                size="sm"
-                variant="secondary"
-                icon={<IconPlus size={15} />}
-                disabled={addTarget === "" || busy}
-                onClick={() => {
-                  if (addTarget !== "") addViewer.mutate(addTarget)
-                }}
-              >
-                Add
-              </Button>
-            </div>
-          </div>
-        </>
+        <ResourceAccessFields
+          access={access}
+          users={users}
+          busy={busy}
+          onApply={(target) => void apply(target)}
+        />
       )}
     </Dialog>
   )

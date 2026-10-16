@@ -6,14 +6,18 @@ import { MotionConfig } from "motion/react"
 import { setAuthNavigator } from "@/api/auth"
 import { queryClient } from "@/api/query-client"
 import { SettingsSectionsContext, type SettingsSection } from "@/ui/views/settings/sections"
+import { ResourceAccessSlotContext } from "@/ui/views/shared/resource-access-slot"
 import { router } from "@/router"
+import { ADMIN_ACCESS_SLOT } from "./admin-access"
 import { AdministrationSection } from "./admin-surface"
 import "@/app.css"
 
 /**
  * The admin entry renders the same app as `main.tsx` and adds the
  * administration section to the settings page; the standard entry imports
- * neither this file nor `admin-surface`, so neither appears in its bundle.
+ * neither this file, `admin-surface` nor `admin-access`, so none of them
+ * appears in its bundle. The access slot is how the shared list views reach the
+ * per-element affordances without knowing this entry exists.
  */
 const SECTIONS: readonly SettingsSection[] = [{ id: "administration", Component: AdministrationSection }]
 
@@ -26,9 +30,11 @@ createRoot(container).render(
   <StrictMode>
     <MotionConfig reducedMotion="user">
       <SettingsSectionsContext.Provider value={SECTIONS}>
-        <QueryClientProvider client={queryClient}>
-          <RouterProvider router={router} />
-        </QueryClientProvider>
+        <ResourceAccessSlotContext.Provider value={ADMIN_ACCESS_SLOT}>
+          <QueryClientProvider client={queryClient}>
+            <RouterProvider router={router} />
+          </QueryClientProvider>
+        </ResourceAccessSlotContext.Provider>
       </SettingsSectionsContext.Provider>
     </MotionConfig>
   </StrictMode>,

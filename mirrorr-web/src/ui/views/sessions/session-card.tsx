@@ -8,6 +8,7 @@ import type { Session } from "@/api/schemas"
 import { formatDateTime, formatDuration } from "@/api/time"
 import { Checkbox, StatusChip } from "@/ui/components"
 import { useLiveDurationSeconds } from "@/ui/hooks"
+import { AccessButton } from "@/ui/views/shared/resource-access-slot"
 import { cn } from "@/ui/lib/cn"
 import { RemuxProgressBar } from "./remux-progress"
 import { SessionPreviewPlayer } from "./session-preview-player"
@@ -97,6 +98,7 @@ export function SessionCard({
           </Link>
           <span className="shrink-0 mono tnum text-dim">#{session.id}</span>
           <span className="flex-1" />
+          <AccessButton resourceType="session" id={session.id} label={sessionTitle(session, names)} />
           <SessionRecordingButton session={session} />
           <SessionStopDeleteButton session={session} />
         </div>

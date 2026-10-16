@@ -50,6 +50,7 @@ import {
 } from "@/ui/components"
 import { useNowTick, useSelection } from "@/ui/hooks"
 import { Page } from "@/ui/views/shared/page"
+import { AccessButton, AccessBulkAction } from "@/ui/views/shared/resource-access-slot"
 import { AutorunActionsMenu } from "./autorun-actions"
 import { AutorunBulkProfileDialog } from "./autorun-bulk-profile-dialog"
 import { AutorunFormDialog } from "./autorun-form-dialog"
@@ -208,6 +209,7 @@ function AutorunCard({
           checked={selected}
           onChange={() => onToggle(autorun.id)}
         />
+        <AccessButton resourceType="autorun" id={autorun.id} label={autorun.user_friendly_name} />
         <AutorunActionsMenu autorun={autorun} />
       </div>
     </article>
@@ -470,6 +472,13 @@ export function AutorunsListView() {
               >
                 Set profile
               </Button>
+              <AccessBulkAction
+                resourceType="autorun"
+                items={selectedAutoruns.map((autorun) => ({
+                  id: autorun.id,
+                  label: autorun.user_friendly_name,
+                }))}
+              />
               <Button
                 size="sm"
                 variant="outline"

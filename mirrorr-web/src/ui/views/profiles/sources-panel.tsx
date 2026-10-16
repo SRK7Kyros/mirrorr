@@ -15,6 +15,7 @@ import { rankBySearch } from "@/api/domain/search"
 import type { ResolverSource } from "@/api/schemas"
 import { showingLabel } from "@/ui/lib/format"
 import { staggerContainer, staggerItem } from "@/ui/lib/motion"
+import { AccessButton, AccessBulkAction } from "@/ui/views/shared/resource-access-slot"
 import {
   BulkBar,
   Button,
@@ -75,6 +76,7 @@ function SourceRow({ source, names, selected, onToggle, onEdit, onDelete }: Sour
       </Td>
       <Td actions>
         <div className="flex items-center gap-3" style={{ gap: "var(--s-2)" }}>
+          <AccessButton resourceType="source" id={source.id} label={source.name} />
           <IconButton
             label={`Edit source ${source.name}`}
             icon={<IconEdit size={15} />}
@@ -104,6 +106,7 @@ function SourceCard({ source, names, selected, onToggle, onEdit, onDelete }: Sou
           </div>
         </div>
         <div className="flex gap-1 shrink-0">
+          <AccessButton resourceType="source" id={source.id} label={source.name} />
           <IconButton
             label={`Edit source ${source.name}`}
             icon={<IconEdit size={15} />}
@@ -299,6 +302,12 @@ export function SourcesPanel({ onCreate, onEdit }: SourcesPanelProps) {
           </Panel>
           {selection.count > 0 ? (
             <BulkBar count={selection.count} onClear={selection.clear}>
+              <AccessBulkAction
+                resourceType="source"
+                items={list.items
+                  .filter((source) => selection.has(source.id))
+                  .map((source) => ({ id: source.id, label: source.name }))}
+              />
               <Button
                 size="sm"
                 variant="danger-ghost"
