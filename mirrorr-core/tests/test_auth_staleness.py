@@ -18,7 +18,7 @@ def test_stale_token_does_not_keep_admin_privileges():
     ``change_password`` bumps ``credentials_version`` and ``_resolve_auth``
     nulls the user on a ``cv`` mismatch. The admin flag has to fall with the
     user, otherwise a revoked admin token still passes
-    ``_require_owner_or_admin`` (which checks ``is_admin`` before ``user``).
+    ``has_capability`` (which checks ``is_admin`` before ``user``).
     """
 
     async def scenario() -> None:

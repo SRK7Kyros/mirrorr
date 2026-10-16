@@ -211,8 +211,8 @@ async def _require_read_access(db: AsyncSession, auth: AuthState, obj) -> bool:
     """``VIEW`` access to *obj*: owner, admin, or an explicit ``VIEW`` grant.
 
     A bool wrapper over the frozen ``has_capability`` predicate, so read handlers
-    (and ``routers/logs.py``) keep their 403 shape while the decision moves to
-    capabilities. Deliberately used on **read handlers only** — ``VIEW`` admits
+    keep their 403 shape while the decision moves to capabilities. Deliberately
+    used on **read handlers only** — ``VIEW`` admits
     reads, never control, update, delete, save-as-profile, export/import or
     linking the item into another principal's own object. Authentication is owned
     by the ``require_auth`` dependency, so no anonymous caller reaches a handler.

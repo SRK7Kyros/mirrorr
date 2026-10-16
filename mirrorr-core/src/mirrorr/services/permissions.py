@@ -62,7 +62,7 @@ async def require_capability(
 ) -> None:
     """Raise 401 when unauthenticated, 403 when *capability* is not held.
 
-    Mirrors ``_require_owner_or_admin``: admin short-circuits, and an
+    The raising counterpart to ``has_capability``: admin short-circuits, and an
     unauthenticated caller is rejected before any ownership check.
     """
     if auth.is_admin:
