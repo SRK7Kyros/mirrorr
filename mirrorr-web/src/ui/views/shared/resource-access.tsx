@@ -347,6 +347,8 @@ export interface ResourceAccessEditorProps {
   /** Required: a host that forgets the group list renders an empty Groups tab. */
   readonly groups: readonly AccessGroup[]
   readonly busy?: boolean
+  /** The owner row's label when no owner is picked — a bulk host says so instead. */
+  readonly emptyOwnerLabel?: string
 }
 
 export function ResourceAccessEditor({
@@ -355,6 +357,7 @@ export function ResourceAccessEditor({
   users,
   groups,
   busy = false,
+  emptyOwnerLabel = "No owner",
 }: ResourceAccessEditorProps) {
   const [query, setQuery] = useState("")
   const [filters, setFilters] = useState<Readonly<Partial<Record<Capability, FilterMode>>>>({})
@@ -374,7 +377,7 @@ export function ResourceAccessEditor({
   const activeSelection = active === "groups" ? groupSelection : userSelection
   const marquee = useMarqueeSelection(scrollRef, (keys) => activeSelection.setMany(keys))
 
-  const ownerLabel = draft.owner === "" ? "No owner" : usernameLabel(users, draft.owner)
+  const ownerLabel = draft.owner === "" ? emptyOwnerLabel : usernameLabel(users, draft.owner)
 
   const groupById = useMemo(() => {
     const map = new Map<number, AccessGroup>()
