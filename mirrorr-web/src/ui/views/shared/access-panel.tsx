@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { fetchResourceAccess, fetchUsers, getErrorMessage } from "@/api"
 import {
   applyPlans,
+  emptyGrants,
   itemAccessFromView,
   planItem,
   type AccessTarget,
@@ -15,7 +16,16 @@ import type { User } from "@/api/schemas/user"
 import { Avatar, Button, Dialog, ErrorPanel, Input, SkeletonRows, toast } from "@/ui/components"
 import { IconCheck, IconSearch } from "@/ui/components/icons"
 import { cn } from "@/ui/lib/cn"
-import { capabilityLabel, ownerOptions, resourceTypeLabel, useAccessDraft, userLabel } from "./resource-access"
+import {
+  capabilityLabel,
+  ownerOptions,
+  resourceTypeLabel,
+  useAccessDraft,
+  userLabel,
+  type AccessDraft,
+} from "./resource-access"
+
+const EMPTY_ACCESS: ItemAccess = { owner: null, ownerMissing: false, grants: emptyGrants() }
 
 export interface AccessPanelProps {
   readonly resourceType: ResourceType
@@ -33,6 +43,7 @@ export interface AccessPanelProps {
 export function AccessPanel({ resourceType, id, label, onClose }: AccessPanelProps) {
   const queryClient = useQueryClient()
   const [busy, setBusy] = useState(false)
+  const [query, setQuery] = useState("")
 
   const usersQuery = useQuery({ queryKey: queryKeys.users, queryFn: fetchUsers, staleTime: staleTimes.users })
   const accessQuery = useQuery({
@@ -42,6 +53,10 @@ export function AccessPanel({ resourceType, id, label, onClose }: AccessPanelPro
   })
 
   const users = usersQuery.data ?? []
+  const loaded =
+    accessQuery.data !== undefined && !accessQuery.isLoading && !usersQuery.isLoading && !accessQuery.isError
+  const access = accessQuery.data === undefined ? EMPTY_ACCESS : itemAccessFromView(accessQuery.data)
+  const draft = useAccessDraft(access)
 
   async function apply(target: AccessTarget): Promise<void> {
     const view = accessQuery.data
@@ -71,6 +86,21 @@ export function AccessPanel({ resourceType, id, label, onClose }: AccessPanelPro
       size="xl"
       title={`Access · ${label}`}
       description={`${resourceTypeLabel(resourceType)} · #${id}`}
+      footer={
+        loaded ? (
+          <div className="flex w-full items-center justify-between gap-3">
+            <span className="text-sm text-muted">{draft.dirty ? "Unsaved changes" : "Up to date"}</span>
+            <Button
+              variant="primary"
+              loading={busy}
+              disabled={!draft.dirty || busy}
+              onClick={() => void apply(draft.target)}
+            >
+              Apply changes
+            </Button>
+          </div>
+        ) : null
+      }
     >
       {accessQuery.isLoading || usersQuery.isLoading ? (
         <SkeletonRows rows={4} cols={2} />
@@ -82,28 +112,21 @@ export function AccessPanel({ resourceType, id, label, onClose }: AccessPanelPro
       ) : accessQuery.data === undefined ? (
         <SkeletonRows rows={4} cols={2} />
       ) : (
-        <AccessPanelBody
-          access={itemAccessFromView(accessQuery.data)}
-          users={users}
-          busy={busy}
-          onApply={(target) => void apply(target)}
-        />
+        <AccessPanelBody draft={draft} query={query} setQuery={setQuery} users={users} busy={busy} />
       )}
     </Dialog>
   )
 }
 
 interface AccessPanelBodyProps {
-  readonly access: ItemAccess
+  readonly draft: AccessDraft
+  readonly query: string
+  readonly setQuery: (query: string) => void
   readonly users: readonly User[]
   readonly busy: boolean
-  readonly onApply: (target: AccessTarget) => void
 }
 
-function AccessPanelBody({ access, users, busy, onApply }: AccessPanelBodyProps) {
-  const draft = useAccessDraft(access)
-  const [query, setQuery] = useState("")
-
+function AccessPanelBody({ draft, query, setQuery, users, busy }: AccessPanelBodyProps) {
   const ownerCandidates = useMemo(() => ownerOptions(users, draft.owner), [users, draft.owner])
   const filteredOwners = useMemo(
     () => rankBySearch(ownerCandidates, query, (option) => [option.label, option.value]),
@@ -188,18 +211,6 @@ function AccessPanelBody({ access, users, busy, onApply }: AccessPanelBodyProps)
           )}
         </CatalogSection>
       ))}
-
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-sm text-muted">{draft.dirty ? "Unsaved changes" : "Up to date"}</span>
-        <Button
-          variant="primary"
-          loading={busy}
-          disabled={!draft.dirty || busy}
-          onClick={() => onApply(draft.target)}
-        >
-          Apply changes
-        </Button>
-      </div>
     </>
   )
 }
