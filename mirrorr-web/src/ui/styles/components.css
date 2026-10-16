@@ -396,25 +396,9 @@ kbd {
   opacity: 1;
 }
 
-/* Square player chrome. The vendored Video.js skin rounds the frame, the bar,
-   the buttons and the slider; every radius it exposes as a token is zeroed
-   here, plus the three hard-coded `9999px` circles it does not tokenise (the
-   slider, its track and its thumb). Unlayered, so it beats the skin's
-   `@layer base.theme`/`components` declarations. */
+/* Square the outer frame only — the skin's own chrome radii (99px tokens in
+   themes/theme.css) stay; unlayered, so this beats its `@layer` declarations. */
 .video-skin {
   --media-border-radius: 0;
   --media-video-border-radius: 0;
-  --media-control-radius: 0;
-  --media-controls-radius: 0;
-  --media-menu-item-radius: 0;
-  --media-popup-radius: 0;
-  --media-dialog-radius: 0;
-}
-.video-skin .media-slider,
-.video-skin .media-slider-track,
-.video-skin .media-slider-track::before,
-.video-skin .media-slider-thumb,
-.video-skin .media-slider-thumb::after,
-.video-skin .media-time-toggle {
-  border-radius: 0;
 }
