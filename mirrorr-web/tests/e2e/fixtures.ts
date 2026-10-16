@@ -155,6 +155,11 @@ export interface ApiData {
   resources?: readonly Row[]
   /** VIEW grants keyed `"{type}:{id}"` for the `GET /shares/…` routes. */
   resourceViewers?: Record<string, readonly string[]>
+  /** Per-user capability sets keyed `"{type}:{id}"` — overrides `resourceViewers` per user. */
+  resourceGrants?: Record<
+    string,
+    readonly { readonly username: string; readonly capabilities: readonly string[] }[]
+  >
   /** `POST /resolvers/{id}/discover` — the catalog the channel browser reads. */
   discovery?: readonly Row[]
   /** Page size the stub slices `discovery` with (default: one page). */
@@ -190,9 +195,21 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
   let createdIds = 0
 
   const resourceViewers: Record<string, string[]> = {}
-  for (const [key, list] of Object.entries(data.resourceViewers ?? {})) resourceViewers[key] = [...list]
+  const explicitGrants: Record<string, { username: string; capabilities: string[] }[]> = {}
+  // Seeded on the first API call, not here: a spec assigns `api.data.*` before it
+  // navigates, so an eager snapshot would miss every seed.
+  let seeded = false
+  const seed = (): void => {
+    if (seeded) return
+    seeded = true
+    for (const [key, list] of Object.entries(data.resourceViewers ?? {})) resourceViewers[key] = [...list]
+    for (const [key, list] of Object.entries(data.resourceGrants ?? {})) {
+      explicitGrants[key] = list.map((grant) => ({ username: grant.username, capabilities: [...grant.capabilities] }))
+    }
+  }
 
   await page.route(/^https?:\/\/[^/]+\/api\//, async (route: Route) => {
+    seed()
     const request = route.request()
     const method = request.method()
     const path = new URL(request.url()).pathname.replace(/^\/api/, "")
@@ -294,19 +311,21 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
       return answer(200, { items: filtered.slice(offset, offset + limit), total: filtered.length })
     }
 
-    // The frozen sharing surface: the stub models VIEW-only grants (the flat
-    // viewer list this wave's UI still edits) and answers with an AccessView.
+    // The sharing surface: `resourceViewers` seeds VIEW-only grants (what an
+    // older spec expects), `resourceGrants` seeds arbitrary capability sets, and
+    // a POST/DELETE keeps both in step — the explicit set wins per user.
     const accessView = (type: string, id: string): Record<string, unknown> => {
       const row = (data.resources ?? []).find((item) => item.resource_type === type && String(item.id) === id)
+      const key = `${type}:${id}`
+      const byUser = new Map<string, string[]>()
+      for (const username of resourceViewers[key] ?? []) byUser.set(username, ["VIEW"])
+      for (const grant of explicitGrants[key] ?? []) byUser.set(grant.username, [...grant.capabilities])
       return {
         resource_type: type,
         id: Number(id),
         owner: row?.owner ?? "",
         owner_missing: false,
-        grants: (resourceViewers[`${type}:${id}`] ?? []).map((username) => ({
-          username,
-          capabilities: ["VIEW"],
-        })),
+        grants: [...byUser].map(([username, capabilities]) => ({ username, capabilities })),
       }
     }
 
@@ -316,6 +335,7 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
       const key = `${type}:${id}`
       const username = decodeURIComponent(rawUsername)
       resourceViewers[key] = (resourceViewers[key] ?? []).filter((viewer) => viewer !== username)
+      explicitGrants[key] = (explicitGrants[key] ?? []).filter((grant) => grant.username !== username)
       return answer(200, accessView(type, id))
     }
 
@@ -326,8 +346,11 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
         const payload = (body ?? {}) as { username?: string; capabilities?: readonly string[] }
         const key = `${type}:${id}`
         const username = payload.username ?? ""
+        const capabilities = [...(payload.capabilities ?? [])]
         const others = (resourceViewers[key] ?? []).filter((viewer) => viewer !== username)
-        resourceViewers[key] = (payload.capabilities ?? []).length === 0 ? others : [...others, username]
+        resourceViewers[key] = capabilities.length === 0 ? others : [...others, username]
+        const kept = (explicitGrants[key] ?? []).filter((grant) => grant.username !== username)
+        explicitGrants[key] = capabilities.length === 0 ? kept : [...kept, { username, capabilities }]
         return answer(200, accessView(type, id))
       }
       return answer(200, accessView(type, id))

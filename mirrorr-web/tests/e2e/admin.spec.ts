@@ -290,4 +290,139 @@ test.describe("admin resource access", () => {
       .poll(() => api.callsTo("/admin/resources/autorun/6/owner").some((call) => call.method === "PUT"))
       .toBe(true)
   })
+
+  test("cycles the capability chips through include and exclude and keeps every chip inside the dialog at 375px", async ({
+    page,
+    api,
+  }) => {
+    api.data.users = [
+      { id: 1, username: "kyros", role: "admin", display_name: "Kyros" },
+      { id: 2, username: "alice", role: "user", display_name: "Alice" },
+      { id: 3, username: "bob", role: "user", display_name: "Bob" },
+      { id: 4, username: "carol", role: "user", display_name: "Carol" },
+    ]
+    api.data.sessions = [session({ id: 7 })]
+    api.data.resources = [resourceRow("session", 7, "F1 Weekend")]
+    api.data.resourceGrants = {
+      "session:7": [
+        { username: "alice", capabilities: ["OPERATE"] },
+        { username: "bob", capabilities: ["EDIT"] },
+      ],
+    }
+
+    await openAdmin(page)
+    await accessButton(page).first().click()
+
+    const dialog = page.getByRole("dialog")
+    const catalog = dialog.getByTestId("access-catalog")
+    const upper = dialog.getByRole("group", { name: "Filter by capability" })
+    const operate = upper.getByRole("button", { name: /^Operate/ })
+    const edit = upper.getByRole("button", { name: /^Edit/ })
+
+    await operate.click()
+    await expect(operate).toHaveAttribute("aria-pressed", "true")
+    await expect(catalog.getByRole("button", { name: /Alice/ })).toBeVisible()
+    await expect(catalog.getByRole("button", { name: /Bob/ })).toHaveCount(0)
+
+    // Green chips AND: Alice holds OPERATE only and Bob EDIT only, so demanding
+    // both leaves nobody.
+    await edit.click()
+    await expect(edit).toHaveAttribute("aria-pressed", "true")
+    await expect(catalog.getByText("No users match.")).toBeVisible()
+
+    // Flipped to red, EDIT subtracts its holders instead: Alice is back and the
+    // user with no grants at all stays out.
+    await edit.click()
+    await expect(edit).toHaveAttribute("aria-pressed", "mixed")
+    await expect(catalog.getByRole("button", { name: /Alice/ })).toBeVisible()
+    await expect(catalog.getByRole("button", { name: /Bob/ })).toHaveCount(0)
+    await expect(catalog.getByRole("button", { name: /Carol/ })).toHaveCount(0)
+
+    await page.setViewportSize({ width: 375, height: 812 })
+    await page.waitForTimeout(150)
+
+    const fit = await dialog.evaluate((node) => {
+      const box = node.getBoundingClientRect()
+      const rows = [...node.querySelectorAll('[role="group"]')].map((group) => {
+        const edges = [...group.querySelectorAll("button")].map((chip) => chip.getBoundingClientRect())
+        return {
+          chips: edges.length,
+          lines: new Set(edges.map((edge) => Math.round(edge.top))).size,
+          maxRight: Math.max(...edges.map((edge) => edge.right)),
+          groupRight: group.getBoundingClientRect().right,
+        }
+      })
+      const body = node.querySelector(":scope > div")
+      return {
+        top: box.top,
+        bottom: box.bottom,
+        rows,
+        bodyScrolls: body === null ? null : body.scrollHeight > body.clientHeight + 1,
+      }
+    })
+
+    expect(fit.top).toBeGreaterThanOrEqual(0)
+    expect(fit.bottom).toBeLessThanOrEqual(812)
+    expect(fit.bodyScrolls).toBe(false)
+    expect(fit.rows).toHaveLength(2)
+    // Both rows wrap rather than scroll at 375px; no chip may be clipped
+    // horizontally and the dialog must still fit without its body scrolling.
+    const maxLines = [2, 2]
+    fit.rows.forEach((row, index) => {
+      expect(row.lines, JSON.stringify(row)).toBeLessThanOrEqual(maxLines[index] ?? 2)
+      expect(row.maxRight, JSON.stringify(row)).toBeLessThanOrEqual(row.groupRight + 1)
+    })
+  })
+
+  test("offers only the capabilities an autorun enforces", async ({ page, api }) => {
+    api.data.users = USERS
+    api.data.autoruns = [autorun({ id: 5, user_friendly_name: "F1 Race" })]
+    api.data.resources = [resourceRow("autorun", 5, "F1 Race")]
+
+    await openAdmin(page)
+    await openNav(page, "Autoruns")
+    await page.getByRole("button", { name: "Access for F1 Race" }).click()
+
+    const dialog = page.getByRole("dialog")
+    const upper = dialog.getByRole("group", { name: "Filter by capability" })
+    const lower = dialog.getByRole("group", { name: "Capabilities for the selected users" })
+
+    await expect(lower.getByRole("button", { name: "Edit" })).toBeVisible()
+    await expect(lower.getByRole("button", { name: "Export" })).toBeVisible()
+    // An autorun has no control route, so OPERATE would be an inert control.
+    await expect(lower.getByRole("button", { name: "Operate" })).toHaveCount(0)
+    await expect(upper.getByRole("button", { name: /^Operate/ })).toHaveCount(0)
+  })
+
+  test("keeps an inapplicable existing grant visible and removable", async ({ page, api }) => {
+    api.data.users = USERS
+    api.data.autoruns = [autorun({ id: 5, user_friendly_name: "F1 Race" })]
+    api.data.resources = [resourceRow("autorun", 5, "F1 Race")]
+    // An OPERATE grant on an autorun predates the type filter: no chip offers
+    // it, so the panel must still surface it or it could never be cleared.
+    api.data.resourceGrants = { "autorun:5": [{ username: "alice", capabilities: ["VIEW", "OPERATE"] }] }
+
+    await openAdmin(page)
+    await openNav(page, "Autoruns")
+    await page.getByRole("button", { name: "Access for F1 Race" }).click()
+
+    const dialog = page.getByRole("dialog")
+    const catalog = dialog.getByTestId("access-catalog")
+    const lower = dialog.getByRole("group", { name: "Capabilities for the selected users" })
+
+    const retired = lower.getByRole("button", { name: "Operate" })
+    await expect(retired).toBeVisible()
+
+    await catalog.getByRole("button", { name: /Alice/ }).click()
+    await retired.click()
+    await dialog.getByRole("button", { name: "Apply changes" }).click()
+
+    // VIEW survives, so the replace-set POST carries the reduced set — proof the
+    // OPERATE grant went away through a control the type filter does not offer.
+    await expect
+      .poll(() => api.callsTo("/shares/autorun/5").some((call) => call.method === "POST"))
+      .toBe(true)
+    const posted = api.callsTo("/shares/autorun/5").filter((call) => call.method === "POST").at(-1)
+    expect(posted?.body).toEqual({ username: "alice", capabilities: ["VIEW"] })
+  })
 })

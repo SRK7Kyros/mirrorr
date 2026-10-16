@@ -860,6 +860,7 @@ function ResourceAccessDialog({ resource, users, onClose }: ResourceAccessDialog
         <SkeletonRows cols={2} />
       ) : (
         <ResourceAccessFields
+          resourceType={resource.resource_type}
           access={itemAccessFromView(access)}
           users={users}
           busy={busy}

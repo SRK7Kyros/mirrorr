@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { CAPABILITIES, type Capability } from "@/api/schemas/privileged"
+import { CAPABILITIES, type Capability, type ResourceType } from "@/api/schemas/privileged"
 import type { User } from "@/api/schemas/user"
 import { AccessPanel } from "./access-panel"
 
@@ -45,12 +45,12 @@ function accessView({ owner = "kyros", grants = {} }: GrantInput = {}) {
   }
 }
 
-function renderPanel() {
+function renderPanel(resourceType: ResourceType = "session") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const onClose = vi.fn()
   render(
     <QueryClientProvider client={client}>
-      <AccessPanel resourceType="session" id={1} label="F1 Weekend" onClose={onClose} />
+      <AccessPanel resourceType={resourceType} id={1} label="F1 Weekend" onClose={onClose} />
     </QueryClientProvider>,
   )
   return onClose
@@ -120,11 +120,14 @@ describe("AccessPanel", () => {
 
     expect([...CAPABILITIES]).toEqual(["VIEW", "OPERATE", "EDIT", "DELETE", "SHARE", "EXPORT"])
     expect(within(filterGroup()).getByRole("button", { name: "All" })).toBeTruthy()
-    const labels = ["View access", "Operate", "Edit", "Delete", "Share", "Export"]
+    const labels = ["View access", "Operate", "Edit", "Delete", "Share"]
     for (const label of labels) {
       expect(filterChip(label)).toBeTruthy()
       expect(setChip(label)).toBeTruthy()
     }
+    // A session has no export route, so the type filter does not offer EXPORT.
+    expect(within(filterGroup()).queryByRole("button", { name: /^Export/ })).toBeNull()
+    expect(within(setGroup()).queryByRole("button", { name: "Export" })).toBeNull()
   })
 
   it("filters the card catalog by username and display name as you type", async () => {
@@ -148,20 +151,71 @@ describe("AccessPanel", () => {
     expect(screen.getByText("No users match.")).toBeTruthy()
   })
 
-  it("filters the catalog to a capability's holders and returns to All on a second tap", async () => {
-    api.fetchResourceAccess.mockResolvedValue(accessView({ grants: { VIEW: ["bob"] } }))
+  it("cycles the capability chips through include, exclude and off", async () => {
+    api.fetchResourceAccess.mockResolvedValue(accessView({ grants: { OPERATE: ["bob"], EDIT: ["carol"] } }))
     renderPanel()
     await loaded()
 
     expect(card("Alice")).toBeTruthy()
-    fireEvent.click(filterChip("View access"))
+    fireEvent.click(filterChip("Operate"))
+    fireEvent.click(filterChip("Edit"))
 
+    // Bob holds OPERATE only and Carol EDIT only, so two green chips match
+    // nobody; the count badge still reads the holders.
+    expect(within(catalog()).queryAllByRole("button")).toHaveLength(0)
+    expect(filterChip("Operate").textContent).toContain("1")
+
+    // Red EDIT subtracts its holders instead: Bob holds OPERATE and not EDIT.
+    fireEvent.click(filterChip("Edit"))
     expect(card("Bob")).toBeTruthy()
-    expect(within(catalog()).queryByRole("button", { name: /Alice/ })).toBeNull()
-    expect(filterChip("View access").textContent).toContain("1")
+    expect(within(catalog()).queryByRole("button", { name: /Carol/ })).toBeNull()
 
-    fireEvent.click(filterChip("View access"))
+    // Both chips red: whoever holds neither.
+    fireEvent.click(filterChip("Operate"))
     expect(card("Alice")).toBeTruthy()
+    expect(within(catalog()).queryByRole("button", { name: /Bob/ })).toBeNull()
+    expect(within(catalog()).queryByRole("button", { name: /Carol/ })).toBeNull()
+
+    fireEvent.click(filterChip("Edit"))
+    expect(card("Carol")).toBeTruthy()
+    expect(within(catalog()).queryByRole("button", { name: /Bob/ })).toBeNull()
+
+    fireEvent.click(filterChip("Operate"))
+    expect(card("Bob")).toBeTruthy()
+    expect(within(filterGroup()).getByRole("button", { name: "All" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    )
+  })
+
+  it("offers only the capabilities a recording enforces", async () => {
+    renderPanel("recording")
+    await loaded()
+
+    for (const label of ["View access", "Delete", "Share"]) expect(setChip(label)).toBeTruthy()
+    // A recording has no control, edit or export route.
+    expect(within(setGroup()).queryByRole("button", { name: "Operate" })).toBeNull()
+    expect(within(setGroup()).queryByRole("button", { name: "Edit" })).toBeNull()
+    expect(within(filterGroup()).queryByRole("button", { name: /^Export/ })).toBeNull()
+  })
+
+  it("keeps an inapplicable existing grant visible and removable", async () => {
+    api.fetchResourceAccess.mockResolvedValue(accessView({ grants: { VIEW: ["bob"], OPERATE: ["bob"] } }))
+    renderPanel("recording")
+    await loaded()
+
+    // OPERATE is not offered for recordings, but Bob holds it — the chip must
+    // still exist so the pre-existing grant can be removed.
+    const retired = setChip("Operate")
+    expect(retired.getAttribute("title")).toBeTruthy()
+
+    fireEvent.click(card("Bob"))
+    fireEvent.click(retired)
+    fireEvent.click(applyButton())
+
+    await waitFor(() =>
+      expect(endpoints.setResourceGrants).toHaveBeenCalledWith("recording", 1, "bob", ["VIEW"]),
+    )
+    expect(endpoints.revokeResourceUser).not.toHaveBeenCalled()
   })
 
   it("keeps Apply disabled until the draft is dirty", async () => {
@@ -314,7 +368,7 @@ describe("AccessPanel", () => {
     const region = catalog()
     // Guard against a vacuous pass: the catalog really is the scroll region.
     expect(region.className).toContain("overflow-y-auto")
-    expect(region.className).toContain("max-h-[calc(100dvh-460px)]")
+    expect(region.className).toContain("max-h-[calc(100dvh-520px)]")
     expect(region).not.toBe(dialog)
 
     const indicator = screen.getByText("Up to date")
