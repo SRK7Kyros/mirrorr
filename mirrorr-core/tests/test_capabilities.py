@@ -7,6 +7,7 @@ import asyncio
 
 import pytest
 from fastapi import HTTPException
+from loguru import logger
 from sqlalchemy import inspect
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import SQLModel, select
@@ -41,6 +42,21 @@ CREATE TABLE resource_access (
     UNIQUE (resource_type, resource_id, username)
 )
 """
+
+# SQLModel emits one named index per `index=True` field. A `RENAME TO` keeps
+# these names attached to the renamed table, so the rebuild's `CREATE TABLE`
+# collides on them — the defect these tests pin.
+_OLD_RESOURCE_ACCESS_INDEX_DDL = (
+    "CREATE INDEX ix_resource_access_resource_type ON resource_access (resource_type)",
+    "CREATE INDEX ix_resource_access_resource_id ON resource_access (resource_id)",
+    "CREATE INDEX ix_resource_access_username ON resource_access (username)",
+)
+
+
+def _capture_logs() -> tuple[list[dict], int]:
+    records: list[dict] = []
+    sink_id = logger.add(lambda message: records.append(message.record), level="DEBUG")
+    return records, sink_id
 
 
 # ── Enum ────────────────────────────────────────────────────────────────────
@@ -77,6 +93,11 @@ async def _probe_resource_access(engine) -> dict:
                     for uc in inspector_obj.get_unique_constraints("resource_access")
                 ],
                 "orphan": inspector_obj.has_table("_old_resource_access"),
+                "indexes": sorted(
+                    row[1] for row in sync_conn.exec_driver_sql(
+                        "PRAGMA index_list(resource_access)"
+                    ).fetchall()
+                ),
                 "ddl": sync_conn.exec_driver_sql(
                     "SELECT sql FROM sqlite_master WHERE name='resource_access'"
                 ).scalar(),
@@ -119,6 +140,141 @@ def test_migration_backfills_view_and_widens_unique(tmp_path):
     ]
     assert after["unique"] == [("resource_type", "resource_id", "username", "capability")]
     assert not after["orphan"]
+
+
+async def _migrate_indexed_and_probe(tmp_path) -> tuple[dict, dict]:
+    engine, _ = create_db_engine(MirrorrSettings(base_dir=tmp_path))
+    async with engine.begin() as conn:
+        await conn.exec_driver_sql(_OLD_RESOURCE_ACCESS_DDL)
+        for statement in _OLD_RESOURCE_ACCESS_INDEX_DDL:
+            await conn.exec_driver_sql(statement)
+        await conn.run_sync(SQLModel.metadata.create_all)
+        await conn.exec_driver_sql(
+            "INSERT INTO resource_access (resource_type, resource_id, username, created_at) "
+            "VALUES ('SESSION', 1, 'bob', '2024-01-01 00:00:00'), "
+            "('PROFILE', 2, 'carol', '2024-01-01 00:00:00')"
+        )
+    before = await _probe_resource_access(engine)
+    await ensure_db(engine)
+    after = await _probe_resource_access(engine)
+    await engine.dispose()
+    return before, after
+
+
+def test_rebuild_with_named_indexes_keeps_rows(tmp_path):
+    records, sink_id = _capture_logs()
+    try:
+        before, after = asyncio.run(_migrate_indexed_and_probe(tmp_path))
+    finally:
+        logger.remove(sink_id)
+
+    assert before["unique"] == [("resource_type", "resource_id", "username")]
+    assert "ix_resource_access_username" in before["indexes"]
+
+    # Before the fix this raised "index ix_resource_access_username already
+    # exists" inside the rebuild, before the row copy — losing these rows.
+    assert after["rows"] == [
+        ("SESSION", 1, "bob", "VIEW"),
+        ("PROFILE", 2, "carol", "VIEW"),
+    ]
+    assert after["unique"] == [("resource_type", "resource_id", "username", "capability")]
+    assert "ix_resource_access_username" in after["indexes"]
+    assert "ix_resource_access_capability" in after["indexes"]
+    assert not after["orphan"], "rebuild left an _old_resource_access behind"
+    assert not any("resource_access.capability" in record["message"] for record in records), \
+        "ADD COLUMN ran against a table already pending rebuild"
+
+
+async def _interrupted_then_sweep(tmp_path, *, live_conflict: bool) -> dict:
+    # The state boot 1 left: live table at the model schema with 0 rows, and the
+    # real rows stranded in an _old sibling (old shape, plus a column the live
+    # table lacks).
+    engine, _ = create_db_engine(MirrorrSettings(base_dir=tmp_path))
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+        await conn.exec_driver_sql("""
+            CREATE TABLE _old_resource_access (
+                id INTEGER NOT NULL,
+                resource_type VARCHAR(9),
+                resource_id INTEGER NOT NULL,
+                username VARCHAR NOT NULL,
+                created_at DATETIME NOT NULL,
+                legacy_extra TEXT,
+                PRIMARY KEY (id),
+                UNIQUE (resource_type, resource_id, username)
+            )
+        """)
+        await conn.exec_driver_sql(
+            "INSERT INTO _old_resource_access "
+            "(id, resource_type, resource_id, username, created_at, legacy_extra) VALUES "
+            "(1, 'SESSION', 1, 'bob', '2024-01-01 00:00:00', 'x'), "
+            "(2, 'PROFILE', 2, 'carol', '2024-01-01 00:00:00', 'y'), "
+            "(3, 'SESSION', 3, 'dave', '2024-01-01 00:00:00', 'z')"
+        )
+        if live_conflict:
+            await conn.exec_driver_sql(
+                "INSERT INTO resource_access "
+                "(resource_type, resource_id, username, capability, created_at) "
+                "VALUES ('SESSION', 1, 'bob', 'VIEW', '2024-01-01 00:00:00')"
+            )
+    await ensure_db(engine)
+    after = await _probe_resource_access(engine)
+    await engine.dispose()
+    return after
+
+
+def test_sweep_recovers_orphan_rows_into_empty_live_table(tmp_path):
+    after = asyncio.run(_interrupted_then_sweep(tmp_path, live_conflict=False))
+
+    assert after["rows"] == [
+        ("SESSION", 1, "bob", "VIEW"),
+        ("PROFILE", 2, "carol", "VIEW"),
+        ("SESSION", 3, "dave", "VIEW"),
+    ]
+    assert not after["orphan"]
+
+
+def test_sweep_recovers_rows_and_ignores_live_conflicts(tmp_path):
+    after = asyncio.run(_interrupted_then_sweep(tmp_path, live_conflict=True))
+
+    # Row id 1 collides with the live row and is dropped by INSERT OR IGNORE;
+    # the other two are rescued.
+    assert after["rows"] == [
+        ("SESSION", 1, "bob", "VIEW"),
+        ("PROFILE", 2, "carol", "VIEW"),
+        ("SESSION", 3, "dave", "VIEW"),
+    ]
+    assert not after["orphan"]
+
+
+def test_migration_is_idempotent(tmp_path):
+    async def _run():
+        engine, _ = create_db_engine(MirrorrSettings(base_dir=tmp_path))
+        async with engine.begin() as conn:
+            await conn.exec_driver_sql(_OLD_RESOURCE_ACCESS_DDL)
+            for statement in _OLD_RESOURCE_ACCESS_INDEX_DDL:
+                await conn.exec_driver_sql(statement)
+            await conn.run_sync(SQLModel.metadata.create_all)
+            await conn.exec_driver_sql(
+                "INSERT INTO resource_access (resource_type, resource_id, username, created_at) "
+                "VALUES ('SESSION', 1, 'bob', '2024-01-01 00:00:00')"
+            )
+        await ensure_db(engine)
+        first = await _probe_resource_access(engine)
+        await ensure_db(engine)
+        second = await _probe_resource_access(engine)
+        await engine.dispose()
+        return first, second
+
+    records, sink_id = _capture_logs()
+    try:
+        first, second = asyncio.run(_run())
+    finally:
+        logger.remove(sink_id)
+
+    assert first == second
+    errors = [record["message"] for record in records if record["level"].no >= 40]
+    assert errors == [], errors
 
 
 # ── Predicate ───────────────────────────────────────────────────────────────
