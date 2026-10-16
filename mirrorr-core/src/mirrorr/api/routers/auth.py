@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, Request
 from fastapi.responses import JSONResponse
 from loguru import logger
 from sqlalchemy.exc import IntegrityError, OperationalError
-from sqlmodel import col as sa_col, select
+from sqlmodel import col as sa_col, delete as sql_delete, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from mirrorr.api.dependencies import _get_db_session, get_auth, require_auth, require_admin, AuthState
@@ -29,14 +29,17 @@ from mirrorr.api.schemas import (
     RegistrationPendingResponse, RegistrationRequestResponse, DenyRequest,
     ResourceAccessItem, ResourceAccessListResponse, TransferOwnerRequest,
     SetOwnerResponse, AccessView, GrantEntry, SetGrantsRequest,
+    GroupGrantEntry, GroupRef, SetGroupGrantsRequest,
 )
 from mirrorr.api.routers.crud import (
     _AUTORUN_OPTIONS, _PROFILE_OPTIONS, _SESSION_OPTIONS, _SOURCE_OPTIONS,
 )
+from mirrorr.api.routers.groups import load_group
 from mirrorr.storage.models import (
     Client, User, ClientUser, EventSubscription, Notification,
     RefreshTokenRecord, RegistrationRequest,
-    Autorun, Engine, Profile, Recording, Resolver, ResolverSource, ResourceAccess, Session,
+    Autorun, Engine, Group, GroupMember, Profile, Recording, Resolver, ResolverSource,
+    ResourceAccess, ResourceOwnerGroup, Session,
 )
 from mirrorr.storage.enums import Capability, ResourceType
 from mirrorr.storage import crud
@@ -562,7 +565,6 @@ async def refresh(
     # above is already persisted; cleanup failure must never roll it back.
     # The try/except isolates cleanup errors from the caller's response.
     try:
-        from sqlmodel import delete as sql_delete
         now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
         await db.exec(
             sql_delete(RefreshTokenRecord).where(
@@ -671,7 +673,6 @@ async def delete_user(
             raise HTTPException(status_code=400, detail="Cannot delete the last admin user")
 
     # Clean up related records — all in a single atomic commit
-    from sqlmodel import delete as sql_delete
     try:
         # Bump credentials_version BEFORE deleting so any still-valid access
         # tokens for this user are rejected by the auth middleware.
@@ -683,6 +684,7 @@ async def delete_user(
         await db.exec(sql_delete(Notification).where(sa_col(Notification.user_id) == user.id))
         await db.exec(sql_delete(RefreshTokenRecord).where(sa_col(RefreshTokenRecord.user_id) == user.id))
         await db.exec(sql_delete(ResourceAccess).where(sa_col(ResourceAccess.username) == username))
+        await db.exec(sql_delete(GroupMember).where(sa_col(GroupMember.username) == username))
         await crud.delete(db, User, user.id)
     except Exception:
         await db.rollback()
@@ -810,7 +812,6 @@ async def delete_client(
     db: AsyncSession = Depends(_get_db_session),
     auth: AuthState = Depends(require_admin),
 ):
-    from sqlmodel import delete as sql_delete
     try:
         await db.exec(sql_delete(ClientUser).where(sa_col(ClientUser.client_id) == id))
         await crud.delete(db, Client, id)
@@ -925,11 +926,13 @@ async def _access_view(
     Owner rights are implicit, so the owner is never listed as a grant, and a
     user with no capability rows is omitted. A grant whose username no longer
     exists still lists — the row is the source of truth, and such a row is
-    inert rather than an error. Takes plain values, never the ORM object: a
-    replace-set race rolls the session back, which expires the loaded instance
-    and would turn a later attribute access into a synchronous lazy load.
+    inert rather than an error. Group grants and owner groups list beside the
+    user ones. Takes plain values, never the ORM object: a replace-set race
+    rolls the session back, which expires the loaded instance and would turn a
+    later attribute access into a synchronous lazy load.
     """
     usernames = set((await db.exec(select(User.username))).all())
+    groups = {group.id: group for group in (await db.exec(select(Group))).all()}
     rows = (
         await db.exec(
             select(ResourceAccess).where(
@@ -939,15 +942,50 @@ async def _access_view(
         )
     ).all()
     by_user: dict[str, set[Capability]] = {}
+    by_group: dict[int, set[Capability]] = {}
     for row in rows:
-        by_user.setdefault(row.username, set()).add(row.capability)
+        if row.username is not None:
+            by_user.setdefault(row.username, set()).add(row.capability)
+        elif row.group_id is not None:
+            by_group.setdefault(row.group_id, set()).add(row.capability)
+
+    def ordered(caps: set[Capability]) -> list[str]:
+        return [cap.value for cap in sorted(caps, key=_CAPABILITY_ORDER.__getitem__)]
+
     grants = [
-        GrantEntry(
-            username=username,
-            capabilities=[cap.value for cap in sorted(caps, key=_CAPABILITY_ORDER.__getitem__)],
-        )
+        GrantEntry(username=username, capabilities=ordered(caps))
         for username, caps in sorted(by_user.items())
         if caps and username != owner
+    ]
+    group_grants = [
+        GroupGrantEntry(
+            group_id=group_id,
+            name=groups[group_id].name,
+            display_name=groups[group_id].display_name,
+            system=groups[group_id].system,
+            capabilities=ordered(caps),
+        )
+        for group_id, caps in sorted(by_group.items())
+        if caps
+    ]
+    owner_ids = set(
+        (
+            await db.exec(
+                select(ResourceOwnerGroup.group_id).where(
+                    ResourceOwnerGroup.resource_type == rt,
+                    ResourceOwnerGroup.resource_id == resource_id,
+                )
+            )
+        ).all()
+    )
+    owner_groups = [
+        GroupRef(
+            id=group_id,
+            name=groups[group_id].name,
+            display_name=groups[group_id].display_name,
+            system=groups[group_id].system,
+        )
+        for group_id in sorted(owner_ids, key=lambda gid: groups[gid].name)
     ]
     return AccessView(
         resource_type=tag,
@@ -955,20 +993,31 @@ async def _access_view(
         owner=owner,
         owner_missing=bool(owner) and owner not in usernames,
         grants=grants,
+        owner_groups=owner_groups,
+        group_grants=group_grants,
     )
 
 
 async def _replace_grants(
-    db: AsyncSession, rt: ResourceType, resource_id: int, username: str, caps: list[Capability]
+    db: AsyncSession,
+    rt: ResourceType,
+    resource_id: int,
+    caps: list[Capability],
+    *,
+    username: str | None = None,
+    group_id: int | None = None,
 ) -> None:
-    """Set *username*'s grants on the resource to exactly *caps*.
+    """Set exactly *caps* for one principal — the *username* or the *group_id*.
 
     Replace-set and idempotent: rows for capabilities not wanted are removed,
     rows for missing capabilities are added, untouched capabilities are left
     alone. A concurrent writer can win the read→write race, so a duplicate
-    insert (UNIQUE on resource_type/resource_id/username/capability) is caught
-    and the replace is retried once against the now-settled rows.
+    insert (UNIQUE on resource_type/resource_id/<principal>/capability) is
+    caught and the replace is retried once against the now-settled rows.
     """
+    column = ResourceAccess.username if username is not None else ResourceAccess.group_id
+    principal = username if username is not None else group_id
+    target_kw = {"username": username} if username is not None else {"group_id": group_id}
     wanted = set(caps)
     for _ in range(2):
         rows = (
@@ -976,7 +1025,7 @@ async def _replace_grants(
                 select(ResourceAccess).where(
                     ResourceAccess.resource_type == rt,
                     ResourceAccess.resource_id == resource_id,
-                    ResourceAccess.username == username,
+                    column == principal,
                 )
             )
         ).all()
@@ -986,9 +1035,7 @@ async def _replace_grants(
                 await db.delete(row)
         for cap in wanted - have:
             db.add(
-                ResourceAccess(
-                    resource_type=rt, resource_id=resource_id, username=username, capability=cap
-                )
+                ResourceAccess(resource_type=rt, resource_id=resource_id, capability=cap, **target_kw)
             )
         try:
             await db.commit()
@@ -997,17 +1044,34 @@ async def _replace_grants(
             await db.rollback()
 
 
-def _admin_row(tag: str, obj, usernames: set[str], counts: dict[tuple[str, int], int]) -> ResourceAccessItem:
+def _group_names_by_item(rows) -> dict[tuple[str, int], set[str]]:
+    out: dict[tuple[str, int], set[str]] = {}
+    for rt, rid, name in rows:
+        out.setdefault((rt.value, rid), set()).add(name)
+    return out
+
+
+def _admin_row(
+    tag: str,
+    obj,
+    usernames: set[str],
+    counts: dict[tuple[str, int], int],
+    owner_groups: dict[tuple[str, int], set[str]],
+    grant_groups: dict[tuple[str, int], set[str]],
+) -> ResourceAccessItem:
     if tag in _SYSTEM_TYPES:
         return ResourceAccessItem(resource_type=tag, id=obj.id, label=_access_label(tag, obj), system=True)
     owner_token = getattr(obj, "requester_user_token", "") or ""
+    key = (tag, obj.id)
     return ResourceAccessItem(
         resource_type=tag,
         id=obj.id,
         label=_access_label(tag, obj),
         owner=owner_token,
         owner_missing=bool(owner_token) and owner_token not in usernames,
-        viewer_count=counts.get((tag, obj.id), 0),
+        viewer_count=counts.get(key, 0),
+        owner_groups=sorted(owner_groups.get(key, ())),
+        grant_groups=sorted(grant_groups.get(key, ())),
     )
 
 
@@ -1042,18 +1106,51 @@ async def list_resources(
         rows.extend((tag, row) for row in (await db.exec(stmt.order_by(model.id))).all())
 
     usernames = set((await db.exec(select(User.username))).all())
+    group_names = {group.id: group.name for group in (await db.exec(select(Group))).all()}
     counts: dict[tuple[str, int], int] = {}
     distinct = await db.exec(
         select(
             ResourceAccess.resource_type,
             ResourceAccess.resource_id,
             ResourceAccess.username,
-        ).distinct()
+        )
+        .where(sa_col(ResourceAccess.username).is_not(None))
+        .distinct()
     )
     for rt, rid, _username in distinct.all():
         counts[(rt.value, rid)] = counts.get((rt.value, rid), 0) + 1
 
-    items = [_admin_row(tag, obj, usernames, counts) for tag, obj in rows]
+    grant_groups = _group_names_by_item(
+        (rt, rid, group_names[gid])
+        for rt, rid, gid in (
+            await db.exec(
+                select(
+                    ResourceAccess.resource_type,
+                    ResourceAccess.resource_id,
+                    ResourceAccess.group_id,
+                )
+                .where(sa_col(ResourceAccess.group_id).is_not(None))
+                .distinct()
+            )
+        ).all()
+    )
+    owner_groups = _group_names_by_item(
+        (rt, rid, group_names[gid])
+        for rt, rid, gid in (
+            await db.exec(
+                select(
+                    ResourceOwnerGroup.resource_type,
+                    ResourceOwnerGroup.resource_id,
+                    ResourceOwnerGroup.group_id,
+                )
+            )
+        ).all()
+    )
+
+    items = [
+        _admin_row(tag, obj, usernames, counts, owner_groups, grant_groups)
+        for tag, obj in rows
+    ]
     return ResourceAccessListResponse(items=items[offset : offset + limit], total=len(items))
 
 
@@ -1101,7 +1198,9 @@ async def set_shares(
     await _known_username(db, item.username)
     target_id = obj.id
     owner = getattr(obj, "requester_user_token", "") or ""
-    await _replace_grants(db, rt, target_id, item.username, _granted_capabilities(item.capabilities))
+    await _replace_grants(
+        db, rt, target_id, _granted_capabilities(item.capabilities), username=item.username
+    )
     return await _access_view(db, tag, rt, target_id, owner)
 
 
@@ -1118,7 +1217,103 @@ async def revoke_shares(
     await require_capability(db, auth, obj, Capability.SHARE)
     target_id = obj.id
     owner = getattr(obj, "requester_user_token", "") or ""
-    await _replace_grants(db, rt, target_id, username, [])
+    await _replace_grants(db, rt, target_id, [], username=username)
+    return await _access_view(db, tag, rt, target_id, owner)
+
+
+@shares_router.post("/{resource_type}/{resource_id}/group/{group_id}", response_model=AccessView)
+async def set_group_shares(
+    resource_type: str,
+    resource_id: int,
+    group_id: int,
+    item: SetGroupGrantsRequest,
+    db: AsyncSession = Depends(_get_db_session),
+    auth: AuthState = Depends(get_auth),
+):
+    """Replace-set one group's capabilities. Idempotent."""
+    tag, rt, obj = await _load_access_target(db, resource_type, resource_id)
+    await require_capability(db, auth, obj, Capability.SHARE)
+    await load_group(db, group_id)
+    target_id = obj.id
+    owner = getattr(obj, "requester_user_token", "") or ""
+    await _replace_grants(
+        db, rt, target_id, _granted_capabilities(item.capabilities), group_id=group_id
+    )
+    return await _access_view(db, tag, rt, target_id, owner)
+
+
+@shares_router.delete("/{resource_type}/{resource_id}/group/{group_id}", response_model=AccessView)
+async def clear_group_shares(
+    resource_type: str,
+    resource_id: int,
+    group_id: int,
+    db: AsyncSession = Depends(_get_db_session),
+    auth: AuthState = Depends(get_auth),
+):
+    """Clear every grant row for one group. Idempotent."""
+    tag, rt, obj = await _load_access_target(db, resource_type, resource_id)
+    await require_capability(db, auth, obj, Capability.SHARE)
+    await load_group(db, group_id)
+    target_id = obj.id
+    owner = getattr(obj, "requester_user_token", "") or ""
+    await _replace_grants(db, rt, target_id, [], group_id=group_id)
+    return await _access_view(db, tag, rt, target_id, owner)
+
+
+@shares_router.put("/{resource_type}/{resource_id}/owner-group/{group_id}", response_model=AccessView)
+async def add_owner_group(
+    resource_type: str,
+    resource_id: int,
+    group_id: int,
+    db: AsyncSession = Depends(_get_db_session),
+    auth: AuthState = Depends(get_auth),
+):
+    """Make a group an additive owner of the item. Idempotent."""
+    tag, rt, obj = await _load_access_target(db, resource_type, resource_id)
+    await require_capability(db, auth, obj, Capability.SHARE)
+    await load_group(db, group_id)
+    target_id = obj.id
+    owner = getattr(obj, "requester_user_token", "") or ""
+    exists = (
+        await db.exec(
+            select(ResourceOwnerGroup.id).where(
+                ResourceOwnerGroup.resource_type == rt,
+                ResourceOwnerGroup.resource_id == target_id,
+                ResourceOwnerGroup.group_id == group_id,
+            )
+        )
+    ).first()
+    if exists is None:
+        db.add(ResourceOwnerGroup(resource_type=rt, resource_id=target_id, group_id=group_id))
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+    return await _access_view(db, tag, rt, target_id, owner)
+
+
+@shares_router.delete("/{resource_type}/{resource_id}/owner-group/{group_id}", response_model=AccessView)
+async def remove_owner_group(
+    resource_type: str,
+    resource_id: int,
+    group_id: int,
+    db: AsyncSession = Depends(_get_db_session),
+    auth: AuthState = Depends(get_auth),
+):
+    """Remove a group from the item's owners. Idempotent."""
+    tag, rt, obj = await _load_access_target(db, resource_type, resource_id)
+    await require_capability(db, auth, obj, Capability.SHARE)
+    await load_group(db, group_id)
+    target_id = obj.id
+    owner = getattr(obj, "requester_user_token", "") or ""
+    await db.exec(
+        sql_delete(ResourceOwnerGroup).where(
+            ResourceOwnerGroup.resource_type == rt,
+            ResourceOwnerGroup.resource_id == target_id,
+            ResourceOwnerGroup.group_id == group_id,
+        )
+    )
+    await db.commit()
     return await _access_view(db, tag, rt, target_id, owner)
 
 

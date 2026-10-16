@@ -17,6 +17,7 @@ from mirrorr.api.dependencies import AuthState, require_auth
 from mirrorr.api.privileged import strip_openapi
 from mirrorr.api.routers.crud import crud_routers, session_control_router
 from mirrorr.api.routers.auth import auth_router, notifications_router, admin_router, shares_router
+from mirrorr.api.routers.groups import groups_router
 from mirrorr.api.routers.import_export import import_export_router
 from mirrorr.api.routers.logs import logs_router
 from mirrorr.api.ws import ws_router
@@ -238,6 +239,7 @@ API.include_router(logs_router)
 API.include_router(auth_router)
 API.include_router(admin_router)
 API.include_router(shares_router)
+API.include_router(groups_router)
 API.include_router(notifications_router)
 API.include_router(import_export_router)
 API.include_router(ws_router)

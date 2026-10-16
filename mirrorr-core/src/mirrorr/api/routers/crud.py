@@ -47,8 +47,8 @@ from mirrorr.api.schemas import (
     DiscoveryResponse,
     DeleteResultResponse,
 )
-from mirrorr.storage.models import Session, Autorun, Recording, Profile, Engine, Resolver, ResolverSource, ResourceAccess
-from mirrorr.services.permissions import has_capability
+from mirrorr.storage.models import Session, Autorun, Recording, Profile, Engine, Resolver, ResolverSource, ResourceAccess, ResourceOwnerGroup
+from mirrorr.services.permissions import group_holds, has_capability
 from mirrorr.services.session_helpers import build_session_urls
 from mirrorr.storage.enums import SessionStatus, ResourceType, AutorunStatus, Capability
 from mirrorr.storage import crud
@@ -58,7 +58,7 @@ crud_routers = APIRouter()
 
 
 async def _cleanup_related_records(db: AsyncSession, resource_type: ResourceType, resource_id: int) -> None:
-    """Clean up EventSubscription, Notification and view-grant records for a deleted entity.
+    """Clean up EventSubscription, Notification, grant and owner-group records for a deleted entity.
 
     Every caller passes a ``ResourceType`` member. ``resource_access.resource_type``
     stores the enum **name** (``SESSION``) while ``event_subscriptions``/``notifications``
@@ -75,6 +75,12 @@ async def _cleanup_related_records(db: AsyncSession, resource_type: ResourceType
         sql_delete(Notification).where(
             Notification.resource_type == resource_type,
             Notification.resource_id == resource_id,
+        )
+    )
+    await db.exec(
+        sql_delete(ResourceOwnerGroup).where(
+            ResourceOwnerGroup.resource_type == resource_type,
+            ResourceOwnerGroup.resource_id == resource_id,
         )
     )
     await db.exec(
@@ -354,13 +360,14 @@ async def _get_paginated_for_user(
     options: Sequence = (),
     include_total: bool = False,
 ) -> dict:
-    """Cursor-based pagination filtered by owner or an explicit grant.
+    """Cursor-based pagination filtered by owner, an explicit grant, or ownership-by-group.
 
-    A caller sees the rows they own (``requester_user_token``) *and* any row
-    carrying a grant for them in ``resource_access``. VIEW is the base
-    capability, so *any* grant admits the row — the EXISTS deliberately does not
-    filter on ``capability``. Engines/resolvers have no owner column and never
-    route through here.
+    A caller sees the rows they own (``requester_user_token``), any row carrying a
+    grant for them — directly or through one of their groups, the reserved
+    ``everyone`` group included — and any row owned by one of their groups. VIEW
+    is the base capability, so *any* grant admits the row and the grant EXISTS
+    deliberately does not filter on ``capability``. Engines/resolvers have no
+    owner column and never route through here.
 
     Returns {"items": [...], "next_cursor": ..., "has_more": ...}.
     """
@@ -374,11 +381,23 @@ async def _get_paginated_for_user(
             .where(
                 ResourceAccess.resource_type == resource_type,
                 ResourceAccess.resource_id == model.id,
-                ResourceAccess.username == user_token,
+                sa_or(
+                    ResourceAccess.username == user_token,
+                    group_holds(user_token, ResourceAccess.group_id),
+                ),
             )
             .exists()
         )
-        predicate = sa_or(owner_match, granted)
+        owned_by_group = (
+            select(ResourceOwnerGroup.id)
+            .where(
+                ResourceOwnerGroup.resource_type == resource_type,
+                ResourceOwnerGroup.resource_id == model.id,
+                group_holds(user_token, ResourceOwnerGroup.group_id),
+            )
+            .exists()
+        )
+        predicate = sa_or(owner_match, granted, owned_by_group)
     stmt = select(model).where(predicate)
     if cursor is not None:
         stmt = stmt.where(model.id < cursor)

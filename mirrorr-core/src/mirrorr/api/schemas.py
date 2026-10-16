@@ -361,12 +361,37 @@ class GrantEntry(BaseModel):
     capabilities: list[str] = Field(default_factory=list)
 
 
+class GroupRef(BaseModel):
+    """A group named by id — an owner group or a grant holder."""
+
+    id: int
+    name: str
+    display_name: str = ""
+    system: bool = False
+
+
+class GroupGrantEntry(BaseModel):
+    """One group's granted capabilities on a resource.
+
+    Mirror of ``GrantEntry`` for a group principal: ``capabilities`` holds
+    ``Capability`` values in the frozen enum order.
+    """
+
+    group_id: int
+    name: str
+    display_name: str = ""
+    system: bool = False
+    capabilities: list[str] = Field(default_factory=list)
+
+
 class AccessView(BaseModel):
     """The one sharing shape, served by every ``/shares/`` route.
 
     ``grants`` excludes the owner (their rights are implicit) and every user
-    with no capabilities. ``owner`` is the owner's username; the privileged
-    ``requester_user_token`` field never appears in this view.
+    with no capabilities; ``group_grants`` lists only groups that hold one.
+    ``owner_groups`` are the additive group owners, beside the single
+    ``owner`` username; the privileged ``requester_user_token`` field never
+    appears in this view.
     """
 
     resource_type: str
@@ -374,12 +399,20 @@ class AccessView(BaseModel):
     owner: str = ""
     owner_missing: bool = False
     grants: list[GrantEntry] = Field(default_factory=list)
+    owner_groups: list[GroupRef] = Field(default_factory=list)
+    group_grants: list[GroupGrantEntry] = Field(default_factory=list)
 
 
 class SetGrantsRequest(BaseModel):
     """Replace-set body: exactly these capabilities for exactly this user."""
 
     username: str = Field(max_length=64)
+    capabilities: list[str] = Field(default_factory=list)
+
+
+class SetGroupGrantsRequest(BaseModel):
+    """Replace-set body for a group: exactly these capabilities for it."""
+
     capabilities: list[str] = Field(default_factory=list)
 
 
@@ -395,6 +428,8 @@ class ResourceAccessItem(BaseModel):
     owner: str = ""
     owner_missing: bool = False
     viewer_count: int = 0
+    owner_groups: list[str] = Field(default_factory=list)
+    grant_groups: list[str] = Field(default_factory=list)
     system: bool = False
 
 
@@ -411,6 +446,45 @@ class SetOwnerResponse(BaseModel):
     resource_type: str
     id: int
     owner: str
+
+
+# ── Groups ─────────────────────────────────────────────────────────────
+
+
+class GroupResponse(BaseModel):
+    """One group and its members. ``system`` marks the reserved ``everyone``
+    group, whose membership is implicit — its ``members`` are every user."""
+
+    id: int
+    name: str
+    display_name: str = ""
+    system: bool = False
+    member_count: int = 0
+    members: list[str] = Field(default_factory=list)
+
+
+class GroupListResponse(BaseModel):
+    items: list[GroupResponse] = Field(default_factory=list)
+    total: int = 0
+
+
+class CreateGroupRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    display_name: str = ""
+
+
+class UpdateGroupRequest(BaseModel):
+    name: str | None = None
+    display_name: str | None = None
+
+
+class SetMembersRequest(BaseModel):
+    usernames: list[str] = Field(default_factory=list)
+
+
+class DeleteGroupResponse(BaseModel):
+    status: str = "deleted"
+    id: int
 
 
 # ── Logs / progress / delete-result responses ─────────────────────────

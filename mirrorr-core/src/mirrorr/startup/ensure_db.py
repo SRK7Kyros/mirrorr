@@ -1,10 +1,13 @@
 from __future__ import annotations
 import re
+from datetime import datetime, timezone
 
 from loguru import logger
 from sqlmodel import SQLModel, inspect, text
 from sqlalchemy import UniqueConstraint
 from sqlalchemy.ext.asyncio import AsyncEngine
+
+from mirrorr.storage.models import EVERYONE_GROUP_NAME, Group
 
 _IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 
@@ -293,9 +296,23 @@ async def ensure_db(engine: AsyncEngine) -> None:
                 "    SELECT 1 FROM resource_access v "
                 "    WHERE v.resource_type = ra.resource_type "
                 "      AND v.resource_id = ra.resource_id "
-                "      AND v.username = ra.username "
+                "      AND v.username IS ra.username "  # NULL-safe: a grant's
+                "      AND v.group_id IS ra.group_id "  # principal may be a group
                 "      AND v.capability = 'VIEW'"
                 ")"
             ))
+
+            # ── Seed the reserved `everyone` group ───────────────────────
+            # Membership is never materialised (permissions.group_holds
+            # resolves it), so this row is all the schema needs.
+            sync_conn.execute(
+                Group.__table__.insert().prefix_with("OR IGNORE"),
+                [{
+                    "name": EVERYONE_GROUP_NAME,
+                    "display_name": "Everyone",
+                    "system": True,
+                    "created_at": datetime.now(timezone.utc),
+                }],
+            )
 
         await conn.run_sync(sync_columns)
