@@ -1,7 +1,8 @@
 """The two-stage startup gate: initializing → stream_pending → active/failed.
 
 Covers the resolver smoke_test hook, the m3u8 readiness poll, and the failure
-semantics (row kept + reason recorded, uniform retry).
+semantics (row kept + reason recorded). A failed pre-flight is terminal — the
+retry policy governs only runtime crashes.
 """
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 from mirrorr.di import container
 from mirrorr.plugin_api.interfaces import ResolverInterface, Source
 from mirrorr.services import session_supervisor
-from mirrorr.services.process_bus import EngineDone
+from mirrorr.services.process_bus import EngineCrashed, EngineDone
 from mirrorr.services.session_lifecycle import update_session
 from mirrorr.services.session_supervisor import SessionSupervisor
 from mirrorr.startup.config import MirrorrSettings
@@ -211,6 +212,59 @@ def test_smoke_timeout_fails_with_a_timeout_reason(tmp_path):
 
     assert _statuses(calls)[-1] == SessionStatus.FAILED
     assert "timed out" in _last_reason(calls)
+
+
+def test_smoke_failure_is_never_retried_even_with_retry_always(tmp_path):
+    """The pre-flight is the resolver's verdict on the source, not a runtime
+    fault: the identical config cannot resolve differently, so retry_always
+    must not loop on it (without the rule this waits out the timeout below)."""
+
+    async def dead_channel(source, config, ctx):
+        raise RuntimeError("source delivered no stream: ReadTimeout('')")
+
+    engine = _engine()
+    engine.should_retry = AsyncMock(return_value=(True, 0.0))
+    sup = _supervisor(tmp_path, _resolver(smoke_test=dead_channel), engine)
+    sup.session.retry_mode = "always"
+
+    _result, _delete, calls = _drive(sup, full_run=True)
+
+    engine.should_retry.assert_not_awaited()
+    assert sup.session.retry_attempts == 1
+    assert len(sup.session.attempts) == 1
+    assert _statuses(calls)[-1] == SessionStatus.FAILED
+    assert "ReadTimeout" in _last_reason(calls)
+
+
+def _crashing_engine(retry: list[tuple[bool, float]]) -> SimpleNamespace:
+    engine = _engine()
+    engine.should_retry = AsyncMock(side_effect=retry)
+
+    async def _start(ctx, source):
+        async def _script():
+            await asyncio.sleep(0.05)
+            await ctx.bus.emit("engine.crashed", EngineCrashed(reason="ffmpeg died", returncode=1))
+
+        asyncio.create_task(_script())
+        return []
+
+    engine.start = AsyncMock(side_effect=_start)
+    return engine
+
+
+def test_a_runtime_crash_still_honours_the_retry_policy(tmp_path):
+    """Contrast to the rule above: a crash after a passing pre-flight is still
+    governed by the retry policy."""
+
+    engine = _crashing_engine([(True, 0.0), (False, 0.0)])
+    sup = _supervisor(tmp_path, _resolver(), engine)
+    sup.session.retry_mode = "always"
+
+    _result, _delete, calls = _drive(sup, full_run=True)
+
+    assert engine.should_retry.await_count == 2
+    assert sup.session.retry_attempts == 2
+    assert _statuses(calls)[-1] == SessionStatus.FAILED
 
 
 # ── a resolver that defines no smoke_test (base no-op) ─────────────────

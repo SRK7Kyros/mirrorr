@@ -569,6 +569,8 @@ class ResolverInterface(ABC):
 The optional `smoke_test` runs **unconditionally** after `resolve()`, bounded by
 `smoke_test_timeout_s` (default 30 s), and **raises to fail**; the base implementation is a no-op.
 The startup gate it belongs to is `initializing` → `stream_pending` → `active`/`recording` (Oct 15 2026).
+A raise or timeout is **terminal** — the retry policy is not consulted, because the probe is the
+resolver's verdict on the source (Oct 16 2026); a `resolve()` failure stays retryable.
 
 ### Loading Pipeline
 

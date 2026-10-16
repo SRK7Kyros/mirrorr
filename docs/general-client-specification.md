@@ -517,13 +517,16 @@ only once the row is `active`/`recording`.
 failed for taking long; a hung process simply stays `stream_pending` and remains stoppable. There is
 no m3u8 timeout setting.
 
-**Failure semantics — the row is kept.** A `resolve()` or `smoke_test` exception (including a smoke
-timeout) is an ordinary failed attempt: it is returned on the engine's crash path, the existing
-per-attempt **retry policy applies uniformly** (no new retry taxonomy or exception type), and when
-retries are exhausted the row ends **`failed`** with a non-empty `attempts[-1].reason`
-(`resolve failed: …` / `smoke test failed: …` / `smoke test timed out after Ns`). The pre-gate row is
-**no longer deleted** on this path — it stays listed. A retry resets the row to `initializing` and
-re-runs the whole gate.
+**Failure semantics — the row is kept, and a failed pre-flight is terminal.** A **`smoke_test`**
+exception or timeout ends the attempt immediately: the probe is the resolver's **verdict on the
+source**, and the identical config cannot resolve differently a moment later, so the engine's
+**retry policy is not consulted** (Oct 16 2026) — a `retry: always` session pointed at a dead channel
+stops instead of looping. The row ends **`failed`** with a non-empty `attempts[-1].reason`
+(`smoke test failed: …` / `smoke test timed out after Ns`). A **`resolve()`** exception, by contrast,
+stays an ordinary failed attempt on the engine's crash path and the existing per-attempt **retry
+policy applies** (a companion spawn or a network read can be transient); when retries are exhausted
+the row ends **`failed`** with `resolve failed: …`. Either way the pre-gate row is **no longer
+deleted** — it stays listed. A retry resets the row to `initializing` and re-runs the whole gate.
 
 **`stop` is valid in both states.** `POST /sessions/{id}/stop` aborts a gated session cleanly (the
 supervisor's stop latch is checked between stages and during the poll); no `active` row is produced.
