@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, type MouseEvent } from "react"
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
 import { HoverCard } from "radix-ui"
 import { fetchResourceAccess, fetchUsers, getErrorMessage } from "@/api"
@@ -172,13 +172,21 @@ function AccessPanel({ resourceType, id, label }: ResourceAccessButtonProps) {
   )
 }
 
+/**
+ * Portals bubble through the React tree, not the DOM tree, so without this a click on the
+ * panel's own padding, labels or backdrop reaches the card's click handler and navigates.
+ */
+function swallowClick(event: MouseEvent<HTMLElement>): void {
+  event.stopPropagation()
+}
+
 export function ResourceAccessButton({ resourceType, id, label }: ResourceAccessButtonProps) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const hoverCapable = useMediaQuery("(hover: hover) and (pointer: fine)")
 
   if (!hoverCapable) {
     return (
-      <>
+      <span className="contents" onClick={swallowClick}>
         <IconButton
           label={`Access for ${label}`}
           icon={<IconUser size={16} />}
@@ -193,21 +201,23 @@ export function ResourceAccessButton({ resourceType, id, label }: ResourceAccess
         >
           <AccessPanel resourceType={resourceType} id={id} label={label} />
         </Drawer>
-      </>
+      </span>
     )
   }
 
   return (
-    <HoverCard.Root openDelay={150} closeDelay={150}>
-      <HoverCard.Trigger asChild>
-        <IconButton label={`Access for ${label}`} icon={<IconUser size={16} />} size="sm" />
-      </HoverCard.Trigger>
-      <HoverCard.Portal>
-        <HoverCard.Content side="bottom" align="end" sideOffset={8} className={HOVER_CARD_CLASS}>
-          <AccessPanel resourceType={resourceType} id={id} label={label} />
-        </HoverCard.Content>
-      </HoverCard.Portal>
-    </HoverCard.Root>
+    <span className="contents" onClick={swallowClick}>
+      <HoverCard.Root openDelay={150} closeDelay={150}>
+        <HoverCard.Trigger asChild>
+          <IconButton label={`Access for ${label}`} icon={<IconUser size={16} />} size="sm" />
+        </HoverCard.Trigger>
+        <HoverCard.Portal>
+          <HoverCard.Content side="bottom" align="end" sideOffset={8} className={HOVER_CARD_CLASS}>
+            <AccessPanel resourceType={resourceType} id={id} label={label} />
+          </HoverCard.Content>
+        </HoverCard.Portal>
+      </HoverCard.Root>
+    </span>
   )
 }
 
@@ -430,7 +440,7 @@ export function BulkAccessAction({ resourceType, items }: ResourceAccessBulkActi
   const [open, setOpen] = useState(false)
 
   return (
-    <>
+    <span className="contents" onClick={swallowClick}>
       <Button
         size="sm"
         variant="secondary"
@@ -443,7 +453,7 @@ export function BulkAccessAction({ resourceType, items }: ResourceAccessBulkActi
       {open ? (
         <BulkAccessDialog resourceType={resourceType} items={items} onClose={() => setOpen(false)} />
       ) : null}
-    </>
+    </span>
   )
 }
 
