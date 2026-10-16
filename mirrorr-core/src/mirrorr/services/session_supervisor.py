@@ -183,8 +183,9 @@ class SessionSupervisor:
                     return
 
                 if outcome == "failed":
-                    # Process-start failure — the row was already marked FAILED
-                    # in _run_attempt (and kept, so the reason stays visible).
+                    # Startup failure (pre-flight or process start) — the row was
+                    # already marked FAILED in _run_attempt and kept, so the
+                    # reason stays visible. Neither is retried.
                     return
 
                 # Check retry for both crashes and done signals
@@ -296,7 +297,6 @@ class SessionSupervisor:
         )
 
         # 3. Resolve the source, then run the resolver's pre-flight smoke test.
-        # Either failing feeds the ordinary retry/FAILED path with a reason.
         try:
             from mirrorr.startup.ensure_resolvers import get_validated_config
 
@@ -319,12 +319,11 @@ class SessionSupervisor:
                 timeout=self.settings.smoke_test_timeout_s,
             )
         except asyncio.TimeoutError:
-            reason = f"smoke test timed out after {self.settings.smoke_test_timeout_s:g}s"
-            logger.opt(colors=True).error(f"<red>Smoke test timed out</red>: {reason}")
-            return "crashed", EngineCrashed(reason=reason)
+            return await self._preflight_failed(
+                f"smoke test timed out after {self.settings.smoke_test_timeout_s:g}s"
+            )
         except Exception as e:
-            logger.opt(colors=True).error(f"<red>Smoke test failed</red>: {e}")
-            return "crashed", EngineCrashed(reason=f"smoke test failed: {e}")
+            return await self._preflight_failed(f"smoke test failed: {e}")
 
         # A stop that landed during the pre-flight must not start the engine.
         if self._stop.is_set():
@@ -412,6 +411,19 @@ class SessionSupervisor:
             return "crashed", result
         logger.opt(colors=True).success(f"<green>Session</green> completed: {result.reason}")
         return "done", result
+
+    async def _preflight_failed(self, reason: str) -> tuple[str, EngineCrashed]:
+        """End the attempt after the resolver's pre-flight rejected the source.
+
+        The probe is the resolver's verdict on the source, not a runtime fault:
+        the identical config cannot resolve differently a moment later, so the
+        retry policy is not consulted and the session goes straight to FAILED
+        with the reason recorded. The row is kept, never deleted.
+        """
+        logger.opt(colors=True).error(f"<red>Pre-flight failed</red>: {reason}")
+        await self._cleanup(reason="failed")
+        await update_session(self.settings, self.session_id, status=SessionStatus.FAILED, nc=self._nc)
+        return "failed", EngineCrashed(reason=reason)
 
     async def _wait_for_playlist(self) -> None:
         """Block until the engine has written a non-empty ``stream.m3u8``.
