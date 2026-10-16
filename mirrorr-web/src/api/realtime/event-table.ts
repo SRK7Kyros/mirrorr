@@ -49,8 +49,39 @@ export function subscribeRemuxProgress(sessionId: number, listener: RemuxListene
   }
 }
 
+export interface ProcessTelemetry {
+  readonly name: string
+  readonly cpu_percent?: number
+  readonly rss_bytes?: number
+  readonly vms_bytes?: number
+}
+
+export interface SessionTelemetry {
+  readonly ts?: number
+  readonly processes: readonly ProcessTelemetry[]
+  readonly total_rss_bytes?: number
+}
+
+type TelemetryListener = (telemetry: SessionTelemetry) => void
+
+const telemetryListeners = new Map<number, Set<TelemetryListener>>()
+
+/** Live per-process usage for one session (`session.<id>.telemetry`). */
+export function subscribeSessionTelemetry(sessionId: number, listener: TelemetryListener): () => void {
+  const set = telemetryListeners.get(sessionId) ?? new Set<TelemetryListener>()
+  set.add(listener)
+  telemetryListeners.set(sessionId, set)
+  return () => {
+    const current = telemetryListeners.get(sessionId)
+    if (current === undefined) return
+    current.delete(listener)
+    if (current.size === 0) telemetryListeners.delete(sessionId)
+  }
+}
+
 const COALESCE_MS = 30
 const REMUX_PATTERN = /^session\.(\d+)\.remux\.progress$/
+const TELEMETRY_PATTERN = /^session\.(\d+)\.telemetry$/
 
 type AnyEntity = Identified & Record<string, unknown>
 
@@ -101,6 +132,39 @@ function publishRemux(sessionId: number, frame: ParsedFrame): void {
     ...(typeof record.speed === "number" ? { speed: record.speed } : {}),
   }
   for (const listener of [...listeners]) listener(progress)
+}
+
+function toProcessTelemetry(value: unknown): ProcessTelemetry | null {
+  if (value === null || typeof value !== "object") return null
+  const record = value as Record<string, unknown>
+  if (typeof record.name !== "string") return null
+  return {
+    name: record.name,
+    ...(typeof record.cpu_percent === "number" ? { cpu_percent: record.cpu_percent } : {}),
+    ...(typeof record.rss_bytes === "number" ? { rss_bytes: record.rss_bytes } : {}),
+    ...(typeof record.vms_bytes === "number" ? { vms_bytes: record.vms_bytes } : {}),
+  }
+}
+
+/**
+ * Fan one session's coalesced telemetry frame out to its listeners. These
+ * arrive at 1 Hz while a session runs, so unlike the CRUD handlers this must
+ * touch no query cache.
+ */
+function publishTelemetry(sessionId: number, frame: ParsedFrame): void {
+  const listeners = telemetryListeners.get(sessionId)
+  if (listeners === undefined || listeners.size === 0) return
+  const raw = frame.processes
+  const processes = (Array.isArray(raw) ? raw : [])
+    .map(toProcessTelemetry)
+    .filter((process): process is ProcessTelemetry => process !== null)
+  if (processes.length === 0) return
+  const telemetry: SessionTelemetry = {
+    processes,
+    ...(typeof frame.ts === "number" ? { ts: frame.ts } : {}),
+    ...(typeof frame.total_rss_bytes === "number" ? { total_rss_bytes: frame.total_rss_bytes } : {}),
+  }
+  for (const listener of [...listeners]) listener(telemetry)
 }
 
 export function createEventTable(client: QueryClient, options: EventTableOptions = {}): EventTable {
@@ -324,6 +388,11 @@ export function createEventTable(client: QueryClient, options: EventTableOptions
     const remux = REMUX_PATTERN.exec(frame.event)
     if (remux !== null) {
       publishRemux(Number(remux[1]), frame)
+      return
+    }
+    const telemetry = TELEMETRY_PATTERN.exec(frame.event)
+    if (telemetry !== null) {
+      publishTelemetry(Number(telemetry[1]), frame)
       return
     }
     switch (frame.event) {

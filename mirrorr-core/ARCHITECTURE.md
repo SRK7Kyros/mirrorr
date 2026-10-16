@@ -487,7 +487,7 @@ The event bus uses an embedded NATS server with JetStream. It serves as the back
 3. **Recording events** — created, updated, deleted
 4. **Profile events** — created, updated, deleted
 5. **Supervisor control** — stop, enable/disable recording (request-reply)
-6. **Telemetry** — per-process CPU/memory (high-frequency, filtered from WS)
+6. **Telemetry** — per-process CPU/memory sampled at 1 Hz and coalesced per session into `session.{id}.telemetry` (the console's live process readout); raw per-process samples stay filtered from WS
 7. **WS relay** — all events forwarded to connected WebSocket clients
 
 ### Event Types
@@ -747,7 +747,7 @@ Frontend ←── WS ───→ Backend ←── NATS ───→ Superviso
 
 - Authenticates via `?token=JWT` or `X-API-Key` header
 - Subscribes to NATS wildcard `>` (all subjects)
-- Filters: skips `.telemetry.` and `_INBOX.` subjects
+- Filters: skips per-process `.telemetry.` samples and `_INBOX.` subjects; the coalesced `session.{id}.telemetry` frame passes
 - For authenticated users: filters to subscribed resources only
 - **Enrichment**: fetches full entity from DB, injects as `data` field
 - Zero-roundtrip cache updates: frontend patches React Query cache directly
