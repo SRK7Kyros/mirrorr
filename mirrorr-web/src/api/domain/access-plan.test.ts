@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest"
 import {
   applyPlans,
+  bulkTargetFor,
   emptyGrants,
   emptyGroupGrants,
   grantedGroupIds,
@@ -232,6 +233,42 @@ describe("planBulk", () => {
     )
     expect(plan.opCount).toBe(0)
     expect(plan.overriding).toEqual([])
+  })
+})
+
+describe("bulkTargetFor", () => {
+  it("names only the parts the draft fills in", () => {
+    const target = bulkTargetFor(row(), {
+      grants: grants({ EDIT: ["carol"] }),
+      groupGrants: groupGrantsOf(),
+      ownerGroups: [],
+    })
+    expect(target).toEqual({ grants: { EDIT: ["carol"] } })
+  })
+
+  it("leaves the owner and every unnamed capability out of the target", () => {
+    const target = bulkTargetFor(row(), {
+      grants: grants(),
+      groupGrants: groupGrantsOf(),
+      ownerGroups: [],
+    })
+    expect(target).toEqual({})
+  })
+
+  it("adds its owner groups to the row's own instead of replacing them", () => {
+    const target = bulkTargetFor(row({ access: access({ ownerGroups: [3] }) }), {
+      ownerGroups: [9],
+    })
+    expect(target.ownerGroups).toEqual([3, 9])
+  })
+
+  it("plans a row-dependent target when given a function", () => {
+    const plan = planBulk(
+      [row({ id: 1, access: access({ ownerGroups: [3] }) })],
+      (item) => bulkTargetFor(item, { ownerGroups: [9] }),
+      USERS,
+    )
+    expect(plan.items[0]?.to.ownerGroups).toEqual([3, 9])
   })
 })
 

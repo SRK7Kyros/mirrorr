@@ -237,12 +237,51 @@ export function planItem(row: AccessRow, target: AccessTarget, users: readonly s
   }
 }
 
+/** What a bulk draft names: an empty capability, an unset owner and an empty
+ *  owner-group list are each left exactly as the item has them. */
+function namedTarget(target: AccessTarget): AccessTarget {
+  const grants: Partial<Record<Capability, readonly string[]>> = {}
+  const groupGrants: Partial<Record<Capability, readonly number[]>> = {}
+  for (const capability of CAPABILITIES) {
+    const usernames = target.grants?.[capability] ?? []
+    if (usernames.length > 0) grants[capability] = usernames
+    const groupIds = target.groupGrants?.[capability] ?? []
+    if (groupIds.length > 0) groupGrants[capability] = groupIds
+  }
+  return {
+    ...(target.owner === undefined || target.owner === "" ? {} : { owner: target.owner }),
+    ...(Object.keys(grants).length === 0 ? {} : { grants }),
+    ...(Object.keys(groupGrants).length === 0 ? {} : { groupGrants }),
+    ...((target.ownerGroups ?? []).length > 0 ? { ownerGroups: target.ownerGroups } : {}),
+  }
+}
+
+/**
+ * The bulk target for one row: what the draft names, with its owner groups
+ * ADDED to the row's own. A bulk apply can hand out ownership but never silently
+ * revoke it — the override confirm cannot see an item whose only access is a
+ * group owner, so replacement there would be invisible.
+ */
+export function bulkTargetFor(row: AccessRow, draft: AccessTarget): AccessTarget {
+  const named = namedTarget(draft)
+  const ownerGroups = named.ownerGroups ?? []
+  if (ownerGroups.length === 0) return named
+  return {
+    ...named,
+    ownerGroups: [...new Set([...(row.access.ownerGroups ?? []), ...ownerGroups])],
+  }
+}
+
+/** `target` is one request for every row, or a per-row function when the answer
+ *  depends on what that row already has (the bulk panel adds owner groups). */
 export function planBulk(
   rows: readonly AccessRow[],
-  target: AccessTarget,
+  target: AccessTarget | ((row: AccessRow) => AccessTarget),
   users: readonly string[],
 ): BulkPlan {
-  const items = rows.map((row) => planItem(row, target, users))
+  const items = rows.map((row) =>
+    planItem(row, typeof target === "function" ? target(row) : target, users),
+  )
   return {
     items,
     opCount: items.reduce((total, item) => total + item.ops.length, 0),

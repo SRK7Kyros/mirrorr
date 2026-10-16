@@ -256,7 +256,10 @@ test.describe("admin resource access", () => {
     await expect(trigger).toBeFocused()
   })
 
-  test("bulk access warns before overriding an item's own access", async ({ page, api }) => {
+  test("bulk access uses the shared editor and warns before overriding an item's own access", async ({
+    page,
+    api,
+  }) => {
     api.data.users = USERS
     api.data.autoruns = [
       autorun({ id: 5, user_friendly_name: "F1 Race" }),
@@ -275,12 +278,17 @@ test.describe("admin resource access", () => {
     await expect(page.getByText("1 already overridden")).toBeVisible()
     await expect(page.getByText("Owner account missing")).toBeVisible()
 
-    await page.getByRole("checkbox", { name: "Change owner" }).check()
-    await page.getByLabel("New owner").selectOption("alice")
+    await expect(page.getByRole("group", { name: "Principal" })).toBeVisible()
+    await expect(page.getByText("Left as it is")).toBeVisible()
+
+    await page.getByRole("button", { name: "Change" }).click()
+    await page.getByRole("dialog").getByTestId("access-catalog").getByRole("button", { name: /Alice/ }).click()
     await page.getByRole("button", { name: "Apply to 2" }).click()
 
     await expect(page.getByText("Override 1 item(s)?")).toBeVisible()
     await expect(page.getByRole("dialog").getByText("F1 Race")).toBeVisible()
+    await expect(page.getByRole("dialog").getByText("ghost (missing)")).toBeVisible()
+    await expect(page.getByRole("dialog").getByText("F2 Sprint")).toHaveCount(0)
 
     await page.getByRole("button", { name: "Override and apply" }).click()
     await expect
@@ -289,6 +297,37 @@ test.describe("admin resource access", () => {
     await expect
       .poll(() => api.callsTo("/admin/resources/autorun/6/owner").some((call) => call.method === "PUT"))
       .toBe(true)
+  })
+
+  test("bulk access grants a capability to a group from the shared editor", async ({ page, api }) => {
+    api.data.users = USERS
+    api.data.groups = [
+      { id: 9, name: "f1-team", display_name: "F1 team", system: false, members: ["alice"] },
+    ]
+    api.data.sessions = [session({ id: 7 })]
+    api.data.resources = [resourceRow("session", 7, "F1 Weekend")]
+
+    await openAdmin(page)
+
+    await page.getByRole("checkbox", { name: "Select session #7" }).check()
+    await page.getByRole("button", { name: "Access", exact: true }).click()
+
+    const dialog = page.getByRole("dialog")
+    const catalog = dialog.getByTestId("access-catalog")
+    const lower = dialog.getByRole("group", { name: "Capabilities for the selected users" })
+
+    await dialog.getByRole("group", { name: "Principal" }).getByRole("button", { name: "Groups" }).click()
+    await catalog.getByRole("button", { name: /F1 team/ }).click()
+    await lower.getByRole("button", { name: /Operate/ }).click()
+    await expect(dialog.getByText("1 change(s) planned")).toBeVisible()
+
+    await dialog.getByRole("button", { name: "Apply to 1" }).click()
+    await expect
+      .poll(() => api.callsTo("/shares/session/7/group/9").some((call) => call.method === "POST"))
+      .toBe(true)
+    expect(api.callsTo("/shares/session/7/group/9").at(-1)?.body).toMatchObject({
+      capabilities: ["VIEW", "OPERATE"],
+    })
   })
 
   test("cycles the capability chips through include and exclude and keeps every chip inside the dialog at 375px", async ({

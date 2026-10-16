@@ -3,32 +3,38 @@ import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
 import { fetchGroups, fetchResourceAccess, fetchUsers, getErrorMessage } from "@/api"
 import {
   applyPlans,
-  grantedGroupIds,
-  grantedUsernames,
+  bulkTargetFor,
+  emptyGrants,
+  emptyGroupGrants,
   itemAccessFromView,
   planBulk,
   type AccessRow,
-  type AccessTarget,
+  type ItemAccess,
   type ItemPlan,
 } from "@/api/domain/access-plan"
 import { queryKeys, queryRoots, staleTimes } from "@/api/query-keys"
-import type { Group, ResourceType } from "@/api/schemas/privileged"
+import { CAPABILITIES, type Capability, type Group, type ResourceType } from "@/api/schemas/privileged"
 import type { User } from "@/api/schemas/user"
 import {
   Banner,
   Button,
-  Checkbox,
   Dialog,
   ErrorPanel,
   IconButton,
-  Select,
   SkeletonRows,
   Tag,
   toast,
 } from "@/ui/components"
 import { IconUser } from "@/ui/components/icons"
 import { AccessPanel } from "@/ui/views/shared/access-panel"
-import { overrideLabel, resourceTypeLabel, userLabel, usernameLabel } from "@/ui/views/shared/resource-access"
+import {
+  ResourceAccessEditor,
+  capabilityLabel,
+  overrideLabel,
+  resourceTypeLabel,
+  useAccessDraft,
+  usernameLabel,
+} from "@/ui/views/shared/resource-access"
 import type {
   ResourceAccessBulkActionProps,
   ResourceAccessButtonProps,
@@ -49,9 +55,13 @@ function invalidateAccess(queryClient: ReturnType<typeof useQueryClient>): void 
   void queryClient.invalidateQueries({ queryKey: queryRoots.adminResources })
 }
 
-function viewersText(viewers: readonly string[], users: readonly User[]): string {
-  if (viewers.length === 0) return "Owner only"
-  return viewers.map((viewer) => usernameLabel(users, viewer)).join(", ")
+/** A bulk draft starts empty: it names what to set, never what each item has. */
+const EMPTY_DRAFT: ItemAccess = {
+  owner: null,
+  ownerMissing: false,
+  grants: emptyGrants(),
+  groupGrants: emptyGroupGrants(),
+  ownerGroups: [],
 }
 
 function groupLabel(groups: readonly Group[], id: number): string {
@@ -65,10 +75,36 @@ function groupsText(ids: readonly number[], groups: readonly Group[]): string {
   return ids.map((id) => groupLabel(groups, id)).join(", ")
 }
 
-function idsChanged(from: readonly number[], to: readonly number[]): boolean {
-  return from.length !== to.length || from.some((id) => !to.includes(id))
+/** Everyone holding this capability, users and groups in one list. */
+function holdersText(
+  access: ItemAccess,
+  capability: Capability,
+  users: readonly User[],
+  groups: readonly Group[],
+): string {
+  const labels = [
+    ...access.grants[capability].map((username) => usernameLabel(users, username)),
+    ...(access.groupGrants?.[capability] ?? []).map((id) => groupLabel(groups, id)),
+  ]
+  return labels.length === 0 ? "None" : labels.join(", ")
 }
 
+function sameSet<T>(from: readonly T[], to: readonly T[]): boolean {
+  return from.length === to.length && from.every((value) => to.includes(value))
+}
+
+function DeltaRow({ label, from, to }: { readonly label: string; readonly from: string; readonly to: string }) {
+  return (
+    <li className="flex items-start gap-2">
+      <span className="text-muted">{label}</span>
+      <span className="text-muted line-through">{from}</span>
+      <span aria-hidden="true">→</span>
+      <span>{to}</span>
+    </li>
+  )
+}
+
+/** Only what the change actually moves: a capability's holders, users and groups. */
 function AccessDelta({
   plan,
   users,
@@ -78,69 +114,44 @@ function AccessDelta({
   readonly users: readonly User[]
   readonly groups: readonly Group[]
 }) {
-  const ownerChanged = plan.from.owner !== plan.to.owner
-  const fromViewers = grantedUsernames(plan.from)
-  const toViewers = grantedUsernames(plan.to)
-  const viewersChanged =
-    fromViewers.length !== toViewers.length ||
-    fromViewers.some((viewer) => !toViewers.includes(viewer))
+  const capabilities = CAPABILITIES.filter(
+    (capability) =>
+      !sameSet(plan.from.grants[capability], plan.to.grants[capability]) ||
+      !sameSet(plan.from.groupGrants?.[capability] ?? [], plan.to.groupGrants?.[capability] ?? []),
+  )
   const fromOwnerGroups = plan.from.ownerGroups ?? []
   const toOwnerGroups = plan.to.ownerGroups ?? []
-  const ownerGroupsChanged = idsChanged(fromOwnerGroups, toOwnerGroups)
-  const fromGroupGrants = grantedGroupIds(plan.from)
-  const toGroupGrants = grantedGroupIds(plan.to)
-  const groupGrantsChanged = idsChanged(fromGroupGrants, toGroupGrants)
+  const ownerChanged = plan.from.owner !== plan.to.owner
+  const ownerGroupsChanged = !sameSet(fromOwnerGroups, toOwnerGroups)
+
+  if (!ownerChanged && !ownerGroupsChanged && capabilities.length === 0) {
+    return <p className="text-sm text-muted">No change</p>
+  }
 
   return (
     <ul className="flex flex-col gap-1 text-sm">
-      <li className="flex items-center gap-2">
-        <span className="text-muted">Owner</span>
-        {ownerChanged ? (
-          <>
-            <span className="text-muted line-through">{usernameLabel(users, plan.from.owner ?? "")}</span>
-            <span aria-hidden="true">→</span>
-            <span>{usernameLabel(users, plan.to.owner ?? "")}</span>
-          </>
-        ) : (
-          <span>{usernameLabel(users, plan.from.owner ?? "")}</span>
-        )}
-      </li>
-      <li className="flex items-start gap-2">
-        <span className="text-muted">With access</span>
-        {viewersChanged ? (
-          <>
-            <span className="text-muted line-through">{viewersText(fromViewers, users)}</span>
-            <span aria-hidden="true">→</span>
-            <span>{viewersText(toViewers, users)}</span>
-          </>
-        ) : (
-          <span>{viewersText(fromViewers, users)}</span>
-        )}
-      </li>
-      <li className="flex items-start gap-2">
-        <span className="text-muted">Owner groups</span>
-        {ownerGroupsChanged ? (
-          <>
-            <span className="text-muted line-through">{groupsText(fromOwnerGroups, groups)}</span>
-            <span aria-hidden="true">→</span>
-            <span>{groupsText(toOwnerGroups, groups)}</span>
-          </>
-        ) : (
-          <span>{groupsText(fromOwnerGroups, groups)}</span>
-        )}
-      </li>
-      <li className="flex items-start gap-2">
-        <span className="text-muted">Groups with access</span>
-        {groupGrantsChanged ? (
-          <>
-            <span className="text-muted line-through">{groupsText(fromGroupGrants, groups)}</span>
-            <span aria-hidden="true">→</span>
-            <span>{groupsText(toGroupGrants, groups)}</span>
-          </>
-        ) : (
-          <span>{groupsText(fromGroupGrants, groups)}</span>
-        )}
-      </li>
+      {ownerChanged ? (
+        <DeltaRow
+          label="Owner"
+          from={usernameLabel(users, plan.from.owner ?? "")}
+          to={usernameLabel(users, plan.to.owner ?? "")}
+        />
+      ) : null}
+      {capabilities.map((capability) => (
+        <DeltaRow
+          key={capability}
+          label={capabilityLabel(capability)}
+          from={holdersText(plan.from, capability, users, groups)}
+          to={holdersText(plan.to, capability, users, groups)}
+        />
+      ))}
+      {ownerGroupsChanged ? (
+        <DeltaRow
+          label="Owner groups"
+          from={groupsText(fromOwnerGroups, groups)}
+          to={groupsText(toOwnerGroups, groups)}
+        />
+      ) : null}
     </ul>
   )
 }
@@ -193,6 +204,7 @@ function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProp
   const queryClient = useQueryClient()
   const users = useUsers()
   const groups = useGroups()
+  const draft = useAccessDraft(EMPTY_DRAFT)
   const accessQueries = useQueries({
     queries: items.map((item) => ({
       queryKey: queryKeys.adminResourceAccess(resourceType, item.id),
@@ -201,12 +213,6 @@ function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProp
     })),
   })
 
-  const [changeOwner, setChangeOwner] = useState(false)
-  const [owner, setOwner] = useState("")
-  const [changeViewers, setChangeViewers] = useState(false)
-  const [viewers, setViewers] = useState<readonly string[]>([])
-  const [changeGroups, setChangeGroups] = useState(false)
-  const [groupViewers, setGroupViewers] = useState<readonly number[]>([])
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [failures, setFailures] = useState<readonly { label: string; message: string }[]>([])
@@ -227,17 +233,15 @@ function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProp
     ]
   })
 
-  const target: AccessTarget = {
-    ...(changeOwner ? { owner } : {}),
-    ...(changeViewers ? { grants: { VIEW: viewers } } : {}),
-    ...(changeGroups ? { groupGrants: { VIEW: groupViewers } } : {}),
-  }
-  const plan = planBulk(rows, target, usernames)
+  const plan = planBulk(rows, (row) => bulkTargetFor(row, draft.target), usernames)
   /** Items carrying their own access — read out whether or not the target touches them. */
   const overridden = plan.items.filter((item) => item.override !== null).length
-  const ready = plan.opCount > 0 && (!changeOwner || owner !== "")
-  const everyoneSelected =
-    changeGroups && groups.some((group) => group.system && groupViewers.includes(group.id))
+  const ready = plan.opCount > 0
+  const everyoneGranted = groups.some(
+    (group) =>
+      group.system &&
+      CAPABILITIES.some((capability) => draft.groupGrants[capability].includes(group.id)),
+  )
 
   async function apply(): Promise<void> {
     setBusy(true)
@@ -263,12 +267,12 @@ function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProp
       open
       onClose={onClose}
       busy={busy}
-      size="lg"
+      size="xl"
       title={confirming ? `Override ${plan.overriding.length} item(s)?` : `Access on ${items.length} item(s)`}
       description={
         confirming
-          ? "These items carry their own access. Applying replaces it."
-          : "Nothing is sent until you apply."
+          ? "These items carry their own access. Applying changes the parts you filled in."
+          : "Nothing is sent until you apply. What you leave empty stays as it is."
       }
       footer={
         confirming ? (
@@ -320,84 +324,20 @@ function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProp
         </ul>
       ) : (
         <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <Checkbox
-              label="Change owner"
-              checked={changeOwner}
-              disabled={busy}
-              onChange={(event) => setChangeOwner(event.target.checked)}
-            />
-            <Select
-              aria-label="New owner"
-              value={owner}
-              disabled={busy || !changeOwner}
-              onChange={(event) => setOwner(event.target.value)}
-            >
-              <option value="">Select a user…</option>
-              {users.map((user) => (
-                <option key={user.username} value={user.username}>
-                  {userLabel(user)}
-                </option>
-              ))}
-            </Select>
-          </div>
+          <ResourceAccessEditor
+            resourceType={resourceType}
+            draft={draft}
+            users={users}
+            groups={groups}
+            busy={busy}
+            emptyOwnerLabel="Left as it is"
+          />
 
-          <div className="flex flex-col gap-2">
-            <Checkbox
-              label="Replace view access"
-              checked={changeViewers}
-              disabled={busy}
-              onChange={(event) => setChangeViewers(event.target.checked)}
-            />
-            <div className="flex flex-col gap-1 max-h-[160px] overflow-y-auto">
-              {users.map((user) => (
-                <Checkbox
-                  key={user.username}
-                  label={userLabel(user)}
-                  checked={viewers.includes(user.username)}
-                  disabled={busy || !changeViewers}
-                  onChange={(event) =>
-                    setViewers((current) =>
-                      event.target.checked
-                        ? [...current, user.username]
-                        : current.filter((viewer) => viewer !== user.username),
-                    )
-                  }
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <Checkbox
-              label="Replace group view access"
-              checked={changeGroups}
-              disabled={busy}
-              onChange={(event) => setChangeGroups(event.target.checked)}
-            />
-            <div className="flex flex-col gap-1 max-h-[160px] overflow-y-auto">
-              {groups.map((group) => (
-                <Checkbox
-                  key={group.id}
-                  label={groupLabel(groups, group.id)}
-                  checked={groupViewers.includes(group.id)}
-                  disabled={busy || !changeGroups}
-                  onChange={(event) =>
-                    setGroupViewers((current) =>
-                      event.target.checked
-                        ? [...current, group.id]
-                        : current.filter((id) => id !== group.id),
-                    )
-                  }
-                />
-              ))}
-            </div>
-            {everyoneSelected ? (
-              <Banner kind="warning" title="“everyone” is selected">
-                Every account, including future ones, gets view access to these items.
-              </Banner>
-            ) : null}
-          </div>
+          {everyoneGranted ? (
+            <Banner kind="warning" title="“everyone” is selected">
+              Every account, including future ones, gets the access chosen here on these items.
+            </Banner>
+          ) : null}
 
           <div className="flex items-center justify-between gap-3 text-sm">
             <span className="text-muted">{plan.opCount} change(s) planned</span>
