@@ -1,9 +1,10 @@
 import { useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { fetchResourceAccess, fetchUsers, getErrorMessage } from "@/api"
+import { fetchGroups, fetchResourceAccess, fetchUsers, getErrorMessage } from "@/api"
 import {
   applyPlans,
   emptyGrants,
+  emptyGroupGrants,
   itemAccessFromView,
   planItem,
   type AccessTarget,
@@ -14,7 +15,20 @@ import type { ResourceType } from "@/api/schemas/privileged"
 import { Button, Dialog, ErrorPanel, SkeletonRows, toast } from "@/ui/components"
 import { ResourceAccessEditor, resourceTypeLabel, useAccessDraft } from "./resource-access"
 
-const EMPTY_ACCESS: ItemAccess = { owner: null, ownerMissing: false, grants: emptyGrants() }
+const EMPTY_ACCESS: ItemAccess = {
+  owner: null,
+  ownerMissing: false,
+  grants: emptyGrants(),
+  groupGrants: emptyGroupGrants(),
+  ownerGroups: [],
+}
+
+/**
+ * `GET /groups` is owned by the admin Groups panel; the access panel reuses the
+ * same list so both surfaces read one cache. The key mirrors the `["admin", …]`
+ * admin namespace.
+ */
+const GROUPS_QUERY_KEY = queryKeys.groups
 
 export interface AccessPanelProps {
   readonly resourceType: ResourceType
@@ -35,6 +49,11 @@ export function AccessPanel({ resourceType, id, label, onClose }: AccessPanelPro
   const [busy, setBusy] = useState(false)
 
   const usersQuery = useQuery({ queryKey: queryKeys.users, queryFn: fetchUsers, staleTime: staleTimes.users })
+  const groupsQuery = useQuery({
+    queryKey: GROUPS_QUERY_KEY,
+    queryFn: fetchGroups,
+    staleTime: staleTimes.users,
+  })
   const accessQuery = useQuery({
     queryKey: queryKeys.adminResourceAccess(resourceType, id),
     queryFn: () => fetchResourceAccess(resourceType, id),
@@ -42,8 +61,10 @@ export function AccessPanel({ resourceType, id, label, onClose }: AccessPanelPro
   })
 
   const users = usersQuery.data ?? []
+  const groups = groupsQuery.data?.items ?? []
+  const loading = usersQuery.isLoading || groupsQuery.isLoading || accessQuery.isLoading
   const loaded =
-    accessQuery.data !== undefined && !accessQuery.isLoading && !usersQuery.isLoading && !accessQuery.isError
+    accessQuery.data !== undefined && !loading && !accessQuery.isError
   const access = accessQuery.data === undefined ? EMPTY_ACCESS : itemAccessFromView(accessQuery.data)
   const draft = useAccessDraft(access)
 
@@ -91,7 +112,7 @@ export function AccessPanel({ resourceType, id, label, onClose }: AccessPanelPro
         ) : null
       }
     >
-      {accessQuery.isLoading || usersQuery.isLoading ? (
+      {loading ? (
         <SkeletonRows rows={4} cols={2} />
       ) : accessQuery.isError ? (
         <ErrorPanel
@@ -101,7 +122,13 @@ export function AccessPanel({ resourceType, id, label, onClose }: AccessPanelPro
       ) : accessQuery.data === undefined ? (
         <SkeletonRows rows={4} cols={2} />
       ) : (
-        <ResourceAccessEditor resourceType={resourceType} draft={draft} users={users} busy={busy} />
+        <ResourceAccessEditor
+          resourceType={resourceType}
+          draft={draft}
+          users={users}
+          groups={groups}
+          busy={busy}
+        />
       )}
     </Dialog>
   )

@@ -37,6 +37,7 @@ export const queryKeys = {
   adminResources: (params: ListParams = {}) => ["admin", "resources", params] as const,
   adminResourceAccess: (resourceType: string, id: number | string) =>
     ["admin", "resources", resourceType, id, "access"] as const,
+  groups: ["admin", "groups"] as const,
 } as const
 
 /**

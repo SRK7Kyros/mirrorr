@@ -3,13 +3,19 @@ import { fireEvent, render, screen, within } from "@testing-library/react"
 import {
   applyPlans,
   emptyGrants,
+  emptyGroupGrants,
   planItem,
   type AccessTarget,
   type ItemAccess,
 } from "@/api/domain/access-plan"
 import { CAPABILITIES, type Capability } from "@/api/schemas/privileged"
 import type { User } from "@/api/schemas/user"
-import { holdsCapability, ResourceAccessFields } from "./resource-access"
+import {
+  type AccessGroup,
+  type GroupDraftTarget,
+  holdsCapability,
+  ResourceAccessFields,
+} from "./resource-access"
 
 // The planner fans out over the endpoint module (importing the barrel from a
 // domain module would close a cycle), so it needs its own double. Every test
@@ -30,15 +36,34 @@ const USERS: readonly User[] = [
 
 const USERNAMES = USERS.map((user) => user.username)
 
+const GROUPS: readonly AccessGroup[] = [
+  { id: 1, name: "everyone", display_name: "Everyone", system: true },
+  { id: 2, name: "editors", display_name: "Editors", system: false, member_count: 3 },
+  { id: 3, name: "ops", display_name: "Operations", system: false, member_count: 1 },
+]
+
+function switchToGroups(): void {
+  const principal = screen.getByRole("group", { name: "Principal" })
+  fireEvent.click(within(principal).getByRole("button", { name: "Groups" }))
+}
+
 /** A full grant record — every capability present, exactly as `emptyGrants` guarantees. */
 function access(
   overrides: Partial<Record<Capability, readonly string[]>> & {
     readonly owner?: string
     readonly ownerMissing?: boolean
+    readonly groupGrants?: Partial<Record<Capability, readonly number[]>>
+    readonly ownerGroups?: readonly number[]
   } = {},
 ): ItemAccess {
-  const { owner = "kyros", ownerMissing = false, ...grants } = overrides
-  return { owner, ownerMissing, grants: { ...emptyGrants(), ...grants } }
+  const { owner = "kyros", ownerMissing = false, groupGrants = {}, ownerGroups = [], ...grants } = overrides
+  return {
+    owner,
+    ownerMissing,
+    grants: { ...emptyGrants(), ...grants },
+    groupGrants: { ...emptyGroupGrants(), ...groupGrants },
+    ownerGroups,
+  }
 }
 
 function row(itemAccess: ItemAccess) {
@@ -85,7 +110,7 @@ describe("holdsCapability", () => {
 
 describe("ResourceAccessFields", () => {
   it("renders the owner row, one catalog, both chip rows and no per-section prose", () => {
-    render(<ResourceAccessFields resourceType="session" access={access()} users={USERS} onApply={vi.fn()} />)
+    render(<ResourceAccessFields resourceType="session" access={access()} users={USERS} groups={GROUPS} onApply={vi.fn()} />)
 
     expect([...CAPABILITIES]).toEqual(["VIEW", "OPERATE", "EDIT", "DELETE", "SHARE", "EXPORT"])
     expect(screen.getByText("Kyros")).toBeTruthy()
@@ -104,7 +129,7 @@ describe("ResourceAccessFields", () => {
   })
 
   it("keeps Apply disabled until the draft is dirty", () => {
-    render(<ResourceAccessFields resourceType="session" access={access()} users={USERS} onApply={vi.fn()} />)
+    render(<ResourceAccessFields resourceType="session" access={access()} users={USERS} groups={GROUPS} onApply={vi.fn()} />)
     expect(applyButton().disabled).toBe(true)
 
     fireEvent.click(card("Bob"))
@@ -116,7 +141,7 @@ describe("ResourceAccessFields", () => {
 
   it("transfers ownership from the owner picker and hides the chip rows meanwhile", () => {
     const onApply = vi.fn()
-    render(<ResourceAccessFields resourceType="session" access={access()} users={USERS} onApply={onApply} />)
+    render(<ResourceAccessFields resourceType="session" access={access()} users={USERS} groups={GROUPS} onApply={onApply} />)
 
     fireEvent.click(screen.getByRole("button", { name: "Change" }))
     expect(screen.getByText("Pick the new owner")).toBeTruthy()
@@ -132,7 +157,7 @@ describe("ResourceAccessFields", () => {
   it("implies VIEW and issues one request per resulting capability", async () => {
     const base = access()
     const onApply = vi.fn()
-    render(<ResourceAccessFields resourceType="session" access={base} users={USERS} onApply={onApply} />)
+    render(<ResourceAccessFields resourceType="session" access={base} users={USERS} groups={GROUPS} onApply={onApply} />)
 
     fireEvent.click(card("Bob"))
     fireEvent.click(setChip("Operate"))
@@ -160,7 +185,7 @@ describe("ResourceAccessFields", () => {
   it("clears every capability for the user when VIEW is unticked", async () => {
     const base = access({ VIEW: ["bob"], OPERATE: ["bob"], EDIT: ["bob"] })
     const onApply = vi.fn()
-    render(<ResourceAccessFields resourceType="session" access={base} users={USERS} onApply={onApply} />)
+    render(<ResourceAccessFields resourceType="session" access={base} users={USERS} groups={GROUPS} onApply={onApply} />)
 
     fireEvent.click(card("Bob"))
     expect(setChip("View access").getAttribute("aria-pressed")).toBe("true")
@@ -186,7 +211,7 @@ describe("ResourceAccessFields", () => {
   })
 
   it("filters the catalog to a capability's holders with the upper chips", () => {
-    render(<ResourceAccessFields resourceType="session" access={access({ VIEW: ["bob"] })} users={USERS} onApply={vi.fn()} />)
+    render(<ResourceAccessFields resourceType="session" access={access({ VIEW: ["bob"] })} users={USERS} groups={GROUPS} onApply={vi.fn()} />)
 
     expect(card("Alice")).toBeTruthy()
     fireEvent.click(filterChip("View access"))
@@ -207,7 +232,7 @@ describe("ResourceAccessFields", () => {
   it("shows a partial lower chip when only some selected users hold the capability", () => {
     const base = access({ VIEW: ["bob"], OPERATE: ["bob"] })
     const onApply = vi.fn()
-    render(<ResourceAccessFields resourceType="session" access={base} users={USERS} onApply={onApply} />)
+    render(<ResourceAccessFields resourceType="session" access={base} users={USERS} groups={GROUPS} onApply={onApply} />)
 
     expect(setChip("Operate").getAttribute("aria-pressed")).toBe("false")
     fireEvent.click(screen.getByRole("button", { name: "Select all" }))
@@ -222,7 +247,7 @@ describe("ResourceAccessFields", () => {
   })
 
   it("selects every shown card and clears the selection", () => {
-    render(<ResourceAccessFields resourceType="session" access={access()} users={USERS} onApply={vi.fn()} />)
+    render(<ResourceAccessFields resourceType="session" access={access()} users={USERS} groups={GROUPS} onApply={vi.fn()} />)
 
     fireEvent.click(screen.getByRole("button", { name: "Select all" }))
     expect(within(catalog()).getAllByRole("button", { pressed: true })).toHaveLength(3)
@@ -234,7 +259,7 @@ describe("ResourceAccessFields", () => {
   it("reloads on a changed access prop and preserves the draft on an unchanged one", () => {
     const base = access()
     const { rerender } = render(
-      <ResourceAccessFields resourceType="session" access={base} users={USERS} onApply={vi.fn()} />,
+      <ResourceAccessFields resourceType="session" access={base} users={USERS} groups={GROUPS} onApply={vi.fn()} />,
     )
 
     fireEvent.click(card("Bob"))
@@ -242,11 +267,11 @@ describe("ResourceAccessFields", () => {
     expect(screen.getByText("Unsaved changes")).toBeTruthy()
 
     // Same value → same signature → the in-flight edit survives.
-    rerender(<ResourceAccessFields resourceType="session" access={base} users={USERS} onApply={vi.fn()} />)
+    rerender(<ResourceAccessFields resourceType="session" access={base} users={USERS} groups={GROUPS} onApply={vi.fn()} />)
     expect(screen.getByText("Unsaved changes")).toBeTruthy()
 
     // Different value → the draft reloads from the server state.
-    rerender(<ResourceAccessFields resourceType="session" access={access({ VIEW: ["alice"] })} users={USERS} onApply={vi.fn()} />)
+    rerender(<ResourceAccessFields resourceType="session" access={access({ VIEW: ["alice"] })} users={USERS} groups={GROUPS} onApply={vi.fn()} />)
     expect(screen.getByText("Up to date")).toBeTruthy()
     expect(applyButton().disabled).toBe(true)
     // Bob is no longer visible in the refiltered catalog once VIEW is filtered.
@@ -256,7 +281,7 @@ describe("ResourceAccessFields", () => {
   })
 
   it("disables Apply, the cards and the chip rows while busy", () => {
-    render(<ResourceAccessFields resourceType="session" access={access({ VIEW: ["bob"] })} users={USERS} busy onApply={vi.fn()} />)
+    render(<ResourceAccessFields resourceType="session" access={access({ VIEW: ["bob"] })} users={USERS} busy groups={GROUPS} onApply={vi.fn()} />)
 
     // The Spinner contributes "Loading" to the button's accessible name, so
     // locate the Apply control by its label span instead of the composed name.
@@ -273,7 +298,7 @@ describe("ResourceAccessFields", () => {
     expect(Object.keys(base.grants).sort()).toEqual([...CAPABILITIES].sort())
 
     const onApply = vi.fn()
-    render(<ResourceAccessFields resourceType="session" access={base} users={USERS} onApply={onApply} />)
+    render(<ResourceAccessFields resourceType="session" access={base} users={USERS} groups={GROUPS} onApply={onApply} />)
 
     fireEvent.click(card("Bob"))
     fireEvent.click(setChip("Delete"))
@@ -293,6 +318,7 @@ describe("ResourceAccessFields", () => {
         resourceType="session"
         access={access({ OPERATE: ["bob"], EDIT: ["carol"] })}
         users={USERS}
+        groups={GROUPS}
         onApply={vi.fn()}
       />,
     )
@@ -315,6 +341,7 @@ describe("ResourceAccessFields", () => {
         resourceType="session"
         access={access({ VIEW: ["bob"] })}
         users={USERS}
+        groups={GROUPS}
         onApply={vi.fn()}
       />,
     )
@@ -332,7 +359,7 @@ describe("ResourceAccessFields", () => {
 
   it("offers only the capabilities the item type enforces", () => {
     render(
-      <ResourceAccessFields resourceType="autorun" access={access()} users={USERS} onApply={vi.fn()} />,
+      <ResourceAccessFields resourceType="autorun" access={access()} users={USERS} groups={GROUPS} onApply={vi.fn()} />,
     )
 
     for (const label of ["View access", "Edit", "Delete", "Share", "Export"]) {
@@ -347,7 +374,7 @@ describe("ResourceAccessFields", () => {
     const base = access({ VIEW: ["bob"], OPERATE: ["bob"] })
     const onApply = vi.fn()
     render(
-      <ResourceAccessFields resourceType="autorun" access={base} users={USERS} onApply={onApply} />,
+      <ResourceAccessFields resourceType="autorun" access={base} users={USERS} groups={GROUPS} onApply={onApply} />,
     )
 
     // OPERATE is not offered for autoruns, but Bob holds it — the chip must
@@ -370,6 +397,7 @@ describe("ResourceAccessFields", () => {
         resourceType="session"
         access={access({ OPERATE: ["alice"] })}
         users={USERS}
+        groups={GROUPS}
         onApply={vi.fn()}
       />,
     )
@@ -406,6 +434,7 @@ describe("ResourceAccessFields", () => {
         resourceType="session"
         access={access({ OPERATE: ["alice"], EDIT: ["bob"] })}
         users={USERS}
+        groups={GROUPS}
         onApply={vi.fn()}
       />,
     )
@@ -432,5 +461,156 @@ describe("ResourceAccessFields", () => {
     fireEvent.click(filterChip("All"))
     expect(within(catalog()).queryAllByRole("button")).toHaveLength(3)
     expect(filterChip("Operate").getAttribute("aria-pressed")).toBe("false")
+  })
+})
+
+describe("ResourceAccessFields — groups", () => {
+  it("switches the catalog to groups with the name, display name and member count", () => {
+    render(
+      <ResourceAccessFields
+        resourceType="session"
+        access={access()}
+        users={USERS}
+        groups={GROUPS}
+        onApply={vi.fn()}
+      />,
+    )
+
+    expect(card("Bob")).toBeTruthy()
+    switchToGroups()
+
+    expect(card("Editors")).toBeTruthy()
+    expect(screen.getByText("editors")).toBeTruthy()
+    expect(screen.getByText("3 members")).toBeTruthy()
+    expect(screen.getByText("1 member")).toBeTruthy()
+    expect(screen.getByText("every account, including future ones")).toBeTruthy()
+    expect(within(catalog()).queryByText(/^@/)).toBeNull()
+  })
+
+  it("ANDs the capability chips over the group catalog and cycles them", () => {
+    const base = access({ groupGrants: { VIEW: [2, 3], OPERATE: [2], EDIT: [3] } })
+    render(
+      <ResourceAccessFields resourceType="session" access={base} users={USERS} groups={GROUPS} onApply={vi.fn()} />,
+    )
+    switchToGroups()
+
+    fireEvent.click(filterChip("Operate"))
+    expect(card("Editors")).toBeTruthy()
+    expect(within(catalog()).queryByRole("button", { name: /Operations/ })).toBeNull()
+    expect(within(catalog()).queryByRole("button", { name: /everyone/ })).toBeNull()
+
+    fireEvent.click(filterChip("Edit"))
+    expect(screen.getByText("No groups match.")).toBeTruthy()
+
+    fireEvent.click(filterChip("Edit"))
+    expect(card("Editors")).toBeTruthy()
+    expect(within(catalog()).queryByRole("button", { name: /Operations/ })).toBeNull()
+
+    fireEvent.click(filterChip("All"))
+    expect(within(catalog()).queryAllByRole("button")).toHaveLength(3)
+  })
+
+  it("replace-sets a group's capabilities in the draft on Apply", () => {
+    const base = access({ groupGrants: { VIEW: [2], OPERATE: [2], EDIT: [2] } })
+    const onApply = vi.fn()
+    render(
+      <ResourceAccessFields resourceType="session" access={base} users={USERS} groups={GROUPS} onApply={onApply} />,
+    )
+    switchToGroups()
+
+    fireEvent.click(card("Editors"))
+    expect(setChip("Edit").getAttribute("aria-pressed")).toBe("true")
+    fireEvent.click(setChip("Edit"))
+    fireEvent.click(applyButton())
+
+    const target = onApply.mock.calls[0][0] as AccessTarget & GroupDraftTarget
+    expect([...(target.groupGrants?.EDIT ?? [])]).toEqual([])
+    expect([...(target.groupGrants?.OPERATE ?? [])]).toEqual([2])
+    expect([...(target.groupGrants?.VIEW ?? [])]).toEqual([2])
+
+    fireEvent.click(setChip("View access"))
+    fireEvent.click(applyButton())
+    const second = onApply.mock.calls[1][0] as AccessTarget & GroupDraftTarget
+    expect([...(second.groupGrants?.VIEW ?? [])]).toEqual([])
+    expect([...(second.groupGrants?.OPERATE ?? [])]).toEqual([])
+  })
+
+  it("adds and removes owner groups without touching the user owner", () => {
+    const onApply = vi.fn()
+    render(
+      <ResourceAccessFields
+        resourceType="session"
+        access={access({ owner: "kyros", ownerGroups: [2] })}
+        users={USERS}
+        groups={GROUPS}
+        onApply={onApply}
+      />,
+    )
+
+    expect(screen.getByRole("button", { name: "Remove owner group Editors" })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "Add owner group" }))
+    fireEvent.click(screen.getByRole("button", { name: "Add owner group Operations" }))
+    fireEvent.click(applyButton())
+
+    const target = onApply.mock.calls[0][0] as AccessTarget & GroupDraftTarget
+    expect([...(target.ownerGroups ?? [])].sort((a, b) => a - b)).toEqual([2, 3])
+    expect(target.owner).toBe("kyros")
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove owner group Editors" }))
+    fireEvent.click(applyButton())
+    const second = onApply.mock.calls[1][0] as AccessTarget & GroupDraftTarget
+    expect([...(second.ownerGroups ?? [])]).toEqual([3])
+    expect(second.owner).toBe("kyros")
+  })
+
+  it("warns loudly when the everyone group owns the item", () => {
+    render(
+      <ResourceAccessFields
+        resourceType="session"
+        access={access({ ownerGroups: [1] })}
+        users={USERS}
+        groups={GROUPS}
+        onApply={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Every account gets full control of this item, including delete.",
+    )
+  })
+
+  it("raises the everyone warning only once the group is added as an owner", () => {
+    render(
+      <ResourceAccessFields
+        resourceType="session"
+        access={access()}
+        users={USERS}
+        groups={GROUPS}
+        onApply={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByRole("alert")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Add owner group" }))
+    fireEvent.click(screen.getByRole("button", { name: "Add owner group Everyone" }))
+    expect(screen.getByRole("alert").textContent).toContain("Every account gets full control of this item")
+  })
+
+  it("keeps the owner transfer picker on the user catalog", () => {
+    render(
+      <ResourceAccessFields
+        resourceType="session"
+        access={access()}
+        users={USERS}
+        groups={GROUPS}
+        onApply={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Change" }))
+    expect(screen.queryByRole("group", { name: "Principal" })).toBeNull()
+    expect(card("Carol")).toBeTruthy()
+    expect(screen.queryByText("3 members")).toBeNull()
   })
 })

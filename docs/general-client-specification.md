@@ -827,11 +827,11 @@ Client should **not** invent the link; if it's needed, it's a server addition (s
 #### 13.11.5 No true "player" — treat content_urls as progressive/link-only
 `content_url` is built as `{web_url}/content/...` and served only when the operator enables `dev_serve_files` (or proxies). It is a **static file path**, not a media API — no range/seek guarantees, no auth in the path (relies on the middleware's auth when dev-serving). Clients must treat recordings as **download/open-in-new-tab links**, not embed a guaranteed `<video>` with scrubbing. If seeking matters, flag it as a server gap, don't paper over with client hacks.
 
-#### 13.11.6 Sharing is a per-user capability grant (supersedes "no share, no transfer")
+#### 13.11.6 Sharing is a per-principal capability grant (supersedes "no share, no transfer")
 
 > **Superseded on 2026-10-15, extended 2026-10-16.** This section previously read *"There is no 'share' and no 'transfer' — import/export IS sharing"* and asserted *"No per-resource 'make public' flag exists."* That was a deliberate product decision, now overturned: the owner asked for admin-managed sharing, so the core ships it. Import/export remains the **cross-install** portability primitive (Export is still "Share / backup / migrate") — it is simply no longer the only sharing path. The 2026-10-16 change replaced the flat view grant with a **six-capability** model (below).
 
-Ownership scoping is **unchanged**: an item is visible to its owner (`requester_user_token`) and to admins. What is new is a **per-user capability grant** — the owner, an admin, or any holder of `SHARE` can grant a chosen set of **capabilities** on any owned item *without* changing its owner. Engines and resolvers are ownerless and are not grantable (they are listed read-only).
+Ownership scoping is **extended 2026-10-16**: an item is visible to its owner (`requester_user_token`), to admins, **to every member of an owner group** and to every holder of a grant. What is new is a **per-principal capability grant** — the owner, an admin, or any holder of `SHARE` can grant a chosen set of **capabilities** on any owned item *without* changing its owner, and can add a **group** as an additional owner. Engines and resolvers are ownerless and are not grantable (they are listed read-only).
 
 ##### Capabilities
 
@@ -843,20 +843,36 @@ Two admin-only routes and one capability-gated sharing surface (`routers/auth.py
 
 | Method | Path | Body | Returns | Auth |
 |---|---|---|---|---|
-| `GET` | `/admin/resources?resource_type=&owner=&limit=&offset=` | — | `{items: [{resource_type, id, label, owner, owner_missing, viewer_count, system}], total}` | admin |
+| `GET` | `/admin/resources?resource_type=&owner=&limit=&offset=` | — | `{items: [{resource_type, id, label, owner, owner_missing, viewer_count, owner_groups: [...], grant_groups: [...], system}], total}` | admin |
 | `PUT` | `/admin/resources/{resource_type}/{id}/owner` | `{username}` | `{resource_type, id, owner}` | admin |
 | `GET` | `/shares/{resource_type}/{id}` | — | `AccessView` (below) | `SHARE` |
 | `POST` | `/shares/{resource_type}/{id}` | `{username, capabilities: [...]}` | `AccessView` | `SHARE` |
 | `DELETE` | `/shares/{resource_type}/{id}/{username}` | — | `AccessView` | `SHARE` |
+| `POST` \| `DELETE` | `/shares/{resource_type}/{id}/group/{group_id}` | `{capabilities: [...]}` / — | `AccessView` | `SHARE` |
+| `PUT` \| `DELETE` | `/shares/{resource_type}/{id}/owner-group/{group_id}` | — | `AccessView` | `SHARE` |
+| `GET` | `/groups` | — | `{items: [{id, name, display_name, system, member_count, members: [...]}], total}` | admin |
+| `POST` | `/groups` | `{name, display_name}` | `{id, name, display_name, system}` | admin |
+| `PATCH` | `/groups/{id}` | `{name, display_name}` | the group | admin |
+| `DELETE` | `/groups/{id}` | — | `{status: "deleted", id}` | admin |
+| `PUT` | `/groups/{id}/members` | `{usernames: [...]}` | the group | admin |
 
-- **`AccessView`** is one shape everywhere: `{resource_type, id, owner, owner_missing, grants: [{username, capabilities: [...]}]}`. `grants` excludes the owner (their rights are implicit) and any user with no capabilities; each entry's `capabilities` is sorted in the frozen enum order.
+- **`AccessView`** is one shape everywhere: `{resource_type, id, owner, owner_missing, grants: [{username, capabilities: [...]}], owner_groups: [{id, name, display_name, system}], group_grants: [{group_id, name, display_name, system, capabilities: [...]}]}`. `grants` and `group_grants` exclude the owner (their rights are implicit) and any principal with no capabilities; each entry's `capabilities` is sorted in the frozen enum order. `owner_missing` stays **user-only** — a group owner row is dropped with its group, so it can never dangle.
 - **The three old `/admin/resources/{type}/{id}/access*` routes are removed** — they now 404. Sharing is the `/shares/` surface.
-- **`POST /shares/…` is replace-set:** the body replaces that one user's whole capability list (idempotent; an `IntegrityError` race is retried once). **`DELETE /shares/…/{username}`** clears all of that user's grants (idempotent). A grant to an unknown username is a 400; an unknown type or id is a 404.
+- **`POST /shares/…` is replace-set:** the body replaces that one user's whole capability list (idempotent; an `IntegrityError` race is retried once). **`DELETE /shares/…/{username}`** clears all of that user's grants (idempotent). A grant to an unknown username is a 400; an unknown type or id is a 404. The **group twins** are identical replace-sets keyed by `group_id`; `PUT \| DELETE …/owner-group/{group_id}` add and remove an **owner group** (idempotent, additive — the user owner is never touched).
 - **Resource-type vocabulary.** `session \| profile \| autorun \| recording \| source` are the owner-bearing kinds (fully editable). `engine` and `resolver` are **ownerless system rows**, shown read-only (`system: true`, `owner: ""`, no grants); any owner write or grant on them is a 400. `user` is **not** a valid access target (400).
 - **`label` is computed server-side** (the console's derived titles are a client concept): session → the console's title precedence (`user_friendly_name` → profile name), recording → its content filename, otherwise `name`, falling back to `#<id>`.
 - **`owner` is the item's `requester_user_token` verbatim** — a principal string, not a display name.
 - **`owner_missing: true`** means that owner's user row no longer exists (a deleted owner leaves their items behind with a stale token, exactly as today). The admin surface shows `<owner> (missing)` and still offers the stale owner in the transfer `Select`, so an admin can move the item away.
 - **Paging, no search:** `GET /admin/resources` is an offset page (`limit` ≤ 200, default 50). There is **no server-side free-text search** — the panel ranks the loaded page client-side.
+
+##### Principals: users and groups (Oct 16 2026)
+
+A grant names **either** a user (`username`, `group_id` NULL) **or** a group (`group_id`, `username` NULL) — SQLite treats NULLs as distinct, so each `UNIQUE` is vacuous for the other kind's row and both may coexist for one item. A group is `(id, name UNIQUE, display_name, system, created_at)`; membership is `group_members(group_id, username)` — **no FK on `username`**, the same convention as `resource_access.username`, so a deleted user leaves an inert row until `delete_user` clears it.
+
+- **`everyone` is reserved.** `name = "everyone"`, `system = true`, seeded idempotently by `ensure_db`; its membership is **never stored** — `has_capability` resolves "every authenticated user" from the `system` flag, so an account created tomorrow is a member with no hook. It cannot be created, renamed, deleted or member-edited: create/rename *to* `everyone` → **409 "reserved"**, member-edit/rename/delete *of* it → **400**.
+- **Owner groups are additive.** `resource_owner_groups(resource_type, resource_id, group_id)` is an add/remove set beside the single user owner (`requester_user_token`, untouched). Every member of every owner group holds all six capabilities exactly like the owner — **including `everyone`**, i.e. "every account gets full control, delete included". The console states that in full before it can be applied.
+- **Group CRUD is admin-only** (`GET|POST /groups`, `PATCH|DELETE /groups/{id}`, `PUT /groups/{id}/members` — the last is a replace-set). Names are trimmed, unique, 1..64 chars; member usernames must exist (400). `DELETE /groups/{id}` clears that group's memberships, grants and owner rows in one transaction. Because CRUD is admin-only, a non-admin `SHARE` holder can grant to a group they can name but **cannot list** the groups — the group picker is an admin-console affordance.
+- **`SHARE` is de-facto self-escalatory** (pre-existing, unchanged): a `SHARE` holder may grant any capability on that item to any principal they can name, themselves included. `viewer_count` on `/admin/resources` still counts **distinct users**; `owner_groups`/`grant_groups` carry the group names beside it.
 
 ##### Each capability gates its own action
 

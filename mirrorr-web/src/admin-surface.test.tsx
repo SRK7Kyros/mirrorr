@@ -7,19 +7,24 @@ import { AdministrationSection } from "./admin-surface"
 const api = vi.hoisted(() => ({
   approveRegistrationRequest: vi.fn(),
   createClient: vi.fn(),
+  createGroup: vi.fn(),
   createUser: vi.fn(),
   deleteClient: vi.fn(),
+  deleteGroup: vi.fn(),
   deleteUser: vi.fn(),
   denyRegistrationRequest: vi.fn(),
   fetchClients: vi.fn(),
+  fetchGroups: vi.fn(),
   fetchRegistrationRequests: vi.fn(),
   fetchUsers: vi.fn(),
   formatRelativeTime: vi.fn((value: string) => value),
   getErrorMessage: vi.fn((_error: unknown, fallback: string) => fallback),
   fetchAdminResources: vi.fn(),
   fetchResourceAccess: vi.fn(),
+  setGroupMembers: vi.fn(),
   setResourceGrants: vi.fn(),
   revokeResourceUser: vi.fn(),
+  updateGroup: vi.fn(),
   setResourceOwner: vi.fn(),
 }))
 
@@ -41,6 +46,8 @@ interface ResourceOverrides {
   readonly owner_missing?: boolean
   readonly viewer_count?: number
   readonly system?: boolean
+  readonly owner_groups?: readonly string[]
+  readonly grant_groups?: readonly string[]
 }
 
 function resource(overrides: ResourceOverrides = {}) {
@@ -52,7 +59,24 @@ function resource(overrides: ResourceOverrides = {}) {
     owner_missing: false,
     viewer_count: 0,
     system: false,
+    owner_groups: [],
+    grant_groups: [],
     ...overrides,
+  }
+}
+
+function groupRow(overrides: Partial<ReturnType<typeof groupBase>> = {}) {
+  return { ...groupBase(), ...overrides }
+}
+
+function groupBase() {
+  return {
+    id: 2,
+    name: "editors",
+    display_name: "Editors",
+    system: false,
+    member_count: 3,
+    members: ["kyros", "alice", "bob"] as readonly string[],
   }
 }
 
@@ -75,9 +99,17 @@ function resourcePanel(): HTMLElement {
   return section
 }
 
+function groupsPanel(): HTMLElement {
+  const heading = screen.getByRole("heading", { level: 2, name: "Groups" })
+  const section = heading.closest("section")
+  if (section === null) throw new Error("Groups panel missing")
+  return section
+}
+
 beforeEach(() => {
   vi.resetAllMocks()
   api.fetchClients.mockResolvedValue([])
+  api.fetchGroups.mockResolvedValue({ items: [], total: 0 })
   api.fetchRegistrationRequests.mockResolvedValue([])
   api.fetchUsers.mockResolvedValue(USERS)
   api.fetchAdminResources.mockResolvedValue({ items: [], total: 0 })
@@ -124,7 +156,7 @@ describe("ResourceAccessSection", () => {
     expect(within(table).getByText("F1 Weekend")).toBeTruthy()
     expect(within(table).getByText("Session")).toBeTruthy()
     expect(within(table).getByText("kyros")).toBeTruthy()
-    expect(within(table).getByText("2")).toBeTruthy()
+    expect(within(table).getByText("2 viewers")).toBeTruthy()
   })
 
   it("exposes no edit affordance for system rows", async () => {
@@ -198,5 +230,89 @@ describe("ResourceAccessSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Apply changes" }))
 
     await waitFor(() => expect(api.revokeResourceUser).toHaveBeenCalledWith("session", 7, "alice"))
+  })
+})
+
+describe("GroupsSection", () => {
+  it("renders groups with a member count and a read-only everyone row", async () => {
+    api.fetchGroups.mockResolvedValue({
+      items: [
+        groupRow(),
+        groupRow({ id: 1, name: "everyone", display_name: "Everyone", system: true, member_count: 0, members: [] }),
+      ],
+      total: 2,
+    })
+
+    renderAdmin()
+
+    const table = await within(groupsPanel()).findByRole("table")
+    expect(within(table).getByText("Editors")).toBeTruthy()
+    expect(within(table).getByText("@editors")).toBeTruthy()
+    expect(within(table).getByText("3")).toBeTruthy()
+    expect(within(table).getByText("@everyone")).toBeTruthy()
+    expect(within(table).getByText("System")).toBeTruthy()
+    expect(
+      within(table).getByText("Every account, including future ones — membership is implicit."),
+    ).toBeTruthy()
+    expect(within(table).getAllByRole("button", { name: "Members" })).toHaveLength(1)
+    expect(screen.queryByRole("button", { name: "Edit everyone" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Delete everyone" })).toBeNull()
+  })
+
+  it("creates a group from the dialog", async () => {
+    api.createGroup.mockResolvedValue(groupRow({ member_count: 0, members: [] }))
+
+    renderAdmin()
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add group" }))
+    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: "editors" } })
+    fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Editors" } })
+    fireEvent.click(screen.getByRole("button", { name: "Create group" }))
+
+    await waitFor(() => expect(api.createGroup).toHaveBeenCalledWith("editors", "Editors"))
+  })
+
+  it("renames a group through the dialog", async () => {
+    api.fetchGroups.mockResolvedValue({ items: [groupRow()], total: 1 })
+    api.updateGroup.mockResolvedValue(groupRow({ display_name: "Editors!" }))
+
+    renderAdmin()
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit editors" }))
+    const dialog = await screen.findByRole("dialog")
+    fireEvent.change(within(dialog).getByLabelText("Display name"), { target: { value: "Editors!" } })
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }))
+
+    await waitFor(() =>
+      expect(api.updateGroup).toHaveBeenCalledWith(2, { name: "editors", display_name: "Editors!" }),
+    )
+  })
+
+  it("deletes a group after the confirmation", async () => {
+    api.fetchGroups.mockResolvedValue({ items: [groupRow()], total: 1 })
+    api.deleteGroup.mockResolvedValue({ status: "deleted", id: 2 })
+
+    renderAdmin()
+
+    fireEvent.click(await screen.findByRole("button", { name: "Delete editors" }))
+    const dialog = await screen.findByRole("dialog")
+    expect(within(dialog).getByText("Delete group")).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }))
+
+    await waitFor(() => expect(api.deleteGroup).toHaveBeenCalledWith(2))
+  })
+
+  it("applies a member set through the members dialog", async () => {
+    api.fetchGroups.mockResolvedValue({ items: [groupRow({ member_count: 0, members: [] })], total: 1 })
+    api.setGroupMembers.mockResolvedValue(groupRow({ member_count: 2, members: ["kyros", "alice"] }))
+
+    renderAdmin()
+
+    fireEvent.click(await screen.findByRole("button", { name: "Members" }))
+    const dialog = await screen.findByRole("dialog")
+    fireEvent.click(within(dialog).getByRole("button", { name: "Select all" }))
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save members" }))
+
+    await waitFor(() => expect(api.setGroupMembers).toHaveBeenCalledWith(2, ["kyros", "alice"]))
   })
 })

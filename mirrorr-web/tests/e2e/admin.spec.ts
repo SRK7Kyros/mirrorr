@@ -341,15 +341,20 @@ test.describe("admin resource access", () => {
     await page.setViewportSize({ width: 375, height: 812 })
     await page.waitForTimeout(150)
 
-    const fit = await dialog.evaluate((node) => {
+    // Only the two capability chip rows wrap: the principal switch above them is
+    // a two-button segmented control, not a chip row.
+    const chipRows = ["Filter by capability", "Capabilities for the selected users"]
+    const fit = await dialog.evaluate((node, labels) => {
       const box = node.getBoundingClientRect()
-      const rows = [...node.querySelectorAll('[role="group"]')].map((group) => {
-        const edges = [...group.querySelectorAll("button")].map((chip) => chip.getBoundingClientRect())
+      const rows = labels.map((label) => {
+        const group = node.querySelector(`[role="group"][aria-label="${label}"]`)
+        const edges =
+          group === null ? [] : [...group.querySelectorAll("button")].map((chip) => chip.getBoundingClientRect())
         return {
           chips: edges.length,
           lines: new Set(edges.map((edge) => Math.round(edge.top))).size,
           maxRight: Math.max(...edges.map((edge) => edge.right)),
-          groupRight: group.getBoundingClientRect().right,
+          groupRight: group === null ? 0 : group.getBoundingClientRect().right,
         }
       })
       const body = node.querySelector(":scope > div")
@@ -359,7 +364,7 @@ test.describe("admin resource access", () => {
         rows,
         bodyScrolls: body === null ? null : body.scrollHeight > body.clientHeight + 1,
       }
-    })
+    }, chipRows)
 
     expect(fit.top).toBeGreaterThanOrEqual(0)
     expect(fit.bottom).toBeLessThanOrEqual(812)
@@ -369,6 +374,7 @@ test.describe("admin resource access", () => {
     // horizontally and the dialog must still fit without its body scrolling.
     const maxLines = [2, 2]
     fit.rows.forEach((row, index) => {
+      expect(row.chips, JSON.stringify(row)).toBeGreaterThan(0)
       expect(row.lines, JSON.stringify(row)).toBeLessThanOrEqual(maxLines[index] ?? 2)
       expect(row.maxRight, JSON.stringify(row)).toBeLessThanOrEqual(row.groupRight + 1)
     })
@@ -424,5 +430,126 @@ test.describe("admin resource access", () => {
       .toBe(true)
     const posted = api.callsTo("/shares/autorun/5").filter((call) => call.method === "POST").at(-1)
     expect(posted?.body).toEqual({ username: "alice", capabilities: ["VIEW"] })
+  })
+
+  function groupsPanel(page: Page) {
+    return page.locator('section:has(> header > h2:text-is("Groups"))')
+  }
+
+  const GROUPS = [
+    { id: 1, name: "everyone", display_name: "Everyone", system: true, member_count: 2, members: ["kyros", "alice"] },
+    { id: 9, name: "f1-team", display_name: "F1 team", system: false, member_count: 1, members: ["alice"] },
+  ]
+
+  test("lists groups, seals the reserved one and creates a group", async ({ page, api }) => {
+    api.data.users = USERS
+    api.data.groups = GROUPS
+
+    await openAdminSettings(page)
+
+    const panel = groupsPanel(page)
+    await expect(panel.getByText("F1 team", { exact: true })).toBeVisible()
+    await expect(panel.getByText("@f1-team", { exact: true })).toBeVisible()
+    await expect(panel.getByRole("row", { name: /f1-team/ }).getByRole("cell", { name: "1", exact: true })).toBeVisible()
+
+    // The reserved group is always listed and never editable: its membership is
+    // every account, including the ones that do not exist yet.
+    const sealed = panel.getByRole("row", { name: /@everyone/ })
+    await expect(sealed.getByText("@everyone", { exact: true })).toBeVisible()
+    await expect(sealed.getByText("Every account, including future ones — membership is implicit.")).toBeVisible()
+    await expect(sealed.getByRole("cell", { name: "Everyone", exact: true })).toBeVisible()
+    await expect(panel.getByRole("button", { name: "Members" })).toHaveCount(1)
+    await expect(panel.getByRole("button", { name: "Edit everyone" })).toHaveCount(0)
+    await expect(panel.getByRole("button", { name: "Delete everyone" })).toHaveCount(0)
+
+    await panel.getByRole("button", { name: "Add group" }).click()
+    const dialog = page.getByRole("dialog")
+    await dialog.getByLabel(/^Name/).fill("editors")
+    await dialog.getByLabel(/^Display/).fill("Editors")
+    await dialog.getByRole("button", { name: "Create group" }).click()
+
+    await expect.poll(() => api.callsTo("/groups").some((call) => call.method === "POST")).toBe(true)
+    const posted = api.callsTo("/groups").filter((call) => call.method === "POST").at(-1)
+    expect(posted?.body).toEqual({ name: "editors", display_name: "Editors" })
+  })
+
+  test("sets a group's members, renames it and deletes it", async ({ page, api }) => {
+    api.data.users = USERS
+    api.data.groups = GROUPS
+
+    await openAdminSettings(page)
+    const panel = groupsPanel(page)
+
+    await panel.getByRole("button", { name: "Members" }).click()
+    const members = page.getByRole("dialog")
+    await expect(members.getByText("Members · f1-team")).toBeVisible()
+    await members.getByRole("checkbox", { name: /Kyros/ }).click()
+    await members.getByRole("button", { name: "Save members" }).click()
+
+    await expect.poll(() => api.callsTo("/groups/9/members").some((call) => call.method === "PUT")).toBe(true)
+    const put = api.callsTo("/groups/9/members").filter((call) => call.method === "PUT").at(-1)
+    expect(put?.body).toEqual({ usernames: ["alice", "kyros"] })
+
+    await panel.getByRole("button", { name: "Edit f1-team" }).click()
+    const edit = page.getByRole("dialog")
+    await expect(edit.getByText("Edit f1-team")).toBeVisible()
+    await edit.getByLabel(/^Display/).fill("F1 team 2026")
+    await edit.getByRole("button", { name: "Save" }).click()
+
+    await expect.poll(() => api.callsTo("/groups/9").some((call) => call.method === "PATCH")).toBe(true)
+    const patch = api.callsTo("/groups/9").filter((call) => call.method === "PATCH").at(-1)
+    expect(patch?.body).toMatchObject({ display_name: "F1 team 2026" })
+
+    await panel.getByRole("button", { name: "Delete f1-team" }).click()
+    const confirm = page.getByRole("dialog")
+    await expect(confirm.getByText("Delete group")).toBeVisible()
+    await confirm.getByRole("button", { name: "Delete", exact: true }).click()
+
+    await expect.poll(() => api.callsTo("/groups/9").some((call) => call.method === "DELETE")).toBe(true)
+  })
+
+  test("grants a capability to a group and adds an owner group with an everyone warning", async ({ page, api }) => {
+    api.data.users = USERS
+    api.data.resources = [sessionRow()]
+    api.data.groups = GROUPS
+
+    await openAdminSettings(page)
+    await resourcePanel(page).getByRole("button", { name: "Manage access for F1 Weekend" }).click()
+
+    const dialog = page.getByRole("dialog")
+    const catalog = dialog.getByTestId("access-catalog")
+    const lower = dialog.getByRole("group", { name: "Capabilities for the selected users" })
+
+    // The user catalog is the default; the group catalog grants the same way.
+    await dialog.getByRole("group", { name: "Principal" }).getByRole("button", { name: "Groups" }).click()
+    await expect(catalog.getByRole("button", { name: /F1 team/ })).toBeVisible()
+    await expect(catalog.getByText("every account, including future ones")).toBeVisible()
+    await catalog.getByRole("button", { name: /F1 team/ }).click()
+    await lower.getByRole("button", { name: "View access" }).click()
+    await dialog.getByRole("button", { name: "Apply changes" }).click()
+
+    await expect.poll(() => api.callsTo("/shares/session/7/group/9").some((call) => call.method === "POST")).toBe(true)
+    const granted = api.callsTo("/shares/session/7/group/9").filter((call) => call.method === "POST").at(-1)
+    expect(granted?.body).toEqual({ capabilities: ["VIEW"] })
+
+    // Ownership is additive and `everyone` may be chosen — the panel says plainly
+    // what that means before anything is applied.
+    await dialog.getByRole("button", { name: "Add owner group" }).click()
+    await dialog.getByRole("button", { name: "Add owner group F1 team" }).click()
+    await dialog.getByRole("button", { name: "Add owner group" }).click()
+    await dialog.getByRole("button", { name: "Add owner group Everyone" }).click()
+    await expect(
+      dialog.getByRole("alert").filter({ hasText: "Every account gets full control of this item" }),
+    ).toBeVisible()
+
+    await dialog.getByRole("button", { name: "Apply changes" }).click()
+    await expect.poll(() => api.callsTo("/shares/session/7/owner-group/9").some((call) => call.method === "PUT")).toBe(true)
+    await expect.poll(() => api.callsTo("/shares/session/7/owner-group/1").some((call) => call.method === "PUT")).toBe(true)
+
+    await dialog.getByRole("button", { name: "Remove owner group Everyone" }).click()
+    await dialog.getByRole("button", { name: "Apply changes" }).click()
+    await expect
+      .poll(() => api.callsTo("/shares/session/7/owner-group/1").some((call) => call.method === "DELETE"))
+      .toBe(true)
   })
 })

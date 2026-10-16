@@ -7,6 +7,7 @@ import { AccessPanel } from "./access-panel"
 
 const api = vi.hoisted(() => ({
   fetchUsers: vi.fn(),
+  fetchGroups: vi.fn(),
   fetchResourceAccess: vi.fn(),
   getErrorMessage: vi.fn((_error: unknown, fallback: string) => fallback),
 }))
@@ -28,6 +29,12 @@ const USERS: readonly User[] = [
   { id: 4, username: "carol", role: "user", display_name: "Carol" },
 ]
 
+const GROUPS = [
+  { id: 1, name: "everyone", display_name: "Everyone", system: true, member_count: 0, members: [] },
+  { id: 2, name: "editors", display_name: "Editors", system: false, member_count: 3, members: [] },
+  { id: 3, name: "ops", display_name: "Operations", system: false, member_count: 1, members: [] },
+]
+
 interface GrantInput {
   readonly owner?: string
   readonly grants?: Partial<Record<Capability, readonly string[]>>
@@ -42,6 +49,8 @@ function accessView({ owner = "kyros", grants = {} }: GrantInput = {}) {
     grants: CAPABILITIES.flatMap((capability) =>
       (grants[capability] ?? []).map((username) => ({ username, capabilities: [capability] })),
     ),
+    owner_groups: [] as { id: number; name: string; display_name: string; system: boolean }[],
+    group_grants: [] as unknown[],
   }
 }
 
@@ -94,6 +103,7 @@ function applyButton(): HTMLButtonElement {
 beforeEach(() => {
   vi.resetAllMocks()
   api.fetchUsers.mockResolvedValue(USERS)
+  api.fetchGroups.mockResolvedValue({ items: GROUPS, total: GROUPS.length })
   api.fetchResourceAccess.mockResolvedValue(accessView())
 })
 
@@ -378,5 +388,18 @@ describe("AccessPanel", () => {
     expect(region.contains(apply)).toBe(false)
     expect(dialog.contains(indicator)).toBe(true)
     expect(dialog.contains(apply)).toBe(true)
+  })
+
+  it("switches the catalog to the groups the server offers", async () => {
+    renderPanel()
+    await loaded()
+
+    const principal = screen.getByRole("group", { name: "Principal" })
+    fireEvent.click(within(principal).getByRole("button", { name: "Groups" }))
+
+    expect(card("Editors")).toBeTruthy()
+    expect(screen.getByText("3 members")).toBeTruthy()
+    expect(screen.getByText("every account, including future ones")).toBeTruthy()
+    expect(within(catalog()).queryByText(/^@/)).toBeNull()
   })
 })
