@@ -1,24 +1,24 @@
 import { z } from "zod"
 import { ApiError, apiFetch } from "@/api/client"
 import {
+  AccessViewSchema,
   AdminResourcePageSchema,
-  ResourceAccessSchema,
   ResourceOwnerSchema,
-  ResourceViewersSchema,
+  type AccessView,
   type AdminResourcePage,
-  type ResourceAccess,
+  type Capability,
   type ResourceOwner,
-  type ResourceViewers,
 } from "@/api/schemas/privileged"
 
 /**
- * Admin resource-access endpoints (plan: `admin-ownership-and-access`).
+ * Sharing endpoints (plan: `granular-permissions-and-access-panel`).
  *
- * Every path requires an admin principal; the server answers 403 otherwise.
- * Shapes are the frozen contract in `.omo/plans/admin-ownership-and-access.md`
- * — the core lane owns the implementation. `parseOrThrow` mirrors
- * `endpoints/settings.ts`: a shape mismatch warns and surfaces as
- * `ApiError(0, "Unexpected server response")`.
+ * `/shares/` is the one sharing surface; the server gates each route on the
+ * SHARE capability (owner | admin | SHARE holder). `PUT …/owner` stays on the
+ * admin router. Shapes are the frozen contract in
+ * `.omo/plans/granular-permissions-and-access-panel.md` — the core lane owns
+ * the implementation. `parseOrThrow` mirrors `endpoints/settings.ts`: a shape
+ * mismatch warns and surfaces as `ApiError(0, "Unexpected server response")`.
  */
 
 export interface AdminResourceQuery {
@@ -37,9 +37,9 @@ function parseOrThrow<T>(schema: z.ZodType<T>, data: unknown): T {
   return result.data
 }
 
-/** `/admin/resources/{type}/{id}` — the shared prefix of every item route. */
-function resourcePath(resourceType: string, id: number): string {
-  return `/admin/resources/${encodeURIComponent(resourceType)}/${id}`
+/** `/shares/{type}/{id}` — the prefix every sharing route hangs off. */
+function sharePath(resourceType: string, id: number): string {
+  return `/shares/${encodeURIComponent(resourceType)}/${id}`
 }
 
 /** `GET /admin/resources` — one offset page of every item, system rows included. */
@@ -57,40 +57,53 @@ export function fetchAdminResources(query: AdminResourceQuery = {}): Promise<Adm
   )
 }
 
-/** `GET …/access` — the owner and the explicit view grants. */
-export function fetchResourceAccess(resourceType: string, id: number): Promise<ResourceAccess> {
-  return apiFetch<unknown>(`${resourcePath(resourceType, id)}/access`).then((data) =>
-    parseOrThrow(ResourceAccessSchema, data),
+/** `GET /shares/{type}/{id}` — the owner plus every explicit capability grant. */
+export function fetchResourceAccess(resourceType: string, id: number): Promise<AccessView> {
+  return apiFetch<unknown>(sharePath(resourceType, id)).then((data) =>
+    parseOrThrow(AccessViewSchema, data),
   )
 }
 
-/** `PUT …/owner` — reassign ownership (idempotent on the server). */
-export function setResourceOwner(resourceType: string, id: number, username: string): Promise<ResourceOwner> {
-  return apiFetch<unknown>(`${resourcePath(resourceType, id)}/owner`, {
+/** `PUT /admin/resources/{type}/{id}/owner` — reassign ownership (admin-only, idempotent). */
+export function setResourceOwner(
+  resourceType: string,
+  id: number,
+  username: string,
+): Promise<ResourceOwner> {
+  return apiFetch<unknown>(`/admin/resources/${encodeURIComponent(resourceType)}/${id}/owner`, {
     method: "PUT",
     body: { username },
   }).then((data) => parseOrThrow(ResourceOwnerSchema, data))
 }
 
-/** `POST …/access` — grant a user view access (idempotent on the server). */
-export function grantResourceViewer(
+/**
+ * `POST /shares/{type}/{id}` — REPLACE-SET one user's capabilities (idempotent).
+ * Renamed from `grantResourceViewer`, which lied: the body is the user's whole
+ * capability set, not a single view grant.
+ */
+export function setResourceGrants(
   resourceType: string,
   id: number,
   username: string,
-): Promise<ResourceViewers> {
-  return apiFetch<unknown>(`${resourcePath(resourceType, id)}/access`, {
+  capabilities: readonly Capability[],
+): Promise<AccessView> {
+  return apiFetch<unknown>(sharePath(resourceType, id), {
     method: "POST",
-    body: { username },
-  }).then((data) => parseOrThrow(ResourceViewersSchema, data))
+    body: { username, capabilities },
+  }).then((data) => parseOrThrow(AccessViewSchema, data))
 }
 
-/** `DELETE …/access/{username}` — revoke a view grant. */
-export function revokeResourceViewer(
+/**
+ * `DELETE /shares/{type}/{id}/{username}` — clear every grant for one user
+ * (idempotent). Renamed from `revokeResourceViewer`, which lied: it clears
+ * every capability for the user, not a single view grant.
+ */
+export function revokeResourceUser(
   resourceType: string,
   id: number,
   username: string,
-): Promise<ResourceViewers> {
-  return apiFetch<unknown>(`${resourcePath(resourceType, id)}/access/${encodeURIComponent(username)}`, {
+): Promise<AccessView> {
+  return apiFetch<unknown>(`${sharePath(resourceType, id)}/${encodeURIComponent(username)}`, {
     method: "DELETE",
-  }).then((data) => parseOrThrow(ResourceViewersSchema, data))
+  }).then((data) => parseOrThrow(AccessViewSchema, data))
 }

@@ -47,19 +47,45 @@ export const AdminResourcePageSchema = z
 
 export type AdminResourcePage = z.infer<typeof AdminResourcePageSchema>
 
-/** `GET …/access` response — the resource's owner and explicit view grants. */
-export const ResourceAccessSchema = z
+/* ── Sharing / capabilities (plan: granular-permissions-and-access-panel) ──
+ *
+ * The one sharing shape, served by `/shares/{resource_type}/{resource_id}`
+ * (GET/POST/DELETE). It replaces the old `/admin/resources/{t}/{id}/access*`
+ * routes; the old flat `{owner, viewers}` shape is gone and must not be
+ * accepted here (a stale cached body would parse as an empty grant set).
+ */
+
+/** The six capability values, in the frozen enumeration order. */
+export const CAPABILITIES = ["VIEW", "OPERATE", "EDIT", "DELETE", "SHARE", "EXPORT"] as const
+export type Capability = (typeof CAPABILITIES)[number]
+
+/** A capability value; an unknown string is rejected, never coerced. */
+export const CapabilitySchema = z.enum(CAPABILITIES)
+
+/** One user's explicit capabilities. */
+export const AccessGrantSchema = z
   .object({
-    resource_type: z.string(),
-    id: z.number(),
-    owner: z.string(),
-    viewers: z.array(z.string()),
+    username: z.string(),
+    capabilities: z.array(CapabilitySchema),
   })
   .passthrough()
 
-export type ResourceAccess = z.infer<typeof ResourceAccessSchema>
+export type AccessGrant = z.infer<typeof AccessGrantSchema>
 
-/** `PUT …/owner` response. */
+/** `GET|POST|DELETE /shares/{resource_type}/{resource_id}` response. */
+export const AccessViewSchema = z
+  .object({
+    resource_type: z.string(),
+    id: z.number(),
+    owner: z.string().nullable(),
+    owner_missing: z.boolean(),
+    grants: z.array(AccessGrantSchema),
+  })
+  .passthrough()
+
+export type AccessView = z.infer<typeof AccessViewSchema>
+
+/** `PUT /admin/resources/{type}/{id}/owner` response (admin-only, unchanged). */
 export const ResourceOwnerSchema = z
   .object({
     resource_type: z.string(),
@@ -69,12 +95,3 @@ export const ResourceOwnerSchema = z
   .passthrough()
 
 export type ResourceOwner = z.infer<typeof ResourceOwnerSchema>
-
-/** `POST`/`DELETE …/access` response — the new viewer set. */
-export const ResourceViewersSchema = z
-  .object({
-    viewers: z.array(z.string()),
-  })
-  .passthrough()
-
-export type ResourceViewers = z.infer<typeof ResourceViewersSchema>

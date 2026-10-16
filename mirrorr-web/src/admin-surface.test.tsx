@@ -18,8 +18,8 @@ const api = vi.hoisted(() => ({
   getErrorMessage: vi.fn((_error: unknown, fallback: string) => fallback),
   fetchAdminResources: vi.fn(),
   fetchResourceAccess: vi.fn(),
-  grantResourceViewer: vi.fn(),
-  revokeResourceViewer: vi.fn(),
+  setResourceGrants: vi.fn(),
+  revokeResourceUser: vi.fn(),
   setResourceOwner: vi.fn(),
 }))
 
@@ -56,6 +56,10 @@ function resource(overrides: ResourceOverrides = {}) {
   }
 }
 
+function accessView() {
+  return { resource_type: "session", id: 7, owner: "kyros", owner_missing: false, grants: [] }
+}
+
 function renderAdmin() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const Wrapper = ({ children }: { readonly children: ReactNode }) => (
@@ -77,17 +81,12 @@ beforeEach(() => {
   api.fetchRegistrationRequests.mockResolvedValue([])
   api.fetchUsers.mockResolvedValue(USERS)
   api.fetchAdminResources.mockResolvedValue({ items: [], total: 0 })
-  api.fetchResourceAccess.mockResolvedValue({
-    resource_type: "session",
-    id: 7,
-    owner: "kyros",
-    viewers: [],
-  })
+  api.fetchResourceAccess.mockResolvedValue(accessView())
   api.setResourceOwner.mockImplementation((_type: string, _id: number, username: string) =>
     Promise.resolve({ resource_type: "session", id: 7, owner: username }),
   )
-  api.grantResourceViewer.mockResolvedValue({ viewers: ["alice"] })
-  api.revokeResourceViewer.mockResolvedValue({ viewers: [] })
+  api.setResourceGrants.mockResolvedValue(accessView())
+  api.revokeResourceUser.mockResolvedValue(accessView())
 })
 
 describe("ResourceAccessSection", () => {
@@ -167,7 +166,7 @@ describe("ResourceAccessSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add" }))
     fireEvent.click(screen.getByRole("button", { name: "Apply changes" }))
 
-    await waitFor(() => expect(api.grantResourceViewer).toHaveBeenCalledWith("session", 7, "alice"))
+    await waitFor(() => expect(api.setResourceGrants).toHaveBeenCalledWith("session", 7, "alice", ["VIEW"]))
   })
 
   it("removes a viewer through the dialog", async () => {
@@ -176,7 +175,8 @@ describe("ResourceAccessSection", () => {
       resource_type: "session",
       id: 7,
       owner: "kyros",
-      viewers: ["alice"],
+      owner_missing: false,
+      grants: [{ username: "alice", capabilities: ["VIEW"] }],
     })
 
     renderAdmin()
@@ -185,6 +185,6 @@ describe("ResourceAccessSection", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Remove alice" }))
     fireEvent.click(screen.getByRole("button", { name: "Apply changes" }))
 
-    await waitFor(() => expect(api.revokeResourceViewer).toHaveBeenCalledWith("session", 7, "alice"))
+    await waitFor(() => expect(api.revokeResourceUser).toHaveBeenCalledWith("session", 7, "alice"))
   })
 })

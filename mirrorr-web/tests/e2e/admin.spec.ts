@@ -114,13 +114,13 @@ test.describe("admin resource access", () => {
     await page.getByRole("button", { name: "Add", exact: true }).click()
     await page.getByRole("button", { name: "Apply changes" }).click()
     await expect
-      .poll(() => api.callsTo("/admin/resources/session/7/access").some((call) => call.method === "POST"))
+      .poll(() => api.callsTo("/shares/session/7").some((call) => call.method === "POST"))
       .toBe(true)
 
     await page.getByRole("button", { name: "Remove alice" }).click()
     await page.getByRole("button", { name: "Apply changes" }).click()
     await expect
-      .poll(() => api.callsTo("/admin/resources/session/7/access/alice").some((call) => call.method === "DELETE"))
+      .poll(() => api.callsTo("/shares/session/7/alice").some((call) => call.method === "DELETE"))
       .toBe(true)
   })
 

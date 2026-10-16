@@ -1,26 +1,45 @@
 import { describe, expect, it, vi, beforeEach } from "vitest"
-import { applyPlans, overrideOf, planBulk, planItem, type AccessRow } from "./access-plan"
+import {
+  applyPlans,
+  emptyGrants,
+  grantedUsernames,
+  itemAccessFromView,
+  overrideOf,
+  planBulk,
+  planItem,
+  type AccessRow,
+  type ItemAccess,
+} from "./access-plan"
+import type { AccessView, Capability } from "@/api/schemas/privileged"
 
 vi.mock("@/api/endpoints/access", () => ({
   setResourceOwner: vi.fn(),
-  grantResourceViewer: vi.fn(),
-  revokeResourceViewer: vi.fn(),
+  setResourceGrants: vi.fn(),
+  revokeResourceUser: vi.fn(),
 }))
 
 import * as api from "@/api/endpoints/access"
 
 const setOwner = vi.mocked(api.setResourceOwner)
-const grant = vi.mocked(api.grantResourceViewer)
-const revoke = vi.mocked(api.revokeResourceViewer)
+const grant = vi.mocked(api.setResourceGrants)
+const revoke = vi.mocked(api.revokeResourceUser)
 
 const USERS = ["kyros", "alice"]
+
+function grants(over: Partial<Record<Capability, string[]>> = {}): Record<Capability, string[]> {
+  return { ...emptyGrants(), ...over }
+}
+
+function access(over: Partial<ItemAccess> = {}): ItemAccess {
+  return { owner: "kyros", ownerMissing: false, grants: grants(), ...over }
+}
 
 function row(over: Partial<AccessRow> = {}): AccessRow {
   return {
     resourceType: "session",
     id: 1,
     label: "Sky Sports F1",
-    access: { owner: "kyros", viewers: [] },
+    access: access(),
     ...over,
   }
 }
@@ -29,28 +48,71 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
+describe("itemAccessFromView", () => {
+  it("maps the wire AccessView onto a full grant record", () => {
+    const view: AccessView = {
+      resource_type: "session",
+      id: 7,
+      owner: "kyros",
+      owner_missing: false,
+      grants: [{ username: "bob", capabilities: ["OPERATE", "VIEW"] }],
+    }
+    const item = itemAccessFromView(view)
+    expect(item.owner).toBe("kyros")
+    expect(item.grants.VIEW).toEqual(["bob"])
+    expect(item.grants.OPERATE).toEqual(["bob"])
+    expect(item.grants.EXPORT).toEqual([])
+  })
+
+  it("carries a missing owner and a null owner through unchanged", () => {
+    const item = itemAccessFromView({
+      resource_type: "session",
+      id: 7,
+      owner: null,
+      owner_missing: true,
+      grants: [],
+    })
+    expect(item.owner).toBeNull()
+    expect(item.ownerMissing).toBe(true)
+  })
+})
+
+describe("grantedUsernames", () => {
+  it("unions usernames across every capability, once each", () => {
+    const item = access({ grants: grants({ VIEW: ["alice"], OPERATE: ["bob"], EDIT: ["alice"] }) })
+    expect(grantedUsernames(item).sort()).toEqual(["alice", "bob"])
+  })
+})
+
 describe("overrideOf", () => {
   it("is null for an owner-only item", () => {
-    expect(overrideOf({ owner: "kyros", viewers: [] }, USERS)).toBeNull()
+    expect(overrideOf(access(), USERS)).toBeNull()
   })
 
-  it("flags an owner whose account is gone", () => {
-    expect(overrideOf({ owner: "ghost", viewers: [] }, USERS)).toEqual({ kind: "owner-missing" })
-  })
-
-  it("flags explicit grants and counts them", () => {
-    expect(overrideOf({ owner: "kyros", viewers: ["alice", "bob"] }, USERS)).toEqual({
-      kind: "grants",
-      count: 2,
+  it("flags an owner the server reports as missing", () => {
+    expect(overrideOf(access({ owner: "ghost", ownerMissing: true }), USERS)).toEqual({
+      kind: "owner-missing",
     })
   })
 
-  it("prefers the missing owner when both are true", () => {
-    expect(overrideOf({ owner: "ghost", viewers: ["alice"] }, USERS)).toEqual({ kind: "owner-missing" })
+  it("flags an owner absent from the user list", () => {
+    expect(overrideOf(access({ owner: "ghost" }), USERS)).toEqual({ kind: "owner-missing" })
   })
 
-  it("treats an empty owner as ownerless, not missing", () => {
-    expect(overrideOf({ owner: "", viewers: [] }, USERS)).toBeNull()
+  it("flags explicit grants and counts distinct users", () => {
+    const item = access({ grants: grants({ VIEW: ["alice"], OPERATE: ["bob"], EDIT: ["alice"] }) })
+    expect(overrideOf(item, USERS)).toEqual({ kind: "grants", count: 2 })
+  })
+
+  it("prefers the missing owner when both are true", () => {
+    expect(overrideOf(access({ owner: "ghost", grants: grants({ VIEW: ["alice"] }) }), USERS)).toEqual({
+      kind: "owner-missing",
+    })
+  })
+
+  it("treats a null or empty owner as ownerless, not missing", () => {
+    expect(overrideOf(access({ owner: null }), USERS)).toBeNull()
+    expect(overrideOf(access({ owner: "" }), USERS)).toBeNull()
   })
 })
 
@@ -58,34 +120,63 @@ describe("planItem", () => {
   it("emits one owner op when only the owner changes", () => {
     const plan = planItem(row(), { owner: "alice" }, USERS)
     expect(plan.ops).toEqual([{ kind: "owner", username: "alice" }])
-    expect(plan.to).toEqual({ owner: "alice", viewers: [] })
+    expect(plan.to.owner).toBe("alice")
   })
 
   it("leaves absent target fields untouched", () => {
-    const plan = planItem(row({ access: { owner: "kyros", viewers: ["alice"] } }), {}, USERS)
+    const plan = planItem(row({ access: access({ grants: grants({ VIEW: ["alice"] }) }) }), {}, USERS)
     expect(plan.ops).toEqual([])
-    expect(plan.to).toEqual({ owner: "kyros", viewers: ["alice"] })
+    expect(plan.to.grants.VIEW).toEqual(["alice"])
   })
 
-  it("grants added viewers and revokes removed ones", () => {
+  it("grants an added VIEW and revokes a removed VIEW", () => {
     const plan = planItem(
-      row({ access: { owner: "kyros", viewers: ["alice", "bob"] } }),
-      { viewers: ["alice", "carol"] },
+      row({ access: access({ grants: grants({ VIEW: ["alice", "bob"] }) }) }),
+      { grants: { VIEW: ["alice", "carol"] } },
       USERS,
     )
     expect(plan.ops).toEqual([
-      { kind: "grant", username: "carol" },
-      { kind: "revoke", username: "bob" },
+      { kind: "grant", capability: "VIEW", username: "carol" },
+      { kind: "revoke", capability: "VIEW", username: "bob" },
     ])
   })
 
+  it("diffs each capability independently", () => {
+    const plan = planItem(
+      row({ access: access({ grants: grants({ VIEW: ["bob"] }) }) }),
+      { grants: { VIEW: [], OPERATE: ["bob"] } },
+      USERS,
+    )
+    expect(plan.ops).toEqual([
+      { kind: "revoke", capability: "VIEW", username: "bob" },
+      { kind: "grant", capability: "OPERATE", username: "bob" },
+    ])
+  })
+
+  it("grants a second capability without disturbing the first", () => {
+    const plan = planItem(
+      row({ access: access({ grants: grants({ VIEW: ["alice"] }) }) }),
+      { grants: { VIEW: ["alice"], OPERATE: ["alice"] } },
+      USERS,
+    )
+    expect(plan.ops).toEqual([{ kind: "grant", capability: "OPERATE", username: "alice" }])
+  })
+
   it("emits nothing when the target equals the current state", () => {
-    const plan = planItem(row({ access: { owner: "kyros", viewers: ["alice"] } }), { owner: "kyros", viewers: ["alice"] }, USERS)
+    const plan = planItem(
+      row({ access: access({ grants: grants({ VIEW: ["alice"] }) }) }),
+      { owner: "kyros", grants: { VIEW: ["alice"] } },
+      USERS,
+    )
     expect(plan.ops).toEqual([])
   })
 
   it("carries the override the item starts with, not the target", () => {
-    const plan = planItem(row({ access: { owner: "ghost", viewers: ["alice"] } }), { owner: "kyros" }, USERS)
+    const plan = planItem(
+      row({ access: access({ owner: "ghost", grants: grants({ VIEW: ["alice"] }) }) }),
+      { owner: "kyros" },
+      USERS,
+    )
     expect(plan.override).toEqual({ kind: "owner-missing" })
     expect(plan.ops).toEqual([{ kind: "owner", username: "kyros" }])
   })
@@ -94,7 +185,7 @@ describe("planItem", () => {
 describe("planBulk", () => {
   it("counts ops across items", () => {
     const plan = planBulk(
-      [row({ id: 1 }), row({ id: 2, access: { owner: "alice", viewers: [] } })],
+      [row({ id: 1 }), row({ id: 2, access: access({ owner: "alice" }) })],
       { owner: "kyros" },
       USERS,
     )
@@ -104,10 +195,10 @@ describe("planBulk", () => {
   it("lists only items whose own access a change would overwrite", () => {
     const plan = planBulk(
       [
-        row({ id: 1, label: "clean", access: { owner: "alice", viewers: [] } }),
-        row({ id: 2, label: "shared", access: { owner: "alice", viewers: ["kyros"] } }),
-        row({ id: 3, label: "ghosted", access: { owner: "ghost", viewers: [] } }),
-        row({ id: 4, label: "already kyros", access: { owner: "kyros", viewers: [] } }),
+        row({ id: 1, label: "clean", access: access({ owner: "alice" }) }),
+        row({ id: 2, label: "shared", access: access({ owner: "alice", grants: grants({ VIEW: ["kyros"] }) }) }),
+        row({ id: 3, label: "ghosted", access: access({ owner: "ghost" }) }),
+        row({ id: 4, label: "already kyros", access: access({ owner: "kyros" }) }),
       ],
       { owner: "kyros" },
       USERS,
@@ -116,7 +207,11 @@ describe("planBulk", () => {
   })
 
   it("does not warn about an overridden item the change leaves alone", () => {
-    const plan = planBulk([row({ access: { owner: "ghost", viewers: ["alice"] } })], {}, USERS)
+    const plan = planBulk(
+      [row({ access: access({ owner: "ghost", grants: grants({ VIEW: ["alice"] }) }) })],
+      {},
+      USERS,
+    )
     expect(plan.opCount).toBe(0)
     expect(plan.overriding).toEqual([])
   })
@@ -126,29 +221,61 @@ describe("applyPlans", () => {
   it("runs each op of each item in order and skips no-ops", async () => {
     const plan = planBulk(
       [
-        row({ id: 1, access: { owner: "alice", viewers: ["bob"] } }),
-        row({ id: 2, access: { owner: "kyros", viewers: ["alice"] } }),
+        row({ id: 1, access: access({ owner: "alice", grants: grants({ VIEW: ["bob"] }) }) }),
+        row({ id: 2, access: access({ owner: "kyros", grants: grants({ VIEW: ["alice"] }) }) }),
       ],
-      { owner: "kyros", viewers: ["alice"] },
+      { owner: "kyros", grants: { VIEW: ["alice"] } },
       USERS,
     )
     const outcome = await applyPlans(plan.items)
     expect(setOwner).toHaveBeenCalledWith("session", 1, "kyros")
-    expect(grant).toHaveBeenCalledWith("session", 1, "alice")
+    expect(grant).toHaveBeenCalledWith("session", 1, "alice", ["VIEW"])
     expect(revoke).toHaveBeenCalledWith("session", 1, "bob")
     expect(setOwner).toHaveBeenCalledTimes(1)
-    expect(grant).toHaveBeenCalledTimes(1)
     expect(outcome.applied.map((item) => item.id)).toEqual([1])
     expect(outcome.failed).toEqual([])
+  })
+
+  it("posts the user's whole resulting capability set on a grant", async () => {
+    const plan = planBulk(
+      [row({ id: 1, access: access({ grants: grants({ VIEW: ["bob"] }) }) })],
+      { grants: { VIEW: ["bob"], OPERATE: ["bob"] } },
+      USERS,
+    )
+    await applyPlans(plan.items)
+    expect(grant).toHaveBeenCalledTimes(1)
+    expect(grant).toHaveBeenCalledWith("session", 1, "bob", ["VIEW", "OPERATE"])
+  })
+
+  it("clears a user through the DELETE route when their last capability goes", async () => {
+    const plan = planBulk(
+      [row({ id: 1, access: access({ grants: grants({ VIEW: ["bob"] }) }) })],
+      { grants: { VIEW: [] } },
+      USERS,
+    )
+    await applyPlans(plan.items)
+    expect(revoke).toHaveBeenCalledWith("session", 1, "bob")
+    expect(grant).not.toHaveBeenCalled()
+  })
+
+  it("emits and sends nothing when the target equals the current state", async () => {
+    const plan = planItem(
+      row({ access: access({ grants: grants({ VIEW: ["alice"], OPERATE: ["bob"] }) }) }),
+      { owner: "kyros", grants: { VIEW: ["alice"], OPERATE: ["bob"] } },
+      USERS,
+    )
+    expect(plan.ops).toEqual([])
+    const outcome = await applyPlans([plan])
+    expect(outcome.applied).toEqual([])
+    expect(setOwner).not.toHaveBeenCalled()
+    expect(grant).not.toHaveBeenCalled()
+    expect(revoke).not.toHaveBeenCalled()
   })
 
   it("reports a failed item and still runs the rest", async () => {
     vi.mocked(api.setResourceOwner).mockRejectedValueOnce(new Error("403 Forbidden"))
     const plan = planBulk(
-      [
-        row({ id: 1, access: { owner: "alice", viewers: [] } }),
-        row({ id: 2, access: { owner: "bob", viewers: [] } }),
-      ],
+      [row({ id: 1, access: access({ owner: "alice" }) }), row({ id: 2, access: access({ owner: "bob" }) })],
       { owner: "kyros" },
       USERS,
     )

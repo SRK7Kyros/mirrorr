@@ -36,7 +36,13 @@ function renderInCard(node: ReactNode) {
 describe("access affordances keep their clicks off the card", () => {
   it("swallows a click on the button and on the drawer panel", async () => {
     api.fetchUsers.mockResolvedValue(USERS)
-    api.fetchResourceAccess.mockResolvedValue({ owner: "kyros", viewers: [] })
+    api.fetchResourceAccess.mockResolvedValue({
+      resource_type: "session",
+      id: 0,
+      owner: "kyros",
+      owner_missing: false,
+      grants: [],
+    })
     const openCard = renderInCard(
       <ResourceAccessButton resourceType="session" id={7} label="F1 Weekend" />,
     )
@@ -53,7 +59,13 @@ describe("access affordances keep their clicks off the card", () => {
 
   it("swallows a click on the bulk panel", async () => {
     api.fetchUsers.mockResolvedValue(USERS)
-    api.fetchResourceAccess.mockResolvedValue({ owner: "kyros", viewers: [] })
+    api.fetchResourceAccess.mockResolvedValue({
+      resource_type: "session",
+      id: 0,
+      owner: "kyros",
+      owner_missing: false,
+      grants: [],
+    })
     const openCard = renderInCard(
       <BulkAccessAction resourceType="autorun" items={[{ id: 5, label: "F1 Race" }]} />,
     )

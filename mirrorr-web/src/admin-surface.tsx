@@ -23,7 +23,7 @@ import {
   getErrorMessage,
 } from "@/api"
 import { ApiError } from "@/api/client"
-import { applyPlans, planItem, type AccessTarget } from "@/api/domain/access-plan"
+import { applyPlans, itemAccessFromView, planItem, type AccessTarget } from "@/api/domain/access-plan"
 import { rankBySearch } from "@/api/domain/search"
 import { PAGE_SIZE, queryKeys, queryRoots, staleTimes } from "@/api/query-keys"
 import { RESOURCE_TYPES, type AdminResource } from "@/api/schemas/privileged"
@@ -821,7 +821,7 @@ function ResourceAccessDialog({ resource, users, onClose }: ResourceAccessDialog
           resourceType: resource.resource_type,
           id: resource.id,
           label: resource.label,
-          access: { owner: access.owner, viewers: access.viewers },
+          access: itemAccessFromView(access),
         },
         target,
         users.map((user) => user.username),
@@ -860,7 +860,7 @@ function ResourceAccessDialog({ resource, users, onClose }: ResourceAccessDialog
         <SkeletonRows cols={2} />
       ) : (
         <ResourceAccessFields
-          access={access}
+          access={itemAccessFromView(access)}
           users={users}
           busy={busy}
           onApply={(target) => void apply(target)}

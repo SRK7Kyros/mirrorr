@@ -153,7 +153,7 @@ export interface ApiData {
   registrationRequests?: readonly Row[]
   /** `GET /admin/resources` rows (owner-bearing items plus engines/resolvers). */
   resources?: readonly Row[]
-  /** View grants keyed `"{type}:{id}"` for the `GET …/access` routes. */
+  /** VIEW grants keyed `"{type}:{id}"` for the `GET /shares/…` routes. */
   resourceViewers?: Record<string, readonly string[]>
   /** `POST /resolvers/{id}/discover` — the catalog the channel browser reads. */
   discovery?: readonly Row[]
@@ -294,31 +294,43 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
       return answer(200, { items: filtered.slice(offset, offset + limit), total: filtered.length })
     }
 
-    const accessUser = /^\/admin\/resources\/([^/]+)\/(\d+)\/access\/(.+)$/.exec(path)
-    if (accessUser !== null && method === "DELETE") {
-      const [, type, id, rawUsername] = accessUser
-      const key = `${type}:${id}`
-      const username = decodeURIComponent(rawUsername)
-      resourceViewers[key] = (resourceViewers[key] ?? []).filter((viewer) => viewer !== username)
-      return answer(200, { viewers: resourceViewers[key] })
-    }
-
-    const accessItem = /^\/admin\/resources\/([^/]+)\/(\d+)\/access$/.exec(path)
-    if (accessItem !== null) {
-      const [, type, id] = accessItem
-      const key = `${type}:${id}`
-      if (method === "POST") {
-        const username = (body as { username?: string } | undefined)?.username ?? ""
-        resourceViewers[key] = [...(resourceViewers[key] ?? []), username]
-        return answer(200, { viewers: resourceViewers[key] })
-      }
+    // The frozen sharing surface: the stub models VIEW-only grants (the flat
+    // viewer list this wave's UI still edits) and answers with an AccessView.
+    const accessView = (type: string, id: string): Record<string, unknown> => {
       const row = (data.resources ?? []).find((item) => item.resource_type === type && String(item.id) === id)
-      return answer(200, {
+      return {
         resource_type: type,
         id: Number(id),
         owner: row?.owner ?? "",
-        viewers: resourceViewers[key] ?? [],
-      })
+        owner_missing: false,
+        grants: (resourceViewers[`${type}:${id}`] ?? []).map((username) => ({
+          username,
+          capabilities: ["VIEW"],
+        })),
+      }
+    }
+
+    const sharesUser = /^\/shares\/([^/]+)\/(\d+)\/(.+)$/.exec(path)
+    if (sharesUser !== null && method === "DELETE") {
+      const [, type, id, rawUsername] = sharesUser
+      const key = `${type}:${id}`
+      const username = decodeURIComponent(rawUsername)
+      resourceViewers[key] = (resourceViewers[key] ?? []).filter((viewer) => viewer !== username)
+      return answer(200, accessView(type, id))
+    }
+
+    const sharesItem = /^\/shares\/([^/]+)\/(\d+)$/.exec(path)
+    if (sharesItem !== null) {
+      const [, type, id] = sharesItem
+      if (method === "POST") {
+        const payload = (body ?? {}) as { username?: string; capabilities?: readonly string[] }
+        const key = `${type}:${id}`
+        const username = payload.username ?? ""
+        const others = (resourceViewers[key] ?? []).filter((viewer) => viewer !== username)
+        resourceViewers[key] = (payload.capabilities ?? []).length === 0 ? others : [...others, username]
+        return answer(200, accessView(type, id))
+      }
+      return answer(200, accessView(type, id))
     }
 
     const ownerItem = /^\/admin\/resources\/([^/]+)\/(\d+)\/owner$/.exec(path)
