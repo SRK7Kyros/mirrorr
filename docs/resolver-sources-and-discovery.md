@@ -333,9 +333,10 @@ than stretching into an empty full-width strip.
   capability grants** (2026-10-15; six-capability model 2026-10-16): the owner, an admin or a
   `SHARE` holder can grant any source a capability set through `resource_access`. Every gate
   goes through `services/permissions.py` `has_capability(db, auth, obj, Capability.X)` —
-  `VIEW` for reads (list rows via `_get_paginated_for_user`'s VIEW-grant EXISTS), `OPERATE`
-  for control, `EDIT` for "load this source into my own object", `DELETE`/`EXPORT` for their
-  actions — and no capability implies another (the old `_require_owner_or_admin` is deleted).
+  `VIEW` for reads (list rows via `_get_paginated_for_user`'s unfiltered grant EXISTS),
+  `OPERATE` for control, `EDIT` for "load this source into my own object", `DELETE`/`EXPORT`
+  for their actions — and **VIEW is the base: any grant implies it, and nothing else is
+  inherited** (the old `_require_owner_or_admin` is deleted).
   `ResolverSourceResponse` remains an entry in `privileged.py`'s `PRIVILEGED_FIELDS`, so a
   granted (non-admin) reader still never receives `requester_user_token`.
 - **Import/export** (`routers/import_export.py`): add a `sources` array to bundles

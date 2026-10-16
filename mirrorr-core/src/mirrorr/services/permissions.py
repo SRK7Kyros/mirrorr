@@ -38,7 +38,13 @@ _ACCESS_MODEL_TYPES: dict[type, ResourceType] = {
 async def has_capability(
     db: AsyncSession, auth: AuthState, obj, capability: Capability
 ) -> bool:
-    """True when *auth* may perform *capability* on *obj*. Never raises."""
+    """True when *auth* may perform *capability* on *obj*. Never raises.
+
+    VIEW is the base capability: any grant on the item implies it, so a VIEW
+    check passes on the presence of *any* row while every other capability is
+    matched exactly. The implication lives here, in the one predicate, so every
+    VIEW-gated route inherits it.
+    """
     resource_type = _ACCESS_MODEL_TYPES.get(type(obj))
     if resource_type is None:
         return False  # system row: no owner, no grants
@@ -52,8 +58,9 @@ async def has_capability(
         ResourceAccess.resource_type == resource_type,
         ResourceAccess.resource_id == obj.id,
         ResourceAccess.username == auth.user.username,
-        ResourceAccess.capability == capability,
     )
+    if capability is not Capability.VIEW:
+        stmt = stmt.where(ResourceAccess.capability == capability)
     return (await db.exec(stmt)).first() is not None
 
 

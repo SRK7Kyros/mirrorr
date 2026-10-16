@@ -904,6 +904,19 @@ def _parse_capabilities(names: list[str]) -> list[Capability]:
     return sorted(caps, key=_CAPABILITY_ORDER.__getitem__)
 
 
+def _granted_capabilities(names: list[str]) -> list[Capability]:
+    """Parse a POST list, applying VIEW-base normalisation.
+
+    A non-empty list always carries VIEW (any other capability implies it) and is
+    returned in frozen order; an empty list stays empty — that is how a user's
+    grants are cleared.
+    """
+    caps = _parse_capabilities(names)
+    if caps and Capability.VIEW not in caps:
+        caps = [Capability.VIEW, *caps]
+    return caps
+
+
 async def _access_view(
     db: AsyncSession, tag: str, rt: ResourceType, resource_id: int, owner: str
 ) -> AccessView:
@@ -1088,7 +1101,7 @@ async def set_shares(
     await _known_username(db, item.username)
     target_id = obj.id
     owner = getattr(obj, "requester_user_token", "") or ""
-    await _replace_grants(db, rt, target_id, item.username, _parse_capabilities(item.capabilities))
+    await _replace_grants(db, rt, target_id, item.username, _granted_capabilities(item.capabilities))
     return await _access_view(db, tag, rt, target_id, owner)
 
 

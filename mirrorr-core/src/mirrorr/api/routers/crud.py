@@ -354,11 +354,13 @@ async def _get_paginated_for_user(
     options: Sequence = (),
     include_total: bool = False,
 ) -> dict:
-    """Cursor-based pagination filtered by owner or explicit ``VIEW`` grant.
+    """Cursor-based pagination filtered by owner or an explicit grant.
 
     A caller sees the rows they own (``requester_user_token``) *and* any row
-    carrying a ``VIEW`` grant for them in ``resource_access``. Engines/resolvers
-    have no owner column and never route through here.
+    carrying a grant for them in ``resource_access``. VIEW is the base
+    capability, so *any* grant admits the row — the EXISTS deliberately does not
+    filter on ``capability``. Engines/resolvers have no owner column and never
+    route through here.
 
     Returns {"items": [...], "next_cursor": ..., "has_more": ...}.
     """
@@ -373,7 +375,6 @@ async def _get_paginated_for_user(
                 ResourceAccess.resource_type == resource_type,
                 ResourceAccess.resource_id == model.id,
                 ResourceAccess.username == user_token,
-                ResourceAccess.capability == Capability.VIEW,
             )
             .exists()
         )

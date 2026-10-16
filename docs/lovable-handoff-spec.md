@@ -53,7 +53,7 @@ Build a complete SPA covering the full feature contract:
 **Explicit non-goals (do NOT build):**
 
 - No recurrence/cron/weekday scheduling — autoruns are **one-shot** (see §10.1).
-- ~~No "share"/"make public"/"transfer" — import/export **is** the sharing primitive.~~ **Superseded 2026-10-15, extended 2026-10-16:** sharing is a **per-user capability grant** (`GET|POST|DELETE /shares/{type}/{id}[/{username}]`, owner/admin/`SHARE`-holder; `POST` replaces one user's `capabilities[]`), with owner transfer + a listing still admin-only (`GET /admin/resources`, `PUT …/owner`). Capabilities are `VIEW`/`OPERATE`/`EDIT`/`DELETE`/`SHARE`/`EXPORT` and none implies another; a `VIEW` grant is the reads-only slice (list row, detail, logs). Import/export remains the cross-install portability primitive.
+- ~~No "share"/"make public"/"transfer" — import/export **is** the sharing primitive.~~ **Superseded 2026-10-15, extended 2026-10-16:** sharing is a **per-user capability grant** (`GET|POST|DELETE /shares/{type}/{id}[/{username}]`, owner/admin/`SHARE`-holder; `POST` replaces one user's `capabilities[]`), with owner transfer + a listing still admin-only (`GET /admin/resources`, `PUT …/owner`). Capabilities are `VIEW`/`OPERATE`/`EDIT`/`DELETE`/`SHARE`/`EXPORT`; **VIEW is the base — any grant implies it** (a non-empty `POST` list is stored with `VIEW` added), and no other capability is implied; a `VIEW` grant is the reads-only slice (list row, detail, logs). Import/export remains the cross-install portability primitive.
 - No user-creation endpoint in admin (self-register + first-user only).
 - No media player with guaranteed seeking — recordings are progressive/link-only.
 - No plugin authoring — engines/resolvers are read-only introspection.
