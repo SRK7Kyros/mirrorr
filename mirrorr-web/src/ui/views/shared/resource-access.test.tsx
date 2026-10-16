@@ -85,23 +85,26 @@ describe("holdsCapability", () => {
 
 describe("ResourceAccessFields", () => {
   it("renders the owner row, one catalog, both chip rows and no per-section prose", () => {
-    render(<ResourceAccessFields access={access()} users={USERS} onApply={vi.fn()} />)
+    render(<ResourceAccessFields resourceType="session" access={access()} users={USERS} onApply={vi.fn()} />)
 
     expect([...CAPABILITIES]).toEqual(["VIEW", "OPERATE", "EDIT", "DELETE", "SHARE", "EXPORT"])
     expect(screen.getByText("Kyros")).toBeTruthy()
     expect(screen.getByRole("button", { name: "Change" })).toBeTruthy()
     expect(catalog()).toBeTruthy()
-    const labels = ["View access", "Operate", "Edit", "Delete", "Share", "Export"]
+    const labels = ["View access", "Operate", "Edit", "Delete", "Share"]
     for (const label of labels) {
       expect(filterChip(label)).toBeTruthy()
       expect(setChip(label)).toBeTruthy()
     }
+    // A session has no export route, so the type filter does not offer EXPORT.
+    expect(within(filterGroup()).queryByRole("button", { name: /^Export/ })).toBeNull()
+    expect(within(setGroup()).queryByRole("button", { name: "Export" })).toBeNull()
     expect(screen.queryByText("Only the owner can see this item.")).toBeNull()
     expect(screen.getByText("Up to date")).toBeTruthy()
   })
 
   it("keeps Apply disabled until the draft is dirty", () => {
-    render(<ResourceAccessFields access={access()} users={USERS} onApply={vi.fn()} />)
+    render(<ResourceAccessFields resourceType="session" access={access()} users={USERS} onApply={vi.fn()} />)
     expect(applyButton().disabled).toBe(true)
 
     fireEvent.click(card("Bob"))
@@ -113,7 +116,7 @@ describe("ResourceAccessFields", () => {
 
   it("transfers ownership from the owner picker and hides the chip rows meanwhile", () => {
     const onApply = vi.fn()
-    render(<ResourceAccessFields access={access()} users={USERS} onApply={onApply} />)
+    render(<ResourceAccessFields resourceType="session" access={access()} users={USERS} onApply={onApply} />)
 
     fireEvent.click(screen.getByRole("button", { name: "Change" }))
     expect(screen.getByText("Pick the new owner")).toBeTruthy()
@@ -129,7 +132,7 @@ describe("ResourceAccessFields", () => {
   it("implies VIEW and issues one request per resulting capability", async () => {
     const base = access()
     const onApply = vi.fn()
-    render(<ResourceAccessFields access={base} users={USERS} onApply={onApply} />)
+    render(<ResourceAccessFields resourceType="session" access={base} users={USERS} onApply={onApply} />)
 
     fireEvent.click(card("Bob"))
     fireEvent.click(setChip("Operate"))
@@ -157,7 +160,7 @@ describe("ResourceAccessFields", () => {
   it("clears every capability for the user when VIEW is unticked", async () => {
     const base = access({ VIEW: ["bob"], OPERATE: ["bob"], EDIT: ["bob"] })
     const onApply = vi.fn()
-    render(<ResourceAccessFields access={base} users={USERS} onApply={onApply} />)
+    render(<ResourceAccessFields resourceType="session" access={base} users={USERS} onApply={onApply} />)
 
     fireEvent.click(card("Bob"))
     expect(setChip("View access").getAttribute("aria-pressed")).toBe("true")
@@ -183,7 +186,7 @@ describe("ResourceAccessFields", () => {
   })
 
   it("filters the catalog to a capability's holders with the upper chips", () => {
-    render(<ResourceAccessFields access={access({ VIEW: ["bob"] })} users={USERS} onApply={vi.fn()} />)
+    render(<ResourceAccessFields resourceType="session" access={access({ VIEW: ["bob"] })} users={USERS} onApply={vi.fn()} />)
 
     expect(card("Alice")).toBeTruthy()
     fireEvent.click(filterChip("View access"))
@@ -191,14 +194,20 @@ describe("ResourceAccessFields", () => {
     expect(card("Bob")).toBeTruthy()
     expect(within(catalog()).queryByRole("button", { name: /Alice/ })).toBeNull()
 
+    // Red keeps the users who do *not* hold it — for VIEW, the ones who hold
+    // nothing at all, which is who a bulk grant is for.
     fireEvent.click(filterChip("View access"))
     expect(card("Alice")).toBeTruthy()
+    expect(within(catalog()).queryByRole("button", { name: /Bob/ })).toBeNull()
+
+    fireEvent.click(filterChip("View access"))
+    expect(card("Bob")).toBeTruthy()
   })
 
   it("shows a partial lower chip when only some selected users hold the capability", () => {
     const base = access({ VIEW: ["bob"], OPERATE: ["bob"] })
     const onApply = vi.fn()
-    render(<ResourceAccessFields access={base} users={USERS} onApply={onApply} />)
+    render(<ResourceAccessFields resourceType="session" access={base} users={USERS} onApply={onApply} />)
 
     expect(setChip("Operate").getAttribute("aria-pressed")).toBe("false")
     fireEvent.click(screen.getByRole("button", { name: "Select all" }))
@@ -213,7 +222,7 @@ describe("ResourceAccessFields", () => {
   })
 
   it("selects every shown card and clears the selection", () => {
-    render(<ResourceAccessFields access={access()} users={USERS} onApply={vi.fn()} />)
+    render(<ResourceAccessFields resourceType="session" access={access()} users={USERS} onApply={vi.fn()} />)
 
     fireEvent.click(screen.getByRole("button", { name: "Select all" }))
     expect(within(catalog()).getAllByRole("button", { pressed: true })).toHaveLength(3)
@@ -225,7 +234,7 @@ describe("ResourceAccessFields", () => {
   it("reloads on a changed access prop and preserves the draft on an unchanged one", () => {
     const base = access()
     const { rerender } = render(
-      <ResourceAccessFields access={base} users={USERS} onApply={vi.fn()} />,
+      <ResourceAccessFields resourceType="session" access={base} users={USERS} onApply={vi.fn()} />,
     )
 
     fireEvent.click(card("Bob"))
@@ -233,11 +242,11 @@ describe("ResourceAccessFields", () => {
     expect(screen.getByText("Unsaved changes")).toBeTruthy()
 
     // Same value → same signature → the in-flight edit survives.
-    rerender(<ResourceAccessFields access={base} users={USERS} onApply={vi.fn()} />)
+    rerender(<ResourceAccessFields resourceType="session" access={base} users={USERS} onApply={vi.fn()} />)
     expect(screen.getByText("Unsaved changes")).toBeTruthy()
 
     // Different value → the draft reloads from the server state.
-    rerender(<ResourceAccessFields access={access({ VIEW: ["alice"] })} users={USERS} onApply={vi.fn()} />)
+    rerender(<ResourceAccessFields resourceType="session" access={access({ VIEW: ["alice"] })} users={USERS} onApply={vi.fn()} />)
     expect(screen.getByText("Up to date")).toBeTruthy()
     expect(applyButton().disabled).toBe(true)
     // Bob is no longer visible in the refiltered catalog once VIEW is filtered.
@@ -247,7 +256,7 @@ describe("ResourceAccessFields", () => {
   })
 
   it("disables Apply, the cards and the chip rows while busy", () => {
-    render(<ResourceAccessFields access={access({ VIEW: ["bob"] })} users={USERS} busy onApply={vi.fn()} />)
+    render(<ResourceAccessFields resourceType="session" access={access({ VIEW: ["bob"] })} users={USERS} busy onApply={vi.fn()} />)
 
     // The Spinner contributes "Loading" to the button's accessible name, so
     // locate the Apply control by its label span instead of the composed name.
@@ -264,17 +273,164 @@ describe("ResourceAccessFields", () => {
     expect(Object.keys(base.grants).sort()).toEqual([...CAPABILITIES].sort())
 
     const onApply = vi.fn()
-    render(<ResourceAccessFields access={base} users={USERS} onApply={onApply} />)
+    render(<ResourceAccessFields resourceType="session" access={base} users={USERS} onApply={onApply} />)
 
     fireEvent.click(card("Bob"))
-    fireEvent.click(setChip("Export"))
+    fireEvent.click(setChip("Delete"))
     fireEvent.click(applyButton())
 
     const target = onApply.mock.calls[0][0] as AccessTarget
-    expect(target.grants?.EXPORT).toEqual(["bob"])
+    expect(target.grants?.DELETE).toEqual(["bob"])
     expect(target.grants?.VIEW).toEqual(["bob"])
     for (const capability of CAPABILITIES) {
-      if (capability !== "EXPORT" && capability !== "VIEW") expect(target.grants?.[capability]).toEqual([])
+      if (capability !== "DELETE" && capability !== "VIEW") expect(target.grants?.[capability]).toEqual([])
     }
+  })
+
+  it("narrows to the users who hold every green chip", () => {
+    render(
+      <ResourceAccessFields
+        resourceType="session"
+        access={access({ OPERATE: ["bob"], EDIT: ["carol"] })}
+        users={USERS}
+        onApply={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(filterChip("Operate"))
+    fireEvent.click(filterChip("Edit"))
+
+    // Bob holds OPERATE only and Carol EDIT only, so demanding both matches
+    // nobody: the chips narrow rather than widen.
+    expect(within(catalog()).queryAllByRole("button")).toHaveLength(0)
+
+    fireEvent.click(filterChip("Edit"))
+    expect(card("Bob")).toBeTruthy()
+    expect(within(catalog()).queryByRole("button", { name: /Carol/ })).toBeNull()
+  })
+
+  it("keeps All active only while no capability chip is selected", () => {
+    render(
+      <ResourceAccessFields
+        resourceType="session"
+        access={access({ VIEW: ["bob"] })}
+        users={USERS}
+        onApply={vi.fn()}
+      />,
+    )
+
+    const all = within(filterGroup()).getByRole("button", { name: "All" })
+    expect(all.getAttribute("aria-pressed")).toBe("true")
+
+    fireEvent.click(filterChip("View access"))
+    expect(all.getAttribute("aria-pressed")).toBe("false")
+
+    fireEvent.click(all)
+    expect(all.getAttribute("aria-pressed")).toBe("true")
+    expect(card("Alice")).toBeTruthy()
+  })
+
+  it("offers only the capabilities the item type enforces", () => {
+    render(
+      <ResourceAccessFields resourceType="autorun" access={access()} users={USERS} onApply={vi.fn()} />,
+    )
+
+    for (const label of ["View access", "Edit", "Delete", "Share", "Export"]) {
+      expect(setChip(label)).toBeTruthy()
+    }
+    // An autorun has no control route, so OPERATE would be an inert control.
+    expect(within(filterGroup()).queryByRole("button", { name: /^Operate/ })).toBeNull()
+    expect(within(setGroup()).queryByRole("button", { name: "Operate" })).toBeNull()
+  })
+
+  it("keeps a granted capability the type no longer offers clearable", () => {
+    const base = access({ VIEW: ["bob"], OPERATE: ["bob"] })
+    const onApply = vi.fn()
+    render(
+      <ResourceAccessFields resourceType="autorun" access={base} users={USERS} onApply={onApply} />,
+    )
+
+    // OPERATE is not offered for autoruns, but Bob holds it — the chip must
+    // still exist so the pre-existing grant can be removed.
+    const retired = setChip("Operate")
+    expect(retired.getAttribute("title")).toBeTruthy()
+
+    fireEvent.click(card("Bob"))
+    fireEvent.click(retired)
+    fireEvent.click(applyButton())
+
+    const target = onApply.mock.calls[0][0] as AccessTarget
+    expect(target.grants?.OPERATE).toEqual([])
+    expect(target.grants?.VIEW).toEqual(["bob"])
+  })
+
+  it("cycles a capability chip through include, exclude and off", () => {
+    render(
+      <ResourceAccessFields
+        resourceType="session"
+        access={access({ OPERATE: ["alice"] })}
+        users={USERS}
+        onApply={vi.fn()}
+      />,
+    )
+
+    const operate = filterChip("Operate")
+    expect(within(catalog()).queryAllByRole("button")).toHaveLength(3)
+
+    fireEvent.click(operate)
+    expect(operate.getAttribute("aria-pressed")).toBe("true")
+    expect(operate.className).toContain("border-brand")
+    expect(card("Alice")).toBeTruthy()
+    expect(within(catalog()).queryByRole("button", { name: /Bob/ })).toBeNull()
+
+    fireEvent.click(operate)
+    expect(operate.getAttribute("aria-pressed")).toBe("mixed")
+    expect(operate.className).toContain("border-danger")
+    expect(within(catalog()).queryByRole("button", { name: /Alice/ })).toBeNull()
+    expect(card("Bob")).toBeTruthy()
+
+    // Select all takes the excluded half, so the lower row can grant a
+    // capability to exactly the users who lack it.
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }))
+    expect(card("Bob").getAttribute("aria-pressed")).toBe("true")
+
+    fireEvent.click(operate)
+    expect(operate.getAttribute("aria-pressed")).toBe("false")
+    expect(operate.className).toContain("border-line")
+    expect(within(catalog()).queryAllByRole("button")).toHaveLength(3)
+  })
+
+  it("ANDs the green chips and subtracts the red ones", () => {
+    render(
+      <ResourceAccessFields
+        resourceType="session"
+        access={access({ OPERATE: ["alice"], EDIT: ["bob"] })}
+        users={USERS}
+        onApply={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(filterChip("Operate"))
+    expect(card("Alice")).toBeTruthy()
+    expect(within(catalog()).queryByRole("button", { name: /Bob/ })).toBeNull()
+
+    // A second green chip narrows instead of widening: nobody holds both.
+    fireEvent.click(filterChip("Edit"))
+    expect(within(catalog()).queryAllByRole("button")).toHaveLength(0)
+    expect(screen.getByText("No users match.")).toBeTruthy()
+
+    // Flipping Edit to red brings Alice back: holds OPERATE, not EDIT.
+    fireEvent.click(filterChip("Edit"))
+    expect(filterChip("Edit").getAttribute("aria-pressed")).toBe("mixed")
+    expect(card("Alice")).toBeTruthy()
+    expect(within(catalog()).queryByRole("button", { name: /Bob/ })).toBeNull()
+
+    // Two red chips keep whoever holds neither, and All clears the lot.
+    fireEvent.click(filterChip("Operate"))
+    expect(card("Carol")).toBeTruthy()
+    expect(within(catalog()).queryAllByRole("button")).toHaveLength(1)
+    fireEvent.click(filterChip("All"))
+    expect(within(catalog()).queryAllByRole("button")).toHaveLength(3)
+    expect(filterChip("Operate").getAttribute("aria-pressed")).toBe("false")
   })
 })

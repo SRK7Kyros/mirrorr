@@ -66,6 +66,26 @@ export function capabilityLabel(capability: Capability): string {
 }
 
 /**
+ * The capabilities each owner-bearing type actually enforces — the editor
+ * offers only controls the core honours (routes in
+ * `mirrorr-core/src/mirrorr/api/routers/`). A capability with no route for a
+ * type is inert, so it is not offered. Engines and resolvers are ownerless
+ * system rows that never open this editor, so an unknown type keeps all six.
+ */
+export const TYPE_CAPABILITIES: Record<string, readonly Capability[]> = {
+  session: ["VIEW", "OPERATE", "EDIT", "DELETE", "SHARE"], // view/list/detail+logs · stop/recording · save-as-profile · delete · shares
+  autorun: ["VIEW", "EDIT", "DELETE", "SHARE", "EXPORT"], // view · update+save-as-profile · delete · shares · /import-export/autoruns/{id}/export
+  recording: ["VIEW", "DELETE", "SHARE"], // view · delete · shares
+  profile: ["VIEW", "EDIT", "DELETE", "SHARE", "EXPORT"], // view · update+profile-link · delete · shares · /import-export/profiles/{id}/export
+  source: ["VIEW", "EDIT", "DELETE", "SHARE"], // view · update · delete · shares
+}
+
+/** The capabilities the editor offers for a type (all six when it is unknown). */
+export function offeredCapabilities(resourceType: string): readonly Capability[] {
+  return TYPE_CAPABILITIES[resourceType] ?? CAPABILITIES
+}
+
+/**
  * VIEW is the base capability: a user who holds anything at all holds VIEW,
  * because the core implies it. Every read of a capability set goes through this
  * so a stray OPERATE-only row still reads as visible.
@@ -182,16 +202,22 @@ const CHIP_BASE =
 const CHIP_ON = "border-brand bg-[var(--accent-dim)] text-ink"
 const CHIP_OFF = "border-line bg-surface-2 text-ink-muted"
 const CHIP_PARTIAL = "border-brand border-dashed bg-transparent text-ink"
+type FilterMode = "include" | "exclude"
+
+// A capability chip cycles off → include (green) → exclude (red) → off: green
+// keeps the users who hold the capability, red keeps the ones who do not.
+const CHIP_EXCLUDE = "border-danger bg-danger-dim text-danger"
 
 export interface ResourceAccessEditorProps {
+  readonly resourceType: string
   readonly draft: AccessDraft
   readonly users: readonly User[]
   readonly busy?: boolean
 }
 
-export function ResourceAccessEditor({ draft, users, busy = false }: ResourceAccessEditorProps) {
+export function ResourceAccessEditor({ resourceType, draft, users, busy = false }: ResourceAccessEditorProps) {
   const [query, setQuery] = useState("")
-  const [filter, setFilter] = useState<Capability | "ALL">("ALL")
+  const [filters, setFilters] = useState<Readonly<Partial<Record<Capability, FilterMode>>>>({})
   const [ownerMode, setOwnerMode] = useState(false)
   const [note, setNote] = useState("")
 
@@ -204,9 +230,17 @@ export function ResourceAccessEditor({ draft, users, busy = false }: ResourceAcc
   const catalog = useMemo(() => {
     const pool = ownerMode ? users : users.filter((user) => user.username !== draft.owner)
     const ranked = rankBySearch(pool, query, (user) => [user.display_name, user.username])
-    if (ownerMode || filter === "ALL") return ranked
-    return ranked.filter((user) => holdsCapability(draft.grants, filter, user.username))
-  }, [users, query, ownerMode, filter, draft.owner, draft.grants])
+    const active = Object.entries(filters) as [Capability, FilterMode][]
+    if (ownerMode || active.length === 0) return ranked
+    // Every active chip has to hold: a green chip requires the user to hold that
+    // capability, a red one requires them not to.
+    return ranked.filter((user) =>
+      active.every(([capability, mode]) => {
+        const holds = holdsCapability(draft.grants, capability, user.username)
+        return mode === "include" ? holds : !holds
+      }),
+    )
+  }, [users, query, ownerMode, filters, draft.owner, draft.grants])
 
   const counts = useMemo(() => {
     const result = {} as Record<Capability, number>
@@ -217,6 +251,14 @@ export function ResourceAccessEditor({ draft, users, busy = false }: ResourceAcc
     }
     return result
   }, [users, draft.owner, draft.grants])
+
+  const offered = offeredCapabilities(resourceType)
+  // A grant for a capability this type no longer offers predates the type filter,
+  // so it still gets a lower-row chip (muted) — otherwise it could never be cleared.
+  const legacy = CAPABILITIES.filter(
+    (capability) => !offered.includes(capability) && draft.grants[capability].length > 0,
+  )
+  const filterCount = Object.keys(filters).length
 
   const selectedUsernames = users
     .filter((user) => selection.selected.has(user.username))
@@ -234,6 +276,20 @@ export function ResourceAccessEditor({ draft, users, busy = false }: ResourceAcc
   function clearSelection(): void {
     selection.clear()
     setNote("")
+  }
+
+  function cycleFilter(capability: Capability): void {
+    setFilters((current) => {
+      const next = { ...current }
+      if (current[capability] === undefined) next[capability] = "include"
+      else if (current[capability] === "include") next[capability] = "exclude"
+      else delete next[capability]
+      return next
+    })
+  }
+
+  function clearFilters(): void {
+    setFilters({})
   }
 
   function toggleCapability(capability: Capability): void {
@@ -326,40 +382,49 @@ export function ResourceAccessEditor({ draft, users, busy = false }: ResourceAcc
       </div>
 
       {ownerMode ? null : (
-        <div
-          role="group"
-          aria-label="Filter by capability"
-          className="flex items-center gap-2 overflow-x-auto pb-1"
-        >
+        <div role="group" aria-label="Filter by capability" className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            aria-pressed={filter === "ALL"}
+            aria-pressed={filterCount === 0}
             disabled={busy}
-            className={cn(CHIP_BASE, filter === "ALL" ? CHIP_ON : CHIP_OFF)}
-            onClick={() => setFilter("ALL")}
+            className={cn(CHIP_BASE, filterCount === 0 ? CHIP_ON : CHIP_OFF)}
+            onClick={clearFilters}
           >
             All
           </button>
-          {CAPABILITIES.map((capability) => (
-            <button
-              key={capability}
-              type="button"
-              aria-pressed={filter === capability}
-              disabled={busy}
-              className={cn(CHIP_BASE, filter === capability ? CHIP_ON : CHIP_OFF)}
-              onClick={() => setFilter((current) => (current === capability ? "ALL" : capability))}
-            >
-              {capabilityLabel(capability)}
-              <Badge variant="neutral">{counts[capability]}</Badge>
-            </button>
-          ))}
+          {offered.map((capability) => {
+            const mode = filters[capability]
+            return (
+              <button
+                key={capability}
+                type="button"
+                aria-pressed={mode === "include" ? true : mode === "exclude" ? "mixed" : false}
+                disabled={busy}
+                title={
+                  mode === "include"
+                    ? "Only users who hold this — click to exclude it instead."
+                    : mode === "exclude"
+                      ? "Only users who do not hold this — click to clear."
+                      : "Only users who hold this."
+                }
+                className={cn(
+                  CHIP_BASE,
+                  mode === "include" ? CHIP_ON : mode === "exclude" ? CHIP_EXCLUDE : CHIP_OFF,
+                )}
+                onClick={() => cycleFilter(capability)}
+              >
+                {capabilityLabel(capability)}
+                <Badge variant="neutral">{counts[capability]}</Badge>
+              </button>
+            )
+          })}
         </div>
       )}
 
       <div
         ref={scrollRef}
         data-testid="access-catalog"
-        className="relative max-h-[calc(100dvh-460px)] min-h-[120px] flex-1 overflow-y-auto rounded-md border border-line-subtle bg-surface-1 p-2 select-none touch-pan-y"
+        className="relative max-h-[calc(100dvh-520px)] min-h-[120px] flex-1 overflow-y-auto rounded-md border border-line-subtle bg-surface-1 p-2 select-none touch-pan-y"
       >
         {catalog.length === 0 ? (
           <p className="p-2 text-sm text-ink-muted">No users match.</p>
@@ -413,19 +478,22 @@ export function ResourceAccessEditor({ draft, users, busy = false }: ResourceAcc
           <div
             role="group"
             aria-label="Capabilities for the selected users"
-            className="flex items-center gap-2 overflow-x-auto pb-1"
+            className="flex flex-wrap items-center gap-2"
           >
-            {CAPABILITIES.map((capability) => {
+            {[...offered, ...legacy].map((capability) => {
               const state = selectionState(capability)
+              const retired = !offered.includes(capability)
               return (
                 <button
                   key={capability}
                   type="button"
                   aria-pressed={state === "all" ? true : state === "partial" ? "mixed" : false}
                   disabled={busy || selectedUsernames.length === 0}
+                  title={retired ? "Not offered for this item type — clear it here." : undefined}
                   className={cn(
                     CHIP_BASE,
                     state === "all" ? CHIP_ON : state === "partial" ? CHIP_PARTIAL : CHIP_OFF,
+                    retired && "border-dashed",
                   )}
                   onClick={() => toggleCapability(capability)}
                 >
@@ -442,6 +510,7 @@ export function ResourceAccessEditor({ draft, users, busy = false }: ResourceAcc
 }
 
 export interface ResourceAccessFieldsProps {
+  readonly resourceType: string
   readonly access: ItemAccess
   readonly users: readonly User[]
   readonly busy?: boolean
@@ -455,6 +524,7 @@ export interface ResourceAccessFieldsProps {
  * in its `Dialog` footer instead.
  */
 export function ResourceAccessFields({
+  resourceType,
   access,
   users,
   busy = false,
@@ -464,7 +534,7 @@ export function ResourceAccessFields({
   const draft = useAccessDraft(access)
   return (
     <div className="flex flex-col gap-4">
-      <ResourceAccessEditor draft={draft} users={users} busy={busy} />
+      <ResourceAccessEditor resourceType={resourceType} draft={draft} users={users} busy={busy} />
       <div className="flex items-center justify-between gap-3">
         <span className="text-muted">{draft.dirty ? "Unsaved changes" : "Up to date"}</span>
         <Button

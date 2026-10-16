@@ -101,7 +101,7 @@ export function AccessPanel({ resourceType, id, label, onClose }: AccessPanelPro
       ) : accessQuery.data === undefined ? (
         <SkeletonRows rows={4} cols={2} />
       ) : (
-        <ResourceAccessEditor draft={draft} users={users} busy={busy} />
+        <ResourceAccessEditor resourceType={resourceType} draft={draft} users={users} busy={busy} />
       )}
     </Dialog>
   )
