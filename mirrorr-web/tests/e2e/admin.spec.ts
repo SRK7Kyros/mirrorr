@@ -96,7 +96,7 @@ test.describe("admin resource access", () => {
     await expect(panel.getByRole("button", { name: "Manage access for F1 Weekend" })).toBeVisible()
   })
 
-  test("reassigns an owner and adds then removes a viewer", async ({ page, api }) => {
+  test("adds then removes a viewer, then reassigns the owner", async ({ page, api }) => {
     api.data.users = USERS
     api.data.resources = [sessionRow()]
 
@@ -104,23 +104,30 @@ test.describe("admin resource access", () => {
 
     await resourcePanel(page).getByRole("button", { name: "Manage access for F1 Weekend" }).click()
 
-    await page.getByLabel("Owner", { exact: true }).selectOption("alice")
-    await page.getByRole("button", { name: "Apply changes" }).click()
-    await expect
-      .poll(() => api.callsTo("/admin/resources/session/7/owner").some((call) => call.method === "PUT"))
-      .toBe(true)
+    const dialog = page.getByRole("dialog")
+    const catalog = dialog.getByTestId("access-catalog")
+    const lower = dialog.getByRole("group", { name: "Capabilities for the selected users" })
 
-    await page.getByLabel("Add a viewer", { exact: true }).selectOption("alice")
-    await page.getByRole("button", { name: "Add", exact: true }).click()
-    await page.getByRole("button", { name: "Apply changes" }).click()
+    // Grant VIEW to Alice, then clear it — the last capability going clears the user outright.
+    await catalog.getByRole("button", { name: /Alice/ }).click()
+    await lower.getByRole("button", { name: "View access" }).click()
+    await dialog.getByRole("button", { name: "Apply changes" }).click()
     await expect
       .poll(() => api.callsTo("/shares/session/7").some((call) => call.method === "POST"))
       .toBe(true)
 
-    await page.getByRole("button", { name: "Remove alice" }).click()
-    await page.getByRole("button", { name: "Apply changes" }).click()
+    await lower.getByRole("button", { name: "View access" }).click()
+    await dialog.getByRole("button", { name: "Apply changes" }).click()
     await expect
       .poll(() => api.callsTo("/shares/session/7/alice").some((call) => call.method === "DELETE"))
+      .toBe(true)
+
+    // Then reassign ownership through the owner picker.
+    await dialog.getByRole("button", { name: "Change", exact: true }).click()
+    await catalog.getByRole("button", { name: /Alice/ }).click()
+    await dialog.getByRole("button", { name: "Apply changes" }).click()
+    await expect
+      .poll(() => api.callsTo("/admin/resources/session/7/owner").some((call) => call.method === "PUT"))
       .toBe(true)
   })
 
@@ -159,30 +166,72 @@ test.describe("admin resource access", () => {
     const dialog = page.getByRole("dialog")
     await expect(dialog.getByText("Access · F1 Race")).toBeVisible()
     await expect(dialog.getByText("Autorun · #5")).toBeVisible()
-    await expect(dialog.getByText("Only the owner can see this item.")).toBeVisible()
 
-    // Tap the VIEW card to grant, then again to revoke — the last capability going
-    // clears the user outright (DELETE), never a bare view-grant list.
-    const view = dialog.locator('section:has(> h3:text-is("View access"))')
-    await view.getByRole("button", { name: /Alice/ }).click()
+    const catalog = dialog.getByTestId("access-catalog")
+    const lower = dialog.getByRole("group", { name: "Capabilities for the selected users" })
+
+    // Tap Alice's card, then the VIEW chip, then apply — a POST, never a bare view list.
+    await catalog.getByRole("button", { name: /Alice/ }).click()
+    await lower.getByRole("button", { name: "View access" }).click()
     await dialog.getByRole("button", { name: "Apply changes" }).click()
     await expect
       .poll(() => api.callsTo("/shares/autorun/5").some((call) => call.method === "POST"))
       .toBe(true)
     await expect(dialog.getByText("Up to date")).toBeVisible()
 
-    await view.getByRole("button", { name: /Alice/ }).click()
+    // Clearing VIEW clears the user's last capability → DELETE.
+    await lower.getByRole("button", { name: "View access" }).click()
     await dialog.getByRole("button", { name: "Apply changes" }).click()
     await expect
       .poll(() => api.callsTo("/shares/autorun/5/alice").some((call) => call.method === "DELETE"))
       .toBe(true)
 
-    const owner = dialog.locator('section:has(> h3:text-is("Owner"))')
-    await owner.getByRole("button", { name: /Alice/ }).click()
+    await dialog.getByRole("button", { name: "Change", exact: true }).click()
+    await catalog.getByRole("button", { name: /Alice/ }).click()
     await dialog.getByRole("button", { name: "Apply changes" }).click()
     await expect
       .poll(() => api.callsTo("/admin/resources/autorun/5/owner").some((call) => call.method === "PUT"))
       .toBe(true)
+  })
+
+  test("drag-selects the cards it sweeps and auto-scrolls at the edge", async ({ page, api }) => {
+    const many = Array.from({ length: 40 }, (_, index) => ({
+      id: index + 2,
+      username: `viewer${index + 1}`,
+      role: "user",
+      display_name: `Viewer ${index + 1}`,
+    }))
+    api.data.users = [USERS[0], ...many]
+    api.data.sessions = [session({ id: 7 })]
+    api.data.resources = [resourceRow("session", 7, "F1 Weekend")]
+
+    await openAdmin(page)
+    await accessButton(page).first().click()
+
+    const dialog = page.getByRole("dialog")
+    const catalog = dialog.getByTestId("access-catalog")
+    const box = await catalog.boundingBox()
+    if (box === null) throw new Error("catalog has no box")
+
+    await page.mouse.move(box.x + 6, box.y + 24)
+    await page.mouse.down()
+    await page.mouse.move(box.x + box.width - 6, box.y + 24, { steps: 8 })
+    // Dwell near the bottom edge: the marquee should auto-scroll the catalog.
+    await page.mouse.move(box.x + box.width - 6, box.y + box.height - 6, { steps: 8 })
+    await page.waitForTimeout(400)
+
+    const scrollTop = await catalog.evaluate(
+      (element) => (element as unknown as { scrollTop: number }).scrollTop,
+    )
+    const pressed = await dialog
+      .locator('[data-testid="access-catalog"] button[aria-pressed="true"]')
+      .count()
+    await page.mouse.up()
+
+    expect(pressed).toBeGreaterThanOrEqual(2)
+    expect(scrollTop).toBeGreaterThan(0)
+    // The marquee's pointerup must not land as a click on a card.
+    await expect(page).toHaveURL(/\/sessions$/)
   })
 
   test("a click inside the access panel does not open the session detail", async ({ page, api }) => {
@@ -195,11 +244,12 @@ test.describe("admin resource access", () => {
     const trigger = accessButton(page).first()
     await trigger.click()
 
-    // "View access" is panel chrome, not a control — the click that used to navigate.
-    await page.getByText("View access").click()
+    const dialog = page.getByRole("dialog")
+    // The owner row is panel chrome, not a control — the click that used to navigate.
+    await dialog.getByText("Kyros").first().click()
 
     await expect(page).toHaveURL(/\/sessions$/)
-    await expect(page.getByText("Only the owner can see this item.")).toBeVisible()
+    await expect(dialog.getByTestId("access-catalog")).toBeVisible()
 
     await page.keyboard.press("Escape")
     await expect(page.getByRole("dialog")).toHaveCount(0)

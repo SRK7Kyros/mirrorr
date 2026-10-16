@@ -61,11 +61,30 @@ async function loaded(): Promise<void> {
   await screen.findByLabelText("Search users")
 }
 
-/** The catalog section whose heading is `heading`. */
-async function section(heading: string): Promise<HTMLElement> {
-  const found = (await screen.findByText(heading)).closest("section")
-  if (found === null) throw new Error(`no section for ${heading}`)
-  return found
+function catalog(): HTMLElement {
+  return screen.getByTestId("access-catalog")
+}
+
+function filterGroup(): HTMLElement {
+  return screen.getByRole("group", { name: "Filter by capability" })
+}
+
+function setGroup(): HTMLElement {
+  return screen.getByRole("group", { name: "Capabilities for the selected users" })
+}
+
+/** A filter chip, whose accessible name carries its holder count ("View access 2"). */
+function filterChip(label: string): HTMLButtonElement {
+  return within(filterGroup()).getByRole("button", { name: new RegExp(`^${label}`) }) as HTMLButtonElement
+}
+
+/** A capability chip of the lower row (no count — its name is exactly the label). */
+function setChip(label: string): HTMLButtonElement {
+  return within(setGroup()).getByRole("button", { name: label }) as HTMLButtonElement
+}
+
+function card(name: string): HTMLButtonElement {
+  return within(catalog()).getByRole("button", { name: new RegExp(name) }) as HTMLButtonElement
 }
 
 function applyButton(): HTMLButtonElement {
@@ -79,76 +98,92 @@ beforeEach(() => {
 })
 
 describe("AccessPanel", () => {
-  it("shows the header, one section per capability in frozen order, and the owner catalog", async () => {
+  it("shows the header, the owner row and one grant catalog that excludes the owner", async () => {
     renderPanel()
 
     expect(await screen.findByText("Access · F1 Weekend")).toBeTruthy()
     expect(screen.getByText("Session · #1")).toBeTruthy()
     await loaded()
 
+    expect(screen.getByText("Kyros")).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Change" })).toBeTruthy()
+    expect(card("Alice")).toBeTruthy()
+    expect(card("Bob")).toBeTruthy()
+    expect(within(catalog()).queryByRole("button", { name: /Kyros/ })).toBeNull()
+    // The old per-section prose is gone.
+    expect(screen.queryByText("Only the owner can see this item.")).toBeNull()
+  })
+
+  it("shows both chip rows in the frozen capability order", async () => {
+    renderPanel()
+    await loaded()
+
     expect([...CAPABILITIES]).toEqual(["VIEW", "OPERATE", "EDIT", "DELETE", "SHARE", "EXPORT"])
-    const headings = ["Owner", "View access", "Operate", "Edit", "Delete", "Share", "Export"].map((text) =>
-      screen.getByText(text),
-    )
-    for (let index = 1; index < headings.length; index += 1) {
-      const relation = headings[index - 1].compareDocumentPosition(headings[index])
-      expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(filterGroup()).getByRole("button", { name: "All" })).toBeTruthy()
+    const labels = ["View access", "Operate", "Edit", "Delete", "Share", "Export"]
+    for (const label of labels) {
+      expect(filterChip(label)).toBeTruthy()
+      expect(setChip(label)).toBeTruthy()
     }
-    expect(screen.getByText("Only the owner can see this item.")).toBeTruthy()
   })
 
   it("filters the card catalog by username and display name as you type", async () => {
     renderPanel()
+    await loaded()
 
-    const view = await section("View access")
-    await within(view).findByRole("button", { name: /Bob/ })
-    expect(within(view).getByRole("button", { name: /Alice/ })).toBeTruthy()
-
+    expect(card("Bob")).toBeTruthy()
     fireEvent.change(screen.getByLabelText("Search users"), { target: { value: "ali" } })
 
-    expect(within(view).getByRole("button", { name: /Alice/ })).toBeTruthy()
-    expect(within(view).queryByRole("button", { name: /Bob/ })).toBeNull()
-    expect(within(view).queryByRole("button", { name: /Carol/ })).toBeNull()
+    expect(card("Alice")).toBeTruthy()
+    expect(within(catalog()).queryByRole("button", { name: /Bob/ })).toBeNull()
+    expect(within(catalog()).queryByRole("button", { name: /Carol/ })).toBeNull()
   })
 
   it("shows an empty catalog state when nothing matches", async () => {
     renderPanel()
+    await loaded()
 
-    await section("View access")
     fireEvent.change(screen.getByLabelText("Search users"), { target: { value: "zzzznobody" } })
 
     expect(screen.getByText("No users match.")).toBeTruthy()
-    expect(screen.getAllByText("No other users match.")).toHaveLength(CAPABILITIES.length)
   })
 
-  it("never offers the item's own owner as a grant target", async () => {
+  it("filters the catalog to a capability's holders and returns to All on a second tap", async () => {
+    api.fetchResourceAccess.mockResolvedValue(accessView({ grants: { VIEW: ["bob"] } }))
     renderPanel()
+    await loaded()
 
-    const view = await section("View access")
-    await within(view).findByRole("button", { name: /Alice/ })
-    expect(within(view).queryByRole("button", { name: /Kyros/ })).toBeNull()
-    expect(within(await section("Owner")).getByRole("button", { name: /Kyros/ })).toBeTruthy()
+    expect(card("Alice")).toBeTruthy()
+    fireEvent.click(filterChip("View access"))
+
+    expect(card("Bob")).toBeTruthy()
+    expect(within(catalog()).queryByRole("button", { name: /Alice/ })).toBeNull()
+    expect(filterChip("View access").textContent).toContain("1")
+
+    fireEvent.click(filterChip("View access"))
+    expect(card("Alice")).toBeTruthy()
   })
 
   it("keeps Apply disabled until the draft is dirty", async () => {
     renderPanel()
-
     await loaded()
     expect(applyButton().disabled).toBe(true)
 
-    fireEvent.click(within(await section("View access")).getByRole("button", { name: /Bob/ }))
+    fireEvent.click(card("Bob"))
+    fireEvent.click(setChip("View access"))
 
     expect(applyButton().disabled).toBe(false)
     expect(screen.getByText("Unsaved changes")).toBeTruthy()
   })
 
-  it("grants a capability on tap and emits nothing until Apply", async () => {
+  it("grants VIEW through the lower chip row on Apply and emits nothing before", async () => {
     renderPanel()
+    await loaded()
 
-    const card = await within(await section("View access")).findByRole("button", { name: /Bob/ })
-    fireEvent.click(card)
+    fireEvent.click(card("Bob"))
+    fireEvent.click(setChip("View access"))
 
-    expect(card.getAttribute("aria-pressed")).toBe("true")
+    expect(card("Bob").getAttribute("aria-pressed")).toBe("true")
     // Drafting alone must reach no wire — a control that only looks like it grants fails here.
     expect(endpoints.setResourceGrants).not.toHaveBeenCalled()
     expect(endpoints.revokeResourceUser).not.toHaveBeenCalled()
@@ -160,15 +195,26 @@ describe("AccessPanel", () => {
     expect(endpoints.setResourceGrants).toHaveBeenCalledWith("session", 1, "bob", ["VIEW"])
   })
 
-  it("revokes a capability on a second tap and clears the user when nothing is left", async () => {
+  it("implies VIEW when another capability is granted", async () => {
+    renderPanel()
+    await loaded()
+
+    fireEvent.click(card("Bob"))
+    fireEvent.click(setChip("Operate"))
+    fireEvent.click(applyButton())
+
+    await waitFor(() => expect(endpoints.setResourceGrants).toHaveBeenCalledTimes(1))
+    expect(endpoints.setResourceGrants).toHaveBeenCalledWith("session", 1, "bob", ["VIEW", "OPERATE"])
+  })
+
+  it("revokes a user's last capability outright through DELETE", async () => {
     api.fetchResourceAccess.mockResolvedValue(accessView({ grants: { VIEW: ["bob"] } }))
     renderPanel()
+    await loaded()
 
-    const card = await within(await section("View access")).findByRole("button", { name: /Bob/ })
-    expect(card.getAttribute("aria-pressed")).toBe("true")
-    fireEvent.click(card)
-    expect(card.getAttribute("aria-pressed")).toBe("false")
-
+    fireEvent.click(card("Bob"))
+    expect(setChip("View access").getAttribute("aria-pressed")).toBe("true")
+    fireEvent.click(setChip("View access"))
     fireEvent.click(applyButton())
 
     await waitFor(() => expect(endpoints.revokeResourceUser).toHaveBeenCalledTimes(1))
@@ -176,17 +222,64 @@ describe("AccessPanel", () => {
     expect(endpoints.setResourceGrants).not.toHaveBeenCalled()
   })
 
-  it("keeps the owner single-select and transfers it on Apply", async () => {
+  it("warns and clears every capability when VIEW is unticked", async () => {
+    api.fetchResourceAccess.mockResolvedValue(accessView({ grants: { VIEW: ["bob"], OPERATE: ["bob"] } }))
     renderPanel()
+    await loaded()
 
-    const owner = await section("Owner")
-    const kyros = await within(owner).findByRole("button", { name: /Kyros/ })
-    const alice = within(owner).getByRole("button", { name: /Alice/ })
-    expect(kyros.getAttribute("aria-pressed")).toBe("true")
+    fireEvent.click(card("Bob"))
+    fireEvent.click(setChip("View access"))
 
-    fireEvent.click(alice)
-    expect(alice.getAttribute("aria-pressed")).toBe("true")
-    expect(kyros.getAttribute("aria-pressed")).toBe("false")
+    expect(screen.getByText("Clearing View access also clears every other capability.")).toBeTruthy()
+    fireEvent.click(applyButton())
+
+    await waitFor(() => expect(endpoints.revokeResourceUser).toHaveBeenCalledWith("session", 1, "bob"))
+  })
+
+  it("marks a lower chip mixed when only some selected users hold it", async () => {
+    api.fetchResourceAccess.mockResolvedValue(accessView({ grants: { VIEW: ["bob"], OPERATE: ["bob"] } }))
+    renderPanel()
+    await loaded()
+
+    expect(setChip("Operate").getAttribute("aria-pressed")).toBe("false")
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }))
+
+    expect(setChip("Operate").getAttribute("aria-pressed")).toBe("mixed")
+    expect(screen.getByText("3 selected")).toBeTruthy()
+
+    fireEvent.click(setChip("Operate"))
+    expect(setChip("Operate").getAttribute("aria-pressed")).toBe("true")
+
+    fireEvent.click(applyButton())
+    // Alice and Carol gain VIEW + OPERATE; Bob already holds both, so no wire for him.
+    await waitFor(() => expect(endpoints.setResourceGrants).toHaveBeenCalledTimes(4))
+    expect(endpoints.setResourceGrants).toHaveBeenCalledWith("session", 1, "alice", ["VIEW", "OPERATE"])
+    expect(endpoints.setResourceGrants).toHaveBeenCalledWith("session", 1, "carol", ["VIEW", "OPERATE"])
+    expect(endpoints.setResourceGrants).not.toHaveBeenCalledWith("session", 1, "bob", expect.anything())
+  })
+
+  it("selects every shown card and clears the selection", async () => {
+    renderPanel()
+    await loaded()
+
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }))
+    expect(within(catalog()).getAllByRole("button", { pressed: true })).toHaveLength(3)
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }))
+    expect(within(catalog()).queryAllByRole("button", { pressed: true })).toHaveLength(0)
+    expect((setChip("Operate") as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it("transfers ownership from the owner picker", async () => {
+    renderPanel()
+    await loaded()
+
+    fireEvent.click(screen.getByRole("button", { name: "Change" }))
+    expect(screen.getByText("Pick the new owner")).toBeTruthy()
+    expect(screen.queryByRole("group", { name: "Filter by capability" })).toBeNull()
+
+    fireEvent.click(card("Alice"))
+    expect(card("Alice").getAttribute("aria-pressed")).toBe("true")
 
     fireEvent.click(applyButton())
 
@@ -194,28 +287,17 @@ describe("AccessPanel", () => {
     expect(endpoints.setResourceOwner).toHaveBeenCalledWith("session", 1, "alice")
   })
 
-  it("grants OPERATE for a user and posts their whole resulting capability set", async () => {
+  it("wears the granted-variant highlight on the selected cards alone", async () => {
     renderPanel()
+    await loaded()
 
-    fireEvent.click(await within(await section("View access")).findByRole("button", { name: /Bob/ }))
-    fireEvent.click(within(await section("Operate")).getByRole("button", { name: /Bob/ }))
-    fireEvent.click(applyButton())
-
-    await waitFor(() => expect(endpoints.setResourceGrants).toHaveBeenCalledTimes(2))
-    expect(endpoints.setResourceGrants).toHaveBeenNthCalledWith(1, "session", 1, "bob", ["VIEW", "OPERATE"])
-    expect(endpoints.setResourceGrants).toHaveBeenNthCalledWith(2, "session", 1, "bob", ["VIEW", "OPERATE"])
-  })
-
-  it("wears the granted-variant highlight on the selected card alone", async () => {
-    renderPanel()
-
-    const view = await section("View access")
-    const bob = await within(view).findByRole("button", { name: /Bob/ })
-    const carol = within(view).getByRole("button", { name: /Carol/ })
+    const bob = card("Bob")
+    const carol = card("Carol")
     expect(bob.className).not.toContain("data-[granted=true]:")
 
     fireEvent.click(bob)
 
+    expect(bob.getAttribute("data-granted")).toBe("true")
     expect(bob.className).toContain("data-[granted=true]:border-brand")
     expect(bob.className).toContain("data-[granted=true]:bg-[var(--accent-dim)]")
     // The old spelling lost the cascade to `border-line`/`bg-surface-2` (equal
@@ -224,22 +306,22 @@ describe("AccessPanel", () => {
     expect(carol.className).not.toContain("data-[granted=true]:")
   })
 
-  it("pins the dirty indicator and Apply in the dialog footer, outside the scroll body", async () => {
+  it("caps the catalog and pins the dirty indicator and Apply outside its scroll region", async () => {
     renderPanel()
     await loaded()
 
     const dialog = screen.getByRole("dialog")
-    // The catalog's nearest overflow-y-auto ancestor is the Dialog body (the scroll region).
-    const body = (await section("View access")).closest(".overflow-y-auto")
-    // Guard against a vacuous pass: the catalog really does sit inside a scroll region.
-    expect(body).not.toBeNull()
-    expect(body).not.toBe(dialog)
+    const region = catalog()
+    // Guard against a vacuous pass: the catalog really is the scroll region.
+    expect(region.className).toContain("overflow-y-auto")
+    expect(region.className).toContain("max-h-[calc(100dvh-460px)]")
+    expect(region).not.toBe(dialog)
 
     const indicator = screen.getByText("Up to date")
     const apply = applyButton()
 
-    expect(body!.contains(indicator)).toBe(false)
-    expect(body!.contains(apply)).toBe(false)
+    expect(region.contains(indicator)).toBe(false)
+    expect(region.contains(apply)).toBe(false)
     expect(dialog.contains(indicator)).toBe(true)
     expect(dialog.contains(apply)).toBe(true)
   })

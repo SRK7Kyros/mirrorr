@@ -113,6 +113,14 @@ export const IconUser = makeIcon(
   </>,
 )
 
+/** Ownership mark — the crown beside the owner row and the owner picker. */
+export const IconCrown = makeIcon(
+  <>
+    <path d="M3 8l3.5 3L12 5l5.5 6L21 8v9H3z" />
+    <path d="M4 20h16" />
+  </>,
+)
+
 export const IconPlus = makeIcon(<path d="M12 5v14M5 12h14" />)
 export const IconX = makeIcon(<path d="M18 6 6 18M6 6l12 12" />)
 export const IconCheck = makeIcon(<path d="M20 6 9 17l-5-5" />)

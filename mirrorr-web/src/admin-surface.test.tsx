@@ -150,7 +150,8 @@ describe("ResourceAccessSection", () => {
     renderAdmin()
 
     fireEvent.click(await screen.findByRole("button", { name: "Manage access for F1 Weekend" }))
-    fireEvent.change(await screen.findByLabelText("Owner"), { target: { value: "alice" } })
+    fireEvent.click(await screen.findByRole("button", { name: "Change" }))
+    fireEvent.click(within(screen.getByTestId("access-catalog")).getByRole("button", { name: /Alice/ }))
     fireEvent.click(screen.getByRole("button", { name: "Apply changes" }))
 
     await waitFor(() => expect(api.setResourceOwner).toHaveBeenCalledWith("session", 7, "alice"))
@@ -162,8 +163,13 @@ describe("ResourceAccessSection", () => {
     renderAdmin()
 
     fireEvent.click(await screen.findByRole("button", { name: "Manage access for F1 Weekend" }))
-    fireEvent.change(await screen.findByLabelText("Add a viewer"), { target: { value: "alice" } })
-    fireEvent.click(screen.getByRole("button", { name: "Add" }))
+    fireEvent.click(within(await screen.findByTestId("access-catalog")).getByRole("button", { name: /Alice/ }))
+    fireEvent.click(
+      within(screen.getByRole("group", { name: "Capabilities for the selected users" })).getByRole(
+        "button",
+        { name: "View access" },
+      ),
+    )
     fireEvent.click(screen.getByRole("button", { name: "Apply changes" }))
 
     await waitFor(() => expect(api.setResourceGrants).toHaveBeenCalledWith("session", 7, "alice", ["VIEW"]))
@@ -182,7 +188,13 @@ describe("ResourceAccessSection", () => {
     renderAdmin()
 
     fireEvent.click(await screen.findByRole("button", { name: "Manage access for F1 Weekend" }))
-    fireEvent.click(await screen.findByRole("button", { name: "Remove alice" }))
+    fireEvent.click(within(await screen.findByTestId("access-catalog")).getByRole("button", { name: /Alice/ }))
+    fireEvent.click(
+      within(screen.getByRole("group", { name: "Capabilities for the selected users" })).getByRole(
+        "button",
+        { name: "View access" },
+      ),
+    )
     fireEvent.click(screen.getByRole("button", { name: "Apply changes" }))
 
     await waitFor(() => expect(api.revokeResourceUser).toHaveBeenCalledWith("session", 7, "alice"))
