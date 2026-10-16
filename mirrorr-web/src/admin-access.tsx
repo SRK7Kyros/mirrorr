@@ -45,7 +45,7 @@ import type {
 } from "@/ui/views/shared/resource-access-slot"
 
 const HOVER_CARD_CLASS =
-  "z-[var(--z-popover)] w-[360px] p-4 bg-surface-3 border border-line-strong rounded-md shadow-elev-md"
+  "z-[var(--z-popover)] w-[360px] max-h-[70vh] overflow-y-auto p-4 bg-surface-3 border border-line-strong rounded-md shadow-elev-md"
 
 function useUsers(): readonly User[] {
   const query = useQuery({ queryKey: queryKeys.users, queryFn: fetchUsers, staleTime: staleTimes.users })
