@@ -158,6 +158,7 @@ src/
 │   ├── autorun_scheduler.py   # Background scheduler loop
 │   ├── managed_process.py     # Subprocess wrapper with telemetry
 │   ├── process_bus.py         # In-process async event bus
+│   ├── permissions.py         # has_capability/require_capability — capability predicate
 │   └── recording.py           # Segment stashing + remux-to-MP4
 │
 ├── storage/                   # Data layer
@@ -319,12 +320,13 @@ The data layer is a standalone module — see `src/api/README.md` for its full c
       ├──← EventSubscription (user_id + resource_type + resource_id)
       └──← Notification (user_id + resource info + read flag)
 
-┌────────────────┐  — per-user view grant. No FK: username matches User.username
+┌────────────────┐  — per-user capability grant. No FK: username matches User.username
 │ ResourceAccess │    (same convention as requester_user_token).
-│ resource_type  │    UNIQUE (resource_type, resource_id, username).
-│ resource_id    │    An item is readable by its owner, its grantees and admins;
-│ username       │    a grant admits READS ONLY (list row, detail, logs).
-└────────────────┘    Cascades away with its resource and on user delete.
+│ resource_type  │    UNIQUE (resource_type, resource_id, username, capability).
+│ resource_id    │    capability ∈ {VIEW, OPERATE, EDIT, DELETE, SHARE, EXPORT};
+│ username       │    owner and admin hold all six implicitly, and no capability
+│ capability     │    implies another. Cascades away with its resource and on user delete.
+└────────────────┘
 ```
 
 ### Enums
@@ -334,6 +336,7 @@ The data layer is a standalone module — see `src/api/README.md` for its full c
 | `SessionStatus` | `initializing`, `stream_pending`, `active`, `recording`, `terminating`, `remuxing`, `finalizing`, `completed`, `failed` |
 | `AutorunStatus` | `scheduled`, `active`, `recording`, `terminating`, `remuxing`, `finalizing`, `completed`, `failed` |
 | `ResourceType` | `session`, `profile`, `autorun`, `recording`, `source`, `user` |
+| `Capability` | `VIEW`, `OPERATE`, `EDIT`, `DELETE`, `SHARE`, `EXPORT` |
 
 ### Status State Machine (Session)
 
@@ -427,17 +430,17 @@ All authenticated endpoints require either:
 | `POST` | `/auth/clients` | Create client | `get_auth` |
 | `DELETE` | `/auth/clients/{id}` | Delete client | `require_admin` |
 
-#### Resource Access (admin)
+#### Resource access & sharing
 
 | Method | Path | Description | Auth |
 |--------|------|-------------|------|
 | `GET` | `/admin/resources` | List every item with owner/viewer-count (`?resource_type=&owner=&limit=&offset=`) | `require_admin` |
-| `PUT` | `/admin/resources/{resource_type}/{id}/owner` | Set a resource's owner | `require_admin` |
-| `GET` | `/admin/resources/{resource_type}/{id}/access` | Read a resource's owner + viewers | `require_admin` |
-| `POST` | `/admin/resources/{resource_type}/{id}/access` | Grant a user view access | `require_admin` |
-| `DELETE` | `/admin/resources/{resource_type}/{id}/access/{username}` | Revoke a user's view access | `require_admin` |
+| `PUT` | `/admin/resources/{resource_type}/{id}/owner` | Transfer a resource's owner | `require_admin` |
+| `GET` | `/shares/{resource_type}/{id}` | Read owner + grants (`AccessView`) | `SHARE` |
+| `POST` | `/shares/{resource_type}/{id}` | Replace one user's capability set (`{username, capabilities:[…]}`) | `SHARE` |
+| `DELETE` | `/shares/{resource_type}/{id}/{username}` | Clear every grant for one user | `SHARE` |
 
-`resource_type` is `session|profile|autorun|recording|source` (owner-bearing, editable); `engine|resolver` appear as read-only `system` rows in the listing only, and `user` is not a valid access target. A grant admits **reads only**.
+`resource_type` is `session|profile|autorun|recording|source` (owner-bearing, editable); `engine|resolver` appear as read-only `system` rows in the listing only, and `user` is not a valid access target. The `SHARE` routes are gated by `require_capability(..., Capability.SHARE)` (owner, admin or a `SHARE` holder); the three old `/admin/resources/{type}/{id}/access*` routes are removed (they now 404).
 
 #### Notifications
 
@@ -725,7 +728,7 @@ When a session's status changes, the `session_lifecycle.py` helper:
 | Role | Permissions |
 |------|------------|
 | `admin` | Full access to all resources |
-| `user` | Own resources (filtered by `requester_user_token`) **plus items explicitly granted view** through `resource_access` (reads only — never control/update/delete/export/linking) |
+| `user` | Own resources (filtered by `requester_user_token`) **plus the capabilities granted** through `resource_access` (`VIEW`/`OPERATE`/`EDIT`/`DELETE`/`SHARE`/`EXPORT`, enforced per action; no capability implies another) |
 | (API key) | Client-level access, linked to users via `ClientUser` join table |
 
 ### First User Bootstrap
@@ -821,7 +824,7 @@ Frontend ←── WS ───→ Backend ←── NATS ───→ Superviso
 | `USE_SYSTEM_NATS` | `false` | Use nats-server from $PATH |
 | `API_HOST` | `localhost` | Uvicorn bind address |
 | `API_PORT` | `8000` | Uvicorn bind port |
-| `WEB_URL` | `""` | Public base URL (e.g. `https://domain.duckdns.org`) |
+| `WEB_URL` | `""` | Public base URL (e.g. `https://example.com`) |
 | `DEV_SERVE_FILES` | `false` | Mount content_dir as static files |
 | `DEV_RESET_DATABASE` | `false` | Truncate all DB tables on boot |
 | `JWT_SECRET_KEY` | `""` | JWT signing secret (auto-generated if empty) |
