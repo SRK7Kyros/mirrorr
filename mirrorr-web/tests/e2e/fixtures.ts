@@ -153,12 +153,21 @@ export interface ApiData {
   registrationRequests?: readonly Row[]
   /** `GET /admin/resources` rows (owner-bearing items plus engines/resolvers). */
   resources?: readonly Row[]
+  /** `GET /groups` rows — `{id, name, display_name, system, members?}`. */
+  groups?: readonly Row[]
   /** VIEW grants keyed `"{type}:{id}"` for the `GET /shares/…` routes. */
   resourceViewers?: Record<string, readonly string[]>
   /** Per-user capability sets keyed `"{type}:{id}"` — overrides `resourceViewers` per user. */
   resourceGrants?: Record<
     string,
     readonly { readonly username: string; readonly capabilities: readonly string[] }[]
+  >
+  /** Owner-group ids keyed `"{type}:{id}"` — additive to the single user owner. */
+  ownerGroups?: Record<string, readonly number[]>
+  /** Group capability sets keyed `"{type}:{id}"` — the group analogue of `resourceGrants`. */
+  groupGrants?: Record<
+    string,
+    readonly { readonly group_id: number; readonly capabilities: readonly string[] }[]
   >
   /** `POST /resolvers/{id}/discover` — the catalog the channel browser reads. */
   discovery?: readonly Row[]
@@ -196,6 +205,10 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
 
   const resourceViewers: Record<string, string[]> = {}
   const explicitGrants: Record<string, { username: string; capabilities: string[] }[]> = {}
+  const groups: Row[] = []
+  const groupGrants: Record<string, { group_id: number; capabilities: string[] }[]> = {}
+  const ownerGroups: Record<string, number[]> = {}
+  let nextGroupId = 0
   // Seeded on the first API call, not here: a spec assigns `api.data.*` before it
   // navigates, so an eager snapshot would miss every seed.
   let seeded = false
@@ -206,6 +219,14 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
     for (const [key, list] of Object.entries(data.resourceGrants ?? {})) {
       explicitGrants[key] = list.map((grant) => ({ username: grant.username, capabilities: [...grant.capabilities] }))
     }
+    for (const row of data.groups ?? []) {
+      groups.push({ ...row, members: [...((row.members as string[] | undefined) ?? [])] })
+    }
+    for (const [key, list] of Object.entries(data.groupGrants ?? {})) {
+      groupGrants[key] = list.map((grant) => ({ group_id: grant.group_id, capabilities: [...grant.capabilities] }))
+    }
+    for (const [key, list] of Object.entries(data.ownerGroups ?? {})) ownerGroups[key] = [...list]
+    nextGroupId = groups.reduce((max, row) => Math.max(max, Number(row.id)), 0)
   }
 
   await page.route(/^https?:\/\/[^/]+\/api\//, async (route: Route) => {
@@ -219,6 +240,17 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
     const answer = (status: number, json: unknown): Promise<void> =>
       route.fulfill({ status, contentType: "application/json", body: JSON.stringify(json) })
     const list = (items: readonly Row[] | undefined): Promise<void> => answer(200, cursorPage(items ?? []))
+
+    const groupById = (id: number): Row | undefined => groups.find((row) => row.id === id)
+    const groupName = (id: number): string => String(groupById(id)?.name ?? `#${id}`)
+    const groupView = (row: Row): Record<string, unknown> => ({
+      id: row.id,
+      name: row.name,
+      display_name: row.display_name ?? "",
+      system: row.system ?? false,
+      member_count: (row.members as string[] | undefined)?.length ?? 0,
+      members: [...((row.members as string[] | undefined) ?? [])],
+    })
 
     const authenticated = data.authenticated ?? true
 
@@ -308,7 +340,17 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
       const filtered = (data.resources ?? []).filter(
         (row) => (type === null || row.resource_type === type) && (owner === null || row.owner === owner),
       )
-      return answer(200, { items: filtered.slice(offset, offset + limit), total: filtered.length })
+      return answer(200, {
+        items: filtered.slice(offset, offset + limit).map((row) => {
+          const key = `${row.resource_type}:${row.id}`
+          return {
+            ...row,
+            owner_groups: (ownerGroups[key] ?? []).map(groupName),
+            grant_groups: [...new Set((groupGrants[key] ?? []).map((grant) => groupName(grant.group_id)))],
+          }
+        }),
+        total: filtered.length,
+      })
     }
 
     // The sharing surface: `resourceViewers` seeds VIEW-only grants (what an
@@ -326,7 +368,91 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
         owner: row?.owner ?? "",
         owner_missing: false,
         grants: [...byUser].map(([username, capabilities]) => ({ username, capabilities })),
+        owner_groups: (ownerGroups[key] ?? []).map((groupId) => ({
+          id: groupId,
+          name: groupName(groupId),
+          display_name: String(groupById(groupId)?.display_name ?? ""),
+          system: Boolean(groupById(groupId)?.system),
+        })),
+        group_grants: (groupGrants[key] ?? []).map((grant) => ({
+          group_id: grant.group_id,
+          name: groupName(grant.group_id),
+          display_name: String(groupById(grant.group_id)?.display_name ?? ""),
+          system: Boolean(groupById(grant.group_id)?.system),
+          capabilities: [...grant.capabilities],
+        })),
       }
+    }
+
+    // Groups (admin console): a tiny in-memory CRUD over `data.groups`.
+    if (path === "/groups") {
+      if (method === "POST") {
+        const payload = (body ?? {}) as { name?: string; display_name?: string }
+        nextGroupId += 1
+        const created: Row = {
+          id: nextGroupId,
+          name: payload.name ?? `group-${nextGroupId}`,
+          display_name: payload.display_name ?? "",
+          system: false,
+          members: [] as string[],
+        }
+        groups.push(created)
+        return answer(200, groupView(created))
+      }
+      return answer(200, { items: groups.map(groupView), total: groups.length })
+    }
+
+    const groupItem = /^\/groups\/(\d+)(\/members)?$/.exec(path)
+    if (groupItem !== null) {
+      const [, rawId, membersSuffix] = groupItem
+      const id = Number(rawId)
+      const row = groupById(id)
+      if (row === undefined) return answer(404, { detail: "No such group" })
+      if (membersSuffix === "/members" && method === "PUT") {
+        row.members = [...(((body ?? {}) as { usernames?: readonly string[] }).usernames ?? [])]
+        return answer(200, groupView(row))
+      }
+      if (method === "PATCH") {
+        const payload = (body ?? {}) as { name?: string; display_name?: string }
+        if (payload.name !== undefined) row.name = payload.name
+        if (payload.display_name !== undefined) row.display_name = payload.display_name
+        return answer(200, groupView(row))
+      }
+      if (method === "DELETE") {
+        groups.splice(groups.indexOf(row), 1)
+        for (const key of Object.keys(groupGrants)) {
+          groupGrants[key] = groupGrants[key].filter((grant) => grant.group_id !== id)
+        }
+        for (const key of Object.keys(ownerGroups)) {
+          ownerGroups[key] = ownerGroups[key].filter((groupId) => groupId !== id)
+        }
+        return answer(200, { status: "deleted", id })
+      }
+    }
+
+    // Owner-group add/remove — additive to the single user owner.
+    const ownerGroup = /^\/shares\/([^/]+)\/(\d+)\/owner-group\/(\d+)$/.exec(path)
+    if (ownerGroup !== null) {
+      const [, type, rawResourceId, rawGroupId] = ownerGroup
+      const key = `${type}:${rawResourceId}`
+      const groupId = Number(rawGroupId)
+      const current = ownerGroups[key] ?? []
+      ownerGroups[key] =
+        method === "DELETE" ? current.filter((id) => id !== groupId) : [...new Set([...current, groupId])]
+      return answer(200, accessView(type, rawResourceId))
+    }
+
+    // Group grants: the same replace-set shape as a user grant, keyed by group id.
+    const groupGrant = /^\/shares\/([^/]+)\/(\d+)\/group\/(\d+)$/.exec(path)
+    if (groupGrant !== null) {
+      const [, type, rawResourceId, rawGroupId] = groupGrant
+      const key = `${type}:${rawResourceId}`
+      const groupId = Number(rawGroupId)
+      const capabilities = method === "DELETE" ? [] : [...((body ?? {}) as { capabilities?: readonly string[] }).capabilities ?? []]
+      const others = (groupGrants[key] ?? []).filter((grant) => grant.group_id !== groupId)
+      groupGrants[key] =
+        capabilities.length === 0 ? others : [...others, { group_id: groupId, capabilities }]
+      return answer(200, accessView(type, rawResourceId))
     }
 
     const sharesUser = /^\/shares\/([^/]+)\/(\d+)\/(.+)$/.exec(path)

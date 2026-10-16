@@ -2,6 +2,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest"
 import {
   applyPlans,
   emptyGrants,
+  emptyGroupGrants,
+  grantedGroupIds,
   grantedUsernames,
   itemAccessFromView,
   overrideOf,
@@ -16,6 +18,10 @@ vi.mock("@/api/endpoints/access", () => ({
   setResourceOwner: vi.fn(),
   setResourceGrants: vi.fn(),
   revokeResourceUser: vi.fn(),
+  setGroupGrants: vi.fn(),
+  revokeGroupGrants: vi.fn(),
+  addResourceOwnerGroup: vi.fn(),
+  removeResourceOwnerGroup: vi.fn(),
 }))
 
 import * as api from "@/api/endpoints/access"
@@ -23,11 +29,19 @@ import * as api from "@/api/endpoints/access"
 const setOwner = vi.mocked(api.setResourceOwner)
 const grant = vi.mocked(api.setResourceGrants)
 const revoke = vi.mocked(api.revokeResourceUser)
+const setGroup = vi.mocked(api.setGroupGrants)
+const revokeGroup = vi.mocked(api.revokeGroupGrants)
+const addOwnerGroup = vi.mocked(api.addResourceOwnerGroup)
+const removeOwnerGroup = vi.mocked(api.removeResourceOwnerGroup)
 
 const USERS = ["kyros", "alice"]
 
 function grants(over: Partial<Record<Capability, string[]>> = {}): Record<Capability, string[]> {
   return { ...emptyGrants(), ...over }
+}
+
+function groupGrantsOf(over: Partial<Record<Capability, number[]>> = {}): Record<Capability, number[]> {
+  return { ...emptyGroupGrants(), ...over }
 }
 
 function access(over: Partial<ItemAccess> = {}): ItemAccess {
@@ -56,6 +70,8 @@ describe("itemAccessFromView", () => {
       owner: "kyros",
       owner_missing: false,
       grants: [{ username: "bob", capabilities: ["OPERATE", "VIEW"] }],
+      owner_groups: [],
+      group_grants: [],
     }
     const item = itemAccessFromView(view)
     expect(item.owner).toBe("kyros")
@@ -71,6 +87,8 @@ describe("itemAccessFromView", () => {
       owner: null,
       owner_missing: true,
       grants: [],
+      owner_groups: [],
+      group_grants: [],
     })
     expect(item.owner).toBeNull()
     expect(item.ownerMissing).toBe(true)
@@ -284,5 +302,118 @@ describe("applyPlans", () => {
     expect(outcome.failed).toHaveLength(1)
     expect(outcome.failed[0].plan.id).toBe(1)
     expect(outcome.failed[0].message).toBeTruthy()
+  })
+})
+
+describe("itemAccessFromView groups", () => {
+  it("maps group grants and owner groups onto the record", () => {
+    const item = itemAccessFromView({
+      resource_type: "session",
+      id: 7,
+      owner: "kyros",
+      owner_missing: false,
+      grants: [],
+      owner_groups: [{ id: 3, name: "editors", display_name: "Editors", system: false }],
+      group_grants: [
+        {
+          group_id: 4,
+          name: "everyone",
+          display_name: "Everyone",
+          system: true,
+          capabilities: ["VIEW", "OPERATE"],
+        },
+      ],
+    })
+    expect(grantedGroupIds(item)).toEqual([4])
+    expect(item.groupGrants?.VIEW).toEqual([4])
+    expect(item.groupGrants?.OPERATE).toEqual([4])
+    expect(item.ownerGroups).toEqual([3])
+  })
+})
+
+describe("overrideOf groups", () => {
+  it("counts groups beside users", () => {
+    const item = access({ grants: grants({ VIEW: ["alice"] }), groupGrants: groupGrantsOf({ VIEW: [4] }) })
+    expect(overrideOf(item, USERS)).toEqual({ kind: "grants", count: 2 })
+  })
+
+  it("flags a group-only grant", () => {
+    expect(overrideOf(access({ groupGrants: groupGrantsOf({ VIEW: [4] }) }), USERS)).toEqual({
+      kind: "grants",
+      count: 1,
+    })
+  })
+})
+
+describe("planItem groups", () => {
+  it("emits one op per group whose capabilities change", () => {
+    const plan = planItem(
+      row({ access: access({ groupGrants: groupGrantsOf({ VIEW: [4] }) }) }),
+      { groupGrants: { VIEW: [4], OPERATE: [4] } },
+      USERS,
+    )
+    expect(plan.ops).toEqual([{ kind: "group", groupId: 4 }])
+  })
+
+  it("emits a group op when a group's last capability goes", () => {
+    const plan = planItem(
+      row({ access: access({ groupGrants: groupGrantsOf({ VIEW: [4] }) }) }),
+      { groupGrants: { VIEW: [] } },
+      USERS,
+    )
+    expect(plan.ops).toEqual([{ kind: "group", groupId: 4 }])
+  })
+
+  it("emits nothing when the group set is unchanged", () => {
+    const plan = planItem(
+      row({ access: access({ groupGrants: groupGrantsOf({ VIEW: [4] }) }) }),
+      { groupGrants: { VIEW: [4] } },
+      USERS,
+    )
+    expect(plan.ops).toEqual([])
+  })
+
+  it("adds and removes owner groups", () => {
+    const plan = planItem(row({ access: access({ ownerGroups: [3] }) }), { ownerGroups: [4] }, USERS)
+    expect(plan.ops).toEqual([
+      { kind: "owner-group", groupId: 4, owner: true },
+      { kind: "owner-group", groupId: 3, owner: false },
+    ])
+  })
+
+  it("leaves owner groups alone when the target omits them", () => {
+    const plan = planItem(row({ access: access({ ownerGroups: [3] }) }), { owner: "alice" }, USERS)
+    expect(plan.ops).toEqual([{ kind: "owner", username: "alice" }])
+    expect(plan.to.ownerGroups).toEqual([3])
+  })
+})
+
+describe("applyPlans groups", () => {
+  it("writes a group's whole capability set through the replace-set route", async () => {
+    const plan = planItem(
+      row({ access: access({ groupGrants: groupGrantsOf({ VIEW: [4] }) }) }),
+      { groupGrants: { VIEW: [4], OPERATE: [4] } },
+      USERS,
+    )
+    await applyPlans([plan])
+    expect(setGroup).toHaveBeenCalledWith("session", 1, 4, ["VIEW", "OPERATE"])
+  })
+
+  it("clears a group through the DELETE route when its last capability goes", async () => {
+    const plan = planItem(
+      row({ access: access({ groupGrants: groupGrantsOf({ VIEW: [4] }) }) }),
+      { groupGrants: { VIEW: [] } },
+      USERS,
+    )
+    await applyPlans([plan])
+    expect(revokeGroup).toHaveBeenCalledWith("session", 1, 4)
+    expect(setGroup).not.toHaveBeenCalled()
+  })
+
+  it("adds and removes owner groups through their own routes", async () => {
+    const plan = planItem(row({ access: access({ ownerGroups: [3] }) }), { ownerGroups: [4] }, USERS)
+    await applyPlans([plan])
+    expect(addOwnerGroup).toHaveBeenCalledWith("session", 1, 4)
+    expect(removeOwnerGroup).toHaveBeenCalledWith("session", 1, 3)
   })
 })

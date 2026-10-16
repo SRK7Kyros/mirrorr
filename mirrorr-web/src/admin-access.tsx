@@ -1,8 +1,9 @@
 import { useRef, useState, type MouseEvent } from "react"
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
-import { fetchResourceAccess, fetchUsers, getErrorMessage } from "@/api"
+import { fetchGroups, fetchResourceAccess, fetchUsers, getErrorMessage } from "@/api"
 import {
   applyPlans,
+  grantedGroupIds,
   grantedUsernames,
   itemAccessFromView,
   planBulk,
@@ -11,9 +12,10 @@ import {
   type ItemPlan,
 } from "@/api/domain/access-plan"
 import { queryKeys, queryRoots, staleTimes } from "@/api/query-keys"
-import type { ResourceType } from "@/api/schemas/privileged"
+import type { Group, ResourceType } from "@/api/schemas/privileged"
 import type { User } from "@/api/schemas/user"
 import {
+  Banner,
   Button,
   Checkbox,
   Dialog,
@@ -38,6 +40,11 @@ function useUsers(): readonly User[] {
   return query.data ?? []
 }
 
+function useGroups(): readonly Group[] {
+  const query = useQuery({ queryKey: queryKeys.groups, queryFn: fetchGroups, staleTime: staleTimes.users })
+  return query.data?.items ?? []
+}
+
 function invalidateAccess(queryClient: ReturnType<typeof useQueryClient>): void {
   void queryClient.invalidateQueries({ queryKey: queryRoots.adminResources })
 }
@@ -47,13 +54,42 @@ function viewersText(viewers: readonly string[], users: readonly User[]): string
   return viewers.map((viewer) => usernameLabel(users, viewer)).join(", ")
 }
 
-function AccessDelta({ plan, users }: { readonly plan: ItemPlan; readonly users: readonly User[] }) {
+function groupLabel(groups: readonly Group[], id: number): string {
+  const group = groups.find((candidate) => candidate.id === id)
+  if (group === undefined) return `#${id}`
+  return group.display_name !== "" ? group.display_name : group.name
+}
+
+function groupsText(ids: readonly number[], groups: readonly Group[]): string {
+  if (ids.length === 0) return "None"
+  return ids.map((id) => groupLabel(groups, id)).join(", ")
+}
+
+function idsChanged(from: readonly number[], to: readonly number[]): boolean {
+  return from.length !== to.length || from.some((id) => !to.includes(id))
+}
+
+function AccessDelta({
+  plan,
+  users,
+  groups,
+}: {
+  readonly plan: ItemPlan
+  readonly users: readonly User[]
+  readonly groups: readonly Group[]
+}) {
   const ownerChanged = plan.from.owner !== plan.to.owner
   const fromViewers = grantedUsernames(plan.from)
   const toViewers = grantedUsernames(plan.to)
   const viewersChanged =
     fromViewers.length !== toViewers.length ||
     fromViewers.some((viewer) => !toViewers.includes(viewer))
+  const fromOwnerGroups = plan.from.ownerGroups ?? []
+  const toOwnerGroups = plan.to.ownerGroups ?? []
+  const ownerGroupsChanged = idsChanged(fromOwnerGroups, toOwnerGroups)
+  const fromGroupGrants = grantedGroupIds(plan.from)
+  const toGroupGrants = grantedGroupIds(plan.to)
+  const groupGrantsChanged = idsChanged(fromGroupGrants, toGroupGrants)
 
   return (
     <ul className="flex flex-col gap-1 text-sm">
@@ -79,6 +115,30 @@ function AccessDelta({ plan, users }: { readonly plan: ItemPlan; readonly users:
           </>
         ) : (
           <span>{viewersText(fromViewers, users)}</span>
+        )}
+      </li>
+      <li className="flex items-start gap-2">
+        <span className="text-muted">Owner groups</span>
+        {ownerGroupsChanged ? (
+          <>
+            <span className="text-muted line-through">{groupsText(fromOwnerGroups, groups)}</span>
+            <span aria-hidden="true">→</span>
+            <span>{groupsText(toOwnerGroups, groups)}</span>
+          </>
+        ) : (
+          <span>{groupsText(fromOwnerGroups, groups)}</span>
+        )}
+      </li>
+      <li className="flex items-start gap-2">
+        <span className="text-muted">Groups with access</span>
+        {groupGrantsChanged ? (
+          <>
+            <span className="text-muted line-through">{groupsText(fromGroupGrants, groups)}</span>
+            <span aria-hidden="true">→</span>
+            <span>{groupsText(toGroupGrants, groups)}</span>
+          </>
+        ) : (
+          <span>{groupsText(fromGroupGrants, groups)}</span>
         )}
       </li>
     </ul>
@@ -132,6 +192,7 @@ interface BulkAccessDialogProps {
 function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProps) {
   const queryClient = useQueryClient()
   const users = useUsers()
+  const groups = useGroups()
   const accessQueries = useQueries({
     queries: items.map((item) => ({
       queryKey: queryKeys.adminResourceAccess(resourceType, item.id),
@@ -144,6 +205,8 @@ function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProp
   const [owner, setOwner] = useState("")
   const [changeViewers, setChangeViewers] = useState(false)
   const [viewers, setViewers] = useState<readonly string[]>([])
+  const [changeGroups, setChangeGroups] = useState(false)
+  const [groupViewers, setGroupViewers] = useState<readonly number[]>([])
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [failures, setFailures] = useState<readonly { label: string; message: string }[]>([])
@@ -167,11 +230,14 @@ function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProp
   const target: AccessTarget = {
     ...(changeOwner ? { owner } : {}),
     ...(changeViewers ? { grants: { VIEW: viewers } } : {}),
+    ...(changeGroups ? { groupGrants: { VIEW: groupViewers } } : {}),
   }
   const plan = planBulk(rows, target, usernames)
   /** Items carrying their own access — read out whether or not the target touches them. */
   const overridden = plan.items.filter((item) => item.override !== null).length
   const ready = plan.opCount > 0 && (!changeOwner || owner !== "")
+  const everyoneSelected =
+    changeGroups && groups.some((group) => group.system && groupViewers.includes(group.id))
 
   async function apply(): Promise<void> {
     setBusy(true)
@@ -248,7 +314,7 @@ function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProp
               <span className="font-medium">
                 {item.label} <span className="text-muted">{resourceTypeLabel(resourceType)}</span>
               </span>
-              <AccessDelta plan={item} users={users} />
+              <AccessDelta plan={item} users={users} groups={groups} />
             </li>
           ))}
         </ul>
@@ -302,6 +368,37 @@ function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProp
             </div>
           </div>
 
+          <div className="flex flex-col gap-2">
+            <Checkbox
+              label="Replace group view access"
+              checked={changeGroups}
+              disabled={busy}
+              onChange={(event) => setChangeGroups(event.target.checked)}
+            />
+            <div className="flex flex-col gap-1 max-h-[160px] overflow-y-auto">
+              {groups.map((group) => (
+                <Checkbox
+                  key={group.id}
+                  label={groupLabel(groups, group.id)}
+                  checked={groupViewers.includes(group.id)}
+                  disabled={busy || !changeGroups}
+                  onChange={(event) =>
+                    setGroupViewers((current) =>
+                      event.target.checked
+                        ? [...current, group.id]
+                        : current.filter((id) => id !== group.id),
+                    )
+                  }
+                />
+              ))}
+            </div>
+            {everyoneSelected ? (
+              <Banner kind="warning" title="“everyone” is selected">
+                Every account, including future ones, gets view access to these items.
+              </Banner>
+            ) : null}
+          </div>
+
           <div className="flex items-center justify-between gap-3 text-sm">
             <span className="text-muted">{plan.opCount} change(s) planned</span>
             {overridden > 0 ? <Tag>{`${overridden} already overridden`}</Tag> : null}
@@ -328,7 +425,7 @@ function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProp
                   <span className="font-medium text-truncate">{item.label}</span>
                   {item.override !== null ? <Tag>{overrideLabel(item.override)}</Tag> : null}
                 </div>
-                <AccessDelta plan={item} users={users} />
+                <AccessDelta plan={item} users={users} groups={groups} />
               </li>
             ))}
           </ul>

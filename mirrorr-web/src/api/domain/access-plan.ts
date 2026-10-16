@@ -1,4 +1,12 @@
-import { revokeResourceUser, setResourceGrants, setResourceOwner } from "@/api/endpoints/access"
+import {
+  addResourceOwnerGroup,
+  removeResourceOwnerGroup,
+  revokeGroupGrants,
+  revokeResourceUser,
+  setGroupGrants,
+  setResourceGrants,
+  setResourceOwner,
+} from "@/api/endpoints/access"
 import { getErrorMessage } from "@/api/domain/errors"
 import { CAPABILITIES, type AccessView, type Capability } from "@/api/schemas/privileged"
 
@@ -7,18 +15,26 @@ export interface ItemAccess {
   readonly owner: string | null
   readonly ownerMissing: boolean
   readonly grants: Readonly<Record<Capability, readonly string[]>>
+  /** Group ids granted per capability. Absent reads as "no group grants". */
+  readonly groupGrants?: Readonly<Record<Capability, readonly number[]>>
+  /** Group ids that own the item — additive to the single user owner. */
+  readonly ownerGroups?: readonly number[]
 }
 
 /** What an edit asks for — an absent field is left exactly as it is. */
 export interface AccessTarget {
   readonly owner?: string
   readonly grants?: Partial<Record<Capability, readonly string[]>>
+  readonly groupGrants?: Partial<Record<Capability, readonly number[]>>
+  readonly ownerGroups?: readonly number[]
 }
 
 export type AccessOp =
   | { readonly kind: "owner"; readonly username: string }
   | { readonly kind: "grant"; readonly capability: Capability; readonly username: string }
   | { readonly kind: "revoke"; readonly capability: Capability; readonly username: string }
+  | { readonly kind: "group"; readonly groupId: number }
+  | { readonly kind: "owner-group"; readonly groupId: number; readonly owner: boolean }
 
 /**
  * Why an item counts as carrying its own access. Both kinds are what the core
@@ -61,6 +77,13 @@ export function emptyGrants(): Record<Capability, string[]> {
   return grants
 }
 
+/** A group-grant record with every capability present as an empty list. */
+export function emptyGroupGrants(): Record<Capability, number[]> {
+  const grants = {} as Record<Capability, number[]>
+  for (const capability of CAPABILITIES) grants[capability] = []
+  return grants
+}
+
 /** Distinct usernames across every capability — the rendered "viewer" set. */
 export function grantedUsernames(access: ItemAccess): string[] {
   const usernames = new Set<string>()
@@ -70,7 +93,20 @@ export function grantedUsernames(access: ItemAccess): string[] {
   return [...usernames]
 }
 
-/** `AccessView` (wire) → the domain's full grant record. */
+/** Distinct group ids across every capability — the rendered group-grant set. */
+export function grantedGroupIds(access: ItemAccess): number[] {
+  const groupIds = new Set<number>()
+  for (const capability of CAPABILITIES) {
+    for (const groupId of access.groupGrants?.[capability] ?? []) groupIds.add(groupId)
+  }
+  return [...groupIds]
+}
+
+/**
+ * `AccessView` (wire) → the domain's full grant record. The two group fields are
+ * read defensively: the wire always carries them, but hand-written literals in
+ * tests and old cached payloads predate them.
+ */
 export function itemAccessFromView(view: AccessView): ItemAccess {
   const grants = emptyGrants()
   for (const grant of view.grants) {
@@ -78,7 +114,19 @@ export function itemAccessFromView(view: AccessView): ItemAccess {
       grants[capability] = [...grants[capability], grant.username]
     }
   }
-  return { owner: view.owner, ownerMissing: view.owner_missing, grants }
+  const groupGrants = emptyGroupGrants()
+  for (const grant of view.group_grants ?? []) {
+    for (const capability of grant.capabilities) {
+      groupGrants[capability] = [...groupGrants[capability], grant.group_id]
+    }
+  }
+  return {
+    owner: view.owner,
+    ownerMissing: view.owner_missing,
+    grants,
+    groupGrants,
+    ownerGroups: (view.owner_groups ?? []).map((group) => group.id),
+  }
 }
 
 export function overrideOf(access: ItemAccess, users: readonly string[]): AccessOverride | null {
@@ -86,7 +134,7 @@ export function overrideOf(access: ItemAccess, users: readonly string[]): Access
   if (!ownerless && (access.ownerMissing || !users.includes(access.owner as string))) {
     return { kind: "owner-missing" }
   }
-  const count = grantedUsernames(access).length
+  const count = grantedUsernames(access).length + grantedGroupIds(access).length
   if (count > 0) return { kind: "grants", count }
   return null
 }
@@ -107,11 +155,44 @@ function mergeGrants(
   return merged
 }
 
+function mergeGroupGrants(
+  current: Readonly<Record<Capability, readonly number[]>> | undefined,
+  target: Partial<Record<Capability, readonly number[]>> | undefined,
+): Record<Capability, readonly number[]> {
+  const merged = emptyGroupGrants()
+  for (const capability of CAPABILITIES) {
+    merged[capability] = [...(target?.[capability] ?? current?.[capability] ?? [])]
+  }
+  return merged
+}
+
+/** Group id → its capabilities, in the frozen capability order. */
+function groupCapabilities(
+  grants: Readonly<Record<Capability, readonly number[]>> | undefined,
+): Map<number, Capability[]> {
+  const byGroup = new Map<number, Capability[]>()
+  for (const capability of CAPABILITIES) {
+    for (const groupId of grants?.[capability] ?? []) {
+      byGroup.set(groupId, [...(byGroup.get(groupId) ?? []), capability])
+    }
+  }
+  return byGroup
+}
+
+/** The full set a group ends up with in `to` — the replace-set POST body. */
+function capabilitiesForGroup(to: ItemAccess, groupId: number): Capability[] {
+  return CAPABILITIES.filter((capability) => (to.groupGrants?.[capability] ?? []).includes(groupId))
+}
+
 export function planItem(row: AccessRow, target: AccessTarget, users: readonly string[]): ItemPlan {
+  const groupGrants = mergeGroupGrants(row.access.groupGrants, target.groupGrants)
+  const ownerGroups = target.ownerGroups ?? row.access.ownerGroups ?? []
   const to: ItemAccess = {
     owner: target.owner ?? row.access.owner,
     ownerMissing: row.access.ownerMissing,
     grants: mergeGrants(row.access.grants, target.grants),
+    groupGrants,
+    ownerGroups,
   }
   const ops: AccessOp[] = []
   if (to.owner !== null && to.owner !== row.access.owner) {
@@ -128,6 +209,22 @@ export function planItem(row: AccessRow, target: AccessTarget, users: readonly s
         ops.push({ kind: "revoke", capability, username })
       }
     }
+  }
+  const currentGroups = groupCapabilities(row.access.groupGrants)
+  const nextGroups = groupCapabilities(groupGrants)
+  for (const groupId of new Set([...currentGroups.keys(), ...nextGroups.keys()])) {
+    const before = currentGroups.get(groupId) ?? []
+    const after = nextGroups.get(groupId) ?? []
+    if (before.length !== after.length || before.some((capability) => !after.includes(capability))) {
+      ops.push({ kind: "group", groupId })
+    }
+  }
+  const fromOwners = row.access.ownerGroups ?? []
+  for (const groupId of ownerGroups) {
+    if (!fromOwners.includes(groupId)) ops.push({ kind: "owner-group", groupId, owner: true })
+  }
+  for (const groupId of fromOwners) {
+    if (!ownerGroups.includes(groupId)) ops.push({ kind: "owner-group", groupId, owner: false })
   }
   return {
     resourceType: row.resourceType,
@@ -166,6 +263,17 @@ export interface ApplyOutcome {
 async function runOp(plan: ItemPlan, op: AccessOp): Promise<void> {
   if (op.kind === "owner") {
     await setResourceOwner(plan.resourceType, plan.id, op.username)
+    return
+  }
+  if (op.kind === "owner-group") {
+    if (op.owner) await addResourceOwnerGroup(plan.resourceType, plan.id, op.groupId)
+    else await removeResourceOwnerGroup(plan.resourceType, plan.id, op.groupId)
+    return
+  }
+  if (op.kind === "group") {
+    const capabilities = capabilitiesForGroup(plan.to, op.groupId)
+    if (capabilities.length === 0) await revokeGroupGrants(plan.resourceType, plan.id, op.groupId)
+    else await setGroupGrants(plan.resourceType, plan.id, op.groupId, capabilities)
     return
   }
   const capabilities = capabilitiesFor(plan.to, op.username)

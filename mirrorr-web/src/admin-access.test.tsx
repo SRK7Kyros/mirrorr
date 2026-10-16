@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen, within } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import type { ReactNode } from "react"
@@ -6,6 +6,7 @@ import { BulkAccessAction, ResourceAccessButton } from "./admin-access"
 
 const api = vi.hoisted(() => ({
   fetchUsers: vi.fn(),
+  fetchGroups: vi.fn(),
   fetchResourceAccess: vi.fn(),
   getErrorMessage: vi.fn((_error: unknown, fallback: string) => fallback),
 }))
@@ -18,6 +19,10 @@ const USERS = [
   { id: 1, username: "kyros", role: "admin", display_name: "Kyros" },
   { id: 2, username: "alice", role: "user", display_name: "Alice" },
 ]
+
+function accessView() {
+  return { resource_type: "session", id: 7, owner: "kyros", owner_missing: false, grants: [] }
+}
 
 /** The affordances live inside a clickable card, so every test mounts them in one. */
 function renderInCard(node: ReactNode) {
@@ -33,14 +38,15 @@ function renderInCard(node: ReactNode) {
   return openCard
 }
 
-describe("access affordances keep their clicks off the card", () => {
-  function accessView() {
-    return { resource_type: "session", id: 7, owner: "kyros", owner_missing: false, grants: [] }
-  }
+beforeEach(() => {
+  vi.resetAllMocks()
+  api.fetchUsers.mockResolvedValue(USERS)
+  api.fetchGroups.mockResolvedValue({ items: [], total: 0 })
+  api.fetchResourceAccess.mockResolvedValue(accessView())
+})
 
+describe("access affordances keep their clicks off the card", () => {
   it("swallows a click on the button and on the panel", async () => {
-    api.fetchUsers.mockResolvedValue(USERS)
-    api.fetchResourceAccess.mockResolvedValue(accessView())
     const openCard = renderInCard(
       <ResourceAccessButton resourceType="session" id={7} label="F1 Weekend" />,
     )
@@ -56,8 +62,6 @@ describe("access affordances keep their clicks off the card", () => {
   })
 
   it("mounts one centered dialog panel, not a sheet, and keeps its body clicks off the card", async () => {
-    api.fetchUsers.mockResolvedValue(USERS)
-    api.fetchResourceAccess.mockResolvedValue(accessView())
     const openCard = renderInCard(
       <ResourceAccessButton resourceType="session" id={7} label="F1 Weekend" />,
     )
@@ -76,8 +80,6 @@ describe("access affordances keep their clicks off the card", () => {
   })
 
   it("swallows a click on the bulk panel", async () => {
-    api.fetchUsers.mockResolvedValue(USERS)
-    api.fetchResourceAccess.mockResolvedValue(accessView())
     const openCard = renderInCard(
       <BulkAccessAction resourceType="autorun" items={[{ id: 5, label: "F1 Race" }]} />,
     )

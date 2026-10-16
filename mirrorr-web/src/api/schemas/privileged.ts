@@ -32,6 +32,10 @@ const AdminResourceSchema = z
     owner_missing: z.boolean(),
     viewer_count: z.number(),
     system: z.boolean(),
+    /** Group names that own the item (additive to the user owner). */
+    owner_groups: z.array(z.string()).default([]),
+    /** Group names holding any capability on the item. */
+    grant_groups: z.array(z.string()).default([]),
   })
   .passthrough()
 
@@ -72,6 +76,66 @@ export const AccessGrantSchema = z
 
 export type AccessGrant = z.infer<typeof AccessGrantSchema>
 
+/** One group, as `GET /groups` returns it. */
+export const GroupSchema = z
+  .object({
+    id: z.number(),
+    name: z.string(),
+    display_name: z.string(),
+    /** The sealed `everyone` group — rename/delete/member-edit are rejected. */
+    system: z.boolean(),
+    member_count: z.number(),
+    members: z.array(z.string()),
+  })
+  .passthrough()
+
+export type Group = z.infer<typeof GroupSchema>
+
+/** `GET /groups` envelope (admin-only). */
+export const GroupPageSchema = z
+  .object({
+    items: z.array(GroupSchema),
+    total: z.number(),
+  })
+  .passthrough()
+
+export type GroupPage = z.infer<typeof GroupPageSchema>
+
+/** `DELETE /groups/{id}` acknowledgement. */
+export const GroupDeletedSchema = z
+  .object({
+    status: z.string(),
+    id: z.number(),
+  })
+  .passthrough()
+
+export type GroupDeleted = z.infer<typeof GroupDeletedSchema>
+
+/** A group that owns an item — additive to the single user owner. */
+export const OwnerGroupSchema = z
+  .object({
+    id: z.number(),
+    name: z.string(),
+    display_name: z.string(),
+    system: z.boolean(),
+  })
+  .passthrough()
+
+export type OwnerGroup = z.infer<typeof OwnerGroupSchema>
+
+/** One group's explicit capabilities on an item. */
+export const GroupGrantSchema = z
+  .object({
+    group_id: z.number(),
+    name: z.string(),
+    display_name: z.string(),
+    system: z.boolean(),
+    capabilities: z.array(CapabilitySchema),
+  })
+  .passthrough()
+
+export type GroupGrant = z.infer<typeof GroupGrantSchema>
+
 /** `GET|POST|DELETE /shares/{resource_type}/{resource_id}` response. */
 export const AccessViewSchema = z
   .object({
@@ -80,6 +144,8 @@ export const AccessViewSchema = z
     owner: z.string().nullable(),
     owner_missing: z.boolean(),
     grants: z.array(AccessGrantSchema),
+    owner_groups: z.array(OwnerGroupSchema).default([]),
+    group_grants: z.array(GroupGrantSchema).default([]),
   })
   .passthrough()
 

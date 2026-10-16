@@ -3,10 +3,16 @@ import { ApiError, apiFetch } from "@/api/client"
 import {
   AccessViewSchema,
   AdminResourcePageSchema,
+  GroupDeletedSchema,
+  GroupPageSchema,
+  GroupSchema,
   ResourceOwnerSchema,
   type AccessView,
   type AdminResourcePage,
   type Capability,
+  type Group,
+  type GroupDeleted,
+  type GroupPage,
   type ResourceOwner,
 } from "@/api/schemas/privileged"
 
@@ -106,4 +112,109 @@ export function revokeResourceUser(
   return apiFetch<unknown>(`${sharePath(resourceType, id)}/${encodeURIComponent(username)}`, {
     method: "DELETE",
   }).then((data) => parseOrThrow(AccessViewSchema, data))
+}
+
+/* ── groups (admin-only) ───────────────────────────────────────────────
+ *
+ * Group CRUD lives on `/groups` (admin router); membership is a replace-set
+ * PUT. The sealed `everyone` group (`system: true`) rejects rename, delete and
+ * member edits server-side, so the UI renders it read-only.
+ */
+
+/** `GET /groups` — every group, the sealed `everyone` row included. */
+export function fetchGroups(): Promise<GroupPage> {
+  return apiFetch<unknown>("/groups").then((data) => parseOrThrow(GroupPageSchema, data))
+}
+
+/** `POST /groups` — create a group. */
+export function createGroup(name: string, displayName: string): Promise<Group> {
+  return apiFetch<unknown>("/groups", { method: "POST", body: { name, display_name: displayName } }).then(
+    (data) => parseOrThrow(GroupSchema, data),
+  )
+}
+
+export interface GroupUpdateBody {
+  readonly name?: string
+  readonly display_name?: string
+}
+
+/** `PATCH /groups/{id}` — rename and/or re-label a group. */
+export function updateGroup(id: number, body: GroupUpdateBody): Promise<Group> {
+  return apiFetch<unknown>(`/groups/${id}`, { method: "PATCH", body }).then((data) =>
+    parseOrThrow(GroupSchema, data),
+  )
+}
+
+/** `DELETE /groups/{id}` — drop the group and its grants/ownership rows. */
+export function deleteGroup(id: number): Promise<GroupDeleted> {
+  return apiFetch<unknown>(`/groups/${id}`, { method: "DELETE" }).then((data) =>
+    parseOrThrow(GroupDeletedSchema, data),
+  )
+}
+
+/** `PUT /groups/{id}/members` — REPLACE-SET the member list (idempotent). */
+export function setGroupMembers(id: number, usernames: readonly string[]): Promise<Group> {
+  return apiFetch<unknown>(`/groups/${id}/members`, { method: "PUT", body: { usernames } }).then((data) =>
+    parseOrThrow(GroupSchema, data),
+  )
+}
+
+/* ── group grants / owner groups (shares router) ───────────────────────
+ *
+ * A group grant is the same replace-set shape as a user grant, keyed by group
+ * id; owner groups are additive — they never touch the single user owner.
+ */
+
+function shareGroupPath(resourceType: string, id: number, groupId: number): string {
+  return `${sharePath(resourceType, id)}/group/${groupId}`
+}
+
+function shareOwnerGroupPath(resourceType: string, id: number, groupId: number): string {
+  return `${sharePath(resourceType, id)}/owner-group/${groupId}`
+}
+
+/** `POST /shares/{type}/{id}/group/{group_id}` — REPLACE-SET one group's capabilities. */
+export function setGroupGrants(
+  resourceType: string,
+  id: number,
+  groupId: number,
+  capabilities: readonly Capability[],
+): Promise<AccessView> {
+  return apiFetch<unknown>(shareGroupPath(resourceType, id, groupId), {
+    method: "POST",
+    body: { capabilities },
+  }).then((data) => parseOrThrow(AccessViewSchema, data))
+}
+
+/** `DELETE /shares/{type}/{id}/group/{group_id}` — clear every grant for one group. */
+export function revokeGroupGrants(
+  resourceType: string,
+  id: number,
+  groupId: number,
+): Promise<AccessView> {
+  return apiFetch<unknown>(shareGroupPath(resourceType, id, groupId), { method: "DELETE" }).then(
+    (data) => parseOrThrow(AccessViewSchema, data),
+  )
+}
+
+/** `PUT /shares/{type}/{id}/owner-group/{group_id}` — add an owner group (idempotent). */
+export function addResourceOwnerGroup(
+  resourceType: string,
+  id: number,
+  groupId: number,
+): Promise<AccessView> {
+  return apiFetch<unknown>(shareOwnerGroupPath(resourceType, id, groupId), { method: "PUT" }).then(
+    (data) => parseOrThrow(AccessViewSchema, data),
+  )
+}
+
+/** `DELETE /shares/{type}/{id}/owner-group/{group_id}` — remove an owner group (idempotent). */
+export function removeResourceOwnerGroup(
+  resourceType: string,
+  id: number,
+  groupId: number,
+): Promise<AccessView> {
+  return apiFetch<unknown>(shareOwnerGroupPath(resourceType, id, groupId), { method: "DELETE" }).then(
+    (data) => parseOrThrow(AccessViewSchema, data),
+  )
 }
