@@ -24,7 +24,7 @@ export interface DialogProps {
   readonly onClose: () => void
   readonly title: ReactNode
   readonly description?: ReactNode
-  readonly size?: "md" | "lg"
+  readonly size?: "md" | "lg" | "xl"
   readonly icon?: ReactNode
   readonly children?: ReactNode
   readonly footer?: ReactNode
@@ -41,6 +41,12 @@ const FOOT_CLASS = "flex items-center justify-end gap-2 py-4 px-5 border-t borde
 
 const CONTENT_BASE =
   "fixed top-1/2 left-1/2 flex flex-col max-h-[calc(100dvh_-_48px_-_env(safe-area-inset-top,0px)_-_env(safe-area-inset-bottom,0px))] bg-surface-2 border border-line-strong rounded-lg shadow-elev-lg z-[calc(var(--z-modal)_+_1)]"
+
+const CONTENT_WIDTH = {
+  md: "w-[min(30rem,calc(100vw_-_32px))]",
+  lg: "w-[min(46rem,calc(100vw_-_32px))]",
+  xl: "w-[min(60rem,calc(100vw_-_32px))]",
+} as const
 
 export function Dialog({
   open,
@@ -95,7 +101,7 @@ export function Dialog({
               }}
             >
               <motion.div
-                className={cn(CONTENT_BASE, size === "lg" ? "w-[min(46rem,calc(100vw_-_32px))]" : "w-[min(30rem,calc(100vw_-_32px))]")}
+                className={cn(CONTENT_BASE, CONTENT_WIDTH[size])}
                 variants={dialogVariants}
                 initial="hidden"
                 animate="visible"
