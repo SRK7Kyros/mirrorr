@@ -188,7 +188,7 @@ describe("ResourceAccessSection", () => {
     renderAdmin()
 
     fireEvent.click(await screen.findByRole("button", { name: "Manage access for F1 Weekend" }))
-    fireEvent.click(await screen.findByRole("button", { name: "Change" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Change the owner" }))
     fireEvent.click(within(screen.getByTestId("access-catalog")).getByRole("option", { name: /Alice/ }))
     fireEvent.click(screen.getByRole("button", { name: "Apply changes" }))
 
@@ -205,7 +205,7 @@ describe("ResourceAccessSection", () => {
     renderAdmin()
 
     fireEvent.click(await screen.findByRole("button", { name: "Manage access for F1 Weekend" }))
-    fireEvent.click(await screen.findByRole("button", { name: "Change" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Change the owner" }))
     fireEvent.click(within(screen.getByTestId("access-catalog")).getByRole("option", { name: /Editors/ }))
     fireEvent.click(screen.getByRole("button", { name: "Apply changes" }))
 

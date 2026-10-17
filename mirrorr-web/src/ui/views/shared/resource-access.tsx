@@ -375,6 +375,105 @@ const CHIP_ON = "border-brand bg-[var(--accent-dim)] text-ink"
 const CHIP_OFF = "border-line bg-surface-2 text-ink-muted"
 const CHIP_PARTIAL = "border-brand border-dashed bg-transparent text-ink"
 
+const OVERRIDES_LIST_ID = "access-overrides-options"
+
+/** An owner badge: the crown badge is the warning yellow, a co-owner's neutral. */
+const OWNER_BADGE_CLASS =
+  "inline-flex h-8 max-w-full items-center gap-1.5 rounded-full border px-2.5 transition-colors tab-stop " +
+  "focus-visible:outline-none disabled:opacity-45"
+
+const OWNER_BADGE_CROWN_CLASS = "border-warning-dim bg-warning-dim"
+const OWNER_BADGE_ARMED_CLASS = "ring-2 ring-[var(--warning)]"
+const CO_OWNER_BADGE_CLASS =
+  "inline-flex min-w-0 items-center gap-1 rounded-full tab-stop focus-visible:outline-none disabled:opacity-45"
+
+/** One principal a suggestion list can offer — a sub-set of a `PrincipalCard`. */
+export interface SuggestionOption {
+  readonly kind: "user" | "group"
+  readonly id: string
+  readonly label: string
+  readonly detail: string
+}
+
+interface PrincipalSuggestionsProps<Option extends SuggestionOption> {
+  readonly id: string
+  readonly label: string
+  readonly open: boolean
+  readonly options: readonly Option[]
+  readonly highlight: number
+  /**
+   * The picked read-out, for a list that mirrors a selection. Omitted by a
+   * single-pick list, where the highlight is the whole state.
+   */
+  readonly selected?: (option: Option) => boolean
+  readonly onHover: (index: number) => void
+  readonly onPick: (option: Option) => void
+}
+
+/**
+ * The floating suggestion list both fields share, so the "Add an owner" field
+ * and the overrides search cannot offer principals differently. Always mounted:
+ * unmounting it on blur removes a node while focus is in transit, and Radix's
+ * focus scope then yanks focus back to the dialog container, which leaves every
+ * control after the field unreachable by Tab.
+ */
+function PrincipalSuggestions<Option extends SuggestionOption>({
+  id,
+  label,
+  open,
+  options,
+  highlight,
+  selected,
+  onHover,
+  onPick,
+}: PrincipalSuggestionsProps<Option>) {
+  return (
+    <div
+      className={cn(
+        "absolute top-full right-0 left-0 z-[var(--z-popover)] mt-1 rounded-md border border-line-strong bg-surface-3 p-2 shadow-elev-md",
+        open ? "" : "hidden",
+      )}
+      aria-hidden={open ? undefined : true}
+    >
+      {options.length === 0 ? null : (
+        <ul
+          id={id}
+          role="listbox"
+          aria-label={label}
+          className="flex max-h-64 flex-col gap-0.5 overflow-y-auto"
+        >
+          {options.map((option, index) => {
+            const picked = selected === undefined ? index === highlight : selected(option)
+            return (
+              <li
+                key={`${option.kind}-${option.id}`}
+                id={`${id}-${option.kind}-${option.id}`}
+                role="option"
+                aria-selected={picked}
+                className={cn(
+                  "flex cursor-pointer items-center justify-between gap-3 rounded px-2 py-1.5 text-sm",
+                  index === highlight ? "bg-[var(--accent-dim)] text-ink" : "text-ink-muted",
+                )}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => onHover(index)}
+                onClick={() => onPick(option)}
+              >
+                <span className="flex min-w-0 items-center gap-1.5">
+                  {selected !== undefined && picked ? (
+                    <IconCheck size={13} className="shrink-0 text-brand" />
+                  ) : null}
+                  <span className="truncate">{option.label}</span>
+                </span>
+                <span className="shrink-0 text-2xs text-ink-dim">{option.detail}</span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 interface OwnerOption {
   readonly kind: "user" | "group"
   readonly id: string
@@ -435,6 +534,7 @@ export function ResourceAccessEditor({
   const [ownerOpen, setOwnerOpen] = useState(false)
   const [ownerQuery, setOwnerQuery] = useState("")
   const [ownerHighlight, setOwnerHighlight] = useState(0)
+  const [overridesOpen, setOverridesOpen] = useState(false)
 
   const selection = useSelection<string>()
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -519,6 +619,18 @@ export function ResourceAccessEditor({
       setOwnerOpen(false)
       event.currentTarget.blur()
     }
+  }
+
+  function toggleOwnerMode(): void {
+    if (busy) return
+    setNote("")
+    setOwnerMode((current) => !current)
+  }
+
+  function crownPrincipal(crown: Crown): void {
+    if (busy) return
+    setNote("")
+    draft.setOwner(crown)
   }
 
   // The catalog is one list: users and groups together. Whoever already owns the
@@ -618,6 +730,7 @@ export function ResourceAccessEditor({
       event.preventDefault()
       setQuery("")
       setHighlight(0)
+      setOverridesOpen(false)
       event.currentTarget.blur()
     }
   }
@@ -705,13 +818,26 @@ export function ResourceAccessEditor({
           <span className="text-2xs uppercase tracking-wide text-ink-dim">Ownership</span>
           <span className="text-xs text-ink-dim">Owners get every permission on this item.</span>
         </div>
-        <div className="flex items-center gap-2">
-          <IconCrown size={16} className="text-warning" />
-          <Avatar name={ownerLabel} small />
-          <span className="min-w-0 flex-1 truncate text-base">
-            {ownerLabel}
-            {draft.crown !== null && draft.ownerMissing ? <span className="text-danger"> · missing</span> : null}
-          </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            aria-pressed={ownerMode}
+            aria-label={ownerMode ? "Stop changing the owner" : "Change the owner"}
+            onClick={toggleOwnerMode}
+            className={cn(
+              OWNER_BADGE_CLASS,
+              OWNER_BADGE_CROWN_CLASS,
+              ownerMode && OWNER_BADGE_ARMED_CLASS,
+            )}
+          >
+            <IconCrown size={16} className="shrink-0 text-warning" />
+            <Avatar name={ownerLabel} small />
+            <span className="truncate text-sm">{ownerLabel}</span>
+            {draft.crown !== null && draft.ownerMissing ? (
+              <span className="shrink-0 text-2xs text-danger">missing</span>
+            ) : null}
+          </button>
           {ownerMode ? (
             <>
               <span className="text-sm whitespace-nowrap text-ink-muted">Pick the new owner</span>
@@ -719,19 +845,7 @@ export function ResourceAccessEditor({
                 Cancel
               </Button>
             </>
-          ) : (
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={busy}
-              onClick={() => {
-                setOwnerMode(true)
-                setNote("")
-              }}
-            >
-              Change
-            </Button>
-          )}
+          ) : null}
         </div>
 
         {ownerMode ? null : (
@@ -742,8 +856,16 @@ export function ResourceAccessEditor({
                 key={username}
                 className="inline-flex h-7 items-center gap-1 rounded-full border border-line bg-surface-2 pr-1 pl-2"
               >
-                <IconUser size={14} className="text-ink-dim" />
-                <span className="max-w-[12rem] truncate text-sm">{usernameLabel(users, username)}</span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  aria-label={`Make ${usernameLabel(users, username)} the owner`}
+                  onClick={() => crownPrincipal({ kind: "user", username })}
+                  className={CO_OWNER_BADGE_CLASS}
+                >
+                  <IconUser size={14} className="shrink-0 text-ink-dim" />
+                  <span className="max-w-[12rem] truncate text-sm">{usernameLabel(users, username)}</span>
+                </button>
                 <IconButton
                   label={`Remove owner ${username}`}
                   icon={<IconX size={14} />}
@@ -761,8 +883,16 @@ export function ResourceAccessEditor({
                   key={groupId}
                   className="inline-flex h-7 items-center gap-1 rounded-full border border-line bg-surface-2 pr-1 pl-2"
                 >
-                  <IconUser size={14} className="text-ink-dim" />
-                  <span className="max-w-[12rem] truncate text-sm">{label}</span>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    aria-label={`Make ${label} the owner`}
+                    onClick={() => crownPrincipal({ kind: "group", groupId })}
+                    className={CO_OWNER_BADGE_CLASS}
+                  >
+                    <IconUser size={14} className="shrink-0 text-ink-dim" />
+                    <span className="max-w-[12rem] truncate text-sm">{label}</span>
+                  </button>
                   <IconButton
                     label={`Remove owner group ${label}`}
                     icon={<IconX size={14} />}
@@ -800,49 +930,15 @@ export function ResourceAccessEditor({
                 onKeyDown={onOwnerKeyDown}
               />
 
-              {/*
-                Always mounted: unmounting the list on blur removes a node while
-                focus is in transit, and Radix's focus scope then yanks focus back
-                to the dialog container — every control after this field becomes
-                unreachable by Tab.
-              */}
-              <div
-                className={cn(
-                  "absolute top-full right-0 left-0 z-[var(--z-popover)] mt-1 rounded-md border border-line-strong bg-surface-3 p-2 shadow-elev-md",
-                  ownerListOpen ? "" : "hidden",
-                )}
-                aria-hidden={ownerListOpen ? undefined : true}
-              >
-                {ownerOptions.length === 0 ? (
-                  <p className="text-sm text-ink-muted">No users or groups match.</p>
-                ) : (
-                  <ul
-                    id={OWNER_LIST_ID}
-                    role="listbox"
-                    aria-label="Users and groups to own this item"
-                    className="flex max-h-64 flex-col gap-0.5 overflow-y-auto"
-                  >
-                    {ownerOptions.map((option, index) => (
-                      <li
-                        key={`${option.kind}-${option.id}`}
-                        id={`${OWNER_LIST_ID}-${option.kind}-${option.id}`}
-                        role="option"
-                        aria-selected={index === ownerHighlightIndex}
-                        className={cn(
-                          "flex cursor-pointer items-center justify-between gap-3 rounded px-2 py-1.5 text-sm",
-                          index === ownerHighlightIndex ? "bg-[var(--accent-dim)] text-ink" : "text-ink-muted",
-                        )}
-                        onMouseDown={(event) => event.preventDefault()}
-                        onMouseEnter={() => setOwnerHighlight(index)}
-                        onClick={() => applyOwnerOption(option)}
-                      >
-                        <span className="truncate">{option.label}</span>
-                        <span className="shrink-0 text-2xs text-ink-dim">{option.detail}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
+              <PrincipalSuggestions
+                id={OWNER_LIST_ID}
+                label="Users and groups to own this item"
+                open={ownerListOpen}
+                options={ownerOptions}
+                highlight={ownerHighlightIndex}
+                onHover={setOwnerHighlight}
+                onPick={applyOwnerOption}
+              />
             </div>
           </div>
         )}
@@ -882,19 +978,32 @@ export function ResourceAccessEditor({
             placeholder="Search users and groups…"
             aria-label="Search users and groups"
             role="combobox"
-            aria-expanded={true}
-            aria-controls={CATALOG_ID}
+            aria-expanded={overridesOpen && cards.length > 0}
+            aria-controls={overridesOpen ? OVERRIDES_LIST_ID : undefined}
             aria-autocomplete="list"
             aria-activedescendant={
-              cards.length === 0
+              cards.length === 0 || !overridesOpen
                 ? undefined
-                : `${CATALOG_ID}-${cards[highlighted].kind}-${cards[highlighted].id}`
+                : `${OVERRIDES_LIST_ID}-${cards[highlighted].kind}-${cards[highlighted].id}`
             }
             onChange={(event) => {
               setQuery(event.target.value)
               setHighlight(0)
+              setOverridesOpen(true)
             }}
+            onFocus={() => setOverridesOpen(true)}
+            onBlur={() => setOverridesOpen(false)}
             onKeyDown={onCatalogKeyDown}
+          />
+          <PrincipalSuggestions
+            id={OVERRIDES_LIST_ID}
+            label="Matching users and groups"
+            open={overridesOpen && cards.length > 0}
+            options={cards}
+            highlight={highlighted}
+            selected={isPicked}
+            onHover={setHighlight}
+            onPick={pickCard}
           />
         </div>
         {ownerMode ? null : (

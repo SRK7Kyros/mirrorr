@@ -124,7 +124,9 @@ describe("ResourceAccessFields", () => {
 
     expect([...CAPABILITIES]).toEqual(["VIEW", "OPERATE", "EDIT", "DELETE", "SHARE", "EXPORT"])
     expect(screen.getByText("Kyros")).toBeTruthy()
-    expect(screen.getByRole("button", { name: "Change" })).toBeTruthy()
+    const badge = screen.getByRole("button", { name: "Change the owner" })
+    expect(badge).toBeTruthy()
+    expect(badge.className).toContain("bg-warning-dim")
     expect(catalog()).toBeTruthy()
     // One list carries both kinds: no principal switch and no capability filter.
     expect(card("Bob")).toBeTruthy()
@@ -161,7 +163,7 @@ describe("ResourceAccessFields", () => {
     const onApply = vi.fn()
     render(<ResourceAccessFields resourceType="session" access={access()} users={USERS} groups={GROUPS} onApply={onApply} />)
 
-    fireEvent.click(screen.getByRole("button", { name: "Change" }))
+    fireEvent.click(screen.getByRole("button", { name: "Change the owner" }))
     expect(screen.getByText("Pick the new owner")).toBeTruthy()
     // A transfer is a single pick over both kinds, and it hides the grant chip row.
     expect(screen.getByRole("listbox", { name: "Users and groups" })).toBeTruthy()
@@ -179,7 +181,7 @@ describe("ResourceAccessFields", () => {
     const onApply = vi.fn()
     render(<ResourceAccessFields resourceType="session" access={access()} users={USERS} groups={GROUPS} onApply={onApply} />)
 
-    fireEvent.click(screen.getByRole("button", { name: "Change" }))
+    fireEvent.click(screen.getByRole("button", { name: "Change the owner" }))
     fireEvent.click(card("Editors"))
     fireEvent.click(applyButton())
 
@@ -651,11 +653,42 @@ describe("ResourceAccessFields — groups", () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole("button", { name: "Change" }))
+    fireEvent.click(screen.getByRole("button", { name: "Change the owner" }))
     expect(screen.getByRole("listbox", { name: "Users and groups" })).toBeTruthy()
     expect(card("Carol")).toBeTruthy()
     expect(card("Editors")).toBeTruthy()
     expect(card("Editors").getAttribute("aria-selected")).toBe("true")
     expect(within(catalog()).getByText("3 members")).toBeTruthy()
+  })
+
+  it("crowns a co-owner from its badge", () => {
+    const onApply = vi.fn()
+    render(
+      <ResourceAccessFields
+        resourceType="session"
+        access={access({ ownerUsers: ["bob"] })}
+        users={USERS}
+        groups={GROUPS}
+        onApply={onApply}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Make Bob the owner" }))
+    fireEvent.click(applyButton())
+
+    const target = onApply.mock.calls[0][0] as AccessTarget
+    expect(target.crown).toEqual(userCrown("bob"))
+  })
+
+  it("offers suggestions under the overrides search and picks the one chosen", () => {
+    render(<ResourceAccessFields resourceType="session" access={access()} users={USERS} groups={GROUPS} onApply={vi.fn()} />)
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Search users and groups" }), {
+      target: { value: "car" },
+    })
+    const suggestions = screen.getByRole("listbox", { name: "Matching users and groups" })
+    fireEvent.click(within(suggestions).getByRole("option", { name: /Carol/ }))
+
+    expect(card("Carol").getAttribute("aria-selected")).toBe("true")
   })
 })

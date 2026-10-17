@@ -123,7 +123,7 @@ test.describe("admin resource access", () => {
       .toBe(true)
 
     // Then reassign ownership through the owner picker.
-    await dialog.getByRole("button", { name: "Change", exact: true }).click()
+    await dialog.getByRole("button", { name: "Change the owner" }).click()
     await catalog.getByRole("option", { name: /Alice/ }).click()
     await dialog.getByRole("button", { name: "Apply changes" }).click()
     await expect
@@ -147,7 +147,7 @@ test.describe("admin resource access", () => {
     await resourcePanel(page).getByRole("button", { name: "Manage access for F1 Weekend" }).click()
 
     const dialog = page.getByRole("dialog")
-    await dialog.getByRole("button", { name: "Change", exact: true }).click()
+    await dialog.getByRole("button", { name: "Change the owner" }).click()
     await dialog.getByTestId("access-catalog").getByRole("option", { name: /F1 team/ }).click()
     await dialog.getByRole("button", { name: "Apply changes" }).click()
 
@@ -158,6 +158,48 @@ test.describe("admin resource access", () => {
           .some((call) => call.method === "PUT" && (call.body as { group_id?: number }).group_id === 9),
       )
       .toBe(true)
+  })
+
+  test("crowns a co-owner from its badge", async ({ page, api }) => {
+    api.data.users = USERS
+    api.data.resources = [sessionRow()]
+    api.data.ownerUsers = { "session:7": ["alice"] }
+
+    await openAdminSettings(page)
+
+    await resourcePanel(page).getByRole("button", { name: "Manage access for F1 Weekend" }).click()
+
+    const dialog = page.getByRole("dialog")
+    await dialog.getByRole("button", { name: "Make Alice the owner" }).click()
+    await dialog.getByRole("button", { name: "Apply changes" }).click()
+
+    await expect
+      .poll(() =>
+        api
+          .callsTo("/admin/resources/session/7/owner")
+          .some((call) => call.method === "PUT" && (call.body as { username?: string }).username === "alice"),
+      )
+      .toBe(true)
+  })
+
+  test("suggests principals under the overrides search", async ({ page, api }) => {
+    api.data.users = USERS
+    api.data.resources = [sessionRow()]
+
+    await openAdminSettings(page)
+
+    await resourcePanel(page).getByRole("button", { name: "Manage access for F1 Weekend" }).click()
+
+    const dialog = page.getByRole("dialog")
+    await dialog.getByRole("combobox", { name: "Search users and groups" }).fill("ali")
+    await dialog
+      .getByRole("listbox", { name: "Matching users and groups" })
+      .getByRole("option", { name: /Alice/ })
+      .click()
+
+    await expect(
+      dialog.getByTestId("access-catalog").getByRole("option", { name: /Alice/ }),
+    ).toHaveAttribute("aria-selected", "true")
   })
 
   test("puts the access button on every owner-bearing list", async ({ page, api }) => {
@@ -215,7 +257,7 @@ test.describe("admin resource access", () => {
       .poll(() => api.callsTo("/shares/autorun/5/alice").some((call) => call.method === "DELETE"))
       .toBe(true)
 
-    await dialog.getByRole("button", { name: "Change", exact: true }).click()
+    await dialog.getByRole("button", { name: "Change the owner" }).click()
     await catalog.getByRole("option", { name: /Alice/ }).click()
     await dialog.getByRole("button", { name: "Apply changes" }).click()
     await expect
@@ -309,7 +351,7 @@ test.describe("admin resource access", () => {
 
     await expect(page.getByText("Left as it is")).toBeVisible()
 
-    await page.getByRole("button", { name: "Change" }).click()
+    await page.getByRole("button", { name: "Change the owner" }).click()
     await page.getByRole("dialog").getByTestId("access-catalog").getByRole("option", { name: /Alice/ }).click()
     await page.getByRole("button", { name: "Apply to 2" }).click()
 
