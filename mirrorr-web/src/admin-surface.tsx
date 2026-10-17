@@ -5,8 +5,8 @@
  * here decides whether it may run. `admin.tsx` contributes it to the settings
  * page through the generic section slot in `ui/views/settings/sections`.
  */
-import { useMemo, useState, type FormEvent } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState, type FormEvent } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   approveRegistrationRequest,
   createClient,
@@ -26,28 +26,19 @@ import {
   getErrorMessage,
   setGroupMembers,
   updateGroup,
-} from "@/api";
-import { ApiError } from "@/api/client";
-import {
-  applyPlans,
-  itemAccessFromView,
-  planItem,
-  type AccessTarget,
-} from "@/api/domain/access-plan";
-import { rankBySearch } from "@/api/domain/search";
-import { PAGE_SIZE, queryKeys, queryRoots, staleTimes } from "@/api/query-keys";
-import {
-  RESOURCE_TYPES,
-  type AdminResource,
-  type Group,
-} from "@/api/schemas/privileged";
-import type { User } from "@/api/schemas/user";
+} from "@/api"
+import { ApiError } from "@/api/client"
+import { applyPlans, itemAccessFromView, planItem, type AccessTarget } from "@/api/domain/access-plan"
+import { rankBySearch } from "@/api/domain/search"
+import { PAGE_SIZE, queryKeys, queryRoots, staleTimes } from "@/api/query-keys"
+import { RESOURCE_TYPES, type AdminResource, type Group } from "@/api/schemas/privileged"
+import type { User } from "@/api/schemas/user"
 import {
   ResourceAccessFields,
   resourceTypeLabel,
   userLabel,
-} from "@/ui/views/shared/resource-access";
-import { copyText } from "@/ui/lib/clipboard";
+} from "@/ui/views/shared/resource-access"
+import { copyText } from "@/ui/lib/clipboard"
 import {
   Avatar,
   Banner,
@@ -76,24 +67,25 @@ import {
   Tag,
   Th,
   toast,
-} from "@/ui/components";
+} from "@/ui/components"
 
 /** No factory exists for this admin-only surface — keyed under `auth`. */
-const REGISTRATION_REQUESTS_KEY = ["auth", "registration-requests"] as const;
+const REGISTRATION_REQUESTS_KEY = ["auth", "registration-requests"] as const
 
 /** Group CRUD is admin-only and has no factory either; the bulk slot reads it too. */
 
+
 function whenLabel(value: string | null | undefined): string {
-  if (value === null || value === undefined || value === "") return "—";
-  return formatRelativeTime(value);
+  if (value === null || value === undefined || value === "") return "—"
+  return formatRelativeTime(value)
 }
 
 /** "3 viewers · 1 group" — the access column's summary of user and group grants. */
 function accessSummary(resource: AdminResource): string {
-  const viewers = `${resource.viewer_count} ${resource.viewer_count === 1 ? "viewer" : "viewers"}`;
-  const groups = resource.grant_groups.length;
-  if (groups === 0) return viewers;
-  return `${viewers} · ${groups} ${groups === 1 ? "group" : "groups"}`;
+  const viewers = `${resource.viewer_count} ${resource.viewer_count === 1 ? "viewer" : "viewers"}`
+  const groups = resource.grant_groups.length
+  if (groups === 0) return viewers
+  return `${viewers} · ${groups} ${groups === 1 ? "group" : "groups"}`
 }
 
 export function AdministrationSection() {
@@ -105,45 +97,32 @@ export function AdministrationSection() {
       <GroupsSection />
       <ResourceAccessSection />
     </>
-  );
+  )
 }
 
 function UsersSection() {
-  const queryClient = useQueryClient();
-  const usersQuery = useQuery({
-    queryKey: queryKeys.users,
-    queryFn: fetchUsers,
-    staleTime: staleTimes.users,
-  });
-  const [createOpen, setCreateOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const queryClient = useQueryClient()
+  const usersQuery = useQuery({ queryKey: queryKeys.users, queryFn: fetchUsers, staleTime: staleTimes.users })
+  const [createOpen, setCreateOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
 
   const remove = useMutation({
     mutationFn: (username: string) => deleteUser(username),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.users });
-      toast.success("User deleted");
+      void queryClient.invalidateQueries({ queryKey: queryKeys.users })
+      toast.success("User deleted")
     },
-    onError: (caught) =>
-      toast.error(
-        "Could not delete user",
-        getErrorMessage(caught, "Try again"),
-      ),
-  });
+    onError: (caught) => toast.error("Could not delete user", getErrorMessage(caught, "Try again")),
+  })
 
-  const users = usersQuery.data ?? [];
+  const users = usersQuery.data ?? []
 
   return (
     <Panel>
       <PanelHead
         title="Users"
         actions={
-          <Button
-            size="sm"
-            variant="secondary"
-            icon={<IconPlus size={16} />}
-            onClick={() => setCreateOpen(true)}
-          >
+          <Button size="sm" variant="secondary" icon={<IconPlus size={16} />} onClick={() => setCreateOpen(true)}>
             Add user
           </Button>
         }
@@ -156,18 +135,12 @@ function UsersSection() {
         ) : usersQuery.isError ? (
           <div className="panel-body">
             <ErrorPanel
-              message={getErrorMessage(
-                usersQuery.error,
-                "Could not load users",
-              )}
+              message={getErrorMessage(usersQuery.error, "Could not load users")}
               onRetry={() => void usersQuery.refetch()}
             />
           </div>
         ) : users.length === 0 ? (
-          <EmptyState
-            title="No users"
-            text="No accounts have been created yet."
-          />
+          <EmptyState title="No users" text="No accounts have been created yet." />
         ) : (
           <Table>
             <thead>
@@ -181,20 +154,15 @@ function UsersSection() {
             </thead>
             <tbody>
               {users.map((user) => {
-                const label =
-                  user.display_name !== "" ? user.display_name : user.username;
+                const label = user.display_name !== "" ? user.display_name : user.username
                 return (
                   <tr key={user.id}>
                     <Td>
                       <div className="flex items-center gap-3">
                         <Avatar name={label} small />
                         <div className="min-w-0 flex-1">
-                          <div className="text-base font-medium text-ink truncate">
-                            {label}
-                          </div>
-                          <div className="text-xs text-ink-dim [font-family:var(--font-mono)]">
-                            @{user.username}
-                          </div>
+                          <div className="text-base font-medium text-ink truncate">{label}</div>
+                          <div className="text-xs text-ink-dim [font-family:var(--font-mono)]">@{user.username}</div>
                         </div>
                       </div>
                     </Td>
@@ -211,100 +179,88 @@ function UsersSection() {
                       />
                     </Td>
                   </tr>
-                );
+                )
               })}
             </tbody>
           </Table>
         )}
       </PanelBody>
 
-      <CreateUserDialog
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-      />
+      <CreateUserDialog open={createOpen} onClose={() => setCreateOpen(false)} />
 
       <ConfirmDialog
         open={deleteTarget !== null}
         onClose={() => setDeleteTarget(null)}
         title="Delete user"
-        description={
-          deleteTarget !== null
-            ? `“${deleteTarget}” will lose access immediately.`
-            : undefined
-        }
+        description={deleteTarget !== null ? `“${deleteTarget}” will lose access immediately.` : undefined}
         confirmLabel="Delete"
         onConfirm={async () => {
-          if (deleteTarget === null) return;
+          if (deleteTarget === null) return
           try {
-            await remove.mutateAsync(deleteTarget);
+            await remove.mutateAsync(deleteTarget)
           } catch {
             // The mutation's onError surfaces the failure via toast.
           }
         }}
       />
     </Panel>
-  );
+  )
 }
 
 interface CreateUserDialogProps {
-  readonly open: boolean;
-  readonly onClose: () => void;
+  readonly open: boolean
+  readonly onClose: () => void
 }
 
 function CreateUserDialog({ open, onClose }: CreateUserDialogProps) {
-  const queryClient = useQueryClient();
-  const [username, setUsername] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<
-    Readonly<Record<string, string>>
-  >({});
+  const queryClient = useQueryClient()
+  const [username, setUsername] = useState("")
+  const [displayName, setDisplayName] = useState("")
+  const [password, setPassword] = useState("")
+  const [confirm, setConfirm] = useState("")
+  const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, string>>>({})
 
   function reset(): void {
-    setUsername("");
-    setDisplayName("");
-    setPassword("");
-    setConfirm("");
-    setError(null);
-    setFieldErrors({});
+    setUsername("")
+    setDisplayName("")
+    setPassword("")
+    setConfirm("")
+    setError(null)
+    setFieldErrors({})
   }
 
   const create = useMutation({
     mutationFn: () => createUser(username.trim(), password, displayName.trim()),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.users });
-      void queryClient.invalidateQueries({
-        queryKey: REGISTRATION_REQUESTS_KEY,
-      });
-      toast.success("User created", `${username.trim()} can now sign in.`);
-      reset();
-      onClose();
+      void queryClient.invalidateQueries({ queryKey: queryKeys.users })
+      void queryClient.invalidateQueries({ queryKey: REGISTRATION_REQUESTS_KEY })
+      toast.success("User created", `${username.trim()} can now sign in.`)
+      reset()
+      onClose()
     },
     onError: (caught) => {
-      if (caught instanceof ApiError && caught.fieldErrors !== undefined)
-        setFieldErrors(caught.fieldErrors);
-      setError(getErrorMessage(caught, "Could not create user"));
+      if (caught instanceof ApiError && caught.fieldErrors !== undefined) setFieldErrors(caught.fieldErrors)
+      setError(getErrorMessage(caught, "Could not create user"))
     },
-  });
+  })
 
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    if (create.isPending) return;
-    setError(null);
-    setFieldErrors({});
+    event.preventDefault()
+    if (create.isPending) return
+    setError(null)
+    setFieldErrors({})
     if (password !== confirm) {
-      setError("Passwords do not match");
-      return;
+      setError("Passwords do not match")
+      return
     }
-    create.mutate();
+    create.mutate()
   }
 
   function handleClose(): void {
-    if (create.isPending) return;
-    reset();
-    onClose();
+    if (create.isPending) return
+    reset()
+    onClose()
   }
 
   return (
@@ -316,37 +272,18 @@ function CreateUserDialog({ open, onClose }: CreateUserDialogProps) {
       description="The account is created already approved."
       footer={
         <>
-          <Button
-            variant="ghost"
-            onClick={handleClose}
-            disabled={create.isPending}
-          >
+          <Button variant="ghost" onClick={handleClose} disabled={create.isPending}>
             Cancel
           </Button>
-          <Button
-            type="submit"
-            form="create-user-form"
-            variant="primary"
-            loading={create.isPending}
-          >
+          <Button type="submit" form="create-user-form" variant="primary" loading={create.isPending}>
             Create user
           </Button>
         </>
       }
     >
-      <form
-        id="create-user-form"
-        className="flex flex-col gap-4"
-        onSubmit={(event) => void onSubmit(event)}
-        noValidate
-      >
+      <form id="create-user-form" className="flex flex-col gap-4" onSubmit={(event) => void onSubmit(event)} noValidate>
         {error !== null ? <Banner kind="danger" title={error} /> : null}
-        <Field
-          label="Username"
-          htmlFor="new-user-username"
-          required
-          error={fieldErrors.username ?? null}
-        >
+        <Field label="Username" htmlFor="new-user-username" required error={fieldErrors.username ?? null}>
           <Input
             id="new-user-username"
             autoComplete="off"
@@ -354,11 +291,7 @@ function CreateUserDialog({ open, onClose }: CreateUserDialogProps) {
             onChange={(event) => setUsername(event.target.value)}
           />
         </Field>
-        <Field
-          label="Display name"
-          htmlFor="new-user-display-name"
-          hint="Shown in the sidebar and lists."
-        >
+        <Field label="Display name" htmlFor="new-user-display-name" hint="Shown in the sidebar and lists.">
           <Input
             id="new-user-display-name"
             autoComplete="off"
@@ -366,12 +299,7 @@ function CreateUserDialog({ open, onClose }: CreateUserDialogProps) {
             onChange={(event) => setDisplayName(event.target.value)}
           />
         </Field>
-        <Field
-          label="Password"
-          htmlFor="new-user-password"
-          required
-          error={fieldErrors.password ?? null}
-        >
+        <Field label="Password" htmlFor="new-user-password" required error={fieldErrors.password ?? null}>
           <Input
             id="new-user-password"
             type="password"
@@ -391,45 +319,36 @@ function CreateUserDialog({ open, onClose }: CreateUserDialogProps) {
         </Field>
       </form>
     </Dialog>
-  );
+  )
 }
 
 function ClientsSection() {
-  const queryClient = useQueryClient();
+  const queryClient = useQueryClient()
   const clientsQuery = useQuery({
     queryKey: queryKeys.clients,
     queryFn: fetchClients,
     staleTime: staleTimes.clients,
-  });
-  const [createOpen, setCreateOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<number | null>(null);
+  })
+  const [createOpen, setCreateOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
 
   const remove = useMutation({
     mutationFn: (id: number) => deleteClient(id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.clients });
-      toast.success("API client deleted");
+      void queryClient.invalidateQueries({ queryKey: queryKeys.clients })
+      toast.success("API client deleted")
     },
-    onError: (caught) =>
-      toast.error(
-        "Could not delete client",
-        getErrorMessage(caught, "Try again"),
-      ),
-  });
+    onError: (caught) => toast.error("Could not delete client", getErrorMessage(caught, "Try again")),
+  })
 
-  const clients = clientsQuery.data ?? [];
+  const clients = clientsQuery.data ?? []
 
   return (
     <Panel>
       <PanelHead
         title="API clients"
         actions={
-          <Button
-            size="sm"
-            variant="secondary"
-            icon={<IconPlus size={16} />}
-            onClick={() => setCreateOpen(true)}
-          >
+          <Button size="sm" variant="secondary" icon={<IconPlus size={16} />} onClick={() => setCreateOpen(true)}>
             Add client
           </Button>
         }
@@ -442,18 +361,12 @@ function ClientsSection() {
         ) : clientsQuery.isError ? (
           <div className="panel-body">
             <ErrorPanel
-              message={getErrorMessage(
-                clientsQuery.error,
-                "Could not load API clients",
-              )}
+              message={getErrorMessage(clientsQuery.error, "Could not load API clients")}
               onRetry={() => void clientsQuery.refetch()}
             />
           </div>
         ) : clients.length === 0 ? (
-          <EmptyState
-            title="No API clients"
-            text="Create a client to issue a programmatic API key."
-          />
+          <EmptyState title="No API clients" text="Create a client to issue a programmatic API key." />
         ) : (
           <Table>
             <thead>
@@ -470,13 +383,7 @@ function ClientsSection() {
               {clients.map((client) => (
                 <tr key={client.id}>
                   <Td>{client.name}</Td>
-                  <Td>
-                    {client.is_active === false ? (
-                      <Tag>Inactive</Tag>
-                    ) : (
-                      <Tag accent>Active</Tag>
-                    )}
-                  </Td>
+                  <Td>{client.is_active === false ? <Tag>Inactive</Tag> : <Tag accent>Active</Tag>}</Td>
                   <Td className="text-muted">{whenLabel(client.created_at)}</Td>
                   <Td actions>
                     <IconButton
@@ -494,10 +401,7 @@ function ClientsSection() {
         )}
       </PanelBody>
 
-      <CreateClientDialog
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-      />
+      <CreateClientDialog open={createOpen} onClose={() => setCreateOpen(false)} />
 
       <ConfirmDialog
         open={deleteTarget !== null}
@@ -506,54 +410,53 @@ function ClientsSection() {
         description="Any integration using this client's key will stop working immediately."
         confirmLabel="Delete"
         onConfirm={async () => {
-          if (deleteTarget === null) return;
+          if (deleteTarget === null) return
           try {
-            await remove.mutateAsync(deleteTarget);
+            await remove.mutateAsync(deleteTarget)
           } catch {
             // The mutation's onError surfaces the failure via toast.
           }
         }}
       />
     </Panel>
-  );
+  )
 }
 
 interface CreateClientDialogProps {
-  readonly open: boolean;
-  readonly onClose: () => void;
+  readonly open: boolean
+  readonly onClose: () => void
 }
 
 function CreateClientDialog({ open, onClose }: CreateClientDialogProps) {
-  const queryClient = useQueryClient();
-  const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [apiKey, setApiKey] = useState<string | null>(null);
+  const queryClient = useQueryClient()
+  const [name, setName] = useState("")
+  const [error, setError] = useState<string | null>(null)
+  const [apiKey, setApiKey] = useState<string | null>(null)
 
   const create = useMutation({
     mutationFn: () => createClient(name.trim()),
     onSuccess: (result) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.clients });
-      setApiKey(result.apiKey);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.clients })
+      setApiKey(result.apiKey)
     },
-    onError: (caught) =>
-      setError(getErrorMessage(caught, "Could not create client")),
-  });
+    onError: (caught) => setError(getErrorMessage(caught, "Could not create client")),
+  })
 
   function handleClose(): void {
-    if (create.isPending) return;
-    setName("");
-    setError(null);
-    setApiKey(null);
-    onClose();
+    if (create.isPending) return
+    setName("")
+    setError(null)
+    setApiKey(null)
+    onClose()
   }
 
   async function copyKey(): Promise<void> {
-    if (apiKey === null) return;
+    if (apiKey === null) return
     try {
-      await copyText(apiKey);
-      toast.success("API key copied");
+      await copyText(apiKey)
+      toast.success("API key copied")
     } catch {
-      toast.error("Copy failed", "Select the key and copy it manually.");
+      toast.error("Copy failed", "Select the key and copy it manually.")
     }
   }
 
@@ -566,19 +469,10 @@ function CreateClientDialog({ open, onClose }: CreateClientDialogProps) {
       footer={
         apiKey === null ? (
           <>
-            <Button
-              variant="ghost"
-              onClick={handleClose}
-              disabled={create.isPending}
-            >
+            <Button variant="ghost" onClick={handleClose} disabled={create.isPending}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              form="create-client-form"
-              variant="primary"
-              loading={create.isPending}
-            >
+            <Button type="submit" form="create-client-form" variant="primary" loading={create.isPending}>
               Create client
             </Button>
           </>
@@ -594,8 +488,8 @@ function CreateClientDialog({ open, onClose }: CreateClientDialogProps) {
           id="create-client-form"
           className="flex flex-col gap-4"
           onSubmit={(event) => {
-            event.preventDefault();
-            if (!create.isPending) create.mutate();
+            event.preventDefault()
+            if (!create.isPending) create.mutate()
           }}
           noValidate
         >
@@ -616,62 +510,45 @@ function CreateClientDialog({ open, onClose }: CreateClientDialogProps) {
           </Banner>
           <div className="flex items-center justify-between gap-3">
             <span className="mono text-truncate">{apiKey}</span>
-            <Button
-              size="sm"
-              variant="outline"
-              icon={<IconCopy size={14} />}
-              onClick={() => void copyKey()}
-            >
+            <Button size="sm" variant="outline" icon={<IconCopy size={14} />} onClick={() => void copyKey()}>
               Copy
             </Button>
           </div>
         </div>
       )}
     </Dialog>
-  );
+  )
 }
 
 function RegistrationRequestsSection() {
-  const queryClient = useQueryClient();
+  const queryClient = useQueryClient()
   const requestsQuery = useQuery({
     queryKey: REGISTRATION_REQUESTS_KEY,
     queryFn: fetchRegistrationRequests,
     staleTime: staleTimes.users,
-  });
-  const [denyTarget, setDenyTarget] = useState<number | null>(null);
+  })
+  const [denyTarget, setDenyTarget] = useState<number | null>(null)
 
   const approve = useMutation({
     mutationFn: (id: number) => approveRegistrationRequest(id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: REGISTRATION_REQUESTS_KEY,
-      });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.users });
-      toast.success("Registration approved");
+      void queryClient.invalidateQueries({ queryKey: REGISTRATION_REQUESTS_KEY })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.users })
+      toast.success("Registration approved")
     },
-    onError: (caught) =>
-      toast.error(
-        "Could not approve request",
-        getErrorMessage(caught, "Try again"),
-      ),
-  });
+    onError: (caught) => toast.error("Could not approve request", getErrorMessage(caught, "Try again")),
+  })
 
   const deny = useMutation({
     mutationFn: (id: number) => denyRegistrationRequest(id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: REGISTRATION_REQUESTS_KEY,
-      });
-      toast.success("Registration denied");
+      void queryClient.invalidateQueries({ queryKey: REGISTRATION_REQUESTS_KEY })
+      toast.success("Registration denied")
     },
-    onError: (caught) =>
-      toast.error(
-        "Could not deny request",
-        getErrorMessage(caught, "Try again"),
-      ),
-  });
+    onError: (caught) => toast.error("Could not deny request", getErrorMessage(caught, "Try again")),
+  })
 
-  const requests = requestsQuery.data ?? [];
+  const requests = requestsQuery.data ?? []
 
   return (
     <Panel>
@@ -684,18 +561,12 @@ function RegistrationRequestsSection() {
         ) : requestsQuery.isError ? (
           <div className="panel-body">
             <ErrorPanel
-              message={getErrorMessage(
-                requestsQuery.error,
-                "Could not load registration requests",
-              )}
+              message={getErrorMessage(requestsQuery.error, "Could not load registration requests")}
               onRetry={() => void requestsQuery.refetch()}
             />
           </div>
         ) : requests.length === 0 ? (
-          <EmptyState
-            title="No pending requests"
-            text="New sign-ups awaiting approval appear here."
-          />
+          <EmptyState title="No pending requests" text="New sign-ups awaiting approval appear here." />
         ) : (
           <Table>
             <thead>
@@ -709,33 +580,21 @@ function RegistrationRequestsSection() {
             </thead>
             <tbody>
               {requests.map((request) => {
-                const label =
-                  request.display_name !== ""
-                    ? request.display_name
-                    : request.username;
+                const label = request.display_name !== "" ? request.display_name : request.username
                 return (
                   <tr key={request.id}>
                     <Td>
-                      <div className="text-base font-medium text-ink truncate">
-                        {label}
-                      </div>
-                      <div className="text-xs text-ink-dim [font-family:var(--font-mono)]">
-                        @{request.username}
-                      </div>
+                      <div className="text-base font-medium text-ink truncate">{label}</div>
+                      <div className="text-xs text-ink-dim [font-family:var(--font-mono)]">@{request.username}</div>
                     </Td>
-                    <Td className="text-muted">
-                      {whenLabel(request.created_at)}
-                    </Td>
+                    <Td className="text-muted">{whenLabel(request.created_at)}</Td>
                     <Td actions>
                       <div className="flex items-center gap-3">
                         <Button
                           size="sm"
                           variant="outline"
                           icon={<IconCheck size={15} />}
-                          loading={
-                            approve.isPending &&
-                            approve.variables === request.id
-                          }
+                          loading={approve.isPending && approve.variables === request.id}
                           onClick={() => approve.mutate(request.id)}
                         >
                           Approve
@@ -751,7 +610,7 @@ function RegistrationRequestsSection() {
                       </div>
                     </Td>
                   </tr>
-                );
+                )
               })}
             </tbody>
           </Table>
@@ -765,16 +624,16 @@ function RegistrationRequestsSection() {
         description="The requester will not be able to sign in."
         confirmLabel="Deny"
         onConfirm={async () => {
-          if (denyTarget === null) return;
+          if (denyTarget === null) return
           try {
-            await deny.mutateAsync(denyTarget);
+            await deny.mutateAsync(denyTarget)
           } catch {
             // The mutation's onError surfaces the failure via toast.
           }
         }}
       />
     </Panel>
-  );
+  )
 }
 
 /**
@@ -784,17 +643,13 @@ function RegistrationRequestsSection() {
  * page client-side through the same `rankBySearch` the lists use.
  */
 function ResourceAccessSection() {
-  const [typeFilter, setTypeFilter] = useState("");
-  const [ownerFilter, setOwnerFilter] = useState("");
-  const [search, setSearch] = useState("");
-  const [offset, setOffset] = useState(0);
-  const [target, setTarget] = useState<AdminResource | null>(null);
+  const [typeFilter, setTypeFilter] = useState("")
+  const [ownerFilter, setOwnerFilter] = useState("")
+  const [search, setSearch] = useState("")
+  const [offset, setOffset] = useState(0)
+  const [target, setTarget] = useState<AdminResource | null>(null)
 
-  const usersQuery = useQuery({
-    queryKey: queryKeys.users,
-    queryFn: fetchUsers,
-    staleTime: staleTimes.users,
-  });
+  const usersQuery = useQuery({ queryKey: queryKeys.users, queryFn: fetchUsers, staleTime: staleTimes.users })
 
   const query = useMemo(
     () => ({
@@ -804,23 +659,23 @@ function ResourceAccessSection() {
       offset,
     }),
     [typeFilter, ownerFilter, offset],
-  );
+  )
 
   const resourcesQuery = useQuery({
     queryKey: queryKeys.adminResources(query),
     queryFn: () => fetchAdminResources(query),
     staleTime: staleTimes.adminResources,
-  });
+  })
 
-  const users = usersQuery.data ?? [];
-  const page = resourcesQuery.data;
+  const users = usersQuery.data ?? []
+  const page = resourcesQuery.data
   const rows = useMemo(() => {
-    const items = page?.items ?? [];
-    if (search.trim() === "") return items;
-    return rankBySearch(items, search, (item) => [item.label, item.owner]);
-  }, [page, search]);
+    const items = page?.items ?? []
+    if (search.trim() === "") return items
+    return rankBySearch(items, search, (item) => [item.label, item.owner])
+  }, [page, search])
 
-  const total = page?.total ?? 0;
+  const total = page?.total ?? 0
 
   return (
     <Panel>
@@ -831,8 +686,8 @@ function ResourceAccessSection() {
             aria-label="Filter by resource type"
             value={typeFilter}
             onChange={(event) => {
-              setTypeFilter(event.target.value);
-              setOffset(0);
+              setTypeFilter(event.target.value)
+              setOffset(0)
             }}
           >
             <option value="">All types</option>
@@ -846,8 +701,8 @@ function ResourceAccessSection() {
             aria-label="Filter by owner"
             value={ownerFilter}
             onChange={(event) => {
-              setOwnerFilter(event.target.value);
-              setOffset(0);
+              setOwnerFilter(event.target.value)
+              setOffset(0)
             }}
           >
             <option value="">All owners</option>
@@ -874,18 +729,12 @@ function ResourceAccessSection() {
         ) : resourcesQuery.isError ? (
           <div className="panel-body">
             <ErrorPanel
-              message={getErrorMessage(
-                resourcesQuery.error,
-                "Could not load resources",
-              )}
+              message={getErrorMessage(resourcesQuery.error, "Could not load resources")}
               onRetry={() => void resourcesQuery.refetch()}
             />
           </div>
         ) : rows.length === 0 ? (
-          <EmptyState
-            title="No resources"
-            text="No items match the current filter."
-          />
+          <EmptyState title="No resources" text="No items match the current filter." />
         ) : (
           <Table>
             <thead>
@@ -903,18 +752,14 @@ function ResourceAccessSection() {
               {rows.map((resource) => (
                 <tr key={`${resource.resource_type}-${resource.id}`}>
                   <Td>{resource.label}</Td>
-                  <Td className="text-muted">
-                    {resourceTypeLabel(resource.resource_type)}
-                  </Td>
+                  <Td className="text-muted">{resourceTypeLabel(resource.resource_type)}</Td>
                   <Td>
                     {resource.system ? (
                       <Tag>System</Tag>
                     ) : (
                       <div className="flex flex-col gap-0.5">
                         {resource.owner_missing ? (
-                          <span className="text-danger">
-                            {resource.owner} (missing)
-                          </span>
+                          <span className="text-danger">{resource.owner} (missing)</span>
                         ) : (
                           <span>{resource.owner}</span>
                         )}
@@ -971,48 +816,33 @@ function ResourceAccessSection() {
       </PanelBody>
 
       {target !== null ? (
-        <ResourceAccessDialog
-          resource={target}
-          users={users}
-          onClose={() => setTarget(null)}
-        />
+        <ResourceAccessDialog resource={target} users={users} onClose={() => setTarget(null)} />
       ) : null}
     </Panel>
-  );
+  )
 }
 
 interface ResourceAccessDialogProps {
-  readonly resource: AdminResource;
-  readonly users: readonly User[];
-  readonly onClose: () => void;
+  readonly resource: AdminResource
+  readonly users: readonly User[]
+  readonly onClose: () => void
 }
 
-function ResourceAccessDialog({
-  resource,
-  users,
-  onClose,
-}: ResourceAccessDialogProps) {
-  const queryClient = useQueryClient();
-  const [busy, setBusy] = useState(false);
+function ResourceAccessDialog({ resource, users, onClose }: ResourceAccessDialogProps) {
+  const queryClient = useQueryClient()
+  const [busy, setBusy] = useState(false)
 
-  const groupsQuery = useQuery({
-    queryKey: queryKeys.groups,
-    queryFn: fetchGroups,
-    staleTime: staleTimes.users,
-  });
+  const groupsQuery = useQuery({ queryKey: queryKeys.groups, queryFn: fetchGroups, staleTime: staleTimes.users })
   const accessQuery = useQuery({
-    queryKey: queryKeys.adminResourceAccess(
-      resource.resource_type,
-      resource.id,
-    ),
+    queryKey: queryKeys.adminResourceAccess(resource.resource_type, resource.id),
     queryFn: () => fetchResourceAccess(resource.resource_type, resource.id),
     staleTime: staleTimes.adminResources,
-  });
-  const access = accessQuery.data;
+  })
+  const access = accessQuery.data
 
   async function apply(target: AccessTarget): Promise<void> {
-    if (access === undefined) return;
-    setBusy(true);
+    if (access === undefined) return
+    setBusy(true)
     const outcome = await applyPlans([
       planItem(
         {
@@ -1024,18 +854,14 @@ function ResourceAccessDialog({
         target,
         users.map((user) => user.username),
       ),
-    ]);
-    setBusy(false);
-    void queryClient.invalidateQueries({ queryKey: queryRoots.adminResources });
+    ])
+    setBusy(false)
+    void queryClient.invalidateQueries({ queryKey: queryRoots.adminResources })
     void queryClient.invalidateQueries({
-      queryKey: queryKeys.adminResourceAccess(
-        resource.resource_type,
-        resource.id,
-      ),
-    });
-    if (outcome.failed.length > 0)
-      toast.error("Could not update access", outcome.failed[0].message);
-    else toast.success("Access updated", resource.label);
+      queryKey: queryKeys.adminResourceAccess(resource.resource_type, resource.id),
+    })
+    if (outcome.failed.length > 0) toast.error("Could not update access", outcome.failed[0].message)
+    else toast.success("Access updated", resource.label)
   }
 
   return (
@@ -1072,7 +898,7 @@ function ResourceAccessDialog({
         />
       )}
     </Dialog>
-  );
+  )
 }
 
 /**
@@ -1082,52 +908,33 @@ function ResourceAccessDialog({
  * affordances and says why.
  */
 function GroupsSection() {
-  const queryClient = useQueryClient();
-  const groupsQuery = useQuery({
-    queryKey: queryKeys.groups,
-    queryFn: fetchGroups,
-    staleTime: staleTimes.users,
-  });
-  const usersQuery = useQuery({
-    queryKey: queryKeys.users,
-    queryFn: fetchUsers,
-    staleTime: staleTimes.users,
-  });
-  const [createOpen, setCreateOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState<Group | null>(null);
-  const [membersTarget, setMembersTarget] = useState<Group | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Group | null>(null);
+  const queryClient = useQueryClient()
+  const groupsQuery = useQuery({ queryKey: queryKeys.groups, queryFn: fetchGroups, staleTime: staleTimes.users })
+  const usersQuery = useQuery({ queryKey: queryKeys.users, queryFn: fetchUsers, staleTime: staleTimes.users })
+  const [createOpen, setCreateOpen] = useState(false)
+  const [editTarget, setEditTarget] = useState<Group | null>(null)
+  const [membersTarget, setMembersTarget] = useState<Group | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Group | null>(null)
 
   const remove = useMutation({
     mutationFn: (id: number) => deleteGroup(id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.groups });
-      void queryClient.invalidateQueries({
-        queryKey: queryRoots.adminResources,
-      });
-      toast.success("Group deleted");
+      void queryClient.invalidateQueries({ queryKey: queryKeys.groups })
+      void queryClient.invalidateQueries({ queryKey: queryRoots.adminResources })
+      toast.success("Group deleted")
     },
-    onError: (caught) =>
-      toast.error(
-        "Could not delete group",
-        getErrorMessage(caught, "Try again"),
-      ),
-  });
+    onError: (caught) => toast.error("Could not delete group", getErrorMessage(caught, "Try again")),
+  })
 
-  const users = usersQuery.data ?? [];
-  const groups = groupsQuery.data?.items ?? [];
+  const users = usersQuery.data ?? []
+  const groups = groupsQuery.data?.items ?? []
 
   return (
     <Panel>
       <PanelHead
         title="Groups"
         actions={
-          <Button
-            size="sm"
-            variant="secondary"
-            icon={<IconPlus size={16} />}
-            onClick={() => setCreateOpen(true)}
-          >
+          <Button size="sm" variant="secondary" icon={<IconPlus size={16} />} onClick={() => setCreateOpen(true)}>
             Add group
           </Button>
         }
@@ -1140,18 +947,12 @@ function GroupsSection() {
         ) : groupsQuery.isError ? (
           <div className="panel-body">
             <ErrorPanel
-              message={getErrorMessage(
-                groupsQuery.error,
-                "Could not load groups",
-              )}
+              message={getErrorMessage(groupsQuery.error, "Could not load groups")}
               onRetry={() => void groupsQuery.refetch()}
             />
           </div>
         ) : groups.length === 0 ? (
-          <EmptyState
-            title="No groups"
-            text="Create a group to grant the same access to several accounts."
-          />
+          <EmptyState title="No groups" text="Create a group to grant the same access to several accounts." />
         ) : (
           <Table>
             <thead>
@@ -1169,33 +970,22 @@ function GroupsSection() {
                   <Td>
                     <div className="flex items-center gap-2">
                       <span className="text-base font-medium text-ink truncate">
-                        {group.display_name !== ""
-                          ? group.display_name
-                          : group.name}
+                        {group.display_name !== "" ? group.display_name : group.name}
                       </span>
                       {group.system ? <Tag>System</Tag> : null}
                     </div>
-                    <div className="text-xs text-ink-dim [font-family:var(--font-mono)]">
-                      @{group.name}
-                    </div>
+                    <div className="text-xs text-ink-dim [font-family:var(--font-mono)]">@{group.name}</div>
                     {group.system ? (
                       <div className="text-xs text-muted">
-                        Every account, including future ones — membership is
-                        implicit.
+                        Every account, including future ones — membership is implicit.
                       </div>
                     ) : null}
                   </Td>
-                  <Td className="text-muted">
-                    {group.system ? "Everyone" : group.member_count}
-                  </Td>
+                  <Td className="text-muted">{group.system ? "Everyone" : group.member_count}</Td>
                   <Td actions>
                     {group.system ? null : (
                       <div className="flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setMembersTarget(group)}
-                        >
+                        <Button size="sm" variant="outline" onClick={() => setMembersTarget(group)}>
                           Members
                         </Button>
                         <IconButton
@@ -1221,22 +1011,12 @@ function GroupsSection() {
         )}
       </PanelBody>
 
-      <CreateGroupDialog
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-      />
+      <CreateGroupDialog open={createOpen} onClose={() => setCreateOpen(false)} />
       {editTarget !== null ? (
-        <EditGroupDialog
-          group={editTarget}
-          onClose={() => setEditTarget(null)}
-        />
+        <EditGroupDialog group={editTarget} onClose={() => setEditTarget(null)} />
       ) : null}
       {membersTarget !== null ? (
-        <GroupMembersDialog
-          group={membersTarget}
-          users={users}
-          onClose={() => setMembersTarget(null)}
-        />
+        <GroupMembersDialog group={membersTarget} users={users} onClose={() => setMembersTarget(null)} />
       ) : null}
       <ConfirmDialog
         open={deleteTarget !== null}
@@ -1249,58 +1029,55 @@ function GroupsSection() {
         }
         confirmLabel="Delete"
         onConfirm={async () => {
-          if (deleteTarget === null) return;
+          if (deleteTarget === null) return
           try {
-            await remove.mutateAsync(deleteTarget.id);
+            await remove.mutateAsync(deleteTarget.id)
           } catch {
             // The mutation's onError surfaces the failure via toast.
           }
         }}
       />
     </Panel>
-  );
+  )
 }
 
 interface CreateGroupDialogProps {
-  readonly open: boolean;
-  readonly onClose: () => void;
+  readonly open: boolean
+  readonly onClose: () => void
 }
 
 function CreateGroupDialog({ open, onClose }: CreateGroupDialogProps) {
-  const queryClient = useQueryClient();
-  const [name, setName] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<
-    Readonly<Record<string, string>>
-  >({});
+  const queryClient = useQueryClient()
+  const [name, setName] = useState("")
+  const [displayName, setDisplayName] = useState("")
+  const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, string>>>({})
 
   function reset(): void {
-    setName("");
-    setDisplayName("");
-    setError(null);
-    setFieldErrors({});
+    setName("")
+    setDisplayName("")
+    setError(null)
+    setFieldErrors({})
   }
 
   const create = useMutation({
     mutationFn: () => createGroup(name.trim(), displayName.trim()),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.groups });
-      toast.success("Group created", name.trim());
-      reset();
-      onClose();
+      void queryClient.invalidateQueries({ queryKey: queryKeys.groups })
+      toast.success("Group created", name.trim())
+      reset()
+      onClose()
     },
     onError: (caught) => {
-      if (caught instanceof ApiError && caught.fieldErrors !== undefined)
-        setFieldErrors(caught.fieldErrors);
-      setError(getErrorMessage(caught, "Could not create group"));
+      if (caught instanceof ApiError && caught.fieldErrors !== undefined) setFieldErrors(caught.fieldErrors)
+      setError(getErrorMessage(caught, "Could not create group"))
     },
-  });
+  })
 
   function handleClose(): void {
-    if (create.isPending) return;
-    reset();
-    onClose();
+    if (create.isPending) return
+    reset()
+    onClose()
   }
 
   return (
@@ -1312,19 +1089,10 @@ function CreateGroupDialog({ open, onClose }: CreateGroupDialogProps) {
       description="A group grants the same access to every member."
       footer={
         <>
-          <Button
-            variant="ghost"
-            onClick={handleClose}
-            disabled={create.isPending}
-          >
+          <Button variant="ghost" onClick={handleClose} disabled={create.isPending}>
             Cancel
           </Button>
-          <Button
-            type="submit"
-            form="create-group-form"
-            variant="primary"
-            loading={create.isPending}
-          >
+          <Button type="submit" form="create-group-form" variant="primary" loading={create.isPending}>
             Create group
           </Button>
         </>
@@ -1334,11 +1102,11 @@ function CreateGroupDialog({ open, onClose }: CreateGroupDialogProps) {
         id="create-group-form"
         className="flex flex-col gap-4"
         onSubmit={(event) => {
-          event.preventDefault();
-          if (create.isPending) return;
-          setError(null);
-          setFieldErrors({});
-          create.mutate();
+          event.preventDefault()
+          if (create.isPending) return
+          setError(null)
+          setFieldErrors({})
+          create.mutate()
         }}
         noValidate
       >
@@ -1357,11 +1125,7 @@ function CreateGroupDialog({ open, onClose }: CreateGroupDialogProps) {
             onChange={(event) => setName(event.target.value)}
           />
         </Field>
-        <Field
-          label="Display name"
-          htmlFor="new-group-display"
-          hint="Shown wherever the group appears."
-        >
+        <Field label="Display name" htmlFor="new-group-display" hint="Shown wherever the group appears.">
           <Input
             id="new-group-display"
             autoComplete="off"
@@ -1371,43 +1135,34 @@ function CreateGroupDialog({ open, onClose }: CreateGroupDialogProps) {
         </Field>
       </form>
     </Dialog>
-  );
+  )
 }
 
 interface EditGroupDialogProps {
-  readonly group: Group;
-  readonly onClose: () => void;
+  readonly group: Group
+  readonly onClose: () => void
 }
 
 function EditGroupDialog({ group, onClose }: EditGroupDialogProps) {
-  const queryClient = useQueryClient();
-  const [name, setName] = useState(group.name);
-  const [displayName, setDisplayName] = useState(group.display_name);
-  const [error, setError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<
-    Readonly<Record<string, string>>
-  >({});
+  const queryClient = useQueryClient()
+  const [name, setName] = useState(group.name)
+  const [displayName, setDisplayName] = useState(group.display_name)
+  const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, string>>>({})
 
   const save = useMutation({
-    mutationFn: () =>
-      updateGroup(group.id, {
-        name: name.trim(),
-        display_name: displayName.trim(),
-      }),
+    mutationFn: () => updateGroup(group.id, { name: name.trim(), display_name: displayName.trim() }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.groups });
-      void queryClient.invalidateQueries({
-        queryKey: queryRoots.adminResources,
-      });
-      toast.success("Group updated", name.trim());
-      onClose();
+      void queryClient.invalidateQueries({ queryKey: queryKeys.groups })
+      void queryClient.invalidateQueries({ queryKey: queryRoots.adminResources })
+      toast.success("Group updated", name.trim())
+      onClose()
     },
     onError: (caught) => {
-      if (caught instanceof ApiError && caught.fieldErrors !== undefined)
-        setFieldErrors(caught.fieldErrors);
-      setError(getErrorMessage(caught, "Could not update group"));
+      if (caught instanceof ApiError && caught.fieldErrors !== undefined) setFieldErrors(caught.fieldErrors)
+      setError(getErrorMessage(caught, "Could not update group"))
     },
-  });
+  })
 
   return (
     <Dialog
@@ -1420,12 +1175,7 @@ function EditGroupDialog({ group, onClose }: EditGroupDialogProps) {
           <Button variant="ghost" onClick={onClose} disabled={save.isPending}>
             Cancel
           </Button>
-          <Button
-            type="submit"
-            form="edit-group-form"
-            variant="primary"
-            loading={save.isPending}
-          >
+          <Button type="submit" form="edit-group-form" variant="primary" loading={save.isPending}>
             Save
           </Button>
         </>
@@ -1435,21 +1185,16 @@ function EditGroupDialog({ group, onClose }: EditGroupDialogProps) {
         id="edit-group-form"
         className="flex flex-col gap-4"
         onSubmit={(event) => {
-          event.preventDefault();
-          if (save.isPending) return;
-          setError(null);
-          setFieldErrors({});
-          save.mutate();
+          event.preventDefault()
+          if (save.isPending) return
+          setError(null)
+          setFieldErrors({})
+          save.mutate()
         }}
         noValidate
       >
         {error !== null ? <Banner kind="danger" title={error} /> : null}
-        <Field
-          label="Name"
-          htmlFor="edit-group-name"
-          required
-          error={fieldErrors.name ?? null}
-        >
+        <Field label="Name" htmlFor="edit-group-name" required error={fieldErrors.name ?? null}>
           <Input
             id="edit-group-name"
             autoComplete="off"
@@ -1467,40 +1212,31 @@ function EditGroupDialog({ group, onClose }: EditGroupDialogProps) {
         </Field>
       </form>
     </Dialog>
-  );
+  )
 }
 
 interface GroupMembersDialogProps {
-  readonly group: Group;
-  readonly users: readonly User[];
-  readonly onClose: () => void;
+  readonly group: Group
+  readonly users: readonly User[]
+  readonly onClose: () => void
 }
 
-function GroupMembersDialog({
-  group,
-  users,
-  onClose,
-}: GroupMembersDialogProps) {
-  const queryClient = useQueryClient();
-  const [members, setMembers] = useState<readonly string[]>(group.members);
-  const [error, setError] = useState<string | null>(null);
+function GroupMembersDialog({ group, users, onClose }: GroupMembersDialogProps) {
+  const queryClient = useQueryClient()
+  const [members, setMembers] = useState<readonly string[]>(group.members)
+  const [error, setError] = useState<string | null>(null)
 
   const save = useMutation({
     mutationFn: () => setGroupMembers(group.id, members),
     onSuccess: (updated) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.groups });
-      toast.success(
-        "Members updated",
-        `${updated.member_count} in ${updated.name}`,
-      );
-      onClose();
+      void queryClient.invalidateQueries({ queryKey: queryKeys.groups })
+      toast.success("Members updated", `${updated.member_count} in ${updated.name}`)
+      onClose()
     },
-    onError: (caught) =>
-      setError(getErrorMessage(caught, "Could not update members")),
-  });
+    onError: (caught) => setError(getErrorMessage(caught, "Could not update members")),
+  })
 
-  const allSelected =
-    users.length > 0 && users.every((user) => members.includes(user.username));
+  const allSelected = users.length > 0 && users.every((user) => members.includes(user.username))
 
   return (
     <Dialog
@@ -1515,11 +1251,7 @@ function GroupMembersDialog({
           <Button variant="ghost" onClick={onClose} disabled={save.isPending}>
             Cancel
           </Button>
-          <Button
-            variant="primary"
-            loading={save.isPending}
-            onClick={() => save.mutate()}
-          >
+          <Button variant="primary" loading={save.isPending} onClick={() => save.mutate()}>
             Save members
           </Button>
         </>
@@ -1564,5 +1296,5 @@ function GroupMembersDialog({
         </div>
       </div>
     </Dialog>
-  );
+  )
 }
