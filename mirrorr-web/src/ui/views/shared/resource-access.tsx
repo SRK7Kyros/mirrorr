@@ -469,8 +469,13 @@ export function ResourceAccessEditor({
       event.preventDefault()
       applyOwnerOption(option)
     } else if (event.key === "Escape") {
+      // Escape belongs to the field while it holds focus: clear the query, close
+      // the suggestions and drop focus. The dialog stays open — the wrapper's
+      // `data-owns-escape` is what tells Dialog to skip the dismiss.
+      event.preventDefault()
       setOwnerQuery("")
       setOwnerOpen(false)
+      event.currentTarget.blur()
     }
   }
 
@@ -679,7 +684,7 @@ export function ResourceAccessEditor({
                 </span>
               )
             })}
-            <div className="relative min-w-[200px] flex-1">
+            <div className="relative min-w-[200px] flex-1" data-owns-escape>
               <Input
                 type="search"
                 autoComplete="off"
