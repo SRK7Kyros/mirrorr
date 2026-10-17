@@ -25,7 +25,7 @@ const BANNER_BODY = "flex-1 min-w-0"
 
 const BANNER_TITLE = "font-semibold"
 
-const BANNER_TEXT = "text-ink-muted text-sm"
+const BANNER_TEXT = "text-ink-muted text-sm selectable"
 
 export interface BannerProps {
   readonly kind?: BannerKind

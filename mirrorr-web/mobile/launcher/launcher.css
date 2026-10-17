@@ -12,6 +12,18 @@
   --radius: 14px;
 }
 
+/* Mirrors the console's policy (src/ui/styles/base.css): fields only. */
+body {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 * {
   box-sizing: border-box;
 }

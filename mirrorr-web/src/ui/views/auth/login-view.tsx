@@ -4,7 +4,7 @@ import { getErrorMessage, login } from "@/api"
 import { ApiError } from "@/api/client"
 import { useAuthStatus } from "@/api/hooks"
 import { isNativeShell, readHostCredential } from "@/api/native"
-import { Banner, Button, Field, IconDisc, Input, Panel, PanelBody } from "@/ui/components"
+import { Banner, Button, Field, IconDisc, Input, Panel, PanelBody, useFocusScope } from "@/ui/components"
 import { landAfterAuth } from "./landing"
 
 export function LoginView() {
@@ -17,6 +17,7 @@ export function LoginView() {
   const [busy, setBusy] = useState(false)
   const [autoUsername, setAutoUsername] = useState<string | null>(null)
   const autoLoginTried = useRef(false)
+  const scope = useFocusScope<HTMLFormElement>()
 
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
@@ -79,7 +80,13 @@ export function LoginView() {
                 Signing in as <strong className="text-ink">{autoUsername}</strong>…
               </p>
             ) : (
-              <form className="flex flex-col gap-4" onSubmit={(event) => void onSubmit(event)} noValidate>
+              <form
+                ref={scope.ref}
+                onKeyDown={scope.onKeyDown}
+                className="flex flex-col gap-4"
+                onSubmit={(event) => void onSubmit(event)}
+                noValidate
+              >
                 {error !== null ? <Banner kind="danger" title={error} /> : null}
                 <Field label="Username" htmlFor="login-username" required error={fieldErrors.username ?? null}>
                   <Input

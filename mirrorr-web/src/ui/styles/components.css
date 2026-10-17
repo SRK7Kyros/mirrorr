@@ -193,6 +193,10 @@ kbd {
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
   line-height: var(--lh-snug);
+  /* JSON is data, not chrome — the whole tree stays selectable, not just the
+     copy affordance in its head. */
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .json-view-head {

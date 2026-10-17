@@ -100,6 +100,7 @@ export function FilePicker({
           type="file"
           accept={accept}
           disabled={disabled}
+          tabIndex={-1}
           aria-label={label}
           onChange={(event) => {
             const file = event.target.files?.item(0)

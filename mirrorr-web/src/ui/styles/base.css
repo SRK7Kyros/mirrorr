@@ -153,6 +153,34 @@ samp {
 }
 
 /* ── Selection ─────────────────────────────────────────────────────── */
+/*
+ * The console is an application, not a document: dragging a card, a chip, a
+ * table row or the access catalog must never start a text selection, and the
+ * I-beam must not appear over chrome the user is clicking. Text stays
+ * selectable where the text IS the content — editable controls, code, mono
+ * identifiers — plus anything opted in with `.selectable` / `data-selectable`.
+ * Only `body` carries the default, and this file is layered as `base`, so a
+ * component can still opt in (or out) directly at the call site.
+ */
+body {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="file"]),
+textarea,
+[contenteditable="true"],
+code,
+kbd,
+samp,
+pre,
+.mono,
+.selectable,
+[data-selectable] {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 ::selection {
   background: var(--selection-bg);
   color: var(--text);

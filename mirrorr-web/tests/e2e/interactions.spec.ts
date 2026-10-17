@@ -3,7 +3,9 @@ import { expect, profile, resolver, test } from "./fixtures"
 /**
  * Overlay + keyboard interactions: Escape closes the dialog and hands focus
  * back to its trigger, the new-session form resets between openings (the
- * `openedRef` latch), and the segmented control moves with the arrow keys.
+ * `openedRef` latch), the segmented control moves with the arrow keys, an
+ * inline form owns Tab until Escape hands focus back out, and the shell is not
+ * text-selectable while its fields are.
  */
 const PROFILES = [profile({ id: 1, name: "F1 Weekend" }), profile({ id: 2, name: "News Hour" })]
 
@@ -83,5 +85,32 @@ test.describe("new session dialog", () => {
     await page.getByRole("dialog", { name: "Browse Wide IPTV" }).getByRole("button", { name: "Use" }).first().click()
 
     await expect(page.getByLabel("Channel")).toHaveValue("premium9")
+  })
+})
+
+test.describe("inline forms", () => {
+  test("Tab cycles the account form and Escape hands focus back out of it", async ({ page }) => {
+    await page.goto("/settings")
+
+    const current = page.getByLabel("Current password")
+    const confirm = page.getByLabel("Confirm new password")
+
+    await confirm.focus()
+    await page.keyboard.press("Tab")
+    await expect(current).toBeFocused()
+
+    await page.keyboard.press("Shift+Tab")
+    await expect(confirm).toBeFocused()
+
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("button", { name: "Sign out" })).toBeFocused()
+  })
+
+  test("the shell is not text-selectable, the fields are", async ({ page }) => {
+    await page.goto("/sessions")
+
+    await expect(page.locator("body")).toHaveCSS("user-select", "none")
+    await expect(page.locator("a[href]").first()).toHaveCSS("user-select", "none")
+    await expect(page.locator('input:not([type="checkbox"])').first()).toHaveCSS("user-select", "text")
   })
 })

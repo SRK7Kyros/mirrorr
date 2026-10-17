@@ -3,7 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router"
 import { getErrorMessage, register } from "@/api"
 import { ApiError } from "@/api/client"
 import { useAuthStatus } from "@/api/hooks"
-import { Banner, Button, buttonClass, Field, IconDisc, Input, Panel, PanelBody } from "@/ui/components"
+import { Banner, Button, buttonClass, Field, IconDisc, Input, Panel, PanelBody, useFocusScope } from "@/ui/components"
 import { landAfterAuth } from "./landing"
 
 export function RegisterView() {
@@ -17,6 +17,7 @@ export function RegisterView() {
   const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, string>>>({})
   const [pending, setPending] = useState(false)
   const [busy, setBusy] = useState(false)
+  const scope = useFocusScope<HTMLFormElement>()
 
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
@@ -71,7 +72,13 @@ export function RegisterView() {
                 </Link>
               </div>
             ) : (
-              <form className="flex flex-col gap-4" onSubmit={(event) => void onSubmit(event)} noValidate>
+              <form
+                ref={scope.ref}
+                onKeyDown={scope.onKeyDown}
+                className="flex flex-col gap-4"
+                onSubmit={(event) => void onSubmit(event)}
+                noValidate
+              >
                 {error !== null ? <Banner kind="danger" title={error} /> : null}
                 <Field label="Username" htmlFor="register-username" required error={fieldErrors.username ?? null}>
                   <Input
