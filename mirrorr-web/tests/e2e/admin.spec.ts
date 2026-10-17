@@ -871,10 +871,10 @@ test.describe("admin resource access", () => {
     await ownerOptions.getByRole("option", { name: /Everyone/ }).click();
     const alert = dialog
       .getByRole("alert")
-      .filter({ hasText: "full control, including delete" });
+      .filter({ hasText: "every permission, delete included" });
     await expect(alert).toBeVisible();
     const warningText = alert.getByText(
-      "Everyone: full control, including delete.",
+      "Everyone: every permission, delete included.",
     );
     expect(
       await warningText.evaluate(

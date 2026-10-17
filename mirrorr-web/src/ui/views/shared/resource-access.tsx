@@ -167,7 +167,7 @@ export const EVERYONE_NOTE = "every account, including future ones";
 
 /** The loud inline warning shown while `everyone` owns an item. */
 export const EVERYONE_OWNER_WARNING =
-  "Everyone: full control, including delete.";
+  "Everyone: every permission, delete included.";
 
 /** The member line on a group card — a count, or the implicit-membership note. */
 export function groupMembersLabel(group: AccessGroup): string {

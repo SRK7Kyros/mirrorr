@@ -892,7 +892,7 @@ describe("ResourceAccessFields — groups", () => {
     );
 
     expect(screen.getByRole("alert").textContent).toBe(
-      "Everyone: full control, including delete.",
+      "Everyone: every permission, delete included.",
     );
     expect(
       screen.queryByText("Owners get every permission on this item."),
@@ -918,7 +918,7 @@ describe("ResourceAccessFields — groups", () => {
       within(ownerList()).getByRole("option", { name: /Everyone/ }),
     );
     expect(screen.getByRole("alert").textContent).toContain(
-      "full control, including delete",
+      "every permission, delete included",
     );
   });
 
