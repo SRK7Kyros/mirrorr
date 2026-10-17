@@ -9,7 +9,7 @@ import { rankBySearch } from "@/api/domain/search"
 import { CAPABILITIES, type Capability } from "@/api/schemas/privileged"
 import type { User } from "@/api/schemas/user"
 import { Avatar, Badge, Button, IconButton, Input } from "@/ui/components"
-import { IconCheck, IconCrown, IconPlus, IconSearch, IconUser, IconX } from "@/ui/components/icons"
+import { IconCheck, IconCrown, IconSearch, IconUser, IconX } from "@/ui/components/icons"
 import { useSelection } from "@/ui/hooks"
 import { cn } from "@/ui/lib/cn"
 import { useMarqueeSelection } from "./marquee"
@@ -342,6 +342,13 @@ type Principal = "users" | "groups"
 // keeps the holders, red keeps the ones who do not hold, and they AND together.
 const CHIP_EXCLUDE = "border-danger bg-danger-dim text-danger"
 
+interface OwnerOption {
+  readonly kind: "user" | "group"
+  readonly id: string
+  readonly label: string
+  readonly detail: string
+}
+
 export interface ResourceAccessEditorProps {
   readonly resourceType: string
   readonly draft: AccessDraft
@@ -375,7 +382,7 @@ export function ResourceAccessEditor({
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
   // The owner transfer is a single-pick user list, so it forces the user
-  // catalog and hides the switch; the group owner field is separate.
+  // catalog and hides the switch; the owner field below is separate.
   const active: Principal = ownerMode ? "users" : principal
   const activeSelection = active === "groups" ? groupSelection : userSelection
   const marquee = useMarqueeSelection(scrollRef, (keys) => activeSelection.setMany(keys))
@@ -394,41 +401,54 @@ export function ResourceAccessEditor({
     return group !== undefined && isEveryoneGroup(group)
   })
 
-  const ownerCandidates = useMemo(
-    () =>
-      rankBySearch(
-        groups.filter((group) => !ownerGroupIdSet.has(group.id)),
-        ownerQuery,
-        (group) => [group.display_name, group.name],
-      ),
-    [groups, ownerGroupIdSet, ownerQuery],
-  )
+  const ownerOptions = useMemo(() => {
+    const options: OwnerOption[] = [
+      ...users
+        .filter((user) => user.username !== draft.owner)
+        .map((user) => ({
+          kind: "user" as const,
+          id: user.username,
+          label: userLabel(user),
+          detail: `@${user.username}`,
+        })),
+      ...groups
+        .filter((group) => !ownerGroupIdSet.has(group.id))
+        .map((group) => ({
+          kind: "group" as const,
+          id: String(group.id),
+          label: groupLabel(group),
+          detail: groupMembersLabel(group),
+        })),
+    ]
+    return rankBySearch(options, ownerQuery, (option) => [option.label, option.detail])
+  }, [users, groups, draft.owner, ownerGroupIdSet, ownerQuery])
 
-  const ownerListOpen = ownerOpen && ownerCandidates.length > 0
+  const ownerListOpen = ownerOpen && ownerOptions.length > 0
   const ownerHighlightIndex =
-    ownerCandidates.length === 0 ? 0 : Math.min(ownerHighlight, ownerCandidates.length - 1)
+    ownerOptions.length === 0 ? 0 : Math.min(ownerHighlight, ownerOptions.length - 1)
 
-  function addOwnerGroup(group: AccessGroup): void {
+  function applyOwnerOption(option: OwnerOption): void {
     if (busy) return
-    draft.addOwnerGroup(group.id)
+    if (option.kind === "user") draft.setOwner(option.id)
+    else draft.addOwnerGroup(Number(option.id))
     setOwnerQuery("")
     setOwnerHighlight(0)
   }
 
   function onOwnerKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      if (ownerCandidates.length === 0) return
+      if (ownerOptions.length === 0) return
       event.preventDefault()
       setOwnerOpen(true)
       const step = event.key === "ArrowDown" ? 1 : -1
       setOwnerHighlight(
-        (current) => (current + step + ownerCandidates.length) % ownerCandidates.length,
+        (current) => (current + step + ownerOptions.length) % ownerOptions.length,
       )
     } else if (event.key === "Enter") {
-      const group = ownerCandidates[ownerHighlightIndex]
-      if (group === undefined) return
+      const option = ownerOptions[ownerHighlightIndex]
+      if (option === undefined) return
       event.preventDefault()
-      addOwnerGroup(group)
+      applyOwnerOption(option)
     } else if (event.key === "Escape") {
       setOwnerQuery("")
       setOwnerOpen(false)
@@ -629,15 +649,15 @@ export function ResourceAccessEditor({
                 type="search"
                 autoComplete="off"
                 value={ownerQuery}
-                placeholder="Add a group as owner…"
-                aria-label="Add owner group"
+                placeholder="Add a user or group as owner…"
+                aria-label="Add an owner"
                 role="combobox"
                 aria-expanded={ownerListOpen}
                 aria-controls={ownerListOpen ? OWNER_LIST_ID : undefined}
                 aria-autocomplete="list"
                 aria-activedescendant={
                   ownerListOpen
-                    ? `${OWNER_LIST_ID}-${ownerCandidates[ownerHighlightIndex].id}`
+                    ? `${OWNER_LIST_ID}-${ownerOptions[ownerHighlightIndex].kind}-${ownerOptions[ownerHighlightIndex].id}`
                     : undefined
                 }
                 disabled={busy}
@@ -656,19 +676,19 @@ export function ResourceAccessEditor({
 
         {ownerMode || !ownerOpen ? null : (
           <div className="rounded-md border border-line-subtle bg-surface-2 p-2">
-            {ownerCandidates.length === 0 ? (
-              <p className="text-sm text-ink-muted">No groups match.</p>
+            {ownerOptions.length === 0 ? (
+              <p className="text-sm text-ink-muted">No users or groups match.</p>
             ) : (
               <ul
                 id={OWNER_LIST_ID}
                 role="listbox"
-                aria-label="Groups to own this item"
-                className="flex flex-col gap-0.5"
+                aria-label="Users and groups to own this item"
+                className="flex max-h-64 flex-col gap-0.5 overflow-y-auto"
               >
-                {ownerCandidates.map((group, index) => (
+                {ownerOptions.map((option, index) => (
                   <li
-                    key={group.id}
-                    id={`${OWNER_LIST_ID}-${group.id}`}
+                    key={`${option.kind}-${option.id}`}
+                    id={`${OWNER_LIST_ID}-${option.kind}-${option.id}`}
                     role="option"
                     aria-selected={index === ownerHighlightIndex}
                     className={cn(
@@ -677,15 +697,10 @@ export function ResourceAccessEditor({
                     )}
                     onMouseDown={(event) => event.preventDefault()}
                     onMouseEnter={() => setOwnerHighlight(index)}
-                    onClick={() => addOwnerGroup(group)}
+                    onClick={() => applyOwnerOption(option)}
                   >
-                    <span className="flex min-w-0 items-center gap-2">
-                      <IconPlus size={14} className="text-ink-dim" />
-                      <span className="truncate">{groupLabel(group)}</span>
-                    </span>
-                    <span className="shrink-0 text-2xs text-ink-dim">
-                      {groupMembersLabel(group)}
-                    </span>
+                    <span className="truncate">{option.label}</span>
+                    <span className="shrink-0 text-2xs text-ink-dim">{option.detail}</span>
                   </li>
                 ))}
               </ul>

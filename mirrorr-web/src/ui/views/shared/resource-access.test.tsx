@@ -549,7 +549,7 @@ describe("ResourceAccessFields — groups", () => {
 
     expect(screen.getByRole("button", { name: "Remove owner group Editors" })).toBeTruthy()
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Add owner group" }), {
+    fireEvent.change(screen.getByRole("combobox", { name: "Add an owner" }), {
       target: { value: "operations" },
     })
     fireEvent.click(screen.getByRole("option", { name: /Operations/ }))
@@ -566,7 +566,35 @@ describe("ResourceAccessFields — groups", () => {
     expect(second.owner).toBe("kyros")
   })
 
-  it("adds the highlighted owner group with the arrow keys and enter", () => {
+  it("adds the highlighted owner with the arrow keys and enter", () => {
+    const onApply = vi.fn()
+    const arrowGroups: readonly AccessGroup[] = [
+      { id: 7, name: "zed", display_name: "Zed", system: false, member_count: 2 },
+      { id: 8, name: "zeta", display_name: "Zeta", system: false, member_count: 4 },
+    ]
+    render(
+      <ResourceAccessFields
+        resourceType="session"
+        access={access()}
+        users={USERS}
+        groups={arrowGroups}
+        onApply={onApply}
+      />,
+    )
+
+    const field = screen.getByRole("combobox", { name: "Add an owner" })
+    fireEvent.change(field, { target: { value: "ze" } })
+    expect(screen.getAllByRole("option")).toHaveLength(2)
+    fireEvent.keyDown(field, { key: "ArrowDown" })
+    fireEvent.keyDown(field, { key: "Enter" })
+    fireEvent.click(applyButton())
+
+    const target = onApply.mock.calls[0][0] as AccessTarget & GroupDraftTarget
+    expect([...(target.ownerGroups ?? [])]).toEqual([8])
+    expect(target.owner).toBe("kyros")
+  })
+
+  it("offers users and groups from the owner field and transfers the owner to a user", () => {
     const onApply = vi.fn()
     render(
       <ResourceAccessFields
@@ -578,15 +606,20 @@ describe("ResourceAccessFields — groups", () => {
       />,
     )
 
-    const field = screen.getByRole("combobox", { name: "Add owner group" })
+    const field = screen.getByRole("combobox", { name: "Add an owner" })
     fireEvent.focus(field)
-    expect(screen.getAllByRole("option")).toHaveLength(3)
-    fireEvent.keyDown(field, { key: "ArrowDown" })
-    fireEvent.keyDown(field, { key: "Enter" })
+    const list = screen.getByRole("listbox", { name: "Users and groups to own this item" })
+    expect(within(list).getByRole("option", { name: /Alice/ })).toBeTruthy()
+    expect(within(list).getByRole("option", { name: /Editors/ })).toBeTruthy()
+    expect(within(list).queryByRole("option", { name: /Kyros/ })).toBeNull()
+
+    fireEvent.change(field, { target: { value: "alice" } })
+    fireEvent.click(within(list).getByRole("option", { name: /Alice/ }))
     fireEvent.click(applyButton())
 
     const target = onApply.mock.calls[0][0] as AccessTarget & GroupDraftTarget
-    expect([...(target.ownerGroups ?? [])]).toEqual([2])
+    expect(target.owner).toBe("alice")
+    expect([...(target.ownerGroups ?? [])]).toEqual([])
   })
 
   it("warns loudly when the everyone group owns the item", () => {
@@ -617,7 +650,7 @@ describe("ResourceAccessFields — groups", () => {
     )
 
     expect(screen.queryByRole("alert")).toBeNull()
-    fireEvent.change(screen.getByRole("combobox", { name: "Add owner group" }), {
+    fireEvent.change(screen.getByRole("combobox", { name: "Add an owner" }), {
       target: { value: "everyone" },
     })
     fireEvent.click(screen.getByRole("option", { name: /Everyone/ }))
