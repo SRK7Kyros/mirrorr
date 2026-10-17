@@ -59,6 +59,7 @@ import {
   Th,
   toast,
   panelTitleClass,
+  useFocusScope,
 } from "@/ui/components"
 import { Page } from "@/ui/views/shared/page"
 
@@ -380,6 +381,7 @@ function ImportPanel() {
   const [bundleUrl, setBundleUrl] = useState("")
   const [summary, setSummary] = useState<ImportApplySummary | null>(null)
   const pastItems = useMemo(() => (bundle === null ? [] : pastAutoruns(bundle)), [bundle])
+  const scope = useFocusScope<HTMLElement>()
 
   const validate = useMutation({
     mutationFn: (value: unknown) => validateBundle(value),
@@ -485,7 +487,7 @@ function ImportPanel() {
   }
 
   return (
-    <Panel>
+    <Panel ref={scope.ref} onKeyDown={scope.onKeyDown}>
       <PanelHead title="Import" />
       <PanelBody>
         <div className="flex flex-col gap-4">

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react"
+import type { ComponentPropsWithRef, ReactNode } from "react"
 import { cn } from "@/ui/lib/cn"
 
 /** Bordered surface shell. */
@@ -15,14 +15,17 @@ export const panelBodyClass = "p-4"
 export const panelFootClass =
   "flex items-center justify-end gap-2 py-3 px-4 border-t border-line-subtle bg-surface-2"
 
-export interface PanelProps {
+export interface PanelProps extends Omit<ComponentPropsWithRef<"section">, "children"> {
   readonly children: ReactNode
-  readonly className?: string
 }
 
 /** Bordered surface — the panel shell. */
-export function Panel({ children, className }: PanelProps) {
-  return <section className={cn(panelClass, className)}>{children}</section>
+export function Panel({ children, className, ...rest }: PanelProps) {
+  return (
+    <section className={cn(panelClass, className)} {...rest}>
+      {children}
+    </section>
+  )
 }
 
 export interface PanelHeadProps {

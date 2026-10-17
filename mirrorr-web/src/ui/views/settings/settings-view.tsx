@@ -18,6 +18,7 @@ import {
   PanelHead,
   Tag,
   toast,
+  useFocusScope,
 } from "@/ui/components"
 import { Page } from "@/ui/views/shared/page"
 import { useSettingsSections } from "./sections"
@@ -93,6 +94,7 @@ function AccountSection() {
   const [confirm, setConfirm] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, string>>>({})
+  const scope = useFocusScope<HTMLFormElement>()
 
   const change = useMutation({
     mutationFn: (input: { readonly oldPassword: string; readonly newPassword: string }) =>
@@ -145,7 +147,13 @@ function AccountSection() {
 
           <hr className="h-px bg-line-subtle border-none" />
 
-          <form className="flex flex-col gap-4" onSubmit={(event) => void onSubmit(event)} noValidate>
+          <form
+            ref={scope.ref}
+            onKeyDown={scope.onKeyDown}
+            className="flex flex-col gap-4"
+            onSubmit={(event) => void onSubmit(event)}
+            noValidate
+          >
             <h3>Change password</h3>
             {error !== null ? <Banner kind="danger" title={error} /> : null}
             <Field
