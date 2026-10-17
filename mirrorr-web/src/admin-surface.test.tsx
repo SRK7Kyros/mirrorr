@@ -183,7 +183,7 @@ describe("ResourceAccessSection", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Manage access for F1 Weekend" }))
     fireEvent.click(await screen.findByRole("button", { name: "Change" }))
-    fireEvent.click(within(screen.getByTestId("access-catalog")).getByRole("button", { name: /Alice/ }))
+    fireEvent.click(within(screen.getByTestId("access-catalog")).getByRole("option", { name: /Alice/ }))
     fireEvent.click(screen.getByRole("button", { name: "Apply changes" }))
 
     await waitFor(() => expect(api.setResourceOwner).toHaveBeenCalledWith("session", 7, "alice"))
@@ -195,9 +195,9 @@ describe("ResourceAccessSection", () => {
     renderAdmin()
 
     fireEvent.click(await screen.findByRole("button", { name: "Manage access for F1 Weekend" }))
-    fireEvent.click(within(await screen.findByTestId("access-catalog")).getByRole("button", { name: /Alice/ }))
+    fireEvent.click(within(await screen.findByTestId("access-catalog")).getByRole("option", { name: /Alice/ }))
     fireEvent.click(
-      within(screen.getByRole("group", { name: "Capabilities for the selected users" })).getByRole(
+      within(screen.getByRole("group", { name: "Capabilities for the selected users and groups" })).getByRole(
         "button",
         { name: "View access" },
       ),
@@ -220,9 +220,9 @@ describe("ResourceAccessSection", () => {
     renderAdmin()
 
     fireEvent.click(await screen.findByRole("button", { name: "Manage access for F1 Weekend" }))
-    fireEvent.click(within(await screen.findByTestId("access-catalog")).getByRole("button", { name: /Alice/ }))
+    fireEvent.click(within(await screen.findByTestId("access-catalog")).getByRole("option", { name: /Alice/ }))
     fireEvent.click(
-      within(screen.getByRole("group", { name: "Capabilities for the selected users" })).getByRole(
+      within(screen.getByRole("group", { name: "Capabilities for the selected users and groups" })).getByRole(
         "button",
         { name: "View access" },
       ),
