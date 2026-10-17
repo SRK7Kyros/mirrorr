@@ -17,6 +17,8 @@ const endpoints = vi.hoisted(() => ({
   setResourceOwner: vi.fn(),
   setResourceGrants: vi.fn(),
   revokeResourceUser: vi.fn(),
+  setGroupGrants: vi.fn(),
+  revokeGroupGrants: vi.fn(),
 }))
 
 vi.mock("@/api", () => api)
@@ -67,33 +69,24 @@ function renderPanel(resourceType: ResourceType = "session") {
 
 /** The search field only exists once the access read has landed. */
 async function loaded(): Promise<void> {
-  await screen.findByLabelText("Search users")
+  await screen.findByLabelText("Search users and groups")
 }
 
 function catalog(): HTMLElement {
   return screen.getByTestId("access-catalog")
 }
 
-function filterGroup(): HTMLElement {
-  return screen.getByRole("group", { name: "Filter by capability" })
-}
-
 function setGroup(): HTMLElement {
-  return screen.getByRole("group", { name: "Capabilities for the selected users" })
+  return screen.getByRole("group", { name: "Capabilities for the selected users and groups" })
 }
 
-/** A filter chip, whose accessible name carries its holder count ("View access 2"). */
-function filterChip(label: string): HTMLButtonElement {
-  return within(filterGroup()).getByRole("button", { name: new RegExp(`^${label}`) }) as HTMLButtonElement
-}
-
-/** A capability chip of the lower row (no count — its name is exactly the label). */
+/** A capability chip of the chip row (no count — its name is exactly the label). */
 function setChip(label: string): HTMLButtonElement {
   return within(setGroup()).getByRole("button", { name: label }) as HTMLButtonElement
 }
 
-function card(name: string): HTMLButtonElement {
-  return within(catalog()).getByRole("button", { name: new RegExp(name) }) as HTMLButtonElement
+function card(name: string): HTMLElement {
+  return within(catalog()).getByRole("option", { name: new RegExp(name) })
 }
 
 function applyButton(): HTMLButtonElement {
@@ -108,7 +101,7 @@ beforeEach(() => {
 })
 
 describe("AccessPanel", () => {
-  it("shows the header, the owner row and one grant catalog that excludes the owner", async () => {
+  it("shows the header, the owner row and one users-and-groups catalog that excludes the owner", async () => {
     renderPanel()
 
     expect(await screen.findByText("Access · F1 Weekend")).toBeTruthy()
@@ -119,82 +112,43 @@ describe("AccessPanel", () => {
     expect(screen.getByRole("button", { name: "Change" })).toBeTruthy()
     expect(card("Alice")).toBeTruthy()
     expect(card("Bob")).toBeTruthy()
-    expect(within(catalog()).queryByRole("button", { name: /Kyros/ })).toBeNull()
+    // One list carries both kinds; the owner is left out of the grant list.
+    expect(card("Editors")).toBeTruthy()
+    expect(within(catalog()).queryByRole("option", { name: /Kyros/ })).toBeNull()
     // The old per-section prose is gone.
     expect(screen.queryByText("Only the owner can see this item.")).toBeNull()
   })
 
-  it("shows both chip rows in the frozen capability order", async () => {
+  it("shows the capability chip row in the frozen capability order", async () => {
     renderPanel()
     await loaded()
 
     expect([...CAPABILITIES]).toEqual(["VIEW", "OPERATE", "EDIT", "DELETE", "SHARE", "EXPORT"])
-    expect(within(filterGroup()).getByRole("button", { name: "All" })).toBeTruthy()
     const labels = ["View access", "Operate", "Edit", "Delete", "Share"]
-    for (const label of labels) {
-      expect(filterChip(label)).toBeTruthy()
-      expect(setChip(label)).toBeTruthy()
-    }
+    for (const label of labels) expect(setChip(label)).toBeTruthy()
     // A session has no export route, so the type filter does not offer EXPORT.
-    expect(within(filterGroup()).queryByRole("button", { name: /^Export/ })).toBeNull()
     expect(within(setGroup()).queryByRole("button", { name: "Export" })).toBeNull()
   })
 
-  it("filters the card catalog by username and display name as you type", async () => {
+  it("filters the catalog by username and display name as you type", async () => {
     renderPanel()
     await loaded()
 
     expect(card("Bob")).toBeTruthy()
-    fireEvent.change(screen.getByLabelText("Search users"), { target: { value: "ali" } })
+    fireEvent.change(screen.getByLabelText("Search users and groups"), { target: { value: "ali" } })
 
     expect(card("Alice")).toBeTruthy()
-    expect(within(catalog()).queryByRole("button", { name: /Bob/ })).toBeNull()
-    expect(within(catalog()).queryByRole("button", { name: /Carol/ })).toBeNull()
+    expect(within(catalog()).queryByRole("option", { name: /Bob/ })).toBeNull()
+    expect(within(catalog()).queryByRole("option", { name: /Carol/ })).toBeNull()
   })
 
   it("shows an empty catalog state when nothing matches", async () => {
     renderPanel()
     await loaded()
 
-    fireEvent.change(screen.getByLabelText("Search users"), { target: { value: "zzzznobody" } })
+    fireEvent.change(screen.getByLabelText("Search users and groups"), { target: { value: "zzzznobody" } })
 
-    expect(screen.getByText("No users match.")).toBeTruthy()
-  })
-
-  it("cycles the capability chips through include, exclude and off", async () => {
-    api.fetchResourceAccess.mockResolvedValue(accessView({ grants: { OPERATE: ["bob"], EDIT: ["carol"] } }))
-    renderPanel()
-    await loaded()
-
-    expect(card("Alice")).toBeTruthy()
-    fireEvent.click(filterChip("Operate"))
-    fireEvent.click(filterChip("Edit"))
-
-    // Bob holds OPERATE only and Carol EDIT only, so two green chips match
-    // nobody; the count badge still reads the holders.
-    expect(within(catalog()).queryAllByRole("button")).toHaveLength(0)
-    expect(filterChip("Operate").textContent).toContain("1")
-
-    // Red EDIT subtracts its holders instead: Bob holds OPERATE and not EDIT.
-    fireEvent.click(filterChip("Edit"))
-    expect(card("Bob")).toBeTruthy()
-    expect(within(catalog()).queryByRole("button", { name: /Carol/ })).toBeNull()
-
-    // Both chips red: whoever holds neither.
-    fireEvent.click(filterChip("Operate"))
-    expect(card("Alice")).toBeTruthy()
-    expect(within(catalog()).queryByRole("button", { name: /Bob/ })).toBeNull()
-    expect(within(catalog()).queryByRole("button", { name: /Carol/ })).toBeNull()
-
-    fireEvent.click(filterChip("Edit"))
-    expect(card("Carol")).toBeTruthy()
-    expect(within(catalog()).queryByRole("button", { name: /Bob/ })).toBeNull()
-
-    fireEvent.click(filterChip("Operate"))
-    expect(card("Bob")).toBeTruthy()
-    expect(within(filterGroup()).getByRole("button", { name: "All" }).getAttribute("aria-pressed")).toBe(
-      "true",
-    )
+    expect(screen.getByText("No users or groups match.")).toBeTruthy()
   })
 
   it("offers only the capabilities a recording enforces", async () => {
@@ -205,7 +159,6 @@ describe("AccessPanel", () => {
     // A recording has no control, edit or export route.
     expect(within(setGroup()).queryByRole("button", { name: "Operate" })).toBeNull()
     expect(within(setGroup()).queryByRole("button", { name: "Edit" })).toBeNull()
-    expect(within(filterGroup()).queryByRole("button", { name: /^Export/ })).toBeNull()
   })
 
   it("keeps an inapplicable existing grant visible and removable", async () => {
@@ -247,7 +200,7 @@ describe("AccessPanel", () => {
     fireEvent.click(card("Bob"))
     fireEvent.click(setChip("View access"))
 
-    expect(card("Bob").getAttribute("aria-pressed")).toBe("true")
+    expect(card("Bob").getAttribute("aria-selected")).toBe("true")
     // Drafting alone must reach no wire — a control that only looks like it grants fails here.
     expect(endpoints.setResourceGrants).not.toHaveBeenCalled()
     expect(endpoints.revokeResourceUser).not.toHaveBeenCalled()
@@ -300,7 +253,7 @@ describe("AccessPanel", () => {
     await waitFor(() => expect(endpoints.revokeResourceUser).toHaveBeenCalledWith("session", 1, "bob"))
   })
 
-  it("marks a lower chip mixed when only some selected users hold it", async () => {
+  it("marks the chip mixed when only some selected principals hold it", async () => {
     api.fetchResourceAccess.mockResolvedValue(accessView({ grants: { VIEW: ["bob"], OPERATE: ["bob"] } }))
     renderPanel()
     await loaded()
@@ -309,7 +262,8 @@ describe("AccessPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Select all" }))
 
     expect(setChip("Operate").getAttribute("aria-pressed")).toBe("mixed")
-    expect(screen.getByText("3 selected")).toBeTruthy()
+    // Three users and three groups — the one list takes both.
+    expect(screen.getByText("6 selected")).toBeTruthy()
 
     fireEvent.click(setChip("Operate"))
     expect(setChip("Operate").getAttribute("aria-pressed")).toBe("true")
@@ -320,6 +274,9 @@ describe("AccessPanel", () => {
     expect(endpoints.setResourceGrants).toHaveBeenCalledWith("session", 1, "alice", ["VIEW", "OPERATE"])
     expect(endpoints.setResourceGrants).toHaveBeenCalledWith("session", 1, "carol", ["VIEW", "OPERATE"])
     expect(endpoints.setResourceGrants).not.toHaveBeenCalledWith("session", 1, "bob", expect.anything())
+    // The three groups ride the same selection, each through its own replace-set.
+    await waitFor(() => expect(endpoints.setGroupGrants).toHaveBeenCalledTimes(3))
+    expect(endpoints.setGroupGrants).toHaveBeenCalledWith("session", 1, 2, ["VIEW", "OPERATE"])
   })
 
   it("selects every shown card and clears the selection", async () => {
@@ -327,10 +284,10 @@ describe("AccessPanel", () => {
     await loaded()
 
     fireEvent.click(screen.getByRole("button", { name: "Select all" }))
-    expect(within(catalog()).getAllByRole("button", { pressed: true })).toHaveLength(3)
+    expect(within(catalog()).getAllByRole("option", { selected: true })).toHaveLength(6)
 
     fireEvent.click(screen.getByRole("button", { name: "Clear" }))
-    expect(within(catalog()).queryAllByRole("button", { pressed: true })).toHaveLength(0)
+    expect(within(catalog()).queryAllByRole("option", { selected: true })).toHaveLength(0)
     expect((setChip("Operate") as HTMLButtonElement).disabled).toBe(true)
   })
 
@@ -340,10 +297,12 @@ describe("AccessPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Change" }))
     expect(screen.getByText("Pick the new owner")).toBeTruthy()
-    expect(screen.queryByRole("group", { name: "Filter by capability" })).toBeNull()
+    // A transfer is a user pick, and it hides the grant chip row.
+    expect(screen.getByRole("listbox", { name: "Users" })).toBeTruthy()
+    expect(screen.queryByRole("group", { name: "Capabilities for the selected users and groups" })).toBeNull()
 
     fireEvent.click(card("Alice"))
-    expect(card("Alice").getAttribute("aria-pressed")).toBe("true")
+    expect(card("Alice").getAttribute("aria-selected")).toBe("true")
 
     fireEvent.click(applyButton())
 
@@ -390,16 +349,13 @@ describe("AccessPanel", () => {
     expect(dialog.contains(apply)).toBe(true)
   })
 
-  it("switches the catalog to the groups the server offers", async () => {
+  it("lists the groups the server offers beside the users", async () => {
     renderPanel()
     await loaded()
-
-    const principal = screen.getByRole("group", { name: "Principal" })
-    fireEvent.click(within(principal).getByRole("button", { name: "Groups" }))
 
     expect(card("Editors")).toBeTruthy()
     expect(screen.getByText("3 members")).toBeTruthy()
     expect(screen.getByText("every account, including future ones")).toBeTruthy()
-    expect(within(catalog()).queryByText(/^@/)).toBeNull()
+    expect(within(catalog()).getByText("@bob")).toBeTruthy()
   })
 })

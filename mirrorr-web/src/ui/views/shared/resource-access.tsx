@@ -8,7 +8,7 @@ import {
 import { rankBySearch } from "@/api/domain/search"
 import { CAPABILITIES, type Capability } from "@/api/schemas/privileged"
 import type { User } from "@/api/schemas/user"
-import { Avatar, Badge, Button, IconButton, Input } from "@/ui/components"
+import { Avatar, Button, IconButton, Input } from "@/ui/components"
 import { IconCheck, IconCrown, IconSearch, IconUser, IconX } from "@/ui/components/icons"
 import { useSelection } from "@/ui/hooks"
 import { cn } from "@/ui/lib/cn"
@@ -106,10 +106,10 @@ export function holdsCapability(
  *
  * A group is a principal just like a user: it can be the target of capability
  * grants and, additionally, an owner (ownership is ADDITIVE — the single user
- * owner is untouched). The editor renders one mental model over whichever
- * catalog is active, so group grants reuse the exact chip machinery user grants
- * do. The reserved `everyone` group is always offered and covers every account,
- * existing and future.
+ * owner is untouched). The editor lists both kinds in one catalog and applies
+ * the same chip machinery to either, so a group grant and a user grant differ
+ * only in which record they land in. The reserved `everyone` group is always
+ * offered and covers every account, existing and future.
  */
 
 /** A group as the editor renders it — a `GET /groups` item, member list aside. */
@@ -330,21 +330,27 @@ export function useAccessDraft(access: ItemAccess): AccessDraft {
  *
  * Both surfaces (the per-item `AccessPanel` and the settings
  * `ResourceAccessDialog` through `ResourceAccessFields`) render this, so they
- * cannot drift. One principal switch (Users | Groups), one owner row with an
- * additive owner set (users and groups), one catalog of cards, one search box,
- * one upper chip row that filters the catalog to a capability's holders, and
- * one lower chip row that applies a capability set to the selected cards. The
- * requester owner and every owner row are independent: adding one never
- * touches another.
+ * cannot drift. One owner row with an additive owner set (users and groups),
+ * one catalog of users *and* groups in a single list, and one chip row that
+ * applies a capability set to the selected cards. The catalog doubles as the
+ * selection read-out: a picked card goes green and sorts to the front, so the
+ * selection is visible without a second list, and the search box narrows it
+ * through the same ranked-suggestion + arrow-key model the owner field uses.
+ * The requester owner, every owner row and every grant are independent:
+ * editing one never touches another.
  */
 
 const CARD_CLASS =
   "flex flex-col items-center gap-2 rounded-md border border-line bg-surface-2 p-2 text-center transition-colors " +
-  "[&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-3 disabled:opacity-45"
+  "hover:border-line-strong hover:bg-surface-3"
 
 const CARD_SELECTED_CLASS = "data-[granted=true]:border-brand data-[granted=true]:bg-[var(--accent-dim)]"
 
+const CARD_HIGHLIGHT_CLASS = "data-[highlighted=true]:ring-2 data-[highlighted=true]:ring-brand"
+
 const OWNER_LIST_ID = "owner-group-options"
+
+const CATALOG_ID = "access-catalog-options"
 
 const CHIP_BASE =
   "inline-flex shrink-0 items-center gap-1.5 h-7 rounded-full border px-3 text-sm font-medium whitespace-nowrap " +
@@ -353,18 +359,39 @@ const CHIP_BASE =
 const CHIP_ON = "border-brand bg-[var(--accent-dim)] text-ink"
 const CHIP_OFF = "border-line bg-surface-2 text-ink-muted"
 const CHIP_PARTIAL = "border-brand border-dashed bg-transparent text-ink"
-type FilterMode = "include" | "exclude"
-type Principal = "users" | "groups"
-
-// A capability chip cycles off → include (green) → exclude (red) → off: green
-// keeps the holders, red keeps the ones who do not hold, and they AND together.
-const CHIP_EXCLUDE = "border-danger bg-danger-dim text-danger"
 
 interface OwnerOption {
   readonly kind: "user" | "group"
   readonly id: string
   readonly label: string
   readonly detail: string
+}
+
+/** One catalog entry — a user or a group, which the editor treats alike. */
+interface PrincipalCard {
+  readonly kind: "user" | "group"
+  /** The bare username or group id, as the draft mutators take it. */
+  readonly id: string
+  /** The selection key, `kind:id`, so a username cannot collide with a group id. */
+  readonly key: string
+  readonly label: string
+  readonly detail: string
+  readonly meta: string
+  readonly terms: readonly string[]
+}
+
+/** Split a selection key back into the principal it names. */
+function splitCardKey(key: string): { kind: "user" | "group"; id: string } {
+  if (key.startsWith("group:")) return { kind: "group", id: key.slice("group:".length) }
+  return { kind: "user", id: key.slice("user:".length) }
+}
+
+/** Does the draft hold `capability` for the principal the key names? */
+function holdsKey(draft: AccessDraft, capability: Capability, key: string): boolean {
+  const { kind, id } = splitCardKey(key)
+  return kind === "group"
+    ? holdsGroupCapability(draft.groupGrants, capability, Number(id))
+    : holdsCapability(draft.grants, capability, id)
 }
 
 export interface ResourceAccessEditorProps {
@@ -387,23 +414,20 @@ export function ResourceAccessEditor({
   emptyOwnerLabel = "No owner",
 }: ResourceAccessEditorProps) {
   const [query, setQuery] = useState("")
-  const [filters, setFilters] = useState<Readonly<Partial<Record<Capability, FilterMode>>>>({})
+  const [highlight, setHighlight] = useState(0)
   const [ownerMode, setOwnerMode] = useState(false)
   const [note, setNote] = useState("")
-  const [principal, setPrincipal] = useState<Principal>("users")
   const [ownerOpen, setOwnerOpen] = useState(false)
   const [ownerQuery, setOwnerQuery] = useState("")
   const [ownerHighlight, setOwnerHighlight] = useState(0)
 
-  const userSelection = useSelection<string>()
-  const groupSelection = useSelection<string>()
+  const selection = useSelection<string>()
   const scrollRef = useRef<HTMLDivElement | null>(null)
-
-  // The owner transfer is a single-pick user list, so it forces the user
-  // catalog and hides the switch; the owner field below is separate.
-  const active: Principal = ownerMode ? "users" : principal
-  const activeSelection = active === "groups" ? groupSelection : userSelection
-  const marquee = useMarqueeSelection(scrollRef, (keys) => activeSelection.setMany(keys))
+  // A transfer is a single pick, so a marquee dragged across it would silently
+  // edit the grant selection behind the picker.
+  const marquee = useMarqueeSelection(scrollRef, (keys) => {
+    if (!ownerMode) selection.setMany(keys)
+  })
 
   const ownerLabel = draft.owner === "" ? emptyOwnerLabel : usernameLabel(users, draft.owner)
 
@@ -479,136 +503,153 @@ export function ResourceAccessEditor({
     }
   }
 
-  const userCatalog = useMemo(() => {
-    const pool = ownerMode ? users : users.filter((user) => user.username !== draft.owner)
-    const ranked = rankBySearch(pool, query, (user) => [user.display_name, user.username])
-    const chosen = Object.entries(filters) as [Capability, FilterMode][]
-    if (ownerMode || chosen.length === 0) return ranked
-    // Every active chip has to hold: a green chip requires the user to hold that
-    // capability, a red one requires them not to.
-    return ranked.filter((user) =>
-      chosen.every(([capability, mode]) => {
-        const holds = holdsCapability(draft.grants, capability, user.username)
-        return mode === "include" ? holds : !holds
-      }),
-    )
-  }, [users, query, ownerMode, filters, draft.owner, draft.grants])
-
-  const groupCatalog = useMemo(() => {
-    const pool = groups.filter((group) => !ownerGroupIdSet.has(group.id))
-    const ranked = rankBySearch(pool, query, (group) => [group.display_name, group.name])
-    const chosen = Object.entries(filters) as [Capability, FilterMode][]
-    if (chosen.length === 0) return ranked
-    return ranked.filter((group) =>
-      chosen.every(([capability, mode]) => {
-        const holds = holdsGroupCapability(draft.groupGrants, capability, group.id)
-        return mode === "include" ? holds : !holds
-      }),
-    )
-  }, [groups, query, filters, ownerGroupIdSet, draft.groupGrants])
-
-  const catalog = active === "groups" ? groupCatalog : userCatalog
-
-  const counts = useMemo(() => {
-    const result = {} as Record<Capability, number>
-    for (const capability of CAPABILITIES) {
-      result[capability] =
-        active === "groups"
-          ? groups.filter(
-              (group) =>
-                !ownerGroupIdSet.has(group.id) &&
-                holdsGroupCapability(draft.groupGrants, capability, group.id),
-            ).length
-          : users.filter(
-              (user) =>
-                user.username !== draft.owner &&
-                holdsCapability(draft.grants, capability, user.username),
-            ).length
+  // The catalog is one list: users and groups together. Whoever already owns the
+  // item is left out — an owner holds every capability implicitly, so a grant row
+  // for one would be inert, and the owner row above is where owners are edited.
+  const pool = useMemo<PrincipalCard[]>(() => {
+    if (ownerMode) {
+      // The requester owner is a user token, so a transfer picks among users.
+      return users.map((user) => ({
+        kind: "user" as const,
+        id: user.username,
+        key: `user:${user.username}`,
+        label: userLabel(user),
+        detail: `@${user.username}`,
+        meta: "",
+        terms: [user.display_name, user.username],
+      }))
     }
-    return result
-  }, [active, users, groups, ownerGroupIdSet, draft.owner, draft.grants, draft.groupGrants])
+    return [
+      ...users
+        .filter((user) => user.username !== draft.owner && !ownerUserSet.has(user.username))
+        .map((user) => ({
+          kind: "user" as const,
+          id: user.username,
+          key: `user:${user.username}`,
+          label: userLabel(user),
+          detail: `@${user.username}`,
+          meta: "",
+          terms: [user.display_name, user.username],
+        })),
+      ...groups
+        .filter((group) => !ownerGroupIdSet.has(group.id))
+        .map((group) => ({
+          kind: "group" as const,
+          id: String(group.id),
+          key: `group:${group.id}`,
+          label: group.name,
+          detail: group.display_name,
+          meta: groupMembersLabel(group),
+          terms: [group.display_name, group.name],
+        })),
+    ]
+  }, [ownerMode, users, groups, draft.owner, ownerUserSet, ownerGroupIdSet])
+
+  const matches = useMemo(() => rankBySearch(pool, query, (card) => card.terms), [pool, query])
+
+  // The catalog is the selection read-out too, so the picked cards lead and keep
+  // their ranked order inside each half — `sort` is stable. The order is frozen
+  // for the whole of a marquee sweep: reordering under the pointer drags a
+  // freshly swept card out of the band (and straight back in), which flickers
+  // the selection and fights the edge auto-scroll.
+  const leading = useMemo(
+    () =>
+      [...matches].sort(
+        (a, b) => Number(selection.selected.has(b.key)) - Number(selection.selected.has(a.key)),
+      ),
+    [matches, selection.selected],
+  )
+  const orderRef = useRef<readonly PrincipalCard[]>([])
+  const sweeping = marquee.overlay !== null
+  if (!sweeping) orderRef.current = leading
+  const cards = sweeping ? orderRef.current : leading
+
+  const highlighted = cards.length === 0 ? 0 : Math.min(highlight, cards.length - 1)
+
+  // A picked principal stays picked while the search hides it, so the count and
+  // the chip row read the whole pool, not the filtered list.
+  const selectedKeys = useMemo(
+    () => pool.filter((card) => selection.selected.has(card.key)).map((card) => card.key),
+    [pool, selection.selected],
+  )
+
+  function isPicked(card: PrincipalCard): boolean {
+    return ownerMode ? draft.owner === card.id : selection.selected.has(card.key)
+  }
+
+  function pickCard(card: PrincipalCard): void {
+    if (busy) return
+    if (ownerMode) {
+      draft.setOwner(card.id)
+      return
+    }
+    selection.toggle(card.key)
+  }
+
+  function onCatalogKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (cards.length === 0) return
+      event.preventDefault()
+      const step = event.key === "ArrowDown" ? 1 : -1
+      setHighlight((current) => (Math.min(current, cards.length - 1) + step + cards.length) % cards.length)
+    } else if (event.key === "Enter") {
+      const card = cards[highlighted]
+      if (card === undefined) return
+      event.preventDefault()
+      pickCard(card)
+    } else if (event.key === "Escape") {
+      // Escape belongs to the field while it holds focus: empty it and drop
+      // focus. The panel stays open — the wrapper's `data-owns-escape` is what
+      // tells Dialog to skip the dismiss.
+      event.preventDefault()
+      setQuery("")
+      setHighlight(0)
+      event.currentTarget.blur()
+    }
+  }
 
   const offered = offeredCapabilities(resourceType)
-  // A grant for a capability this type no longer offers predates the type filter,
-  // so it still gets a lower-row chip (muted) — otherwise it could never be cleared.
-  const legacy = CAPABILITIES.filter((capability) => {
-    if (offered.includes(capability)) return false
-    if (active === "groups") {
-      return (draft.groupGrants[capability] ?? []).length > 0
-    }
-    return draft.grants[capability].length > 0
-  })
-  const filterCount = Object.keys(filters).length
-
-  const selectedKeys =
-    active === "groups"
-      ? groups.filter((group) => groupSelection.selected.has(String(group.id))).map((group) => String(group.id))
-      : users.filter((user) => userSelection.selected.has(user.username)).map((user) => user.username)
+  // A grant for a capability this type no longer offers predates the type
+  // filter, so it still gets a chip (dashed) — otherwise it could never be
+  // cleared. Both records count, so a group's retired grant stays reachable.
+  const legacy = CAPABILITIES.filter(
+    (capability) =>
+      !offered.includes(capability) &&
+      (draft.grants[capability].length > 0 || (draft.groupGrants[capability] ?? []).length > 0),
+  )
 
   function selectionState(capability: Capability): "all" | "partial" | "none" {
     if (selectedKeys.length === 0) return "none"
-    const holds =
-      active === "groups"
-        ? (key: string) => holdsGroupCapability(draft.groupGrants, capability, Number(key))
-        : (key: string) => holdsCapability(draft.grants, capability, key)
-    const holding = selectedKeys.filter(holds).length
+    const holding = selectedKeys.filter((key) => holdsKey(draft, capability, key)).length
     if (holding === 0) return "none"
     return holding === selectedKeys.length ? "all" : "partial"
   }
 
   function clearSelection(): void {
-    activeSelection.clear()
-    setNote("")
-  }
-
-  function cycleFilter(capability: Capability): void {
-    setFilters((current) => {
-      const next = { ...current }
-      if (current[capability] === undefined) next[capability] = "include"
-      else if (current[capability] === "include") next[capability] = "exclude"
-      else delete next[capability]
-      return next
-    })
-  }
-
-  function clearFilters(): void {
-    setFilters({})
-  }
-
-  function switchPrincipal(next: Principal): void {
-    setPrincipal(next)
+    selection.clear()
     setNote("")
   }
 
   function toggleCapability(capability: Capability): void {
     const turnOn = selectionState(capability) !== "all"
     if (!turnOn && capability === "VIEW") {
-      const losesMore =
-        active === "groups"
-          ? selectedKeys.some((key) =>
-              CAPABILITIES.some(
-                (candidate) =>
-                  candidate !== "VIEW" && (draft.groupGrants[candidate] ?? []).includes(Number(key)),
-              ),
-            )
-          : selectedKeys.some((username) =>
-              CAPABILITIES.some(
-                (candidate) => candidate !== "VIEW" && draft.grants[candidate].includes(username),
-              ),
-            )
+      const losesMore = selectedKeys.some((key) =>
+        CAPABILITIES.some((candidate) => candidate !== "VIEW" && holdsKey(draft, candidate, key)),
+      )
       setNote(losesMore ? "Clearing View access also clears every other capability." : "")
     } else {
       setNote("")
     }
     for (const key of selectedKeys) {
-      if (active === "groups") {
-        const groupId = Number(key)
+      const { kind, id } = splitCardKey(key)
+      if (kind === "group") {
+        const groupId = Number(id)
         if (turnOn) draft.grantGroup(capability, groupId)
         else draft.revokeGroup(capability, groupId)
       } else if (turnOn) {
-        draft.grant(capability, key)
+        draft.grant(capability, id)
       } else {
-        draft.revoke(capability, key)
+        draft.revoke(capability, id)
       }
     }
   }
@@ -758,25 +799,8 @@ export function ResourceAccessEditor({
         ) : null}
       </div>
 
-      {ownerMode ? null : (
-        <div role="group" aria-label="Principal" className="flex flex-wrap items-center gap-2">
-          {(["users", "groups"] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={principal === value}
-              disabled={busy}
-              className={cn(CHIP_BASE, principal === value ? CHIP_ON : CHIP_OFF)}
-              onClick={() => switchPrincipal(value)}
-            >
-              {value === "users" ? "Users" : "Groups"}
-            </button>
-          ))}
-        </div>
-      )}
-
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[160px] flex-1">
+        <div className="relative min-w-[160px] flex-1" data-owns-escape>
           <span
             className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-ink-dim"
             aria-hidden="true"
@@ -788,9 +812,22 @@ export function ResourceAccessEditor({
             autoComplete="off"
             className="pl-9"
             value={query}
-            placeholder={active === "groups" ? "Search groups…" : "Search users…"}
-            aria-label={active === "groups" ? "Search groups" : "Search users"}
-            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search users and groups…"
+            aria-label="Search users and groups"
+            role="combobox"
+            aria-expanded={true}
+            aria-controls={CATALOG_ID}
+            aria-autocomplete="list"
+            aria-activedescendant={
+              cards.length === 0
+                ? undefined
+                : `${CATALOG_ID}-${cards[highlighted].kind}-${cards[highlighted].id}`
+            }
+            onChange={(event) => {
+              setQuery(event.target.value)
+              setHighlight(0)
+            }}
+            onKeyDown={onCatalogKeyDown}
           />
         </div>
         {ownerMode ? null : (
@@ -798,14 +835,8 @@ export function ResourceAccessEditor({
             <Button
               size="sm"
               variant="outline"
-              disabled={busy || catalog.length === 0}
-              onClick={() =>
-                activeSelection.setMany(
-                  active === "groups"
-                    ? groupCatalog.map((group) => String(group.id))
-                    : userCatalog.map((user) => user.username),
-                )
-              }
+              disabled={busy || cards.length === 0}
+              onClick={() => selection.setMany(cards.map((card) => card.key))}
             >
               Select all
             </Button>
@@ -821,101 +852,55 @@ export function ResourceAccessEditor({
         )}
       </div>
 
-      {ownerMode ? null : (
-        <div role="group" aria-label="Filter by capability" className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            aria-pressed={filterCount === 0}
-            disabled={busy}
-            className={cn(CHIP_BASE, filterCount === 0 ? CHIP_ON : CHIP_OFF)}
-            onClick={clearFilters}
-          >
-            All
-          </button>
-          {offered.map((capability) => {
-            const mode = filters[capability]
-            return (
-              <button
-                key={capability}
-                type="button"
-                aria-pressed={mode === "include" ? true : mode === "exclude" ? "mixed" : false}
-                disabled={busy}
-                title={
-                  mode === "include"
-                    ? "Only users who hold this — click to exclude it instead."
-                    : mode === "exclude"
-                      ? "Only users who do not hold this — click to clear."
-                      : "Only users who hold this."
-                }
-                className={cn(
-                  CHIP_BASE,
-                  mode === "include" ? CHIP_ON : mode === "exclude" ? CHIP_EXCLUDE : CHIP_OFF,
-                )}
-                onClick={() => cycleFilter(capability)}
-              >
-                {capabilityLabel(capability)}
-                <Badge variant="neutral">{counts[capability]}</Badge>
-              </button>
-            )
-          })}
-        </div>
-      )}
-
       <div
         ref={scrollRef}
+        id={CATALOG_ID}
+        role="listbox"
+        aria-label={ownerMode ? "Users" : "Users and groups"}
+        aria-multiselectable={ownerMode ? undefined : true}
         data-testid="access-catalog"
         className="relative max-h-[calc(100dvh-520px)] min-h-[120px] flex-1 overflow-y-auto rounded-md border border-line-subtle bg-surface-1 p-2 select-none touch-pan-y"
       >
-        {catalog.length === 0 ? (
-          <p className="p-2 text-sm text-ink-muted">
-            {active === "groups" ? "No groups match." : "No users match."}
-          </p>
-        ) : active === "groups" ? (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {groupCatalog.map((group) => {
-              const key = String(group.id)
-              const selected = groupSelection.selected.has(key)
-              return (
-                <button
-                  key={group.id}
-                  type="button"
-                  data-marquee-key={key}
-                  data-granted={selected}
-                  aria-pressed={selected}
-                  disabled={busy}
-                  onClick={() => groupSelection.toggle(key)}
-                  className={cn(CARD_CLASS, selected && CARD_SELECTED_CLASS)}
-                >
-                  <span className="w-full truncate text-sm">{group.name}</span>
-                  <span className="w-full truncate text-2xs text-ink-dim">{group.display_name}</span>
-                  <span className="w-full truncate text-2xs text-ink-muted">{groupMembersLabel(group)}</span>
-                </button>
-              )
-            })}
-          </div>
+        {cards.length === 0 ? (
+          <p className="p-2 text-sm text-ink-muted">No users or groups match.</p>
         ) : (
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-            {userCatalog.map((user) => {
-              const selected = ownerMode ? draft.owner === user.username : userSelection.selected.has(user.username)
+            {cards.map((card, index) => {
+              const picked = isPicked(card)
               return (
-                <button
-                  key={user.username}
-                  type="button"
-                  data-marquee-key={user.username}
-                  data-granted={selected}
-                  aria-pressed={selected}
-                  disabled={busy}
-                  onClick={() =>
-                    ownerMode ? draft.setOwner(user.username) : userSelection.toggle(user.username)
-                  }
-                  className={cn(CARD_CLASS, selected && CARD_SELECTED_CLASS)}
+                <div
+                  key={card.key}
+                  id={`${CATALOG_ID}-${card.kind}-${card.id}`}
+                  role="option"
+                  aria-selected={picked}
+                  aria-disabled={busy ? true : undefined}
+                  data-marquee-key={card.key}
+                  data-granted={picked}
+                  data-highlighted={index === highlighted}
+                  onClick={() => pickCard(card)}
+                  onMouseEnter={() => setHighlight(index)}
+                  className={cn(
+                    CARD_CLASS,
+                    "cursor-pointer",
+                    picked && CARD_SELECTED_CLASS,
+                    index === highlighted && CARD_HIGHLIGHT_CLASS,
+                    busy && "opacity-45",
+                  )}
                 >
-                  <Avatar name={userLabel(user)} />
-                  <span className="w-full truncate text-sm">{userLabel(user)}</span>
-                  <span className="w-full truncate text-2xs text-ink-dim [font-family:var(--font-mono)]">
-                    @{user.username}
+                  {card.kind === "user" ? <Avatar name={card.label} /> : null}
+                  <span className="w-full truncate text-sm">{card.label}</span>
+                  <span
+                    className={cn(
+                      "w-full truncate text-2xs text-ink-dim",
+                      card.kind === "user" && "[font-family:var(--font-mono)]",
+                    )}
+                  >
+                    {card.detail}
                   </span>
-                </button>
+                  {card.kind === "group" ? (
+                    <span className="w-full truncate text-2xs text-ink-muted">{card.meta}</span>
+                  ) : null}
+                </div>
               )
             })}
           </div>
@@ -942,7 +927,7 @@ export function ResourceAccessEditor({
           </div>
           <div
             role="group"
-            aria-label="Capabilities for the selected users"
+            aria-label="Capabilities for the selected users and groups"
             className="flex flex-wrap items-center gap-2"
           >
             {[...offered, ...legacy].map((capability) => {

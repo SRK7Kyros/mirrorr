@@ -106,10 +106,10 @@ test.describe("admin resource access", () => {
 
     const dialog = page.getByRole("dialog")
     const catalog = dialog.getByTestId("access-catalog")
-    const lower = dialog.getByRole("group", { name: "Capabilities for the selected users" })
+    const lower = dialog.getByRole("group", { name: "Capabilities for the selected users and groups" })
 
     // Grant VIEW to Alice, then clear it — the last capability going clears the user outright.
-    await catalog.getByRole("button", { name: /Alice/ }).click()
+    await catalog.getByRole("option", { name: /Alice/ }).click()
     await lower.getByRole("button", { name: "View access" }).click()
     await dialog.getByRole("button", { name: "Apply changes" }).click()
     await expect
@@ -124,7 +124,7 @@ test.describe("admin resource access", () => {
 
     // Then reassign ownership through the owner picker.
     await dialog.getByRole("button", { name: "Change", exact: true }).click()
-    await catalog.getByRole("button", { name: /Alice/ }).click()
+    await catalog.getByRole("option", { name: /Alice/ }).click()
     await dialog.getByRole("button", { name: "Apply changes" }).click()
     await expect
       .poll(() => api.callsTo("/admin/resources/session/7/owner").some((call) => call.method === "PUT"))
@@ -168,10 +168,10 @@ test.describe("admin resource access", () => {
     await expect(dialog.getByText("Autorun · #5")).toBeVisible()
 
     const catalog = dialog.getByTestId("access-catalog")
-    const lower = dialog.getByRole("group", { name: "Capabilities for the selected users" })
+    const lower = dialog.getByRole("group", { name: "Capabilities for the selected users and groups" })
 
     // Tap Alice's card, then the VIEW chip, then apply — a POST, never a bare view list.
-    await catalog.getByRole("button", { name: /Alice/ }).click()
+    await catalog.getByRole("option", { name: /Alice/ }).click()
     await lower.getByRole("button", { name: "View access" }).click()
     await dialog.getByRole("button", { name: "Apply changes" }).click()
     await expect
@@ -187,7 +187,7 @@ test.describe("admin resource access", () => {
       .toBe(true)
 
     await dialog.getByRole("button", { name: "Change", exact: true }).click()
-    await catalog.getByRole("button", { name: /Alice/ }).click()
+    await catalog.getByRole("option", { name: /Alice/ }).click()
     await dialog.getByRole("button", { name: "Apply changes" }).click()
     await expect
       .poll(() => api.callsTo("/admin/resources/autorun/5/owner").some((call) => call.method === "PUT"))
@@ -224,7 +224,7 @@ test.describe("admin resource access", () => {
       (element) => (element as unknown as { scrollTop: number }).scrollTop,
     )
     const pressed = await dialog
-      .locator('[data-testid="access-catalog"] button[aria-pressed="true"]')
+      .locator('[data-testid="access-catalog"] [role="option"][aria-selected="true"]')
       .count()
     await page.mouse.up()
 
@@ -278,11 +278,10 @@ test.describe("admin resource access", () => {
     await expect(page.getByText("1 already overridden")).toBeVisible()
     await expect(page.getByText("Owner account missing")).toBeVisible()
 
-    await expect(page.getByRole("group", { name: "Principal" })).toBeVisible()
     await expect(page.getByText("Left as it is")).toBeVisible()
 
     await page.getByRole("button", { name: "Change" }).click()
-    await page.getByRole("dialog").getByTestId("access-catalog").getByRole("button", { name: /Alice/ }).click()
+    await page.getByRole("dialog").getByTestId("access-catalog").getByRole("option", { name: /Alice/ }).click()
     await page.getByRole("button", { name: "Apply to 2" }).click()
 
     await expect(page.getByText("Override 1 item(s)?")).toBeVisible()
@@ -314,10 +313,9 @@ test.describe("admin resource access", () => {
 
     const dialog = page.getByRole("dialog")
     const catalog = dialog.getByTestId("access-catalog")
-    const lower = dialog.getByRole("group", { name: "Capabilities for the selected users" })
+    const lower = dialog.getByRole("group", { name: "Capabilities for the selected users and groups" })
 
-    await dialog.getByRole("group", { name: "Principal" }).getByRole("button", { name: "Groups" }).click()
-    await catalog.getByRole("button", { name: /F1 team/ }).click()
+    await dialog.getByTestId("access-catalog").getByRole("option", { name: /F1 team/ }).click()
     await lower.getByRole("button", { name: /Operate/ }).click()
     await expect(dialog.getByText("1 change(s) planned")).toBeVisible()
 
@@ -330,10 +328,7 @@ test.describe("admin resource access", () => {
     })
   })
 
-  test("cycles the capability chips through include and exclude and keeps every chip inside the dialog at 375px", async ({
-    page,
-    api,
-  }) => {
+  test("keeps the catalog and the capability chip row inside the dialog at 375px", async ({ page, api }) => {
     api.data.users = [
       { id: 1, username: "kyros", role: "admin", display_name: "Kyros" },
       { id: 2, username: "alice", role: "user", display_name: "Alice" },
@@ -342,81 +337,51 @@ test.describe("admin resource access", () => {
     ]
     api.data.sessions = [session({ id: 7 })]
     api.data.resources = [resourceRow("session", 7, "F1 Weekend")]
-    api.data.resourceGrants = {
-      "session:7": [
-        { username: "alice", capabilities: ["OPERATE"] },
-        { username: "bob", capabilities: ["EDIT"] },
-      ],
-    }
 
     await openAdmin(page)
     await accessButton(page).first().click()
 
     const dialog = page.getByRole("dialog")
     const catalog = dialog.getByTestId("access-catalog")
-    const upper = dialog.getByRole("group", { name: "Filter by capability" })
-    const operate = upper.getByRole("button", { name: /^Operate/ })
-    const edit = upper.getByRole("button", { name: /^Edit/ })
+    const chipRow = dialog.getByRole("group", { name: "Capabilities for the selected users and groups" })
 
-    await operate.click()
-    await expect(operate).toHaveAttribute("aria-pressed", "true")
-    await expect(catalog.getByRole("button", { name: /Alice/ })).toBeVisible()
-    await expect(catalog.getByRole("button", { name: /Bob/ })).toHaveCount(0)
-
-    // Green chips AND: Alice holds OPERATE only and Bob EDIT only, so demanding
-    // both leaves nobody.
-    await edit.click()
-    await expect(edit).toHaveAttribute("aria-pressed", "true")
-    await expect(catalog.getByText("No users match.")).toBeVisible()
-
-    // Flipped to red, EDIT subtracts its holders instead: Alice is back and the
-    // user with no grants at all stays out.
-    await edit.click()
-    await expect(edit).toHaveAttribute("aria-pressed", "mixed")
-    await expect(catalog.getByRole("button", { name: /Alice/ })).toBeVisible()
-    await expect(catalog.getByRole("button", { name: /Bob/ })).toHaveCount(0)
-    await expect(catalog.getByRole("button", { name: /Carol/ })).toHaveCount(0)
+    // The chip row acts on what the catalog holds: a tap marks the card, the
+    // chip then reports and flips that capability on the selection.
+    await catalog.getByRole("option", { name: /Alice/ }).click()
+    await expect(catalog.getByRole("option", { name: /Alice/ })).toHaveAttribute("aria-selected", "true")
+    await chipRow.getByRole("button", { name: "Operate" }).click()
+    await expect(chipRow.getByRole("button", { name: "Operate" })).toHaveAttribute("aria-pressed", "true")
 
     await page.setViewportSize({ width: 375, height: 812 })
     await page.waitForTimeout(150)
 
-    // Only the two capability chip rows wrap: the principal switch above them is
-    // a two-button segmented control, not a chip row.
-    const chipRows = ["Filter by capability", "Capabilities for the selected users"]
-    const fit = await dialog.evaluate((node, labels) => {
+    // The chip row wraps rather than scrolls at 375px, and the dialog must still
+    // fit without its body scrolling or clipping a chip horizontally.
+    const fit = await dialog.evaluate((node) => {
       const box = node.getBoundingClientRect()
-      const rows = labels.map((label) => {
-        const group = node.querySelector(`[role="group"][aria-label="${label}"]`)
-        const edges =
-          group === null ? [] : [...group.querySelectorAll("button")].map((chip) => chip.getBoundingClientRect())
-        return {
-          chips: edges.length,
-          lines: new Set(edges.map((edge) => Math.round(edge.top))).size,
-          maxRight: Math.max(...edges.map((edge) => edge.right)),
-          groupRight: group === null ? 0 : group.getBoundingClientRect().right,
-        }
-      })
+      const group = node.querySelector(
+        '[role="group"][aria-label="Capabilities for the selected users and groups"]',
+      )
+      const edges =
+        group === null ? [] : [...group.querySelectorAll("button")].map((chip) => chip.getBoundingClientRect())
       const body = node.querySelector(":scope > div")
       return {
         top: box.top,
         bottom: box.bottom,
-        rows,
+        chips: edges.length,
+        lines: new Set(edges.map((edge) => Math.round(edge.top))).size,
+        maxRight: Math.max(...edges.map((edge) => edge.right)),
+        groupRight: group === null ? 0 : group.getBoundingClientRect().right,
         bodyScrolls: body === null ? null : body.scrollHeight > body.clientHeight + 1,
       }
-    }, chipRows)
+    })
 
     expect(fit.top).toBeGreaterThanOrEqual(0)
     expect(fit.bottom).toBeLessThanOrEqual(812)
     expect(fit.bodyScrolls).toBe(false)
-    expect(fit.rows).toHaveLength(2)
-    // Both rows wrap rather than scroll at 375px; no chip may be clipped
-    // horizontally and the dialog must still fit without its body scrolling.
-    const maxLines = [2, 2]
-    fit.rows.forEach((row, index) => {
-      expect(row.chips, JSON.stringify(row)).toBeGreaterThan(0)
-      expect(row.lines, JSON.stringify(row)).toBeLessThanOrEqual(maxLines[index] ?? 2)
-      expect(row.maxRight, JSON.stringify(row)).toBeLessThanOrEqual(row.groupRight + 1)
-    })
+    expect(fit.chips).toBeGreaterThan(0)
+    expect(fit.lines).toBeLessThanOrEqual(2)
+    expect(fit.maxRight).toBeLessThanOrEqual(fit.groupRight + 1)
   })
 
   test("offers only the capabilities an autorun enforces", async ({ page, api }) => {
@@ -429,14 +394,12 @@ test.describe("admin resource access", () => {
     await page.getByRole("button", { name: "Access for F1 Race" }).click()
 
     const dialog = page.getByRole("dialog")
-    const upper = dialog.getByRole("group", { name: "Filter by capability" })
-    const lower = dialog.getByRole("group", { name: "Capabilities for the selected users" })
+    const lower = dialog.getByRole("group", { name: "Capabilities for the selected users and groups" })
 
     await expect(lower.getByRole("button", { name: "Edit" })).toBeVisible()
     await expect(lower.getByRole("button", { name: "Export" })).toBeVisible()
     // An autorun has no control route, so OPERATE would be an inert control.
     await expect(lower.getByRole("button", { name: "Operate" })).toHaveCount(0)
-    await expect(upper.getByRole("button", { name: /^Operate/ })).toHaveCount(0)
   })
 
   test("keeps an inapplicable existing grant visible and removable", async ({ page, api }) => {
@@ -453,12 +416,12 @@ test.describe("admin resource access", () => {
 
     const dialog = page.getByRole("dialog")
     const catalog = dialog.getByTestId("access-catalog")
-    const lower = dialog.getByRole("group", { name: "Capabilities for the selected users" })
+    const lower = dialog.getByRole("group", { name: "Capabilities for the selected users and groups" })
 
     const retired = lower.getByRole("button", { name: "Operate" })
     await expect(retired).toBeVisible()
 
-    await catalog.getByRole("button", { name: /Alice/ }).click()
+    await catalog.getByRole("option", { name: /Alice/ }).click()
     await retired.click()
     await dialog.getByRole("button", { name: "Apply changes" }).click()
 
@@ -557,13 +520,12 @@ test.describe("admin resource access", () => {
 
     const dialog = page.getByRole("dialog")
     const catalog = dialog.getByTestId("access-catalog")
-    const lower = dialog.getByRole("group", { name: "Capabilities for the selected users" })
+    const lower = dialog.getByRole("group", { name: "Capabilities for the selected users and groups" })
 
-    // The user catalog is the default; the group catalog grants the same way.
-    await dialog.getByRole("group", { name: "Principal" }).getByRole("button", { name: "Groups" }).click()
-    await expect(catalog.getByRole("button", { name: /F1 team/ })).toBeVisible()
+    // The one catalog carries the groups too, so a group grants the same way.
+    await expect(catalog.getByRole("option", { name: /F1 team/ })).toBeVisible()
     await expect(catalog.getByText("every account, including future ones")).toBeVisible()
-    await catalog.getByRole("button", { name: /F1 team/ }).click()
+    await catalog.getByRole("option", { name: /F1 team/ }).click()
     await lower.getByRole("button", { name: "View access" }).click()
     await dialog.getByRole("button", { name: "Apply changes" }).click()
 
