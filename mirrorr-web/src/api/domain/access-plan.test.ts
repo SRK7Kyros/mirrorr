@@ -23,6 +23,8 @@ vi.mock("@/api/endpoints/access", () => ({
   revokeGroupGrants: vi.fn(),
   addResourceOwnerGroup: vi.fn(),
   removeResourceOwnerGroup: vi.fn(),
+  addResourceOwnerUser: vi.fn(),
+  removeResourceOwnerUser: vi.fn(),
 }))
 
 import * as api from "@/api/endpoints/access"
@@ -34,6 +36,8 @@ const setGroup = vi.mocked(api.setGroupGrants)
 const revokeGroup = vi.mocked(api.revokeGroupGrants)
 const addOwnerGroup = vi.mocked(api.addResourceOwnerGroup)
 const removeOwnerGroup = vi.mocked(api.removeResourceOwnerGroup)
+const addOwnerUser = vi.mocked(api.addResourceOwnerUser)
+const removeOwnerUser = vi.mocked(api.removeResourceOwnerUser)
 
 const USERS = ["kyros", "alice"]
 
@@ -71,6 +75,7 @@ describe("itemAccessFromView", () => {
       owner: "kyros",
       owner_missing: false,
       grants: [{ username: "bob", capabilities: ["OPERATE", "VIEW"] }],
+      owner_users: [],
       owner_groups: [],
       group_grants: [],
     }
@@ -88,6 +93,7 @@ describe("itemAccessFromView", () => {
       owner: null,
       owner_missing: true,
       grants: [],
+      owner_users: [],
       owner_groups: [],
       group_grants: [],
     })
@@ -350,6 +356,7 @@ describe("itemAccessFromView groups", () => {
       owner: "kyros",
       owner_missing: false,
       grants: [],
+      owner_users: [],
       owner_groups: [{ id: 3, name: "editors", display_name: "Editors", system: false }],
       group_grants: [
         {
@@ -452,5 +459,70 @@ describe("applyPlans groups", () => {
     await applyPlans([plan])
     expect(addOwnerGroup).toHaveBeenCalledWith("session", 1, 4)
     expect(removeOwnerGroup).toHaveBeenCalledWith("session", 1, 3)
+  })
+})
+
+describe("itemAccessFromView owner users", () => {
+  it("carries the owner-user list onto the record", () => {
+    const item = itemAccessFromView({
+      resource_type: "session",
+      id: 7,
+      owner: "kyros",
+      owner_missing: false,
+      grants: [],
+      owner_users: ["alice", "bob"],
+      owner_groups: [],
+      group_grants: [],
+    })
+    expect(item.ownerUsers).toEqual(["alice", "bob"])
+  })
+})
+
+describe("planItem owner users", () => {
+  it("adds an owner user without touching the requester owner", () => {
+    const plan = planItem(
+      row({ access: access({ ownerUsers: ["alice"] }) }),
+      { ownerUsers: ["alice", "bob"] },
+      USERS,
+    )
+    expect(plan.ops).toEqual([{ kind: "owner-user", username: "bob", owner: true }])
+    expect(plan.to.owner).toBe("kyros")
+  })
+
+  it("emits a removal op when an owner user goes", () => {
+    const plan = planItem(row({ access: access({ ownerUsers: ["alice"] }) }), { ownerUsers: [] }, USERS)
+    expect(plan.ops).toEqual([{ kind: "owner-user", username: "alice", owner: false }])
+  })
+
+  it("leaves owner users untouched when the target omits them", () => {
+    const plan = planItem(row({ access: access({ ownerUsers: ["alice"] }) }), {}, USERS)
+    expect(plan.ops).toEqual([])
+    expect(plan.to.ownerUsers).toEqual(["alice"])
+  })
+})
+
+describe("bulkTargetFor owner users", () => {
+  it("adds the named owner users to the row's own, never replacing them", () => {
+    const target = bulkTargetFor(row({ access: access({ ownerUsers: ["alice"] }) }), { ownerUsers: ["bob"] })
+    expect(target.ownerUsers).toEqual(["alice", "bob"])
+  })
+
+  it("names no owner users when the draft names none", () => {
+    const target = bulkTargetFor(row({ access: access({ ownerUsers: ["alice"] }) }), {})
+    expect(target.ownerUsers).toBeUndefined()
+  })
+})
+
+describe("applyPlans owner users", () => {
+  it("adds and removes owner users over the shares routes", async () => {
+    const addition = planItem(
+      row({ access: access({ ownerUsers: ["alice"] }) }),
+      { ownerUsers: ["alice", "bob"] },
+      USERS,
+    )
+    const removal = planItem(row({ access: access({ ownerUsers: ["alice"] }) }), { ownerUsers: [] }, USERS)
+    await applyPlans([addition, removal])
+    expect(addOwnerUser).toHaveBeenCalledWith("session", 1, "bob")
+    expect(removeOwnerUser).toHaveBeenCalledWith("session", 1, "alice")
   })
 })

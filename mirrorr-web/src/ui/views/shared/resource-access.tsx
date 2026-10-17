@@ -229,8 +229,9 @@ function accessSignature(access: ItemAccess): string {
   const groupGrants = CAPABILITIES.map(
     (capability) => `${capability}:${[...(access.groupGrants?.[capability] ?? [])].sort((a, b) => a - b).join(",")}`,
   ).join("\u0002")
+  const ownerUsers = [...(access.ownerUsers ?? [])].sort().join(",")
   const ownerGroups = [...(access.ownerGroups ?? [])].sort((a, b) => a - b).join(",")
-  return [access.owner ?? "", access.ownerMissing, grants, groupGrants, ownerGroups].join("\u0000")
+  return [access.owner ?? "", access.ownerMissing, grants, groupGrants, ownerUsers, ownerGroups].join("\u0000")
 }
 
 /** The group half of an edit — carried beside the user half on the same target. */
@@ -241,6 +242,7 @@ export interface AccessDraft {
   readonly ownerMissing: boolean
   readonly grants: Readonly<Record<Capability, readonly string[]>>
   readonly groupGrants: Readonly<Record<Capability, readonly number[]>>
+  readonly ownerUsers: readonly string[]
   readonly ownerGroups: readonly number[]
   readonly dirty: boolean
   readonly target: AccessTarget & GroupDraftTarget
@@ -249,6 +251,8 @@ export interface AccessDraft {
   readonly revoke: (capability: Capability, username: string) => void
   readonly grantGroup: (capability: Capability, groupId: number) => void
   readonly revokeGroup: (capability: Capability, groupId: number) => void
+  readonly addOwnerUser: (username: string) => void
+  readonly removeOwnerUser: (username: string) => void
   readonly addOwnerGroup: (groupId: number) => void
   readonly removeOwnerGroup: (groupId: number) => void
 }
@@ -259,8 +263,8 @@ export interface AccessDraft {
  * carries both records so the planner diffs them against the loaded access. The
  * `accessSignature` guard reloads the draft whenever the `access` prop really
  * changes — the signature covers the owner, ownerMissing, all six capability
- * lists, every group's capability list and the owner-group ids, so an equal prop
- * leaves in-flight edits intact.
+ * lists, every group's capability list, the owner-user names and the
+ * owner-group ids, so an equal prop leaves in-flight edits intact.
  */
 export function useAccessDraft(access: ItemAccess): AccessDraft {
   const [draft, setDraft] = useState<ItemAccess>(access)
@@ -274,6 +278,7 @@ export function useAccessDraft(access: ItemAccess): AccessDraft {
   // The data layer always populates both group records; the guards keep the
   // editor whole against an item read that predates them, never a new shape.
   const groupGrants = draft.groupGrants ?? emptyGroupGrants()
+  const ownerUsers = draft.ownerUsers ?? []
   const ownerGroups = draft.ownerGroups ?? []
 
   return {
@@ -281,12 +286,14 @@ export function useAccessDraft(access: ItemAccess): AccessDraft {
     ownerMissing: draft.ownerMissing,
     grants: draft.grants,
     groupGrants,
+    ownerUsers,
     ownerGroups,
     dirty: accessSignature(draft) !== signature,
     target: {
       owner: draft.owner ?? undefined,
       grants: draft.grants,
       groupGrants,
+      ownerUsers,
       ownerGroups,
     },
     setOwner: (username) => setDraft((current) => ({ ...current, owner: username })),
@@ -296,6 +303,16 @@ export function useAccessDraft(access: ItemAccess): AccessDraft {
       setDraft((current) => grantGroupCapability(current, capability, groupId)),
     revokeGroup: (capability, groupId) =>
       setDraft((current) => revokeGroupCapability(current, capability, groupId)),
+    addOwnerUser: (username) =>
+      setDraft((current) => {
+        const owners = current.ownerUsers ?? []
+        return owners.includes(username) ? current : { ...current, ownerUsers: [...owners, username] }
+      }),
+    removeOwnerUser: (username) =>
+      setDraft((current) => ({
+        ...current,
+        ownerUsers: (current.ownerUsers ?? []).filter((name) => name !== username),
+      })),
     addOwnerGroup: (groupId) =>
       setDraft((current) => {
         const groups = current.ownerGroups ?? []
@@ -314,10 +331,11 @@ export function useAccessDraft(access: ItemAccess): AccessDraft {
  * Both surfaces (the per-item `AccessPanel` and the settings
  * `ResourceAccessDialog` through `ResourceAccessFields`) render this, so they
  * cannot drift. One principal switch (Users | Groups), one owner row with an
- * additive owner-group set, one catalog of cards, one search box, one upper
- * chip row that filters the catalog to a capability's holders, and one lower
- * chip row that applies a capability set to the selected cards. The user owner
- * and the owner groups are independent: adding a group never touches the user.
+ * additive owner set (users and groups), one catalog of cards, one search box,
+ * one upper chip row that filters the catalog to a capability's holders, and
+ * one lower chip row that applies a capability set to the selected cards. The
+ * requester owner and every owner row are independent: adding one never
+ * touches another.
  */
 
 const CARD_CLASS =
@@ -395,6 +413,7 @@ export function ResourceAccessEditor({
     return map
   }, [groups])
 
+  const ownerUserSet = useMemo(() => new Set(draft.ownerUsers), [draft.ownerUsers])
   const ownerGroupIdSet = useMemo(() => new Set(draft.ownerGroups), [draft.ownerGroups])
   const everyoneOwned = draft.ownerGroups.some((id) => {
     const group = groupById.get(id)
@@ -404,7 +423,7 @@ export function ResourceAccessEditor({
   const ownerOptions = useMemo(() => {
     const options: OwnerOption[] = [
       ...users
-        .filter((user) => user.username !== draft.owner)
+        .filter((user) => user.username !== draft.owner && !ownerUserSet.has(user.username))
         .map((user) => ({
           kind: "user" as const,
           id: user.username,
@@ -421,7 +440,7 @@ export function ResourceAccessEditor({
         })),
     ]
     return rankBySearch(options, ownerQuery, (option) => [option.label, option.detail])
-  }, [users, groups, draft.owner, ownerGroupIdSet, ownerQuery])
+  }, [users, groups, draft.owner, ownerUserSet, ownerGroupIdSet, ownerQuery])
 
   const ownerListOpen = ownerOpen && ownerOptions.length > 0
   const ownerHighlightIndex =
@@ -429,7 +448,7 @@ export function ResourceAccessEditor({
 
   function applyOwnerOption(option: OwnerOption): void {
     if (busy) return
-    if (option.kind === "user") draft.setOwner(option.id)
+    if (option.kind === "user") draft.addOwnerUser(option.id)
     else draft.addOwnerGroup(Number(option.id))
     setOwnerQuery("")
     setOwnerHighlight(0)
@@ -623,7 +642,23 @@ export function ResourceAccessEditor({
 
         {ownerMode ? null : (
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-2xs uppercase tracking-wide text-ink-dim">Owner groups</span>
+            <span className="text-2xs uppercase tracking-wide text-ink-dim">Owners</span>
+            {draft.ownerUsers.map((username) => (
+              <span
+                key={username}
+                className="inline-flex h-7 items-center gap-1 rounded-full border border-line bg-surface-2 pr-1 pl-2"
+              >
+                <IconUser size={14} className="text-ink-dim" />
+                <span className="max-w-[12rem] truncate text-sm">{usernameLabel(users, username)}</span>
+                <IconButton
+                  label={`Remove owner ${username}`}
+                  icon={<IconX size={14} />}
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => draft.removeOwnerUser(username)}
+                />
+              </span>
+            ))}
             {draft.ownerGroups.map((groupId) => {
               const group = groupById.get(groupId)
               const label = group === undefined ? `#${groupId}` : groupLabel(group)

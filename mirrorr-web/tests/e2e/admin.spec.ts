@@ -592,5 +592,18 @@ test.describe("admin resource access", () => {
     await expect
       .poll(() => api.callsTo("/shares/session/7/owner-group/1").some((call) => call.method === "DELETE"))
       .toBe(true)
+
+    await ownerField.fill("Alice")
+    await ownerOptions.getByRole("option", { name: /Alice/ }).click()
+    await dialog.getByRole("button", { name: "Apply changes" }).click()
+    await expect
+      .poll(() => api.callsTo("/shares/session/7/owner-user/alice").some((call) => call.method === "PUT"))
+      .toBe(true)
+
+    await dialog.getByRole("button", { name: "Remove owner alice" }).click()
+    await dialog.getByRole("button", { name: "Apply changes" }).click()
+    await expect
+      .poll(() => api.callsTo("/shares/session/7/owner-user/alice").some((call) => call.method === "DELETE"))
+      .toBe(true)
   })
 })

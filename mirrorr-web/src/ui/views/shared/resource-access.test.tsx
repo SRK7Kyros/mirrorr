@@ -53,15 +53,24 @@ function access(
     readonly owner?: string
     readonly ownerMissing?: boolean
     readonly groupGrants?: Partial<Record<Capability, readonly number[]>>
+    readonly ownerUsers?: readonly string[]
     readonly ownerGroups?: readonly number[]
   } = {},
 ): ItemAccess {
-  const { owner = "kyros", ownerMissing = false, groupGrants = {}, ownerGroups = [], ...grants } = overrides
+  const {
+    owner = "kyros",
+    ownerMissing = false,
+    groupGrants = {},
+    ownerUsers = [],
+    ownerGroups = [],
+    ...grants
+  } = overrides
   return {
     owner,
     ownerMissing,
     grants: { ...emptyGrants(), ...grants },
     groupGrants: { ...emptyGroupGrants(), ...groupGrants },
+    ownerUsers,
     ownerGroups,
   }
 }
@@ -594,7 +603,7 @@ describe("ResourceAccessFields — groups", () => {
     expect(target.owner).toBe("kyros")
   })
 
-  it("offers users and groups from the owner field and transfers the owner to a user", () => {
+  it("adds and removes owner users from the owner field without transferring ownership", () => {
     const onApply = vi.fn()
     render(
       <ResourceAccessFields
@@ -618,8 +627,29 @@ describe("ResourceAccessFields — groups", () => {
     fireEvent.click(applyButton())
 
     const target = onApply.mock.calls[0][0] as AccessTarget & GroupDraftTarget
-    expect(target.owner).toBe("alice")
+    expect(target.owner).toBe("kyros")
+    expect([...(target.ownerUsers ?? [])]).toEqual(["alice"])
     expect([...(target.ownerGroups ?? [])]).toEqual([])
+  })
+
+  it("removes an owner user from the owner row without touching the owner", () => {
+    const onApply = vi.fn()
+    render(
+      <ResourceAccessFields
+        resourceType="session"
+        access={access({ ownerUsers: ["alice"] })}
+        users={USERS}
+        groups={GROUPS}
+        onApply={onApply}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove owner alice" }))
+    fireEvent.click(applyButton())
+
+    const target = onApply.mock.calls[0][0] as AccessTarget & GroupDraftTarget
+    expect([...(target.ownerUsers ?? [])]).toEqual([])
+    expect(target.owner).toBe("kyros")
   })
 
   it("warns loudly when the everyone group owns the item", () => {

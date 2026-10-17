@@ -159,10 +159,11 @@ export function setGroupMembers(id: number, usernames: readonly string[]): Promi
   )
 }
 
-/* ── group grants / owner groups (shares router) ───────────────────────
+/* ── group grants / owners (shares router) ─────────────────────────────
  *
  * A group grant is the same replace-set shape as a user grant, keyed by group
- * id; owner groups are additive — they never touch the single user owner.
+ * id. Owners are a list: a user-owner or group-owner row is additive and never
+ * touches the single requester owner.
  */
 
 function shareGroupPath(resourceType: string, id: number, groupId: number): string {
@@ -215,6 +216,32 @@ export function removeResourceOwnerGroup(
   groupId: number,
 ): Promise<AccessView> {
   return apiFetch<unknown>(shareOwnerGroupPath(resourceType, id, groupId), { method: "DELETE" }).then(
+    (data) => parseOrThrow(AccessViewSchema, data),
+  )
+}
+
+function shareOwnerUserPath(resourceType: string, id: number, username: string): string {
+  return `${sharePath(resourceType, id)}/owner-user/${encodeURIComponent(username)}`
+}
+
+/** `PUT /shares/{type}/{id}/owner-user/{username}` — add an owner user (idempotent). */
+export function addResourceOwnerUser(
+  resourceType: string,
+  id: number,
+  username: string,
+): Promise<AccessView> {
+  return apiFetch<unknown>(shareOwnerUserPath(resourceType, id, username), { method: "PUT" }).then(
+    (data) => parseOrThrow(AccessViewSchema, data),
+  )
+}
+
+/** `DELETE /shares/{type}/{id}/owner-user/{username}` — remove an owner user (idempotent). */
+export function removeResourceOwnerUser(
+  resourceType: string,
+  id: number,
+  username: string,
+): Promise<AccessView> {
+  return apiFetch<unknown>(shareOwnerUserPath(resourceType, id, username), { method: "DELETE" }).then(
     (data) => parseOrThrow(AccessViewSchema, data),
   )
 }

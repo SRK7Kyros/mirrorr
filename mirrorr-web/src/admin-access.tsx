@@ -61,6 +61,7 @@ const EMPTY_DRAFT: ItemAccess = {
   ownerMissing: false,
   grants: emptyGrants(),
   groupGrants: emptyGroupGrants(),
+  ownerUsers: [],
   ownerGroups: [],
 }
 
@@ -73,6 +74,11 @@ function groupLabel(groups: readonly Group[], id: number): string {
 function groupsText(ids: readonly number[], groups: readonly Group[]): string {
   if (ids.length === 0) return "None"
   return ids.map((id) => groupLabel(groups, id)).join(", ")
+}
+
+function usersText(usernames: readonly string[], users: readonly User[]): string {
+  if (usernames.length === 0) return "None"
+  return usernames.map((username) => usernameLabel(users, username)).join(", ")
 }
 
 /** Everyone holding this capability, users and groups in one list. */
@@ -119,12 +125,15 @@ function AccessDelta({
       !sameSet(plan.from.grants[capability], plan.to.grants[capability]) ||
       !sameSet(plan.from.groupGrants?.[capability] ?? [], plan.to.groupGrants?.[capability] ?? []),
   )
+  const fromOwnerUsers = plan.from.ownerUsers ?? []
+  const toOwnerUsers = plan.to.ownerUsers ?? []
   const fromOwnerGroups = plan.from.ownerGroups ?? []
   const toOwnerGroups = plan.to.ownerGroups ?? []
   const ownerChanged = plan.from.owner !== plan.to.owner
+  const ownerUsersChanged = !sameSet(fromOwnerUsers, toOwnerUsers)
   const ownerGroupsChanged = !sameSet(fromOwnerGroups, toOwnerGroups)
 
-  if (!ownerChanged && !ownerGroupsChanged && capabilities.length === 0) {
+  if (!ownerChanged && !ownerUsersChanged && !ownerGroupsChanged && capabilities.length === 0) {
     return <p className="text-sm text-muted">No change</p>
   }
 
@@ -145,6 +154,13 @@ function AccessDelta({
           to={holdersText(plan.to, capability, users, groups)}
         />
       ))}
+      {ownerUsersChanged ? (
+        <DeltaRow
+          label="Owner users"
+          from={usersText(fromOwnerUsers, users)}
+          to={usersText(toOwnerUsers, users)}
+        />
+      ) : null}
       {ownerGroupsChanged ? (
         <DeltaRow
           label="Owner groups"
