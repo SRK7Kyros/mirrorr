@@ -1,5 +1,6 @@
 import { useCallback, useRef } from "react"
 import type { KeyboardEvent, RefObject } from "react"
+import { isTabStop, tabStops } from "./tab-stops"
 
 /**
  * Tab scoping for inline forms.
@@ -11,40 +12,21 @@ import type { KeyboardEvent, RefObject } from "react"
  * the next control outside the form, so nothing is ever trapped (WCAG 2.1.2
  * needs an exit the user can find and use).
  *
+ * The controls are the ones the tab-stop map marks (see `tab-stops.ts`), so the
+ * scope cannot drift from the rest of the app: a control that is not a stop
+ * anywhere is not one inside a form either.
+ *
  * Dialogs need none of this — Radix already traps their focus, and Escape there
  * belongs to the dialog.
  */
 
-const TABBABLE = [
-  "a[href]",
-  "button:not([disabled])",
-  "input:not([disabled]):not([type=\"hidden\"])",
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-  "[tabindex]:not([tabindex=\"-1\"])",
-].join(", ")
+const OUTSIDE = "[tabindex], .tab-stop, a[href], button, input, select, textarea, summary"
 
-/**
- * Mirrors what a browser's own Tab does: `display: none` and `visibility:
- * hidden` are skipped, a visually-clipped control (`.sr-only`) is not — it is
- * still a real stop. jsdom has no layout, so a missing `checkVisibility` means
- * "assume visible" and the unit tests keep working on the selector alone.
- */
-function isTabbable(el: HTMLElement): boolean {
-  const check = (el as HTMLElement & { checkVisibility?: (options?: object) => boolean }).checkVisibility
-  if (typeof check !== "function") return true
-  return check.call(el, { checkVisibilityCSS: true })
-}
-
-function tabbables(root: HTMLElement): HTMLElement[] {
-  return Array.from(root.querySelectorAll<HTMLElement>(TABBABLE)).filter(isTabbable)
-}
-
-/** The first tabbable control after the scope in document order, wrapping to the top of the page. */
+/** The first stop after the scope in document order, wrapping to the top of the page. */
 function nextOutside(root: HTMLElement): HTMLElement | null {
-  const inside = new Set(tabbables(root))
-  const outside = Array.from(document.querySelectorAll<HTMLElement>(TABBABLE)).filter(
-    (el) => !inside.has(el) && !root.contains(el) && isTabbable(el),
+  const inside = new Set(tabStops(root))
+  const outside = Array.from(document.querySelectorAll<HTMLElement>(OUTSIDE)).filter(
+    (el) => isTabStop(el) && !inside.has(el) && !root.contains(el),
   )
   const following = outside.find(
     (el) => (root.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
@@ -71,7 +53,7 @@ export function useFocusScope<T extends HTMLElement>(): FocusScope<T> {
     }
     if (event.key !== "Tab") return
 
-    const items = tabbables(root)
+    const items = tabStops(root)
     const first = items[0]
     const last = items[items.length - 1]
     if (first === undefined || last === undefined) return

@@ -93,7 +93,7 @@ export function SessionCard({
             checked={selected}
             onChange={() => onToggle(session.id)}
           />
-          <Link className="font-semibold text-ink min-w-0 text-truncate" {...link}>
+          <Link className="font-semibold text-ink min-w-0 text-truncate tab-stop" {...link}>
             {sessionTitle(session, names)}
           </Link>
           <span className="shrink-0 mono tnum text-dim">#{session.id}</span>

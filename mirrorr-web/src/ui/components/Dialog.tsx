@@ -124,7 +124,13 @@ export function Dialog({
                       </DialogPrimitive.Description>
                     ) : null}
                   </div>
-                  <IconButton label="Close" icon={<IconX size={18} />} onClick={onClose} disabled={busy} />
+                  <IconButton
+                    label="Close"
+                    icon={<IconX size={18} />}
+                    className="tab-skip"
+                    onClick={onClose}
+                    disabled={busy}
+                  />
                 </header>
                 {children !== undefined ? <div className={BODY_CLASS}>{children}</div> : null}
                 {footer !== undefined ? <footer className={FOOT_CLASS}>{footer}</footer> : null}

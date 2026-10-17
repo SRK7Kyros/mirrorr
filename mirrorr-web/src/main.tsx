@@ -6,6 +6,7 @@ import { MotionConfig } from "motion/react"
 import { setAuthNavigator } from "@/api/auth"
 import { installShellBackHandler } from "@/api/native"
 import { queryClient } from "@/api/query-client"
+import { TabStopMap } from "@/ui/components/tab-stops"
 import { router } from "@/router"
 import "@/app.css"
 
@@ -22,6 +23,7 @@ if (rootElement === null) throw new Error("Mirrorr: #root element is missing")
 createRoot(rootElement).render(
   <StrictMode>
     <MotionConfig reducedMotion="user">
+      <TabStopMap />
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
       </QueryClientProvider>

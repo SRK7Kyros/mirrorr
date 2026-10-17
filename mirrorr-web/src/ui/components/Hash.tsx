@@ -52,7 +52,7 @@ export function Hash({ value, label = "Value", className }: HashProps) {
   return (
     <button
       type="button"
-      className={cn(HASH_CLASS, className)}
+      className={cn(HASH_CLASS, "tab-stop", className)}
       data-copied={copied}
       title={`${value} — click to copy`}
       aria-label={`Copy ${label}`}

@@ -369,7 +369,7 @@ function SchemaField({
     if (Object.keys(schemaProperties(schema)).length > 0) {
       return (
         <details className="flex flex-col gap-2 min-w-0" open>
-          <summary className="flex items-center gap-2 text-sm font-medium text-ink-muted cursor-pointer">{label}</summary>
+          <summary className="flex items-center gap-2 text-sm font-medium text-ink-muted cursor-pointer tab-stop">{label}</summary>
           {hint !== undefined ? <span className="text-sm text-ink-dim">{hint}</span> : null}
           <SchemaForm schema={schema} value={asObject(value)} onChange={onChange} idPrefix={id} />
         </details>
