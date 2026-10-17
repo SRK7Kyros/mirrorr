@@ -84,6 +84,50 @@ async def has_capability(
     return (await db.exec(stmt)).first() is not None
 
 
+async def inherit_access(db: AsyncSession, source, target) -> int:
+    """Copy *source*'s grants and owner groups onto *target*, returning the rows added.
+
+    A session spawned by an autorun inherits that autorun's access, so whoever
+    can see the scheduled item can see what it produced. A snapshot, not a link:
+    later edits to the autorun do not reach a session already created.
+    """
+    source_type = _ACCESS_MODEL_TYPES[type(source)]
+    target_type = _ACCESS_MODEL_TYPES[type(target)]
+    grants = (
+        await db.exec(
+            select(ResourceAccess).where(
+                ResourceAccess.resource_type == source_type,
+                ResourceAccess.resource_id == source.id,
+            )
+        )
+    ).all()
+    owners = (
+        await db.exec(
+            select(ResourceOwnerGroup).where(
+                ResourceOwnerGroup.resource_type == source_type,
+                ResourceOwnerGroup.resource_id == source.id,
+            )
+        )
+    ).all()
+    for row in grants:
+        db.add(
+            ResourceAccess(
+                resource_type=target_type,
+                resource_id=target.id,
+                username=row.username,
+                group_id=row.group_id,
+                capability=row.capability,
+            )
+        )
+    for row in owners:
+        db.add(
+            ResourceOwnerGroup(
+                resource_type=target_type, resource_id=target.id, group_id=row.group_id
+            )
+        )
+    return len(grants) + len(owners)
+
+
 def group_holds(username: str, group_id_column):
     """SQL predicate: *group_id_column* names a group that holds *username*.
 
