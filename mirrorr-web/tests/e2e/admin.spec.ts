@@ -573,8 +573,8 @@ test.describe("admin resource access", () => {
 
     // Ownership is additive and `everyone` may be chosen — the panel says plainly
     // what that means before anything is applied.
-    const ownerField = dialog.getByRole("combobox", { name: "Add owner group" })
-    const ownerOptions = dialog.getByRole("listbox", { name: "Groups to own this item" })
+    const ownerField = dialog.getByRole("combobox", { name: "Add an owner" })
+    const ownerOptions = dialog.getByRole("listbox", { name: "Users and groups to own this item" })
     await ownerField.fill("F1")
     await ownerOptions.getByRole("option", { name: /F1 team/ }).click()
     await ownerField.fill("everyone")
