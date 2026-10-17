@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type KeyboardEvent } from "react"
+import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
   type AccessOverride,
   type AccessTarget,
@@ -6,15 +6,21 @@ import {
   type ItemAccess,
   crownKey,
   emptyGroupGrants,
-} from "@/api/domain/access-plan"
-import { rankBySearch } from "@/api/domain/search"
-import { CAPABILITIES, type Capability } from "@/api/schemas/privileged"
-import type { User } from "@/api/schemas/user"
-import { Avatar, Button, IconButton, Input } from "@/ui/components"
-import { IconCheck, IconCrown, IconSearch, IconUser, IconX } from "@/ui/components/icons"
-import { useSelection } from "@/ui/hooks"
-import { cn } from "@/ui/lib/cn"
-import { useMarqueeSelection } from "./marquee"
+} from "@/api/domain/access-plan";
+import { rankBySearch } from "@/api/domain/search";
+import { CAPABILITIES, type Capability } from "@/api/schemas/privileged";
+import type { User } from "@/api/schemas/user";
+import { Avatar, Button, IconButton, Input } from "@/ui/components";
+import {
+  IconCheck,
+  IconCrown,
+  IconSearch,
+  IconUser,
+  IconX,
+} from "@/ui/components/icons";
+import { useSelection } from "@/ui/hooks";
+import { cn } from "@/ui/lib/cn";
+import { useMarqueeSelection } from "./marquee";
 
 export const RESOURCE_TYPE_LABEL: Record<string, string> = {
   session: "Session",
@@ -24,19 +30,22 @@ export const RESOURCE_TYPE_LABEL: Record<string, string> = {
   source: "Source",
   engine: "Engine",
   resolver: "Resolver",
-}
+};
 
 export function resourceTypeLabel(type: string): string {
-  return RESOURCE_TYPE_LABEL[type] ?? type
+  return RESOURCE_TYPE_LABEL[type] ?? type;
 }
 
 export function userLabel(user: User): string {
-  return user.display_name !== "" ? user.display_name : user.username
+  return user.display_name !== "" ? user.display_name : user.username;
 }
 
-export function usernameLabel(users: readonly User[], username: string): string {
-  const user = users.find((candidate) => candidate.username === username)
-  return user === undefined ? `${username} (missing)` : userLabel(user)
+export function usernameLabel(
+  users: readonly User[],
+  username: string,
+): string {
+  const user = users.find((candidate) => candidate.username === username);
+  return user === undefined ? `${username} (missing)` : userLabel(user);
 }
 
 /** The primary owner's label: the user's name, the group's, or the empty copy. */
@@ -46,10 +55,10 @@ export function crownLabel(
   groups: readonly AccessGroup[],
   empty: string,
 ): string {
-  if (crown === null) return empty
-  if (crown.kind === "user") return usernameLabel(users, crown.username)
-  const group = groups.find((candidate) => candidate.id === crown.groupId)
-  return group === undefined ? `Group #${crown.groupId}` : groupLabel(group)
+  if (crown === null) return empty;
+  if (crown.kind === "user") return usernameLabel(users, crown.username);
+  const group = groups.find((candidate) => candidate.id === crown.groupId);
+  return group === undefined ? `Group #${crown.groupId}` : groupLabel(group);
 }
 
 /**
@@ -58,8 +67,10 @@ export function crownLabel(
  * flat viewer list that no longer exists.
  */
 export function overrideLabel(override: AccessOverride): string {
-  if (override.kind === "owner-missing") return "Owner account missing"
-  return override.count === 1 ? "1 user or group with access" : `${override.count} users or groups with access`
+  if (override.kind === "owner-missing") return "Owner account missing";
+  return override.count === 1
+    ? "1 user or group with access"
+    : `${override.count} users or groups with access`;
 }
 
 /**
@@ -74,11 +85,11 @@ export const CAPABILITY_LABEL: Record<Capability, string> = {
   DELETE: "Delete",
   SHARE: "Share",
   EXPORT: "Export",
-}
+};
 
 /** The established label for one capability ("View access", "Operate", …). */
 export function capabilityLabel(capability: Capability): string {
-  return CAPABILITY_LABEL[capability]
+  return CAPABILITY_LABEL[capability];
 }
 
 /**
@@ -94,11 +105,13 @@ export const TYPE_CAPABILITIES: Record<string, readonly Capability[]> = {
   recording: ["VIEW", "DELETE", "SHARE"], // view · delete · shares
   profile: ["VIEW", "EDIT", "DELETE", "SHARE", "EXPORT"], // view · update+profile-link · delete · shares · /import-export/profiles/{id}/export
   source: ["VIEW", "EDIT", "DELETE", "SHARE"], // view · update · delete · shares
-}
+};
 
 /** The capabilities the editor offers for a type (all six when it is unknown). */
-export function offeredCapabilities(resourceType: string): readonly Capability[] {
-  return TYPE_CAPABILITIES[resourceType] ?? CAPABILITIES
+export function offeredCapabilities(
+  resourceType: string,
+): readonly Capability[] {
+  return TYPE_CAPABILITIES[resourceType] ?? CAPABILITIES;
 }
 
 /**
@@ -112,9 +125,11 @@ export function holdsCapability(
   username: string,
 ): boolean {
   if (capability === "VIEW") {
-    return CAPABILITIES.some((candidate) => grants[candidate].includes(username))
+    return CAPABILITIES.some((candidate) =>
+      grants[candidate].includes(username),
+    );
   }
-  return grants[capability].includes(username)
+  return grants[capability].includes(username);
 }
 
 /* ── groups (plan: granular-permissions-and-access-panel, wave 6) ───────
@@ -129,35 +144,35 @@ export function holdsCapability(
 
 /** A group as the editor renders it — a `GET /groups` item, member list aside. */
 export interface AccessGroup {
-  readonly id: number
-  readonly name: string
-  readonly display_name: string
-  readonly system: boolean
-  readonly member_count?: number
+  readonly id: number;
+  readonly name: string;
+  readonly display_name: string;
+  readonly system: boolean;
+  readonly member_count?: number;
 }
 
 /** The group's human label — its `display_name`, falling back to its name. */
 export function groupLabel(group: AccessGroup): string {
-  return group.display_name !== "" ? group.display_name : group.name
+  return group.display_name !== "" ? group.display_name : group.name;
 }
 
 /** The reserved `everyone` group — the only one that covers future accounts. */
 export function isEveryoneGroup(group: AccessGroup): boolean {
-  return group.system === true || group.name === "everyone"
+  return group.system === true || group.name === "everyone";
 }
 
 /** What the `everyone` group's membership line reads, in place of a count. */
-export const EVERYONE_NOTE = "every account, including future ones"
+export const EVERYONE_NOTE = "every account, including future ones";
 
 /** The loud inline warning shown while `everyone` owns an item. */
 export const EVERYONE_OWNER_WARNING =
-  "Every account gets full control of this item, including delete."
+  "Every account gets full control of this item, including delete.";
 
 /** The member line on a group card — a count, or the implicit-membership note. */
 export function groupMembersLabel(group: AccessGroup): string {
-  if (isEveryoneGroup(group)) return EVERYONE_NOTE
-  const count = group.member_count ?? 0
-  return count === 1 ? "1 member" : `${count} members`
+  if (isEveryoneGroup(group)) return EVERYONE_NOTE;
+  const count = group.member_count ?? 0;
+  return count === 1 ? "1 member" : `${count} members`;
 }
 
 /** VIEW is the base capability for a group too: any held capability implies it. */
@@ -167,109 +182,151 @@ export function holdsGroupCapability(
   groupId: number,
 ): boolean {
   if (capability === "VIEW") {
-    return CAPABILITIES.some((candidate) => (groupGrants[candidate] ?? []).includes(groupId))
+    return CAPABILITIES.some((candidate) =>
+      (groupGrants[candidate] ?? []).includes(groupId),
+    );
   }
-  return (groupGrants[capability] ?? []).includes(groupId)
+  return (groupGrants[capability] ?? []).includes(groupId);
 }
 
-function grantCapability(access: ItemAccess, capability: Capability, username: string): ItemAccess {
-  const alreadyHeld = access.grants[capability].includes(username)
-  const needsView = capability !== "VIEW" && !access.grants.VIEW.includes(username)
-  if (alreadyHeld && !needsView) return access
-  const grants = { ...access.grants }
-  if (!alreadyHeld) grants[capability] = [...grants[capability], username]
-  if (needsView) grants.VIEW = [...grants.VIEW, username]
-  return { ...access, grants }
+function grantCapability(
+  access: ItemAccess,
+  capability: Capability,
+  username: string,
+): ItemAccess {
+  const alreadyHeld = access.grants[capability].includes(username);
+  const needsView =
+    capability !== "VIEW" && !access.grants.VIEW.includes(username);
+  if (alreadyHeld && !needsView) return access;
+  const grants = { ...access.grants };
+  if (!alreadyHeld) grants[capability] = [...grants[capability], username];
+  if (needsView) grants.VIEW = [...grants.VIEW, username];
+  return { ...access, grants };
 }
 
-function revokeCapability(access: ItemAccess, capability: Capability, username: string): ItemAccess {
+function revokeCapability(
+  access: ItemAccess,
+  capability: Capability,
+  username: string,
+): ItemAccess {
   if (capability === "VIEW") {
     // Clearing the base capability clears what it implies.
-    const grants = { ...access.grants }
-    let changed = false
+    const grants = { ...access.grants };
+    let changed = false;
     for (const candidate of CAPABILITIES) {
-      if (!grants[candidate].includes(username)) continue
-      grants[candidate] = grants[candidate].filter((name) => name !== username)
-      changed = true
+      if (!grants[candidate].includes(username)) continue;
+      grants[candidate] = grants[candidate].filter((name) => name !== username);
+      changed = true;
     }
-    return changed ? { ...access, grants } : access
+    return changed ? { ...access, grants } : access;
   }
-  if (!access.grants[capability].includes(username)) return access
+  if (!access.grants[capability].includes(username)) return access;
   return {
     ...access,
     grants: {
       ...access.grants,
-      [capability]: access.grants[capability].filter((name) => name !== username),
+      [capability]: access.grants[capability].filter(
+        (name) => name !== username,
+      ),
     },
-  }
+  };
 }
 
 function groupGrantRecord(access: ItemAccess): Record<Capability, number[]> {
-  const groupGrants = emptyGroupGrants()
-  for (const capability of CAPABILITIES) groupGrants[capability] = [...(access.groupGrants?.[capability] ?? [])]
-  return groupGrants
+  const groupGrants = emptyGroupGrants();
+  for (const capability of CAPABILITIES)
+    groupGrants[capability] = [...(access.groupGrants?.[capability] ?? [])];
+  return groupGrants;
 }
 
-function grantGroupCapability(access: ItemAccess, capability: Capability, groupId: number): ItemAccess {
-  const groupGrants = groupGrantRecord(access)
-  const alreadyHeld = groupGrants[capability].includes(groupId)
-  const needsView = capability !== "VIEW" && !groupGrants.VIEW.includes(groupId)
-  if (alreadyHeld && !needsView) return access
-  if (!alreadyHeld) groupGrants[capability] = [...groupGrants[capability], groupId]
-  if (needsView) groupGrants.VIEW = [...groupGrants.VIEW, groupId]
-  return { ...access, groupGrants }
+function grantGroupCapability(
+  access: ItemAccess,
+  capability: Capability,
+  groupId: number,
+): ItemAccess {
+  const groupGrants = groupGrantRecord(access);
+  const alreadyHeld = groupGrants[capability].includes(groupId);
+  const needsView =
+    capability !== "VIEW" && !groupGrants.VIEW.includes(groupId);
+  if (alreadyHeld && !needsView) return access;
+  if (!alreadyHeld)
+    groupGrants[capability] = [...groupGrants[capability], groupId];
+  if (needsView) groupGrants.VIEW = [...groupGrants.VIEW, groupId];
+  return { ...access, groupGrants };
 }
 
-function revokeGroupCapability(access: ItemAccess, capability: Capability, groupId: number): ItemAccess {
-  const groupGrants = groupGrantRecord(access)
+function revokeGroupCapability(
+  access: ItemAccess,
+  capability: Capability,
+  groupId: number,
+): ItemAccess {
+  const groupGrants = groupGrantRecord(access);
   if (capability === "VIEW") {
     // Clearing the base capability clears what it implies.
-    let changed = false
+    let changed = false;
     for (const candidate of CAPABILITIES) {
-      if (!groupGrants[candidate].includes(groupId)) continue
-      groupGrants[candidate] = groupGrants[candidate].filter((id) => id !== groupId)
-      changed = true
+      if (!groupGrants[candidate].includes(groupId)) continue;
+      groupGrants[candidate] = groupGrants[candidate].filter(
+        (id) => id !== groupId,
+      );
+      changed = true;
     }
-    return changed ? { ...access, groupGrants } : access
+    return changed ? { ...access, groupGrants } : access;
   }
-  if (!groupGrants[capability].includes(groupId)) return access
-  groupGrants[capability] = groupGrants[capability].filter((id) => id !== groupId)
-  return { ...access, groupGrants }
+  if (!groupGrants[capability].includes(groupId)) return access;
+  groupGrants[capability] = groupGrants[capability].filter(
+    (id) => id !== groupId,
+  );
+  return { ...access, groupGrants };
 }
 
 function accessSignature(access: ItemAccess): string {
   const grants = CAPABILITIES.map(
-    (capability) => `${capability}:${[...access.grants[capability]].sort().join(",")}`,
-  ).join("\u0001")
+    (capability) =>
+      `${capability}:${[...access.grants[capability]].sort().join(",")}`,
+  ).join("\u0001");
   const groupGrants = CAPABILITIES.map(
-    (capability) => `${capability}:${[...(access.groupGrants?.[capability] ?? [])].sort((a, b) => a - b).join(",")}`,
-  ).join("\u0002")
-  const ownerUsers = [...(access.ownerUsers ?? [])].sort().join(",")
-  const ownerGroups = [...(access.ownerGroups ?? [])].sort((a, b) => a - b).join(",")
-  return [crownKey(access.crown), access.ownerMissing, grants, groupGrants, ownerUsers, ownerGroups].join("\u0000")
+    (capability) =>
+      `${capability}:${[...(access.groupGrants?.[capability] ?? [])].sort((a, b) => a - b).join(",")}`,
+  ).join("\u0002");
+  const ownerUsers = [...(access.ownerUsers ?? [])].sort().join(",");
+  const ownerGroups = [...(access.ownerGroups ?? [])]
+    .sort((a, b) => a - b)
+    .join(",");
+  return [
+    crownKey(access.crown),
+    access.ownerMissing,
+    grants,
+    groupGrants,
+    ownerUsers,
+    ownerGroups,
+  ].join("\u0000");
 }
 
 /** The group half of an edit — carried beside the user half on the same target. */
-export type GroupDraftTarget = Pick<AccessTarget, "groupGrants" | "ownerGroups">
+export type GroupDraftTarget = Pick<
+  AccessTarget,
+  "groupGrants" | "ownerGroups"
+>;
 
 export interface AccessDraft {
-  readonly crown: Crown | null
-  readonly ownerMissing: boolean
-  readonly grants: Readonly<Record<Capability, readonly string[]>>
-  readonly groupGrants: Readonly<Record<Capability, readonly number[]>>
-  readonly ownerUsers: readonly string[]
-  readonly ownerGroups: readonly number[]
-  readonly dirty: boolean
-  readonly target: AccessTarget & GroupDraftTarget
-  readonly setOwner: (crown: Crown) => void
-  readonly grant: (capability: Capability, username: string) => void
-  readonly revoke: (capability: Capability, username: string) => void
-  readonly grantGroup: (capability: Capability, groupId: number) => void
-  readonly revokeGroup: (capability: Capability, groupId: number) => void
-  readonly addOwnerUser: (username: string) => void
-  readonly removeOwnerUser: (username: string) => void
-  readonly addOwnerGroup: (groupId: number) => void
-  readonly removeOwnerGroup: (groupId: number) => void
+  readonly crown: Crown | null;
+  readonly ownerMissing: boolean;
+  readonly grants: Readonly<Record<Capability, readonly string[]>>;
+  readonly groupGrants: Readonly<Record<Capability, readonly number[]>>;
+  readonly ownerUsers: readonly string[];
+  readonly ownerGroups: readonly number[];
+  readonly dirty: boolean;
+  readonly target: AccessTarget & GroupDraftTarget;
+  readonly setOwner: (crown: Crown) => void;
+  readonly grant: (capability: Capability, username: string) => void;
+  readonly revoke: (capability: Capability, username: string) => void;
+  readonly grantGroup: (capability: Capability, groupId: number) => void;
+  readonly revokeGroup: (capability: Capability, groupId: number) => void;
+  readonly addOwnerUser: (username: string) => void;
+  readonly removeOwnerUser: (username: string) => void;
+  readonly addOwnerGroup: (groupId: number) => void;
+  readonly removeOwnerGroup: (groupId: number) => void;
 }
 
 /**
@@ -282,19 +339,19 @@ export interface AccessDraft {
  * owner-group ids, so an equal prop leaves in-flight edits intact.
  */
 export function useAccessDraft(access: ItemAccess): AccessDraft {
-  const [draft, setDraft] = useState<ItemAccess>(access)
-  const loaded = useRef(accessSignature(access))
-  const signature = accessSignature(access)
+  const [draft, setDraft] = useState<ItemAccess>(access);
+  const loaded = useRef(accessSignature(access));
+  const signature = accessSignature(access);
   if (loaded.current !== signature) {
-    loaded.current = signature
-    setDraft(access)
+    loaded.current = signature;
+    setDraft(access);
   }
 
   // The data layer always populates both group records; the guards keep the
   // editor whole against an item read that predates them, never a new shape.
-  const groupGrants = draft.groupGrants ?? emptyGroupGrants()
-  const ownerUsers = draft.ownerUsers ?? []
-  const ownerGroups = draft.ownerGroups ?? []
+  const groupGrants = draft.groupGrants ?? emptyGroupGrants();
+  const ownerUsers = draft.ownerUsers ?? [];
+  const ownerGroups = draft.ownerGroups ?? [];
 
   return {
     crown: draft.crown,
@@ -312,33 +369,43 @@ export function useAccessDraft(access: ItemAccess): AccessDraft {
       ownerGroups,
     },
     setOwner: (crown) => setDraft((current) => ({ ...current, crown })),
-    grant: (capability, username) => setDraft((current) => grantCapability(current, capability, username)),
-    revoke: (capability, username) => setDraft((current) => revokeCapability(current, capability, username)),
+    grant: (capability, username) =>
+      setDraft((current) => grantCapability(current, capability, username)),
+    revoke: (capability, username) =>
+      setDraft((current) => revokeCapability(current, capability, username)),
     grantGroup: (capability, groupId) =>
       setDraft((current) => grantGroupCapability(current, capability, groupId)),
     revokeGroup: (capability, groupId) =>
-      setDraft((current) => revokeGroupCapability(current, capability, groupId)),
+      setDraft((current) =>
+        revokeGroupCapability(current, capability, groupId),
+      ),
     addOwnerUser: (username) =>
       setDraft((current) => {
-        const owners = current.ownerUsers ?? []
-        return owners.includes(username) ? current : { ...current, ownerUsers: [...owners, username] }
+        const owners = current.ownerUsers ?? [];
+        return owners.includes(username)
+          ? current
+          : { ...current, ownerUsers: [...owners, username] };
       }),
     removeOwnerUser: (username) =>
       setDraft((current) => ({
         ...current,
-        ownerUsers: (current.ownerUsers ?? []).filter((name) => name !== username),
+        ownerUsers: (current.ownerUsers ?? []).filter(
+          (name) => name !== username,
+        ),
       })),
     addOwnerGroup: (groupId) =>
       setDraft((current) => {
-        const groups = current.ownerGroups ?? []
-        return groups.includes(groupId) ? current : { ...current, ownerGroups: [...groups, groupId] }
+        const groups = current.ownerGroups ?? [];
+        return groups.includes(groupId)
+          ? current
+          : { ...current, ownerGroups: [...groups, groupId] };
       }),
     removeOwnerGroup: (groupId) =>
       setDraft((current) => ({
         ...current,
         ownerGroups: (current.ownerGroups ?? []).filter((id) => id !== groupId),
       })),
-  }
+  };
 }
 
 /* ── the one editor ────────────────────────────────────────────────────
@@ -357,57 +424,59 @@ export function useAccessDraft(access: ItemAccess): AccessDraft {
 
 const CARD_CLASS =
   "flex flex-col items-center gap-2 rounded-md border border-line bg-surface-2 p-2 text-center transition-colors tab-stop " +
-  "hover:border-line-strong hover:bg-surface-3 focus-visible:outline-none"
+  "hover:border-line-strong hover:bg-surface-3 focus-visible:outline-none";
 
-const CARD_SELECTED_CLASS = "data-[granted=true]:border-brand data-[granted=true]:bg-[var(--accent-dim)]"
+const CARD_SELECTED_CLASS =
+  "data-[granted=true]:border-brand data-[granted=true]:bg-[var(--accent-dim)]";
 
-const CARD_HIGHLIGHT_CLASS = "data-[highlighted=true]:ring-2 data-[highlighted=true]:ring-brand"
+const CARD_HIGHLIGHT_CLASS =
+  "data-[highlighted=true]:ring-2 data-[highlighted=true]:ring-brand";
 
-const OWNER_LIST_ID = "owner-group-options"
+const OWNER_LIST_ID = "owner-group-options";
 
-const CATALOG_ID = "access-catalog-options"
+const CATALOG_ID = "access-catalog-options";
 
 const CHIP_BASE =
   "inline-flex shrink-0 items-center gap-1.5 h-7 rounded-full border px-3 text-sm font-medium whitespace-nowrap tab-stop " +
-  "transition-colors [&:hover:not(:disabled)]:border-line-strong disabled:opacity-45"
+  "transition-colors [&:hover:not(:disabled)]:border-line-strong disabled:opacity-45";
 
-const CHIP_ON = "border-brand bg-[var(--accent-dim)] text-ink"
-const CHIP_OFF = "border-line bg-surface-2 text-ink-muted"
-const CHIP_PARTIAL = "border-brand border-dashed bg-transparent text-ink"
+const CHIP_ON = "border-brand bg-[var(--accent-dim)] text-ink";
+const CHIP_OFF = "border-line bg-surface-2 text-ink-muted";
+const CHIP_PARTIAL = "border-brand border-dashed bg-transparent text-ink";
 
-const OVERRIDES_LIST_ID = "access-overrides-options"
+const OVERRIDES_LIST_ID = "access-overrides-options";
 
-/** An owner badge: the crown badge is the warning yellow, a co-owner's neutral. */
-const OWNER_BADGE_CLASS =
-  "inline-flex h-8 max-w-full items-center gap-1.5 rounded-full border px-2.5 transition-colors tab-stop " +
-  "focus-visible:outline-none disabled:opacity-45"
+/** The crown badge is the warning yellow; a co-owner's is neutral. */
+const OWNER_BADGE_CROWN_CLASS =
+  "inline-flex h-8 max-w-full items-center gap-1.5 rounded-full border border-warning-dim bg-warning-dim px-2.5";
 
-const OWNER_BADGE_CROWN_CLASS = "border-warning-dim bg-warning-dim"
-const OWNER_BADGE_ARMED_CLASS = "ring-2 ring-[var(--warning)]"
 const CO_OWNER_BADGE_CLASS =
-  "inline-flex min-w-0 items-center gap-1 rounded-full tab-stop focus-visible:outline-none disabled:opacity-45"
+  "inline-flex h-8 min-w-0 items-center gap-1 rounded-full border border-line bg-surface-2 pr-1 pl-2.5";
+
+const CO_OWNER_NAME_CLASS =
+  "inline-flex min-w-0 items-center gap-1.5 rounded-full tab-stop focus-visible:outline-none disabled:opacity-45";
 
 /** One principal a suggestion list can offer — a sub-set of a `PrincipalCard`. */
 export interface SuggestionOption {
-  readonly kind: "user" | "group"
-  readonly id: string
-  readonly label: string
-  readonly detail: string
+  readonly kind: "user" | "group";
+  readonly id: string;
+  readonly label: string;
+  readonly detail: string;
 }
 
 interface PrincipalSuggestionsProps<Option extends SuggestionOption> {
-  readonly id: string
-  readonly label: string
-  readonly open: boolean
-  readonly options: readonly Option[]
-  readonly highlight: number
+  readonly id: string;
+  readonly label: string;
+  readonly open: boolean;
+  readonly options: readonly Option[];
+  readonly highlight: number;
   /**
    * The picked read-out, for a list that mirrors a selection. Omitted by a
    * single-pick list, where the highlight is the whole state.
    */
-  readonly selected?: (option: Option) => boolean
-  readonly onHover: (index: number) => void
-  readonly onPick: (option: Option) => void
+  readonly selected?: (option: Option) => boolean;
+  readonly onHover: (index: number) => void;
+  readonly onPick: (option: Option) => void;
 }
 
 /**
@@ -443,7 +512,8 @@ function PrincipalSuggestions<Option extends SuggestionOption>({
           className="flex max-h-64 flex-col gap-0.5 overflow-y-auto"
         >
           {options.map((option, index) => {
-            const picked = selected === undefined ? index === highlight : selected(option)
+            const picked =
+              selected === undefined ? index === highlight : selected(option);
             return (
               <li
                 key={`${option.kind}-${option.id}`}
@@ -452,7 +522,9 @@ function PrincipalSuggestions<Option extends SuggestionOption>({
                 aria-selected={picked}
                 className={cn(
                   "flex cursor-pointer items-center justify-between gap-3 rounded px-2 py-1.5 text-sm",
-                  index === highlight ? "bg-[var(--accent-dim)] text-ink" : "text-ink-muted",
+                  index === highlight
+                    ? "bg-[var(--accent-dim)] text-ink"
+                    : "text-ink-muted",
                 )}
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => onHover(index)}
@@ -464,59 +536,66 @@ function PrincipalSuggestions<Option extends SuggestionOption>({
                   ) : null}
                   <span className="truncate">{option.label}</span>
                 </span>
-                <span className="shrink-0 text-2xs text-ink-dim">{option.detail}</span>
+                <span className="shrink-0 text-2xs text-ink-dim">
+                  {option.detail}
+                </span>
               </li>
-            )
+            );
           })}
         </ul>
       )}
     </div>
-  )
+  );
 }
 
 interface OwnerOption {
-  readonly kind: "user" | "group"
-  readonly id: string
-  readonly label: string
-  readonly detail: string
+  readonly kind: "user" | "group";
+  readonly id: string;
+  readonly label: string;
+  readonly detail: string;
 }
 
 /** One catalog entry — a user or a group, which the editor treats alike. */
 interface PrincipalCard {
-  readonly kind: "user" | "group"
+  readonly kind: "user" | "group";
   /** The bare username or group id, as the draft mutators take it. */
-  readonly id: string
+  readonly id: string;
   /** The selection key, `kind:id`, so a username cannot collide with a group id. */
-  readonly key: string
-  readonly label: string
-  readonly detail: string
-  readonly meta: string
-  readonly terms: readonly string[]
+  readonly key: string;
+  readonly label: string;
+  readonly detail: string;
+  readonly meta: string;
+  readonly terms: readonly string[];
 }
 
 /** Split a selection key back into the principal it names. */
 function splitCardKey(key: string): { kind: "user" | "group"; id: string } {
-  if (key.startsWith("group:")) return { kind: "group", id: key.slice("group:".length) }
-  return { kind: "user", id: key.slice("user:".length) }
+  if (key.startsWith("group:"))
+    return { kind: "group", id: key.slice("group:".length) };
+  return { kind: "user", id: key.slice("user:".length) };
 }
 
 /** Does the draft hold `capability` for the principal the key names? */
-function holdsKey(draft: AccessDraft, capability: Capability, key: string): boolean {
-  const { kind, id } = splitCardKey(key)
+function holdsKey(
+  draft: AccessDraft,
+  capability: Capability,
+  key: string,
+): boolean {
+  const { kind, id } = splitCardKey(key);
   return kind === "group"
     ? holdsGroupCapability(draft.groupGrants, capability, Number(id))
-    : holdsCapability(draft.grants, capability, id)
+    : holdsCapability(draft.grants, capability, id);
 }
 
 export interface ResourceAccessEditorProps {
-  readonly resourceType: string
-  readonly draft: AccessDraft
-  readonly users: readonly User[]
+  readonly resourceType: string;
+  readonly draft: AccessDraft;
+  readonly users: readonly User[];
   /** Required: a host that forgets the group list renders an empty Groups tab. */
-  readonly groups: readonly AccessGroup[]
-  readonly busy?: boolean
+  readonly groups: readonly AccessGroup[];
+  readonly busy?: boolean;
   /** The owner row's label when no owner is picked — a bulk host says so instead. */
-  readonly emptyOwnerLabel?: string
+  readonly emptyOwnerLabel?: string;
 }
 
 export function ResourceAccessEditor({
@@ -527,44 +606,60 @@ export function ResourceAccessEditor({
   busy = false,
   emptyOwnerLabel = "No owner",
 }: ResourceAccessEditorProps) {
-  const [query, setQuery] = useState("")
-  const [highlight, setHighlight] = useState(0)
-  const [ownerMode, setOwnerMode] = useState(false)
-  const [note, setNote] = useState("")
-  const [ownerOpen, setOwnerOpen] = useState(false)
-  const [ownerQuery, setOwnerQuery] = useState("")
-  const [ownerHighlight, setOwnerHighlight] = useState(0)
-  const [overridesOpen, setOverridesOpen] = useState(false)
+  const [query, setQuery] = useState("");
+  const [highlight, setHighlight] = useState(0);
+  const [note, setNote] = useState("");
+  const [ownerOpen, setOwnerOpen] = useState(false);
+  const [ownerQuery, setOwnerQuery] = useState("");
+  const [ownerHighlight, setOwnerHighlight] = useState(0);
+  const [overridesOpen, setOverridesOpen] = useState(false);
 
-  const selection = useSelection<string>()
-  const scrollRef = useRef<HTMLDivElement | null>(null)
-  // A transfer is a single pick, so a marquee dragged across it would silently
-  // edit the grant selection behind the picker.
-  const marquee = useMarqueeSelection(scrollRef, (keys) => {
-    if (!ownerMode) selection.setMany(keys)
-  })
+  const selection = useSelection<string>();
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const marquee = useMarqueeSelection(scrollRef, (keys) =>
+    selection.setMany(keys),
+  );
 
-  const ownerLabel = crownLabel(draft.crown, users, groups, emptyOwnerLabel)
+  const ownerLabel = crownLabel(draft.crown, users, groups, emptyOwnerLabel);
   /** The crown when a *user* holds it — the additive owner lists filter on it. */
-  const crownUsername = draft.crown?.kind === "user" ? draft.crown.username : ""
+  const crownUsername =
+    draft.crown?.kind === "user" ? draft.crown.username : "";
 
   const groupById = useMemo(() => {
-    const map = new Map<number, AccessGroup>()
-    for (const group of groups) map.set(group.id, group)
-    return map
-  }, [groups])
+    const map = new Map<number, AccessGroup>();
+    for (const group of groups) map.set(group.id, group);
+    return map;
+  }, [groups]);
 
-  const ownerUserSet = useMemo(() => new Set(draft.ownerUsers), [draft.ownerUsers])
-  const ownerGroupIdSet = useMemo(() => new Set(draft.ownerGroups), [draft.ownerGroups])
+  // The crown is rendered by its own badge, so it is never repeated as a co-owner.
+  const coOwnerUsers = draft.ownerUsers.filter(
+    (username) => username !== crownUsername,
+  );
+  const coOwnerGroups = draft.ownerGroups.filter(
+    (groupId) =>
+      draft.crown?.kind !== "group" || draft.crown.groupId !== groupId,
+  );
+
+  const ownerUserSet = useMemo(
+    () => new Set(draft.ownerUsers),
+    [draft.ownerUsers],
+  );
+  const ownerGroupIdSet = useMemo(
+    () => new Set(draft.ownerGroups),
+    [draft.ownerGroups],
+  );
   const everyoneOwned = draft.ownerGroups.some((id) => {
-    const group = groupById.get(id)
-    return group !== undefined && isEveryoneGroup(group)
-  })
+    const group = groupById.get(id);
+    return group !== undefined && isEveryoneGroup(group);
+  });
 
   const ownerOptions = useMemo(() => {
     const options: OwnerOption[] = [
       ...users
-        .filter((user) => user.username !== crownUsername && !ownerUserSet.has(user.username))
+        .filter(
+          (user) =>
+            user.username !== crownUsername && !ownerUserSet.has(user.username),
+        )
         .map((user) => ({
           kind: "user" as const,
           id: user.username,
@@ -579,58 +674,58 @@ export function ResourceAccessEditor({
           label: groupLabel(group),
           detail: groupMembersLabel(group),
         })),
-    ]
-    return rankBySearch(options, ownerQuery, (option) => [option.label, option.detail])
-  }, [users, groups, crownUsername, ownerUserSet, ownerGroupIdSet, ownerQuery])
+    ];
+    return rankBySearch(options, ownerQuery, (option) => [
+      option.label,
+      option.detail,
+    ]);
+  }, [users, groups, crownUsername, ownerUserSet, ownerGroupIdSet, ownerQuery]);
 
-  const ownerListOpen = ownerOpen && ownerOptions.length > 0
+  const ownerListOpen = ownerOpen && ownerOptions.length > 0;
   const ownerHighlightIndex =
-    ownerOptions.length === 0 ? 0 : Math.min(ownerHighlight, ownerOptions.length - 1)
+    ownerOptions.length === 0
+      ? 0
+      : Math.min(ownerHighlight, ownerOptions.length - 1);
 
   function applyOwnerOption(option: OwnerOption): void {
-    if (busy) return
-    if (option.kind === "user") draft.addOwnerUser(option.id)
-    else draft.addOwnerGroup(Number(option.id))
-    setOwnerQuery("")
-    setOwnerHighlight(0)
-    setOwnerOpen(false)
+    if (busy) return;
+    if (option.kind === "user") draft.addOwnerUser(option.id);
+    else draft.addOwnerGroup(Number(option.id));
+    setOwnerQuery("");
+    setOwnerHighlight(0);
+    setOwnerOpen(false);
   }
 
   function onOwnerKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      if (ownerOptions.length === 0) return
-      event.preventDefault()
-      setOwnerOpen(true)
-      const step = event.key === "ArrowDown" ? 1 : -1
+      if (ownerOptions.length === 0) return;
+      event.preventDefault();
+      setOwnerOpen(true);
+      const step = event.key === "ArrowDown" ? 1 : -1;
       setOwnerHighlight(
-        (current) => (current + step + ownerOptions.length) % ownerOptions.length,
-      )
+        (current) =>
+          (current + step + ownerOptions.length) % ownerOptions.length,
+      );
     } else if (event.key === "Enter") {
-      const option = ownerOptions[ownerHighlightIndex]
-      if (option === undefined) return
-      event.preventDefault()
-      applyOwnerOption(option)
+      const option = ownerOptions[ownerHighlightIndex];
+      if (option === undefined) return;
+      event.preventDefault();
+      applyOwnerOption(option);
     } else if (event.key === "Escape") {
       // Escape belongs to the field while it holds focus: clear the query, close
       // the suggestions and drop focus. The dialog stays open — the wrapper's
       // `data-owns-escape` is what tells Dialog to skip the dismiss.
-      event.preventDefault()
-      setOwnerQuery("")
-      setOwnerOpen(false)
-      event.currentTarget.blur()
+      event.preventDefault();
+      setOwnerQuery("");
+      setOwnerOpen(false);
+      event.currentTarget.blur();
     }
   }
 
-  function toggleOwnerMode(): void {
-    if (busy) return
-    setNote("")
-    setOwnerMode((current) => !current)
-  }
-
   function crownPrincipal(crown: Crown): void {
-    if (busy) return
-    setNote("")
-    draft.setOwner(crown)
+    if (busy) return;
+    setNote("");
+    draft.setOwner(crown);
   }
 
   // The catalog is one list: users and groups together. Whoever already owns the
@@ -645,7 +740,7 @@ export function ResourceAccessEditor({
       detail: `@${user.username}`,
       meta: "",
       terms: [user.display_name, user.username],
-    }))
+    }));
     const groupCards = groups.map((group) => ({
       kind: "group" as const,
       id: String(group.id),
@@ -654,19 +749,19 @@ export function ResourceAccessEditor({
       detail: group.display_name,
       meta: groupMembersLabel(group),
       terms: [group.display_name, group.name],
-    }))
-    // A transfer is a single pick, so neither kind is filtered out of it.
-    if (ownerMode) return [...userCards, ...groupCards]
-    // Whoever already owns the item is left out — an owner holds every capability
-    // implicitly, so a grant row for one would be inert, and the owner row above
-    // is where owners are edited.
+    }));
     return [
-      ...userCards.filter((card) => card.id !== crownUsername && !ownerUserSet.has(card.id)),
+      ...userCards.filter(
+        (card) => card.id !== crownUsername && !ownerUserSet.has(card.id),
+      ),
       ...groupCards.filter((card) => !ownerGroupIdSet.has(Number(card.id))),
-    ]
-  }, [ownerMode, users, groups, crownUsername, ownerUserSet, ownerGroupIdSet])
+    ];
+  }, [users, groups, crownUsername, ownerUserSet, ownerGroupIdSet]);
 
-  const matches = useMemo(() => rankBySearch(pool, query, (card) => card.terms), [pool, query])
+  const matches = useMemo(
+    () => rankBySearch(pool, query, (card) => card.terms),
+    [pool, query],
+  );
 
   // The catalog is the selection read-out too, so the picked cards lead and keep
   // their ranked order inside each half — `sort` is stable. The order is frozen
@@ -676,62 +771,63 @@ export function ResourceAccessEditor({
   const leading = useMemo(
     () =>
       [...matches].sort(
-        (a, b) => Number(selection.selected.has(b.key)) - Number(selection.selected.has(a.key)),
+        (a, b) =>
+          Number(selection.selected.has(b.key)) -
+          Number(selection.selected.has(a.key)),
       ),
     [matches, selection.selected],
-  )
-  const orderRef = useRef<readonly PrincipalCard[]>([])
-  const sweeping = marquee.overlay !== null
-  if (!sweeping) orderRef.current = leading
-  const cards = sweeping ? orderRef.current : leading
+  );
+  const orderRef = useRef<readonly PrincipalCard[]>([]);
+  const sweeping = marquee.overlay !== null;
+  if (!sweeping) orderRef.current = leading;
+  const cards = sweeping ? orderRef.current : leading;
 
-  const highlighted = cards.length === 0 ? 0 : Math.min(highlight, cards.length - 1)
+  const highlighted =
+    cards.length === 0 ? 0 : Math.min(highlight, cards.length - 1);
 
   // A picked principal stays picked while the search hides it, so the count and
   // the chip row read the whole pool, not the filtered list.
   const selectedKeys = useMemo(
-    () => pool.filter((card) => selection.selected.has(card.key)).map((card) => card.key),
+    () =>
+      pool
+        .filter((card) => selection.selected.has(card.key))
+        .map((card) => card.key),
     [pool, selection.selected],
-  )
+  );
 
   function isPicked(card: PrincipalCard): boolean {
-    // A card key and a crown key are the same string (`kind:id`).
-    return ownerMode ? crownKey(draft.crown) === card.key : selection.selected.has(card.key)
+    return selection.selected.has(card.key);
   }
 
   function pickCard(card: PrincipalCard): void {
-    if (busy) return
-    if (ownerMode) {
-      draft.setOwner(
-        card.kind === "user"
-          ? { kind: "user", username: card.id }
-          : { kind: "group", groupId: Number(card.id) },
-      )
-      return
-    }
-    selection.toggle(card.key)
+    if (busy) return;
+    selection.toggle(card.key);
   }
 
   function onCatalogKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      if (cards.length === 0) return
-      event.preventDefault()
-      const step = event.key === "ArrowDown" ? 1 : -1
-      setHighlight((current) => (Math.min(current, cards.length - 1) + step + cards.length) % cards.length)
+      if (cards.length === 0) return;
+      event.preventDefault();
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      setHighlight(
+        (current) =>
+          (Math.min(current, cards.length - 1) + step + cards.length) %
+          cards.length,
+      );
     } else if (event.key === "Enter") {
-      const card = cards[highlighted]
-      if (card === undefined) return
-      event.preventDefault()
-      pickCard(card)
+      const card = cards[highlighted];
+      if (card === undefined) return;
+      event.preventDefault();
+      pickCard(card);
     } else if (event.key === "Escape") {
       // Escape belongs to the field while it holds focus: empty it and drop
       // focus. The panel stays open — the wrapper's `data-owns-escape` is what
       // tells Dialog to skip the dismiss.
-      event.preventDefault()
-      setQuery("")
-      setHighlight(0)
-      setOverridesOpen(false)
-      event.currentTarget.blur()
+      event.preventDefault();
+      setQuery("");
+      setHighlight(0);
+      setOverridesOpen(false);
+      event.currentTarget.blur();
     }
   }
 
@@ -740,73 +836,91 @@ export function ResourceAccessEditor({
    * arrows move between cards, so a list of fifty principals costs one Tab
    * press rather than fifty. `Home`/`End` jump to the ends.
    */
-  function onCardKeyDown(event: KeyboardEvent<HTMLDivElement>, card: PrincipalCard, index: number): void {
+  function onCardKeyDown(
+    event: KeyboardEvent<HTMLDivElement>,
+    card: PrincipalCard,
+    index: number,
+  ): void {
     if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault()
-      pickCard(card)
-      return
+      event.preventDefault();
+      pickCard(card);
+      return;
     }
-    const forward = event.key === "ArrowDown" || event.key === "ArrowRight"
-    const backward = event.key === "ArrowUp" || event.key === "ArrowLeft"
-    if (!forward && !backward && event.key !== "Home" && event.key !== "End") return
-    if (cards.length === 0) return
-    event.preventDefault()
+    const forward = event.key === "ArrowDown" || event.key === "ArrowRight";
+    const backward = event.key === "ArrowUp" || event.key === "ArrowLeft";
+    if (!forward && !backward && event.key !== "Home" && event.key !== "End")
+      return;
+    if (cards.length === 0) return;
+    event.preventDefault();
     const next =
       event.key === "Home"
         ? 0
         : event.key === "End"
           ? cards.length - 1
-          : (Math.min(index, cards.length - 1) + (forward ? 1 : -1) + cards.length) % cards.length
-    setHighlight(next)
-    const target = cards[next]
-    if (target === undefined) return
+          : (Math.min(index, cards.length - 1) +
+              (forward ? 1 : -1) +
+              cards.length) %
+            cards.length;
+    setHighlight(next);
+    const target = cards[next];
+    if (target === undefined) return;
     scrollRef.current
       ?.querySelector<HTMLElement>(`[data-marquee-key="${target.key}"]`)
-      ?.focus()
+      ?.focus();
   }
 
-  const offered = offeredCapabilities(resourceType)
+  const offered = offeredCapabilities(resourceType);
   // A grant for a capability this type no longer offers predates the type
   // filter, so it still gets a chip (dashed) — otherwise it could never be
   // cleared. Both records count, so a group's retired grant stays reachable.
   const legacy = CAPABILITIES.filter(
     (capability) =>
       !offered.includes(capability) &&
-      (draft.grants[capability].length > 0 || (draft.groupGrants[capability] ?? []).length > 0),
-  )
+      (draft.grants[capability].length > 0 ||
+        (draft.groupGrants[capability] ?? []).length > 0),
+  );
 
   function selectionState(capability: Capability): "all" | "partial" | "none" {
-    if (selectedKeys.length === 0) return "none"
-    const holding = selectedKeys.filter((key) => holdsKey(draft, capability, key)).length
-    if (holding === 0) return "none"
-    return holding === selectedKeys.length ? "all" : "partial"
+    if (selectedKeys.length === 0) return "none";
+    const holding = selectedKeys.filter((key) =>
+      holdsKey(draft, capability, key),
+    ).length;
+    if (holding === 0) return "none";
+    return holding === selectedKeys.length ? "all" : "partial";
   }
 
   function clearSelection(): void {
-    selection.clear()
-    setNote("")
+    selection.clear();
+    setNote("");
   }
 
   function toggleCapability(capability: Capability): void {
-    const turnOn = selectionState(capability) !== "all"
+    const turnOn = selectionState(capability) !== "all";
     if (!turnOn && capability === "VIEW") {
       const losesMore = selectedKeys.some((key) =>
-        CAPABILITIES.some((candidate) => candidate !== "VIEW" && holdsKey(draft, candidate, key)),
-      )
-      setNote(losesMore ? "Clearing View access also clears every other capability." : "")
+        CAPABILITIES.some(
+          (candidate) =>
+            candidate !== "VIEW" && holdsKey(draft, candidate, key),
+        ),
+      );
+      setNote(
+        losesMore
+          ? "Clearing View access also clears every other capability."
+          : "",
+      );
     } else {
-      setNote("")
+      setNote("");
     }
     for (const key of selectedKeys) {
-      const { kind, id } = splitCardKey(key)
+      const { kind, id } = splitCardKey(key);
       if (kind === "group") {
-        const groupId = Number(id)
-        if (turnOn) draft.grantGroup(capability, groupId)
-        else draft.revokeGroup(capability, groupId)
+        const groupId = Number(id);
+        if (turnOn) draft.grantGroup(capability, groupId);
+        else draft.revokeGroup(capability, groupId);
       } else if (turnOn) {
-        draft.grant(capability, id)
+        draft.grant(capability, id);
       } else {
-        draft.revoke(capability, id)
+        draft.revoke(capability, id);
       }
     }
   }
@@ -815,133 +929,112 @@ export function ResourceAccessEditor({
     <div className="flex min-h-0 flex-col gap-3">
       <div className="flex flex-col gap-2 rounded-md border border-line-subtle bg-surface-1 px-2.5 py-1.5">
         <div className="flex flex-wrap items-baseline gap-x-2">
-          <span className="text-2xs uppercase tracking-wide text-ink-dim">Ownership</span>
-          <span className="text-xs text-ink-dim">Owners get every permission on this item.</span>
+          <span className="text-2xs uppercase tracking-wide text-ink-dim">
+            Ownership
+          </span>
+          <span className="text-xs text-ink-dim">
+            Owners get every permission on this item.
+          </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            disabled={busy}
-            aria-pressed={ownerMode}
-            aria-label={ownerMode ? "Stop changing the owner" : "Change the owner"}
-            onClick={toggleOwnerMode}
-            className={cn(
-              OWNER_BADGE_CLASS,
-              OWNER_BADGE_CROWN_CLASS,
-              ownerMode && OWNER_BADGE_ARMED_CLASS,
-            )}
-          >
+          <span data-testid="owner-crown" className={OWNER_BADGE_CROWN_CLASS}>
             <IconCrown size={16} className="shrink-0 text-warning" />
             <Avatar name={ownerLabel} small />
             <span className="truncate text-sm">{ownerLabel}</span>
             {draft.crown !== null && draft.ownerMissing ? (
               <span className="shrink-0 text-2xs text-danger">missing</span>
             ) : null}
-          </button>
-          {ownerMode ? (
-            <>
-              <span className="text-sm whitespace-nowrap text-ink-muted">Pick the new owner</span>
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => setOwnerMode(false)}>
-                Cancel
-              </Button>
-            </>
-          ) : null}
-        </div>
-
-        {ownerMode ? null : (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-2xs uppercase tracking-wide text-ink-dim">Owners</span>
-            {draft.ownerUsers.map((username) => (
-              <span
-                key={username}
-                className="inline-flex h-7 items-center gap-1 rounded-full border border-line bg-surface-2 pr-1 pl-2"
+          </span>
+          {coOwnerUsers.map((username) => (
+            <span key={username} className={CO_OWNER_BADGE_CLASS}>
+              <button
+                type="button"
+                disabled={busy}
+                aria-label={`Make ${usernameLabel(users, username)} the owner`}
+                onClick={() => crownPrincipal({ kind: "user", username })}
+                className={CO_OWNER_NAME_CLASS}
               >
+                <IconUser size={14} className="shrink-0 text-ink-dim" />
+                <span className="max-w-[12rem] truncate text-sm">
+                  {usernameLabel(users, username)}
+                </span>
+              </button>
+              <IconButton
+                label={`Remove owner ${username}`}
+                icon={<IconX size={14} />}
+                size="sm"
+                disabled={busy}
+                onClick={() => draft.removeOwnerUser(username)}
+              />
+            </span>
+          ))}
+          {coOwnerGroups.map((groupId) => {
+            const group = groupById.get(groupId);
+            const label =
+              group === undefined ? `#${groupId}` : groupLabel(group);
+            return (
+              <span key={groupId} className={CO_OWNER_BADGE_CLASS}>
                 <button
                   type="button"
                   disabled={busy}
-                  aria-label={`Make ${usernameLabel(users, username)} the owner`}
-                  onClick={() => crownPrincipal({ kind: "user", username })}
-                  className={CO_OWNER_BADGE_CLASS}
+                  aria-label={`Make ${label} the owner`}
+                  onClick={() => crownPrincipal({ kind: "group", groupId })}
+                  className={CO_OWNER_NAME_CLASS}
                 >
                   <IconUser size={14} className="shrink-0 text-ink-dim" />
-                  <span className="max-w-[12rem] truncate text-sm">{usernameLabel(users, username)}</span>
+                  <span className="max-w-[12rem] truncate text-sm">
+                    {label}
+                  </span>
                 </button>
                 <IconButton
-                  label={`Remove owner ${username}`}
+                  label={`Remove owner group ${label}`}
                   icon={<IconX size={14} />}
                   size="sm"
                   disabled={busy}
-                  onClick={() => draft.removeOwnerUser(username)}
+                  onClick={() => draft.removeOwnerGroup(groupId)}
                 />
               </span>
-            ))}
-            {draft.ownerGroups.map((groupId) => {
-              const group = groupById.get(groupId)
-              const label = group === undefined ? `#${groupId}` : groupLabel(group)
-              return (
-                <span
-                  key={groupId}
-                  className="inline-flex h-7 items-center gap-1 rounded-full border border-line bg-surface-2 pr-1 pl-2"
-                >
-                  <button
-                    type="button"
-                    disabled={busy}
-                    aria-label={`Make ${label} the owner`}
-                    onClick={() => crownPrincipal({ kind: "group", groupId })}
-                    className={CO_OWNER_BADGE_CLASS}
-                  >
-                    <IconUser size={14} className="shrink-0 text-ink-dim" />
-                    <span className="max-w-[12rem] truncate text-sm">{label}</span>
-                  </button>
-                  <IconButton
-                    label={`Remove owner group ${label}`}
-                    icon={<IconX size={14} />}
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => draft.removeOwnerGroup(groupId)}
-                  />
-                </span>
-              )
-            })}
-            <div className="relative min-w-[200px] flex-1" data-owns-escape>
-              <Input
-                type="search"
-                autoComplete="off"
-                value={ownerQuery}
-                placeholder="Add a user or group as owner…"
-                aria-label="Add an owner"
-                role="combobox"
-                aria-expanded={ownerListOpen}
-                aria-controls={ownerListOpen ? OWNER_LIST_ID : undefined}
-                aria-autocomplete="list"
-                aria-activedescendant={
-                  ownerListOpen
-                    ? `${OWNER_LIST_ID}-${ownerOptions[ownerHighlightIndex].kind}-${ownerOptions[ownerHighlightIndex].id}`
-                    : undefined
-                }
-                disabled={busy}
-                onChange={(event) => {
-                  setOwnerQuery(event.target.value)
-                  setOwnerOpen(true)
-                  setOwnerHighlight(0)
-                }}
-                onFocus={() => setOwnerOpen(true)}
-                onBlur={() => setOwnerOpen(false)}
-                onKeyDown={onOwnerKeyDown}
-              />
+            );
+          })}
+        </div>
 
-              <PrincipalSuggestions
-                id={OWNER_LIST_ID}
-                label="Users and groups to own this item"
-                open={ownerListOpen}
-                options={ownerOptions}
-                highlight={ownerHighlightIndex}
-                onHover={setOwnerHighlight}
-                onPick={applyOwnerOption}
-              />
-            </div>
-          </div>
-        )}
+        <div className="relative min-w-[200px]" data-owns-escape>
+          <Input
+            type="search"
+            autoComplete="off"
+            value={ownerQuery}
+            placeholder="Add a user or group as owner…"
+            aria-label="Add an owner"
+            role="combobox"
+            aria-expanded={ownerListOpen}
+            aria-controls={ownerListOpen ? OWNER_LIST_ID : undefined}
+            aria-autocomplete="list"
+            aria-activedescendant={
+              ownerListOpen
+                ? `${OWNER_LIST_ID}-${ownerOptions[ownerHighlightIndex].kind}-${ownerOptions[ownerHighlightIndex].id}`
+                : undefined
+            }
+            disabled={busy}
+            onChange={(event) => {
+              setOwnerQuery(event.target.value);
+              setOwnerOpen(true);
+              setOwnerHighlight(0);
+            }}
+            onFocus={() => setOwnerOpen(true)}
+            onBlur={() => setOwnerOpen(false)}
+            onKeyDown={onOwnerKeyDown}
+          />
+
+          <PrincipalSuggestions
+            id={OWNER_LIST_ID}
+            label="Users and groups to own this item"
+            open={ownerListOpen}
+            options={ownerOptions}
+            highlight={ownerHighlightIndex}
+            onHover={setOwnerHighlight}
+            onPick={applyOwnerOption}
+          />
+        </div>
 
         {everyoneOwned ? (
           <p
@@ -955,9 +1048,12 @@ export function ResourceAccessEditor({
 
       <div className="flex flex-col gap-2 border-t border-line-subtle pt-3">
         <div className="flex flex-wrap items-baseline gap-x-2">
-          <span className="text-2xs uppercase tracking-wide text-ink-dim">Permission overrides</span>
+          <span className="text-2xs uppercase tracking-wide text-ink-dim">
+            Permission overrides
+          </span>
           <span className="text-xs text-ink-dim">
-            Overrides are more specific — they grant only the capabilities you pick.
+            Overrides are more specific — they grant only the capabilities you
+            pick.
           </span>
         </div>
       </div>
@@ -987,9 +1083,9 @@ export function ResourceAccessEditor({
                 : `${OVERRIDES_LIST_ID}-${cards[highlighted].kind}-${cards[highlighted].id}`
             }
             onChange={(event) => {
-              setQuery(event.target.value)
-              setHighlight(0)
-              setOverridesOpen(true)
+              setQuery(event.target.value);
+              setHighlight(0);
+              setOverridesOpen(true);
             }}
             onFocus={() => setOverridesOpen(true)}
             onBlur={() => setOverridesOpen(false)}
@@ -1006,26 +1102,22 @@ export function ResourceAccessEditor({
             onPick={pickCard}
           />
         </div>
-        {ownerMode ? null : (
-          <>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy || cards.length === 0}
-              onClick={() => selection.setMany(cards.map((card) => card.key))}
-            >
-              Select all
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={busy || selectedKeys.length === 0}
-              onClick={clearSelection}
-            >
-              Clear
-            </Button>
-          </>
-        )}
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy || cards.length === 0}
+          onClick={() => selection.setMany(cards.map((card) => card.key))}
+        >
+          Select all
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy || selectedKeys.length === 0}
+          onClick={clearSelection}
+        >
+          Clear
+        </Button>
       </div>
 
       <div
@@ -1033,16 +1125,18 @@ export function ResourceAccessEditor({
         id={CATALOG_ID}
         role="listbox"
         aria-label="Users and groups"
-        aria-multiselectable={ownerMode ? undefined : true}
+        aria-multiselectable={true}
         data-testid="access-catalog"
         className="relative max-h-[calc(100dvh-520px)] min-h-[120px] flex-1 overflow-y-auto rounded-md border border-line-subtle bg-surface-1 p-2 select-none touch-pan-y"
       >
         {cards.length === 0 ? (
-          <p className="p-2 text-sm text-ink-muted">No users or groups match.</p>
+          <p className="p-2 text-sm text-ink-muted">
+            No users or groups match.
+          </p>
         ) : (
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
             {cards.map((card, index) => {
-              const picked = isPicked(card)
+              const picked = isPicked(card);
               return (
                 <div
                   key={card.key}
@@ -1077,10 +1171,12 @@ export function ResourceAccessEditor({
                     {card.detail}
                   </span>
                   {card.kind === "group" ? (
-                    <span className="w-full truncate text-2xs text-ink-muted">{card.meta}</span>
+                    <span className="w-full truncate text-2xs text-ink-muted">
+                      {card.meta}
+                    </span>
                   ) : null}
                 </div>
-              )
+              );
             })}
           </div>
         )}
@@ -1098,54 +1194,63 @@ export function ResourceAccessEditor({
         )}
       </div>
 
-      {ownerMode ? null : (
-        <>
-          <div className="flex items-center justify-between gap-2 text-sm" aria-live="polite">
-            <span className="text-ink-muted">{`${selectedKeys.length} selected`}</span>
-            {note === "" ? null : <span className="text-warning">{note}</span>}
-          </div>
-          <div
-            role="group"
-            aria-label="Capabilities for the selected users and groups"
-            className="flex flex-wrap items-center gap-2"
-          >
-            {[...offered, ...legacy].map((capability) => {
-              const state = selectionState(capability)
-              const retired = !offered.includes(capability)
-              return (
-                <button
-                  key={capability}
-                  type="button"
-                  aria-pressed={state === "all" ? true : state === "partial" ? "mixed" : false}
-                  disabled={busy || selectedKeys.length === 0}
-                  title={retired ? "Not offered for this item type — clear it here." : undefined}
-                  className={cn(
-                    CHIP_BASE,
-                    state === "all" ? CHIP_ON : state === "partial" ? CHIP_PARTIAL : CHIP_OFF,
-                    retired && "border-dashed",
-                  )}
-                  onClick={() => toggleCapability(capability)}
-                >
-                  {state === "all" ? <IconCheck size={14} /> : null}
-                  {capabilityLabel(capability)}
-                </button>
-              )
-            })}
-          </div>
-        </>
-      )}
+      <div
+        className="flex items-center justify-between gap-2 text-sm"
+        aria-live="polite"
+      >
+        <span className="text-ink-muted">{`${selectedKeys.length} selected`}</span>
+        {note === "" ? null : <span className="text-warning">{note}</span>}
+      </div>
+      <div
+        role="group"
+        aria-label="Capabilities for the selected users and groups"
+        className="flex flex-wrap items-center gap-2"
+      >
+        {[...offered, ...legacy].map((capability) => {
+          const state = selectionState(capability);
+          const retired = !offered.includes(capability);
+          return (
+            <button
+              key={capability}
+              type="button"
+              aria-pressed={
+                state === "all" ? true : state === "partial" ? "mixed" : false
+              }
+              disabled={busy || selectedKeys.length === 0}
+              title={
+                retired
+                  ? "Not offered for this item type — clear it here."
+                  : undefined
+              }
+              className={cn(
+                CHIP_BASE,
+                state === "all"
+                  ? CHIP_ON
+                  : state === "partial"
+                    ? CHIP_PARTIAL
+                    : CHIP_OFF,
+                retired && "border-dashed",
+              )}
+              onClick={() => toggleCapability(capability)}
+            >
+              {state === "all" ? <IconCheck size={14} /> : null}
+              {capabilityLabel(capability)}
+            </button>
+          );
+        })}
+      </div>
     </div>
-  )
+  );
 }
 
 export interface ResourceAccessFieldsProps {
-  readonly resourceType: string
-  readonly access: ItemAccess
-  readonly users: readonly User[]
-  readonly groups: readonly AccessGroup[]
-  readonly busy?: boolean
-  readonly onApply: (target: AccessTarget & GroupDraftTarget) => void
-  readonly applyLabel?: string
+  readonly resourceType: string;
+  readonly access: ItemAccess;
+  readonly users: readonly User[];
+  readonly groups: readonly AccessGroup[];
+  readonly busy?: boolean;
+  readonly onApply: (target: AccessTarget & GroupDraftTarget) => void;
+  readonly applyLabel?: string;
 }
 
 /**
@@ -1162,7 +1267,7 @@ export function ResourceAccessFields({
   onApply,
   applyLabel = "Apply changes",
 }: ResourceAccessFieldsProps) {
-  const draft = useAccessDraft(access)
+  const draft = useAccessDraft(access);
   return (
     <div className="flex flex-col gap-4">
       <ResourceAccessEditor
@@ -1173,7 +1278,9 @@ export function ResourceAccessFields({
         busy={busy}
       />
       <div className="flex items-center justify-between gap-3">
-        <span className="text-muted">{draft.dirty ? "Unsaved changes" : "Up to date"}</span>
+        <span className="text-muted">
+          {draft.dirty ? "Unsaved changes" : "Up to date"}
+        </span>
         <Button
           size="sm"
           variant="primary"
@@ -1185,5 +1292,5 @@ export function ResourceAccessFields({
         </Button>
       </div>
     </div>
-  )
+  );
 }
