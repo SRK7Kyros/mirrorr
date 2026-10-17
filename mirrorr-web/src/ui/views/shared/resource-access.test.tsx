@@ -215,6 +215,33 @@ describe("ResourceAccessFields", () => {
     expect(screen.getByText("Unsaved changes")).toBeTruthy();
   });
 
+  it("removes an owner with Backspace from its badge and leaves focus in the field", () => {
+    render(
+      <ResourceAccessFields
+        resourceType="session"
+        access={access({ ownerUsers: ["bob"] })}
+        users={USERS}
+        groups={GROUPS}
+        onApply={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Remove owner bob" }).className,
+    ).toContain("tab-skip");
+
+    const badge = screen.getByRole("button", { name: "Make Bob the owner" });
+    badge.focus();
+    fireEvent.keyDown(badge, { key: "Backspace" });
+
+    expect(
+      screen.queryByRole("button", { name: "Make Bob the owner" }),
+    ).toBeNull();
+    expect(document.activeElement).toBe(
+      screen.getByRole("combobox", { name: "Add an owner" }),
+    );
+  });
+
   it("keeps the crown badge and the co-owner badges in one row, with no transfer mode", () => {
     render(
       <ResourceAccessFields
@@ -865,8 +892,11 @@ describe("ResourceAccessFields — groups", () => {
     );
 
     expect(screen.getByRole("alert").textContent).toBe(
-      "Every account gets full control of this item, including delete.",
+      "Everyone is selected — every account gets full control of this item, including delete.",
     );
+    expect(
+      screen.queryByText("Owners get every permission on this item."),
+    ).toBeNull();
   });
 
   it("raises the everyone warning only once the group is added as an owner", () => {
@@ -888,7 +918,7 @@ describe("ResourceAccessFields — groups", () => {
       within(ownerList()).getByRole("option", { name: /Everyone/ }),
     );
     expect(screen.getByRole("alert").textContent).toContain(
-      "Every account gets full control of this item",
+      "every account gets full control of this item",
     );
   });
 

@@ -868,7 +868,7 @@ test.describe("admin resource access", () => {
     await expect(
       dialog
         .getByRole("alert")
-        .filter({ hasText: "Every account gets full control of this item" }),
+        .filter({ hasText: "every account gets full control of this item" }),
     ).toBeVisible();
 
     await dialog.getByRole("button", { name: "Apply changes" }).click();

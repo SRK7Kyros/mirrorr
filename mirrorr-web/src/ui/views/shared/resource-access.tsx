@@ -12,6 +12,7 @@ import { CAPABILITIES, type Capability } from "@/api/schemas/privileged";
 import type { User } from "@/api/schemas/user";
 import { Avatar, Button, IconButton, Input } from "@/ui/components";
 import {
+  IconAlert,
   IconCheck,
   IconCrown,
   IconSearch,
@@ -166,7 +167,7 @@ export const EVERYONE_NOTE = "every account, including future ones";
 
 /** The loud inline warning shown while `everyone` owns an item. */
 export const EVERYONE_OWNER_WARNING =
-  "Every account gets full control of this item, including delete.";
+  "Everyone is selected — every account gets full control of this item, including delete.";
 
 /** The member line on a group card — a count, or the implicit-membership note. */
 export function groupMembersLabel(group: AccessGroup): string {
@@ -616,6 +617,12 @@ export function ResourceAccessEditor({
 
   const selection = useSelection<string>();
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const ownerInputRef = useRef<HTMLInputElement | null>(null);
+
+  const removeOwnerAndRefocus = (remove: () => void) => {
+    remove();
+    ownerInputRef.current?.focus();
+  };
   const marquee = useMarqueeSelection(scrollRef, (keys) =>
     selection.setMany(keys),
   );
@@ -932,9 +939,19 @@ export function ResourceAccessEditor({
           <span className="text-2xs uppercase tracking-wide text-ink-dim">
             Ownership
           </span>
-          <span className="text-xs text-ink-dim">
-            Owners get every permission on this item.
-          </span>
+          {everyoneOwned ? (
+            <span
+              role="alert"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-danger"
+            >
+              <IconAlert size={14} className="shrink-0" />
+              {EVERYONE_OWNER_WARNING}
+            </span>
+          ) : (
+            <span className="text-xs text-ink-dim">
+              Owners get every permission on this item.
+            </span>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span data-testid="owner-crown" className={OWNER_BADGE_CROWN_CLASS}>
@@ -951,7 +968,13 @@ export function ResourceAccessEditor({
                 type="button"
                 disabled={busy}
                 aria-label={`Make ${usernameLabel(users, username)} the owner`}
+                aria-keyshortcuts="Backspace"
                 onClick={() => crownPrincipal({ kind: "user", username })}
+                onKeyDown={(event) => {
+                  if (event.key !== "Backspace") return;
+                  event.preventDefault();
+                  removeOwnerAndRefocus(() => draft.removeOwnerUser(username));
+                }}
                 className={CO_OWNER_NAME_CLASS}
               >
                 <IconUser size={14} className="shrink-0 text-ink-dim" />
@@ -963,8 +986,11 @@ export function ResourceAccessEditor({
                 label={`Remove owner ${username}`}
                 icon={<IconX size={14} />}
                 size="sm"
+                className="tab-skip"
                 disabled={busy}
-                onClick={() => draft.removeOwnerUser(username)}
+                onClick={() =>
+                  removeOwnerAndRefocus(() => draft.removeOwnerUser(username))
+                }
               />
             </span>
           ))}
@@ -978,7 +1004,15 @@ export function ResourceAccessEditor({
                   type="button"
                   disabled={busy}
                   aria-label={`Make ${label} the owner`}
+                  aria-keyshortcuts="Backspace"
                   onClick={() => crownPrincipal({ kind: "group", groupId })}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Backspace") return;
+                    event.preventDefault();
+                    removeOwnerAndRefocus(() =>
+                      draft.removeOwnerGroup(groupId),
+                    );
+                  }}
                   className={CO_OWNER_NAME_CLASS}
                 >
                   <IconUser size={14} className="shrink-0 text-ink-dim" />
@@ -990,8 +1024,11 @@ export function ResourceAccessEditor({
                   label={`Remove owner group ${label}`}
                   icon={<IconX size={14} />}
                   size="sm"
+                  className="tab-skip"
                   disabled={busy}
-                  onClick={() => draft.removeOwnerGroup(groupId)}
+                  onClick={() =>
+                    removeOwnerAndRefocus(() => draft.removeOwnerGroup(groupId))
+                  }
                 />
               </span>
             );
@@ -1000,6 +1037,7 @@ export function ResourceAccessEditor({
 
         <div className="relative min-w-[200px]" data-owns-escape>
           <Input
+            ref={ownerInputRef}
             type="search"
             autoComplete="off"
             value={ownerQuery}
@@ -1035,15 +1073,6 @@ export function ResourceAccessEditor({
             onPick={applyOwnerOption}
           />
         </div>
-
-        {everyoneOwned ? (
-          <p
-            role="alert"
-            className="rounded-md border border-danger bg-danger-dim px-2.5 py-1.5 text-sm text-danger"
-          >
-            {EVERYONE_OWNER_WARNING}
-          </p>
-        ) : null}
       </div>
 
       <div className="flex flex-col gap-2 border-t border-line-subtle pt-3">
