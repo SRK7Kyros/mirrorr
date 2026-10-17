@@ -117,6 +117,7 @@ type Profile = {
   retry_mode: "none" | "always" | "count" | "exit_code";
   retry_config: Record<string, unknown>;
   requester_user_token: string;
+  requester_group_id: number | null;
 };
 
 type Session = {
@@ -134,6 +135,7 @@ type Session = {
   started_at?: string | null;   // naive UTC
   ended_at?: string | null;     // naive UTC
   requester_user_token: string;
+  requester_group_id: number | null;
   session_urls: { label: string; url: string }[];   // often EMPTY — normal
   attempts: Attempt[];
 };
@@ -162,6 +164,7 @@ type Autorun = {
   end_time: string;              // naive UTC
   recording: boolean;
   requester_user_token: string;
+  requester_group_id: number | null;
 };
 
 type Recording = {

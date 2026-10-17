@@ -236,7 +236,8 @@ def test_grant_revoke_transfer_and_validation(tmp_path):
             granted = await h.client.post(f"/shares/session/{sid}", json=grant)
             assert granted.status_code == 200
             assert granted.json() == {
-                "resource_type": "session", "id": sid, "owner": "alice", "owner_missing": False,
+                "resource_type": "session", "id": sid, "owner": "alice", "owner_group_id": None,
+                "owner_missing": False,
                 "grants": [{"username": "bob", "capabilities": ["VIEW"]}],
                 "owner_users": [], "owner_groups": [], "group_grants": [],
             }
@@ -258,7 +259,7 @@ def test_grant_revoke_transfer_and_validation(tmp_path):
             assert (await h.client.put(f"/admin/resources/session/{sid}/owner", json={"username": "nobody"})).status_code == 400
             moved = await h.client.put(f"/admin/resources/session/{sid}/owner", json={"username": "carol"})
             assert moved.status_code == 200
-            assert moved.json() == {"resource_type": "session", "id": sid, "owner": "carol"}
+            assert moved.json() == {"resource_type": "session", "id": sid, "owner": "carol", "owner_group_id": None}
 
     asyncio.run(scenario())
 
@@ -512,7 +513,7 @@ def test_a4_transfer_moves_owner_for_every_kind(tmp_path):
                 h.as_user("alice", admin=True)
                 moved = await h.client.put(f"/admin/resources/{tag}/{rid}/owner", json={"username": "carol"})
                 assert moved.status_code == 200, moved.text
-                assert moved.json() == {"resource_type": tag, "id": rid, "owner": "carol"}
+                assert moved.json() == {"resource_type": tag, "id": rid, "owner": "carol", "owner_group_id": None}
 
                 h.as_user("alice")
                 assert (await h.client.get(route.format(id=rid))).status_code == 403, tag
@@ -642,5 +643,66 @@ def test_concurrent_double_grant_is_idempotent(tmp_path):
             assert first.json()["grants"] == [expected]
             assert second.json()["grants"] == [expected]
             assert len(await _grant_rows(h.maker, resource_type=ResourceType.SESSION, username="bob")) == 1
+
+    asyncio.run(scenario())
+
+
+def test_primary_owner_may_be_a_group(tmp_path):
+    """The crown may be handed to a group: its members then hold all six
+    capabilities, the wire names which kind of primary owner it is, and it is
+    never both kinds at once."""
+    async def scenario():
+        async with _harness(tmp_path) as h:
+            ids = await _seed(h.maker)
+            sid = ids["session"]
+            h.as_user("alice", admin=True)
+            created = await h.client.post("/groups", json={"name": "ops", "display_name": "Operations"})
+            assert created.status_code == 200, created.text
+            gid = created.json()["id"]
+            members = await h.client.put(f"/groups/{gid}/members", json={"usernames": ["bob"]})
+            assert members.status_code == 200, members.text
+
+            moved = await h.client.put(f"/admin/resources/session/{sid}/owner", json={"group_id": gid})
+            assert moved.status_code == 200, moved.text
+            assert moved.json() == {"resource_type": "session", "id": sid, "owner": "", "owner_group_id": gid}
+
+            h.as_user("bob")
+            view = (await h.client.get(f"/shares/session/{sid}")).json()
+            assert view["owner"] == "" and view["owner_group_id"] == gid and view["owner_missing"] is False
+            assert (await h.client.get(f"/sessions/{sid}")).status_code == 200
+            h.as_user("carol")
+            assert (await h.client.get(f"/sessions/{sid}")).status_code == 403
+            assert (await h.client.get(f"/shares/session/{sid}")).status_code == 403
+
+            h.as_user("alice", admin=True)
+            row = (await h.client.get("/admin/resources?resource_type=session")).json()["items"][0]
+            assert row["owner"] == "ops" and row["owner_group_id"] == gid and row["owner_missing"] is False
+            filtered = (await h.client.get("/admin/resources?resource_type=session&owner=ops")).json()
+            assert [item["id"] for item in filtered["items"]] == [sid]
+
+            back = await h.client.put(f"/admin/resources/session/{sid}/owner", json={"username": "carol"})
+            assert back.status_code == 200
+            assert back.json() == {"resource_type": "session", "id": sid, "owner": "carol", "owner_group_id": None}
+            row = (await h.client.get("/admin/resources?resource_type=session")).json()["items"][0]
+            assert row["owner"] == "carol" and row["owner_group_id"] is None
+
+            assert (await h.client.put(f"/admin/resources/session/{sid}/owner", json={})).status_code == 400
+            both = {"username": "carol", "group_id": gid}
+            assert (await h.client.put(f"/admin/resources/session/{sid}/owner", json=both)).status_code == 400
+            assert (await h.client.put(f"/admin/resources/session/{sid}/owner", json={"group_id": 999})).status_code == 404
+
+            # A crown handed to a group that is then deleted leaves a stale group
+            # id — the group analogue of a stale owner token: the item survives,
+            # nobody but an admin reaches it, and both views report owner_missing.
+            assert (
+                await h.client.put(f"/admin/resources/session/{sid}/owner", json={"group_id": gid})
+            ).status_code == 200
+            assert (await h.client.delete(f"/groups/{gid}")).status_code == 200
+            view = (await h.client.get(f"/shares/session/{sid}")).json()
+            assert view["owner"] == "" and view["owner_group_id"] == gid and view["owner_missing"] is True
+            row = (await h.client.get("/admin/resources?resource_type=session")).json()["items"][0]
+            assert row["owner_group_id"] == gid and row["owner_missing"] is True
+            h.as_user("bob")
+            assert (await h.client.get(f"/sessions/{sid}")).status_code == 403
 
     asyncio.run(scenario())

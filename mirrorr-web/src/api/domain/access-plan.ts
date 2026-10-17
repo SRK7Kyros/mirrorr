@@ -12,9 +12,25 @@ import {
 import { getErrorMessage } from "@/api/domain/errors"
 import { CAPABILITIES, type AccessView, type Capability } from "@/api/schemas/privileged"
 
+/**
+ * The primary owner — a user or, since a crown may be handed to a group, a
+ * group. The two kinds are exclusive: an item's own columns hold one or the
+ * other, never both.
+ */
+export type Crown =
+  | { readonly kind: "user"; readonly username: string }
+  | { readonly kind: "group"; readonly groupId: number }
+
+/** A crown as one stable string — change detection and the draft signature. */
+export function crownKey(crown: Crown | null): string {
+  if (crown === null) return ""
+  return crown.kind === "user" ? `user:${crown.username}` : `group:${crown.groupId}`
+}
+
 /** One item's access, in domain terms — a full grant record per capability. */
 export interface ItemAccess {
-  readonly owner: string | null
+  /** The primary owner, or null when the item carries none. */
+  readonly crown: Crown | null
   readonly ownerMissing: boolean
   readonly grants: Readonly<Record<Capability, readonly string[]>>
   /** Group ids granted per capability. Absent reads as "no group grants". */
@@ -27,7 +43,8 @@ export interface ItemAccess {
 
 /** What an edit asks for — an absent field is left exactly as it is. */
 export interface AccessTarget {
-  readonly owner?: string
+  /** The crown to set — omitted leaves the item's own primary owner in place. */
+  readonly crown?: Crown
   readonly grants?: Partial<Record<Capability, readonly string[]>>
   readonly groupGrants?: Partial<Record<Capability, readonly number[]>>
   readonly ownerUsers?: readonly string[]
@@ -35,7 +52,7 @@ export interface AccessTarget {
 }
 
 export type AccessOp =
-  | { readonly kind: "owner"; readonly username: string }
+  | { readonly kind: "crown"; readonly crown: Crown }
   | { readonly kind: "grant"; readonly capability: Capability; readonly username: string }
   | { readonly kind: "revoke"; readonly capability: Capability; readonly username: string }
   | { readonly kind: "group"; readonly groupId: number }
@@ -113,6 +130,15 @@ export function grantedGroupIds(access: ItemAccess): number[] {
  * fields are read defensively: the wire always carries them, but hand-written
  * literals in tests and old cached payloads predate them.
  */
+/** The wire's two owner columns as one crown: a group id wins, else the token. */
+function crownFromView(view: AccessView): Crown | null {
+  if (view.owner_group_id !== null && view.owner_group_id !== undefined) {
+    return { kind: "group", groupId: view.owner_group_id }
+  }
+  if (view.owner === null || view.owner === undefined || view.owner === "") return null
+  return { kind: "user", username: view.owner }
+}
+
 export function itemAccessFromView(view: AccessView): ItemAccess {
   const grants = emptyGrants()
   for (const grant of view.grants) {
@@ -127,7 +153,7 @@ export function itemAccessFromView(view: AccessView): ItemAccess {
     }
   }
   return {
-    owner: view.owner,
+    crown: crownFromView(view),
     ownerMissing: view.owner_missing,
     grants,
     groupGrants,
@@ -137,10 +163,13 @@ export function itemAccessFromView(view: AccessView): ItemAccess {
 }
 
 export function overrideOf(access: ItemAccess, users: readonly string[]): AccessOverride | null {
-  const ownerless = access.owner === null || access.owner === ""
-  if (!ownerless && (access.ownerMissing || !users.includes(access.owner as string))) {
-    return { kind: "owner-missing" }
-  }
+  const crown = access.crown
+  // Only a *user* crown can be checked against the user list; a group crown is
+  // judged by the flag the server computes, which covers a removed group too.
+  const missing =
+    access.ownerMissing ||
+    (crown !== null && crown.kind === "user" && !users.includes(crown.username))
+  if (crown !== null && missing) return { kind: "owner-missing" }
   const count = grantedUsernames(access).length + grantedGroupIds(access).length
   if (count > 0) return { kind: "grants", count }
   return null
@@ -195,17 +224,21 @@ export function planItem(row: AccessRow, target: AccessTarget, users: readonly s
   const groupGrants = mergeGroupGrants(row.access.groupGrants, target.groupGrants)
   const ownerUsers = target.ownerUsers ?? row.access.ownerUsers ?? []
   const ownerGroups = target.ownerGroups ?? row.access.ownerGroups ?? []
+  const crown = target.crown ?? row.access.crown
+  const crownMoved = crownKey(crown) !== crownKey(row.access.crown)
   const to: ItemAccess = {
-    owner: target.owner ?? row.access.owner,
-    ownerMissing: row.access.ownerMissing,
+    crown,
+    // Only an untouched crown can still be the missing account the item carries;
+    // a crown this plan sets is live by construction.
+    ownerMissing: crownMoved ? false : row.access.ownerMissing,
     grants: mergeGrants(row.access.grants, target.grants),
     groupGrants,
     ownerUsers,
     ownerGroups,
   }
   const ops: AccessOp[] = []
-  if (to.owner !== null && to.owner !== row.access.owner) {
-    ops.push({ kind: "owner", username: to.owner })
+  if (crownMoved && crown !== null) {
+    ops.push({ kind: "crown", crown })
   }
   for (const capability of CAPABILITIES) {
     for (const username of to.grants[capability]) {
@@ -265,7 +298,7 @@ function namedTarget(target: AccessTarget): AccessTarget {
     if (groupIds.length > 0) groupGrants[capability] = groupIds
   }
   return {
-    ...(target.owner === undefined || target.owner === "" ? {} : { owner: target.owner }),
+    ...(target.crown === undefined ? {} : { crown: target.crown }),
     ...(Object.keys(grants).length === 0 ? {} : { grants }),
     ...(Object.keys(groupGrants).length === 0 ? {} : { groupGrants }),
     ...((target.ownerUsers ?? []).length > 0 ? { ownerUsers: target.ownerUsers } : {}),
@@ -323,8 +356,12 @@ export interface ApplyOutcome {
  * through the DELETE route instead.
  */
 async function runOp(plan: ItemPlan, op: AccessOp): Promise<void> {
-  if (op.kind === "owner") {
-    await setResourceOwner(plan.resourceType, plan.id, op.username)
+  if (op.kind === "crown") {
+    await setResourceOwner(
+      plan.resourceType,
+      plan.id,
+      op.crown.kind === "user" ? { username: op.crown.username } : { group_id: op.crown.groupId },
+    )
     return
   }
   if (op.kind === "owner-user") {

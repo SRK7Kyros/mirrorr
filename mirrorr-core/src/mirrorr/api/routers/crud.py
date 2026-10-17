@@ -373,8 +373,10 @@ async def _get_paginated_for_user(
     ``everyone`` group included — and any row any of their owner rows names them
     on (an owner user or a group they belong to). VIEW is the base capability, so
     *any* grant admits the row and the grant EXISTS deliberately does not filter
-    on ``capability``. Engines/resolvers have no owner column and never route
-    through here.
+    on ``capability``. A row whose primary owner is a *group* the caller belongs
+    to admits them the same way (the ``everyone`` group included), so a crown
+    handed to a group shows that group's work to its members. Engines/resolvers
+    have no owner column and never route through here.
 
     Returns {"items": [...], "next_cursor": ..., "has_more": ...}.
     """
@@ -413,7 +415,13 @@ async def _get_paginated_for_user(
             )
             .exists()
         )
-        predicate = sa_or(owner_match, granted, owned_by_group, owned_by_user)
+        predicate = sa_or(
+            owner_match,
+            group_holds(user_token, model.requester_group_id),
+            granted,
+            owned_by_group,
+            owned_by_user,
+        )
     stmt = select(model).where(predicate)
     if cursor is not None:
         stmt = stmt.where(model.id < cursor)

@@ -2,7 +2,9 @@ import { useMemo, useRef, useState, type KeyboardEvent } from "react"
 import {
   type AccessOverride,
   type AccessTarget,
+  type Crown,
   type ItemAccess,
+  crownKey,
   emptyGroupGrants,
 } from "@/api/domain/access-plan"
 import { rankBySearch } from "@/api/domain/search"
@@ -35,6 +37,19 @@ export function userLabel(user: User): string {
 export function usernameLabel(users: readonly User[], username: string): string {
   const user = users.find((candidate) => candidate.username === username)
   return user === undefined ? `${username} (missing)` : userLabel(user)
+}
+
+/** The primary owner's label: the user's name, the group's, or the empty copy. */
+export function crownLabel(
+  crown: Crown | null,
+  users: readonly User[],
+  groups: readonly AccessGroup[],
+  empty: string,
+): string {
+  if (crown === null) return empty
+  if (crown.kind === "user") return usernameLabel(users, crown.username)
+  const group = groups.find((candidate) => candidate.id === crown.groupId)
+  return group === undefined ? `Group #${crown.groupId}` : groupLabel(group)
 }
 
 /**
@@ -231,14 +246,14 @@ function accessSignature(access: ItemAccess): string {
   ).join("\u0002")
   const ownerUsers = [...(access.ownerUsers ?? [])].sort().join(",")
   const ownerGroups = [...(access.ownerGroups ?? [])].sort((a, b) => a - b).join(",")
-  return [access.owner ?? "", access.ownerMissing, grants, groupGrants, ownerUsers, ownerGroups].join("\u0000")
+  return [crownKey(access.crown), access.ownerMissing, grants, groupGrants, ownerUsers, ownerGroups].join("\u0000")
 }
 
 /** The group half of an edit — carried beside the user half on the same target. */
 export type GroupDraftTarget = Pick<AccessTarget, "groupGrants" | "ownerGroups">
 
 export interface AccessDraft {
-  readonly owner: string
+  readonly crown: Crown | null
   readonly ownerMissing: boolean
   readonly grants: Readonly<Record<Capability, readonly string[]>>
   readonly groupGrants: Readonly<Record<Capability, readonly number[]>>
@@ -246,7 +261,7 @@ export interface AccessDraft {
   readonly ownerGroups: readonly number[]
   readonly dirty: boolean
   readonly target: AccessTarget & GroupDraftTarget
-  readonly setOwner: (username: string) => void
+  readonly setOwner: (crown: Crown) => void
   readonly grant: (capability: Capability, username: string) => void
   readonly revoke: (capability: Capability, username: string) => void
   readonly grantGroup: (capability: Capability, groupId: number) => void
@@ -282,7 +297,7 @@ export function useAccessDraft(access: ItemAccess): AccessDraft {
   const ownerGroups = draft.ownerGroups ?? []
 
   return {
-    owner: draft.owner ?? "",
+    crown: draft.crown,
     ownerMissing: draft.ownerMissing,
     grants: draft.grants,
     groupGrants,
@@ -290,13 +305,13 @@ export function useAccessDraft(access: ItemAccess): AccessDraft {
     ownerGroups,
     dirty: accessSignature(draft) !== signature,
     target: {
-      owner: draft.owner ?? undefined,
+      crown: draft.crown ?? undefined,
       grants: draft.grants,
       groupGrants,
       ownerUsers,
       ownerGroups,
     },
-    setOwner: (username) => setDraft((current) => ({ ...current, owner: username })),
+    setOwner: (crown) => setDraft((current) => ({ ...current, crown })),
     grant: (capability, username) => setDraft((current) => grantCapability(current, capability, username)),
     revoke: (capability, username) => setDraft((current) => revokeCapability(current, capability, username)),
     grantGroup: (capability, groupId) =>
@@ -341,8 +356,8 @@ export function useAccessDraft(access: ItemAccess): AccessDraft {
  */
 
 const CARD_CLASS =
-  "flex flex-col items-center gap-2 rounded-md border border-line bg-surface-2 p-2 text-center transition-colors " +
-  "hover:border-line-strong hover:bg-surface-3"
+  "flex flex-col items-center gap-2 rounded-md border border-line bg-surface-2 p-2 text-center transition-colors tab-stop " +
+  "hover:border-line-strong hover:bg-surface-3 focus-visible:outline-none"
 
 const CARD_SELECTED_CLASS = "data-[granted=true]:border-brand data-[granted=true]:bg-[var(--accent-dim)]"
 
@@ -353,7 +368,7 @@ const OWNER_LIST_ID = "owner-group-options"
 const CATALOG_ID = "access-catalog-options"
 
 const CHIP_BASE =
-  "inline-flex shrink-0 items-center gap-1.5 h-7 rounded-full border px-3 text-sm font-medium whitespace-nowrap " +
+  "inline-flex shrink-0 items-center gap-1.5 h-7 rounded-full border px-3 text-sm font-medium whitespace-nowrap tab-stop " +
   "transition-colors [&:hover:not(:disabled)]:border-line-strong disabled:opacity-45"
 
 const CHIP_ON = "border-brand bg-[var(--accent-dim)] text-ink"
@@ -429,7 +444,9 @@ export function ResourceAccessEditor({
     if (!ownerMode) selection.setMany(keys)
   })
 
-  const ownerLabel = draft.owner === "" ? emptyOwnerLabel : usernameLabel(users, draft.owner)
+  const ownerLabel = crownLabel(draft.crown, users, groups, emptyOwnerLabel)
+  /** The crown when a *user* holds it — the additive owner lists filter on it. */
+  const crownUsername = draft.crown?.kind === "user" ? draft.crown.username : ""
 
   const groupById = useMemo(() => {
     const map = new Map<number, AccessGroup>()
@@ -447,7 +464,7 @@ export function ResourceAccessEditor({
   const ownerOptions = useMemo(() => {
     const options: OwnerOption[] = [
       ...users
-        .filter((user) => user.username !== draft.owner && !ownerUserSet.has(user.username))
+        .filter((user) => user.username !== crownUsername && !ownerUserSet.has(user.username))
         .map((user) => ({
           kind: "user" as const,
           id: user.username,
@@ -464,7 +481,7 @@ export function ResourceAccessEditor({
         })),
     ]
     return rankBySearch(options, ownerQuery, (option) => [option.label, option.detail])
-  }, [users, groups, draft.owner, ownerUserSet, ownerGroupIdSet, ownerQuery])
+  }, [users, groups, crownUsername, ownerUserSet, ownerGroupIdSet, ownerQuery])
 
   const ownerListOpen = ownerOpen && ownerOptions.length > 0
   const ownerHighlightIndex =
@@ -476,6 +493,7 @@ export function ResourceAccessEditor({
     else draft.addOwnerGroup(Number(option.id))
     setOwnerQuery("")
     setOwnerHighlight(0)
+    setOwnerOpen(false)
   }
 
   function onOwnerKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
@@ -507,43 +525,34 @@ export function ResourceAccessEditor({
   // item is left out — an owner holds every capability implicitly, so a grant row
   // for one would be inert, and the owner row above is where owners are edited.
   const pool = useMemo<PrincipalCard[]>(() => {
-    if (ownerMode) {
-      // The requester owner is a user token, so a transfer picks among users.
-      return users.map((user) => ({
-        kind: "user" as const,
-        id: user.username,
-        key: `user:${user.username}`,
-        label: userLabel(user),
-        detail: `@${user.username}`,
-        meta: "",
-        terms: [user.display_name, user.username],
-      }))
-    }
+    const userCards = users.map((user) => ({
+      kind: "user" as const,
+      id: user.username,
+      key: `user:${user.username}`,
+      label: userLabel(user),
+      detail: `@${user.username}`,
+      meta: "",
+      terms: [user.display_name, user.username],
+    }))
+    const groupCards = groups.map((group) => ({
+      kind: "group" as const,
+      id: String(group.id),
+      key: `group:${group.id}`,
+      label: group.name,
+      detail: group.display_name,
+      meta: groupMembersLabel(group),
+      terms: [group.display_name, group.name],
+    }))
+    // A transfer is a single pick, so neither kind is filtered out of it.
+    if (ownerMode) return [...userCards, ...groupCards]
+    // Whoever already owns the item is left out — an owner holds every capability
+    // implicitly, so a grant row for one would be inert, and the owner row above
+    // is where owners are edited.
     return [
-      ...users
-        .filter((user) => user.username !== draft.owner && !ownerUserSet.has(user.username))
-        .map((user) => ({
-          kind: "user" as const,
-          id: user.username,
-          key: `user:${user.username}`,
-          label: userLabel(user),
-          detail: `@${user.username}`,
-          meta: "",
-          terms: [user.display_name, user.username],
-        })),
-      ...groups
-        .filter((group) => !ownerGroupIdSet.has(group.id))
-        .map((group) => ({
-          kind: "group" as const,
-          id: String(group.id),
-          key: `group:${group.id}`,
-          label: group.name,
-          detail: group.display_name,
-          meta: groupMembersLabel(group),
-          terms: [group.display_name, group.name],
-        })),
+      ...userCards.filter((card) => card.id !== crownUsername && !ownerUserSet.has(card.id)),
+      ...groupCards.filter((card) => !ownerGroupIdSet.has(Number(card.id))),
     ]
-  }, [ownerMode, users, groups, draft.owner, ownerUserSet, ownerGroupIdSet])
+  }, [ownerMode, users, groups, crownUsername, ownerUserSet, ownerGroupIdSet])
 
   const matches = useMemo(() => rankBySearch(pool, query, (card) => card.terms), [pool, query])
 
@@ -574,13 +583,18 @@ export function ResourceAccessEditor({
   )
 
   function isPicked(card: PrincipalCard): boolean {
-    return ownerMode ? draft.owner === card.id : selection.selected.has(card.key)
+    // A card key and a crown key are the same string (`kind:id`).
+    return ownerMode ? crownKey(draft.crown) === card.key : selection.selected.has(card.key)
   }
 
   function pickCard(card: PrincipalCard): void {
     if (busy) return
     if (ownerMode) {
-      draft.setOwner(card.id)
+      draft.setOwner(
+        card.kind === "user"
+          ? { kind: "user", username: card.id }
+          : { kind: "group", groupId: Number(card.id) },
+      )
       return
     }
     selection.toggle(card.key)
@@ -606,6 +620,36 @@ export function ResourceAccessEditor({
       setHighlight(0)
       event.currentTarget.blur()
     }
+  }
+
+  /**
+   * The catalog is one roving stop: Tab lands on the highlighted card and the
+   * arrows move between cards, so a list of fifty principals costs one Tab
+   * press rather than fifty. `Home`/`End` jump to the ends.
+   */
+  function onCardKeyDown(event: KeyboardEvent<HTMLDivElement>, card: PrincipalCard, index: number): void {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault()
+      pickCard(card)
+      return
+    }
+    const forward = event.key === "ArrowDown" || event.key === "ArrowRight"
+    const backward = event.key === "ArrowUp" || event.key === "ArrowLeft"
+    if (!forward && !backward && event.key !== "Home" && event.key !== "End") return
+    if (cards.length === 0) return
+    event.preventDefault()
+    const next =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? cards.length - 1
+          : (Math.min(index, cards.length - 1) + (forward ? 1 : -1) + cards.length) % cards.length
+    setHighlight(next)
+    const target = cards[next]
+    if (target === undefined) return
+    scrollRef.current
+      ?.querySelector<HTMLElement>(`[data-marquee-key="${target.key}"]`)
+      ?.focus()
   }
 
   const offered = offeredCapabilities(resourceType)
@@ -666,7 +710,7 @@ export function ResourceAccessEditor({
           <Avatar name={ownerLabel} small />
           <span className="min-w-0 flex-1 truncate text-base">
             {ownerLabel}
-            {draft.owner !== "" && draft.ownerMissing ? <span className="text-danger"> · missing</span> : null}
+            {draft.crown !== null && draft.ownerMissing ? <span className="text-danger"> · missing</span> : null}
           </span>
           {ownerMode ? (
             <>
@@ -756,39 +800,49 @@ export function ResourceAccessEditor({
                 onKeyDown={onOwnerKeyDown}
               />
 
-              {ownerOpen ? (
-                <div className="absolute top-full right-0 left-0 z-[var(--z-popover)] mt-1 rounded-md border border-line-strong bg-surface-3 p-2 shadow-elev-md">
-                  {ownerOptions.length === 0 ? (
-                    <p className="text-sm text-ink-muted">No users or groups match.</p>
-                  ) : (
-                    <ul
-                      id={OWNER_LIST_ID}
-                      role="listbox"
-                      aria-label="Users and groups to own this item"
-                      className="flex max-h-64 flex-col gap-0.5 overflow-y-auto"
-                    >
-                      {ownerOptions.map((option, index) => (
-                        <li
-                          key={`${option.kind}-${option.id}`}
-                          id={`${OWNER_LIST_ID}-${option.kind}-${option.id}`}
-                          role="option"
-                          aria-selected={index === ownerHighlightIndex}
-                          className={cn(
-                            "flex cursor-pointer items-center justify-between gap-3 rounded px-2 py-1.5 text-sm",
-                            index === ownerHighlightIndex ? "bg-[var(--accent-dim)] text-ink" : "text-ink-muted",
-                          )}
-                          onMouseDown={(event) => event.preventDefault()}
-                          onMouseEnter={() => setOwnerHighlight(index)}
-                          onClick={() => applyOwnerOption(option)}
-                        >
-                          <span className="truncate">{option.label}</span>
-                          <span className="shrink-0 text-2xs text-ink-dim">{option.detail}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              ) : null}
+              {/*
+                Always mounted: unmounting the list on blur removes a node while
+                focus is in transit, and Radix's focus scope then yanks focus back
+                to the dialog container — every control after this field becomes
+                unreachable by Tab.
+              */}
+              <div
+                className={cn(
+                  "absolute top-full right-0 left-0 z-[var(--z-popover)] mt-1 rounded-md border border-line-strong bg-surface-3 p-2 shadow-elev-md",
+                  ownerListOpen ? "" : "hidden",
+                )}
+                aria-hidden={ownerListOpen ? undefined : true}
+              >
+                {ownerOptions.length === 0 ? (
+                  <p className="text-sm text-ink-muted">No users or groups match.</p>
+                ) : (
+                  <ul
+                    id={OWNER_LIST_ID}
+                    role="listbox"
+                    aria-label="Users and groups to own this item"
+                    className="flex max-h-64 flex-col gap-0.5 overflow-y-auto"
+                  >
+                    {ownerOptions.map((option, index) => (
+                      <li
+                        key={`${option.kind}-${option.id}`}
+                        id={`${OWNER_LIST_ID}-${option.kind}-${option.id}`}
+                        role="option"
+                        aria-selected={index === ownerHighlightIndex}
+                        className={cn(
+                          "flex cursor-pointer items-center justify-between gap-3 rounded px-2 py-1.5 text-sm",
+                          index === ownerHighlightIndex ? "bg-[var(--accent-dim)] text-ink" : "text-ink-muted",
+                        )}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onMouseEnter={() => setOwnerHighlight(index)}
+                        onClick={() => applyOwnerOption(option)}
+                      >
+                        <span className="truncate">{option.label}</span>
+                        <span className="shrink-0 text-2xs text-ink-dim">{option.detail}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -869,7 +923,7 @@ export function ResourceAccessEditor({
         ref={scrollRef}
         id={CATALOG_ID}
         role="listbox"
-        aria-label={ownerMode ? "Users" : "Users and groups"}
+        aria-label="Users and groups"
         aria-multiselectable={ownerMode ? undefined : true}
         data-testid="access-catalog"
         className="relative max-h-[calc(100dvh-520px)] min-h-[120px] flex-1 overflow-y-auto rounded-md border border-line-subtle bg-surface-1 p-2 select-none touch-pan-y"
@@ -887,11 +941,14 @@ export function ResourceAccessEditor({
                   role="option"
                   aria-selected={picked}
                   aria-disabled={busy ? true : undefined}
+                  tabIndex={index === highlighted ? 0 : -1}
                   data-marquee-key={card.key}
                   data-granted={picked}
                   data-highlighted={index === highlighted}
                   onClick={() => pickCard(card)}
+                  onFocus={() => setHighlight(index)}
                   onMouseEnter={() => setHighlight(index)}
+                  onKeyDown={(event) => onCardKeyDown(event, card, index)}
                   className={cn(
                     CARD_CLASS,
                     "cursor-pointer",

@@ -29,6 +29,8 @@ const AdminResourceSchema = z
     id: z.number(),
     label: z.string(),
     owner: z.string(),
+    /** The group holding the crown, when a group owns the item instead of a user. */
+    owner_group_id: z.number().nullable().default(null),
     owner_missing: z.boolean(),
     viewer_count: z.number(),
     system: z.boolean(),
@@ -144,6 +146,8 @@ export const AccessViewSchema = z
     resource_type: z.string(),
     id: z.number(),
     owner: z.string().nullable(),
+    /** The group holding the crown, when a group owns the item instead of a user. */
+    owner_group_id: z.number().nullable().default(null),
     owner_missing: z.boolean(),
     grants: z.array(AccessGrantSchema),
     /** Usernames that own the item — additive to the requester `owner`. */
@@ -161,6 +165,7 @@ export const ResourceOwnerSchema = z
     resource_type: z.string(),
     id: z.number(),
     owner: z.string(),
+    owner_group_id: z.number().nullable().default(null),
   })
   .passthrough()
 

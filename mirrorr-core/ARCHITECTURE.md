@@ -728,7 +728,7 @@ When a session's status changes, the `session_lifecycle.py` helper:
 | Role | Permissions |
 |------|------------|
 | `admin` | Full access to all resources |
-| `user` | Own resources (filtered by `requester_user_token`) **plus the capabilities granted** through `resource_access` (`VIEW`/`OPERATE`/`EDIT`/`DELETE`/`SHARE`/`EXPORT`, enforced per action; no capability implies another) |
+| `user` | Own resources (the crown — `requester_user_token`, or the members of `requester_group_id` when a group holds it) **plus the capabilities granted** through `resource_access` (`VIEW`/`OPERATE`/`EDIT`/`DELETE`/`SHARE`/`EXPORT`, enforced per action; no capability implies another) |
 | (API key) | Client-level access, linked to users via `ClientUser` join table |
 
 ### First User Bootstrap

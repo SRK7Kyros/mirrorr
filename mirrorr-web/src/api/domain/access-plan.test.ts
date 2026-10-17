@@ -11,6 +11,7 @@ import {
   planBulk,
   planItem,
   type AccessRow,
+  type Crown,
   type ItemAccess,
 } from "./access-plan"
 import type { AccessView, Capability } from "@/api/schemas/privileged"
@@ -49,8 +50,16 @@ function groupGrantsOf(over: Partial<Record<Capability, number[]>> = {}): Record
   return { ...emptyGroupGrants(), ...over }
 }
 
+function userCrown(username: string): Crown {
+  return { kind: "user", username }
+}
+
+function groupCrown(groupId: number): Crown {
+  return { kind: "group", groupId }
+}
+
 function access(over: Partial<ItemAccess> = {}): ItemAccess {
-  return { owner: "kyros", ownerMissing: false, grants: grants(), ...over }
+  return { crown: userCrown("kyros"), ownerMissing: false, grants: grants(), ...over }
 }
 
 function row(over: Partial<AccessRow> = {}): AccessRow {
@@ -74,13 +83,14 @@ describe("itemAccessFromView", () => {
       id: 7,
       owner: "kyros",
       owner_missing: false,
+      owner_group_id: null,
       grants: [{ username: "bob", capabilities: ["OPERATE", "VIEW"] }],
       owner_users: [],
       owner_groups: [],
       group_grants: [],
     }
     const item = itemAccessFromView(view)
-    expect(item.owner).toBe("kyros")
+    expect(item.crown).toEqual(userCrown("kyros"))
     expect(item.grants.VIEW).toEqual(["bob"])
     expect(item.grants.OPERATE).toEqual(["bob"])
     expect(item.grants.EXPORT).toEqual([])
@@ -92,12 +102,13 @@ describe("itemAccessFromView", () => {
       id: 7,
       owner: null,
       owner_missing: true,
+      owner_group_id: null,
       grants: [],
       owner_users: [],
       owner_groups: [],
       group_grants: [],
     })
-    expect(item.owner).toBeNull()
+    expect(item.crown).toBeNull()
     expect(item.ownerMissing).toBe(true)
   })
 })
@@ -115,13 +126,13 @@ describe("overrideOf", () => {
   })
 
   it("flags an owner the server reports as missing", () => {
-    expect(overrideOf(access({ owner: "ghost", ownerMissing: true }), USERS)).toEqual({
+    expect(overrideOf(access({ crown: userCrown("ghost"), ownerMissing: true }), USERS)).toEqual({
       kind: "owner-missing",
     })
   })
 
   it("flags an owner absent from the user list", () => {
-    expect(overrideOf(access({ owner: "ghost" }), USERS)).toEqual({ kind: "owner-missing" })
+    expect(overrideOf(access({ crown: userCrown("ghost") }), USERS)).toEqual({ kind: "owner-missing" })
   })
 
   it("flags explicit grants and counts distinct users", () => {
@@ -130,22 +141,22 @@ describe("overrideOf", () => {
   })
 
   it("prefers the missing owner when both are true", () => {
-    expect(overrideOf(access({ owner: "ghost", grants: grants({ VIEW: ["alice"] }) }), USERS)).toEqual({
+    expect(overrideOf(access({ crown: userCrown("ghost"), grants: grants({ VIEW: ["alice"] }) }), USERS)).toEqual({
       kind: "owner-missing",
     })
   })
 
   it("treats a null or empty owner as ownerless, not missing", () => {
-    expect(overrideOf(access({ owner: null }), USERS)).toBeNull()
-    expect(overrideOf(access({ owner: "" }), USERS)).toBeNull()
+    expect(overrideOf(access({ crown: null }), USERS)).toBeNull()
+    expect(overrideOf(access({ crown: groupCrown(3) }), USERS)).toBeNull()
   })
 })
 
 describe("planItem", () => {
   it("emits one owner op when only the owner changes", () => {
-    const plan = planItem(row(), { owner: "alice" }, USERS)
-    expect(plan.ops).toEqual([{ kind: "owner", username: "alice" }])
-    expect(plan.to.owner).toBe("alice")
+    const plan = planItem(row(), { crown: userCrown("alice") }, USERS)
+    expect(plan.ops).toEqual([{ kind: "crown", crown: userCrown("alice") }])
+    expect(plan.to.crown).toEqual(userCrown("alice"))
   })
 
   it("leaves absent target fields untouched", () => {
@@ -190,7 +201,7 @@ describe("planItem", () => {
   it("emits nothing when the target equals the current state", () => {
     const plan = planItem(
       row({ access: access({ grants: grants({ VIEW: ["alice"] }) }) }),
-      { owner: "kyros", grants: { VIEW: ["alice"] } },
+      { crown: userCrown("kyros"), grants: { VIEW: ["alice"] } },
       USERS,
     )
     expect(plan.ops).toEqual([])
@@ -198,20 +209,20 @@ describe("planItem", () => {
 
   it("carries the override the item starts with, not the target", () => {
     const plan = planItem(
-      row({ access: access({ owner: "ghost", grants: grants({ VIEW: ["alice"] }) }) }),
-      { owner: "kyros" },
+      row({ access: access({ crown: userCrown("ghost"), grants: grants({ VIEW: ["alice"] }) }) }),
+      { crown: userCrown("kyros") },
       USERS,
     )
     expect(plan.override).toEqual({ kind: "owner-missing" })
-    expect(plan.ops).toEqual([{ kind: "owner", username: "kyros" }])
+    expect(plan.ops).toEqual([{ kind: "crown", crown: userCrown("kyros") }])
   })
 })
 
 describe("planBulk", () => {
   it("counts ops across items", () => {
     const plan = planBulk(
-      [row({ id: 1 }), row({ id: 2, access: access({ owner: "alice" }) })],
-      { owner: "kyros" },
+      [row({ id: 1 }), row({ id: 2, access: access({ crown: userCrown("alice") }) })],
+      { crown: userCrown("kyros") },
       USERS,
     )
     expect(plan.opCount).toBe(1)
@@ -220,12 +231,12 @@ describe("planBulk", () => {
   it("lists only items whose own access a change would overwrite", () => {
     const plan = planBulk(
       [
-        row({ id: 1, label: "clean", access: access({ owner: "alice" }) }),
-        row({ id: 2, label: "shared", access: access({ owner: "alice", grants: grants({ VIEW: ["kyros"] }) }) }),
-        row({ id: 3, label: "ghosted", access: access({ owner: "ghost" }) }),
-        row({ id: 4, label: "already kyros", access: access({ owner: "kyros" }) }),
+        row({ id: 1, label: "clean", access: access({ crown: userCrown("alice") }) }),
+        row({ id: 2, label: "shared", access: access({ crown: userCrown("alice"), grants: grants({ VIEW: ["kyros"] }) }) }),
+        row({ id: 3, label: "ghosted", access: access({ crown: userCrown("ghost") }) }),
+        row({ id: 4, label: "already kyros", access: access({ crown: userCrown("kyros") }) }),
       ],
-      { owner: "kyros" },
+      { crown: userCrown("kyros") },
       USERS,
     )
     expect(plan.overriding.map((item) => item.label)).toEqual(["shared", "ghosted"])
@@ -233,7 +244,7 @@ describe("planBulk", () => {
 
   it("does not warn about an overridden item the change leaves alone", () => {
     const plan = planBulk(
-      [row({ access: access({ owner: "ghost", grants: grants({ VIEW: ["alice"] }) }) })],
+      [row({ access: access({ crown: userCrown("ghost"), grants: grants({ VIEW: ["alice"] }) }) })],
       {},
       USERS,
     )
@@ -282,14 +293,14 @@ describe("applyPlans", () => {
   it("runs each op of each item in order and skips no-ops", async () => {
     const plan = planBulk(
       [
-        row({ id: 1, access: access({ owner: "alice", grants: grants({ VIEW: ["bob"] }) }) }),
-        row({ id: 2, access: access({ owner: "kyros", grants: grants({ VIEW: ["alice"] }) }) }),
+        row({ id: 1, access: access({ crown: userCrown("alice"), grants: grants({ VIEW: ["bob"] }) }) }),
+        row({ id: 2, access: access({ crown: userCrown("kyros"), grants: grants({ VIEW: ["alice"] }) }) }),
       ],
-      { owner: "kyros", grants: { VIEW: ["alice"] } },
+      { crown: userCrown("kyros"), grants: { VIEW: ["alice"] } },
       USERS,
     )
     const outcome = await applyPlans(plan.items)
-    expect(setOwner).toHaveBeenCalledWith("session", 1, "kyros")
+    expect(setOwner).toHaveBeenCalledWith("session", 1, { username: "kyros" })
     expect(grant).toHaveBeenCalledWith("session", 1, "alice", ["VIEW"])
     expect(revoke).toHaveBeenCalledWith("session", 1, "bob")
     expect(setOwner).toHaveBeenCalledTimes(1)
@@ -322,7 +333,7 @@ describe("applyPlans", () => {
   it("emits and sends nothing when the target equals the current state", async () => {
     const plan = planItem(
       row({ access: access({ grants: grants({ VIEW: ["alice"], OPERATE: ["bob"] }) }) }),
-      { owner: "kyros", grants: { VIEW: ["alice"], OPERATE: ["bob"] } },
+      { crown: userCrown("kyros"), grants: { VIEW: ["alice"], OPERATE: ["bob"] } },
       USERS,
     )
     expect(plan.ops).toEqual([])
@@ -336,8 +347,8 @@ describe("applyPlans", () => {
   it("reports a failed item and still runs the rest", async () => {
     vi.mocked(api.setResourceOwner).mockRejectedValueOnce(new Error("403 Forbidden"))
     const plan = planBulk(
-      [row({ id: 1, access: access({ owner: "alice" }) }), row({ id: 2, access: access({ owner: "bob" }) })],
-      { owner: "kyros" },
+      [row({ id: 1, access: access({ crown: userCrown("alice") }) }), row({ id: 2, access: access({ crown: userCrown("bob") }) })],
+      { crown: userCrown("kyros") },
       USERS,
     )
     const outcome = await applyPlans(plan.items)
@@ -355,6 +366,7 @@ describe("itemAccessFromView groups", () => {
       id: 7,
       owner: "kyros",
       owner_missing: false,
+      owner_group_id: null,
       grants: [],
       owner_users: [],
       owner_groups: [{ id: 3, name: "editors", display_name: "Editors", system: false }],
@@ -426,8 +438,8 @@ describe("planItem groups", () => {
   })
 
   it("leaves owner groups alone when the target omits them", () => {
-    const plan = planItem(row({ access: access({ ownerGroups: [3] }) }), { owner: "alice" }, USERS)
-    expect(plan.ops).toEqual([{ kind: "owner", username: "alice" }])
+    const plan = planItem(row({ access: access({ ownerGroups: [3] }) }), { crown: userCrown("alice") }, USERS)
+    expect(plan.ops).toEqual([{ kind: "crown", crown: userCrown("alice") }])
     expect(plan.to.ownerGroups).toEqual([3])
   })
 })
@@ -469,6 +481,7 @@ describe("itemAccessFromView owner users", () => {
       id: 7,
       owner: "kyros",
       owner_missing: false,
+      owner_group_id: null,
       grants: [],
       owner_users: ["alice", "bob"],
       owner_groups: [],
@@ -486,7 +499,7 @@ describe("planItem owner users", () => {
       USERS,
     )
     expect(plan.ops).toEqual([{ kind: "owner-user", username: "bob", owner: true }])
-    expect(plan.to.owner).toBe("kyros")
+    expect(plan.to.crown).toEqual(userCrown("kyros"))
   })
 
   it("emits a removal op when an owner user goes", () => {

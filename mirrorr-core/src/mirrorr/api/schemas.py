@@ -391,12 +391,14 @@ class AccessView(BaseModel):
     with no capabilities; ``group_grants`` lists only groups that hold one.
     ``owner_users`` and ``owner_groups`` are the additive user and group owners,
     beside the requester ``owner``; the privileged ``requester_user_token``
-    field never appears in this view.
+    field never appears in this view. ``owner`` is empty when a group holds the
+    crown, and ``owner_group_id`` names it — the console renders either kind.
     """
 
     resource_type: str
     id: int
     owner: str = ""
+    owner_group_id: int | None = None
     owner_missing: bool = False
     grants: list[GrantEntry] = Field(default_factory=list)
     owner_users: list[str] = Field(default_factory=list)
@@ -421,12 +423,16 @@ class SetGroupGrantsRequest(BaseModel):
 
 
 class ResourceAccessItem(BaseModel):
-    """One row of the admin resource listing: an item, its owner, its viewers."""
+    """One row of the admin resource listing: an item, its owner, its viewers.
+    ``owner`` is the primary owner's label (a username, or the name of the group
+    that holds the crown) and ``owner_group_id`` says which kind it is.
+    """
 
     resource_type: str
     id: int
     label: str
     owner: str = ""
+    owner_group_id: int | None = None
     owner_missing: bool = False
     viewer_count: int = 0
     owner_users: list[str] = Field(default_factory=list)
@@ -441,13 +447,17 @@ class ResourceAccessListResponse(BaseModel):
 
 
 class TransferOwnerRequest(BaseModel):
-    username: str = Field(max_length=64)
+    """Exactly one of the two: a username, or a group id."""
+
+    username: str = Field(default="", max_length=64)
+    group_id: int | None = None
 
 
 class SetOwnerResponse(BaseModel):
     resource_type: str
     id: int
     owner: str
+    owner_group_id: int | None = None
 
 
 # ── Groups ─────────────────────────────────────────────────────────────

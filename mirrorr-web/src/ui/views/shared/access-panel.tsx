@@ -16,7 +16,7 @@ import { Button, Dialog, ErrorPanel, SkeletonRows, toast } from "@/ui/components
 import { ResourceAccessEditor, resourceTypeLabel, useAccessDraft } from "./resource-access"
 
 const EMPTY_ACCESS: ItemAccess = {
-  owner: null,
+  crown: null,
   ownerMissing: false,
   grants: emptyGrants(),
   groupGrants: emptyGroupGrants(),

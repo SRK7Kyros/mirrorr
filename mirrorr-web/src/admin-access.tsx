@@ -4,6 +4,7 @@ import { fetchGroups, fetchResourceAccess, fetchUsers, getErrorMessage } from "@
 import {
   applyPlans,
   bulkTargetFor,
+  crownKey,
   emptyGrants,
   emptyGroupGrants,
   itemAccessFromView,
@@ -30,6 +31,7 @@ import { AccessPanel } from "@/ui/views/shared/access-panel"
 import {
   ResourceAccessEditor,
   capabilityLabel,
+  crownLabel,
   overrideLabel,
   resourceTypeLabel,
   useAccessDraft,
@@ -57,7 +59,7 @@ function invalidateAccess(queryClient: ReturnType<typeof useQueryClient>): void 
 
 /** A bulk draft starts empty: it names what to set, never what each item has. */
 const EMPTY_DRAFT: ItemAccess = {
-  owner: null,
+  crown: null,
   ownerMissing: false,
   grants: emptyGrants(),
   groupGrants: emptyGroupGrants(),
@@ -129,7 +131,7 @@ function AccessDelta({
   const toOwnerUsers = plan.to.ownerUsers ?? []
   const fromOwnerGroups = plan.from.ownerGroups ?? []
   const toOwnerGroups = plan.to.ownerGroups ?? []
-  const ownerChanged = plan.from.owner !== plan.to.owner
+  const ownerChanged = crownKey(plan.from.crown) !== crownKey(plan.to.crown)
   const ownerUsersChanged = !sameSet(fromOwnerUsers, toOwnerUsers)
   const ownerGroupsChanged = !sameSet(fromOwnerGroups, toOwnerGroups)
 
@@ -142,8 +144,8 @@ function AccessDelta({
       {ownerChanged ? (
         <DeltaRow
           label="Owner"
-          from={usernameLabel(users, plan.from.owner ?? "")}
-          to={usernameLabel(users, plan.to.owner ?? "")}
+          from={crownLabel(plan.from.crown, users, groups, "None")}
+          to={crownLabel(plan.to.crown, users, groups, "None")}
         />
       ) : null}
       {capabilities.map((capability) => (

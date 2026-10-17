@@ -92,7 +92,9 @@ async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) 
                         resolver_config=autorun.resolver_config,
                         retry_mode=autorun.retry_mode,
                         retry_config=autorun.retry_config,
-                        requester_user_token=autorun.requester_user_token or f"autorun:{autorun.id}",
+                        requester_user_token=autorun.requester_user_token
+                        or ("" if autorun.requester_group_id is not None else f"autorun:{autorun.id}"),
+                        requester_group_id=autorun.requester_group_id,
                         recording=autorun.recording,
                     )
                     db.add(session)

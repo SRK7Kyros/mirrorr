@@ -60,6 +60,8 @@ class Recording(SQLModel, table=True):
     size_bytes: int
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     requester_user_token: str = Field(default="")
+    # A group primary owner (at most one of the two is set); see AccessView.
+    requester_group_id: int | None = Field(default=None, index=True)
 
     subscriptions: list["EventSubscription"] = Relationship(
         sa_relationship_kwargs={
@@ -94,6 +96,8 @@ class Autorun(SQLModel, table=True):
     end_time: datetime
     recording: bool = Field(default=True)
     requester_user_token: str = Field(default="")
+    # A group primary owner (at most one of the two is set); see AccessView.
+    requester_group_id: int | None = Field(default=None, index=True)
 
     # One-shot schedule — the "next run" is simply start_time until it fires.
     # last_run_at is set when the autorun transitions out of SCHEDULED.
@@ -127,6 +131,8 @@ class Session(SQLModel, table=True):
     started_at: datetime | None = Field(default=None)
     ended_at: datetime | None = Field(default=None)
     requester_user_token: str
+    # A group primary owner (at most one of the two is set); see AccessView.
+    requester_group_id: int | None = Field(default=None, index=True)
     session_urls: list[dict[str, str]] = Field(default_factory=list, sa_column=Column(SAJSON))
     attempts: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(SAJSON))
     # Absolute path to the session folder; lets API read logs/progress even
@@ -156,6 +162,8 @@ class Profile(SQLModel, table=True):
     retry_mode: str = Field(default="none")
     retry_config: dict[str, Any] = Field(default_factory=dict, sa_column=Column(SAJSON))
     requester_user_token: str = Field(default="")
+    # A group primary owner (at most one of the two is set); see AccessView.
+    requester_group_id: int | None = Field(default=None, index=True)
 
     sessions: list["Session"] = Relationship(back_populates="profile")
     autoruns: list["Autorun"] = Relationship(back_populates="profile")
@@ -213,6 +221,8 @@ class ResolverSource(SQLModel, table=True):
     resolver_id: int = Field(foreign_key="resolvers.id")
     resolver_config: dict[str, Any] = Field(default_factory=dict, sa_column=Column(SAJSON))
     requester_user_token: str = Field(default="")
+    # A group primary owner (at most one of the two is set); see AccessView.
+    requester_group_id: int | None = Field(default=None, index=True)
 
     resolver: Resolver = Relationship(back_populates="sources")
 
@@ -422,7 +432,8 @@ class GroupMember(SQLModel, table=True):
 class ResourceOwnerGroup(SQLModel, table=True):
     """An additive *group* owner of one resource.
 
-    Ownership is additive: the single user owner (``requester_user_token``) is
+    Ownership is additive: the primary owner — the user in
+    ``requester_user_token``, or the group in ``requester_group_id`` — is
     untouched and each row here gives every member of the group all six
     capabilities on the item, exactly like the owner. Keyed by ``group_id``, so
     renaming a group needs no cascade.
@@ -441,11 +452,11 @@ class ResourceOwnerGroup(SQLModel, table=True):
 class ResourceOwnerUser(SQLModel, table=True):
     """An additive *user* owner of one resource.
 
-    Owners are a list: the requester (``requester_user_token``) always owns the
-    item, and every row here gives that user all six capabilities on it, exactly
-    like the owner. ``username`` matches ``User.username`` without a FK (the
-    ``resource_access`` convention), so a deleted user's row is inert until
-    ``deleteUser`` clears it.
+    Owners are a list: the primary owner — the user in ``requester_user_token``,
+    or the group in ``requester_group_id`` — always owns the item, and every row
+    here gives that user all six capabilities on it, exactly like the owner.
+    ``username`` matches ``User.username`` without a FK (the ``resource_access``
+    convention), so a deleted user's row is inert until ``deleteUser`` clears it.
     """
     __tablename__ = "resource_owner_users"
     __table_args__ = (

@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import type { ReactNode } from "react"
 import { AdministrationSection } from "./admin-surface"
+import type { OwnerTarget } from "@/api/endpoints/access"
 
 const api = vi.hoisted(() => ({
   approveRegistrationRequest: vi.fn(),
@@ -114,8 +115,13 @@ beforeEach(() => {
   api.fetchUsers.mockResolvedValue(USERS)
   api.fetchAdminResources.mockResolvedValue({ items: [], total: 0 })
   api.fetchResourceAccess.mockResolvedValue(accessView())
-  api.setResourceOwner.mockImplementation((_type: string, _id: number, username: string) =>
-    Promise.resolve({ resource_type: "session", id: 7, owner: username }),
+  api.setResourceOwner.mockImplementation((_type: string, _id: number, target: OwnerTarget) =>
+    Promise.resolve({
+      resource_type: "session",
+      id: 7,
+      owner: "username" in target ? target.username : "",
+      owner_group_id: "group_id" in target ? target.group_id : null,
+    }),
   )
   api.setResourceGrants.mockResolvedValue(accessView())
   api.revokeResourceUser.mockResolvedValue(accessView())
@@ -186,7 +192,24 @@ describe("ResourceAccessSection", () => {
     fireEvent.click(within(screen.getByTestId("access-catalog")).getByRole("option", { name: /Alice/ }))
     fireEvent.click(screen.getByRole("button", { name: "Apply changes" }))
 
-    await waitFor(() => expect(api.setResourceOwner).toHaveBeenCalledWith("session", 7, "alice"))
+    await waitFor(() => expect(api.setResourceOwner).toHaveBeenCalledWith("session", 7, { username: "alice" }))
+  })
+
+  it("crowns a group through the dialog", async () => {
+    api.fetchAdminResources.mockResolvedValue({ items: [resource()], total: 1 })
+    api.fetchGroups.mockResolvedValue({
+      items: [{ id: 2, name: "editors", display_name: "Editors", system: false, member_count: 3, members: [] }],
+      total: 1,
+    })
+
+    renderAdmin()
+
+    fireEvent.click(await screen.findByRole("button", { name: "Manage access for F1 Weekend" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Change" }))
+    fireEvent.click(within(screen.getByTestId("access-catalog")).getByRole("option", { name: /Editors/ }))
+    fireEvent.click(screen.getByRole("button", { name: "Apply changes" }))
+
+    await waitFor(() => expect(api.setResourceOwner).toHaveBeenCalledWith("session", 7, { group_id: 2 }))
   })
 
   it("adds a viewer through the dialog", async () => {
