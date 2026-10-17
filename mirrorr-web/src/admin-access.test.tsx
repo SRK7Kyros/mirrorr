@@ -74,7 +74,7 @@ describe("access affordances keep their clicks off the card", () => {
     expect(openCard).toHaveBeenCalledTimes(0)
 
     fireEvent.click(await within(dialog).findByLabelText("Search users and groups"))
-    fireEvent.click(within(dialog).getByRole("button", { name: "Change" }))
+    fireEvent.click(within(dialog).getByRole("button", { name: "Change the owner" }))
     fireEvent.click(within(dialog).getByTestId("access-catalog"))
     expect(openCard).toHaveBeenCalledTimes(0)
   })

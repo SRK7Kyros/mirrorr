@@ -109,7 +109,7 @@ describe("AccessPanel", () => {
     await loaded()
 
     expect(screen.getByText("Kyros")).toBeTruthy()
-    expect(screen.getByRole("button", { name: "Change" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Change the owner" })).toBeTruthy()
     expect(card("Alice")).toBeTruthy()
     expect(card("Bob")).toBeTruthy()
     // One list carries both kinds; the owner is left out of the grant list.
@@ -295,7 +295,7 @@ describe("AccessPanel", () => {
     renderPanel()
     await loaded()
 
-    fireEvent.click(screen.getByRole("button", { name: "Change" }))
+    fireEvent.click(screen.getByRole("button", { name: "Change the owner" }))
     expect(screen.getByText("Pick the new owner")).toBeTruthy()
     // A transfer is a single pick over both kinds, and it hides the grant chip row.
     expect(screen.getByRole("listbox", { name: "Users and groups" })).toBeTruthy()
