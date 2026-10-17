@@ -820,6 +820,7 @@ test.describe("admin resource access", () => {
     api.data.resources = [sessionRow()];
     api.data.groups = GROUPS;
 
+    await page.setViewportSize({ width: 1280, height: 900 });
     await openAdminSettings(page);
     await resourcePanel(page)
       .getByRole("button", { name: "Manage access for F1 Weekend" })
@@ -871,10 +872,10 @@ test.describe("admin resource access", () => {
     await ownerOptions.getByRole("option", { name: /Everyone/ }).click();
     const alert = dialog
       .getByRole("alert")
-      .filter({ hasText: "every permission, delete included" });
+      .filter({ hasText: "including future ones" });
     await expect(alert).toBeVisible();
     const warningText = alert.getByText(
-      "Everyone: every permission, delete included.",
+      "Everyone is an owner: every account, including future ones, gets every permission on this item — delete included.",
     );
     expect(
       await warningText.evaluate(
@@ -896,6 +897,7 @@ test.describe("admin resource access", () => {
       dialog.getByText("Owners get every permission on this item."),
     ).toHaveCount(0);
     const overridesYAfterAlert = (await overridesLabel.boundingBox())?.y ?? -1;
+    await page.setViewportSize({ width: 390, height: 844 });
     expect(
       Math.abs(overridesYAfterAlert - overridesYBeforeAlert),
     ).toBeLessThanOrEqual(2);
