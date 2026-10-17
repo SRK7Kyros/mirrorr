@@ -549,8 +549,10 @@ describe("ResourceAccessFields — groups", () => {
 
     expect(screen.getByRole("button", { name: "Remove owner group Editors" })).toBeTruthy()
 
-    fireEvent.click(screen.getByRole("button", { name: "Add owner group" }))
-    fireEvent.click(screen.getByRole("button", { name: "Add owner group Operations" }))
+    fireEvent.change(screen.getByRole("combobox", { name: "Add owner group" }), {
+      target: { value: "operations" },
+    })
+    fireEvent.click(screen.getByRole("option", { name: /Operations/ }))
     fireEvent.click(applyButton())
 
     const target = onApply.mock.calls[0][0] as AccessTarget & GroupDraftTarget
@@ -562,6 +564,29 @@ describe("ResourceAccessFields — groups", () => {
     const second = onApply.mock.calls[1][0] as AccessTarget & GroupDraftTarget
     expect([...(second.ownerGroups ?? [])]).toEqual([3])
     expect(second.owner).toBe("kyros")
+  })
+
+  it("adds the highlighted owner group with the arrow keys and enter", () => {
+    const onApply = vi.fn()
+    render(
+      <ResourceAccessFields
+        resourceType="session"
+        access={access()}
+        users={USERS}
+        groups={GROUPS}
+        onApply={onApply}
+      />,
+    )
+
+    const field = screen.getByRole("combobox", { name: "Add owner group" })
+    fireEvent.focus(field)
+    expect(screen.getAllByRole("option")).toHaveLength(3)
+    fireEvent.keyDown(field, { key: "ArrowDown" })
+    fireEvent.keyDown(field, { key: "Enter" })
+    fireEvent.click(applyButton())
+
+    const target = onApply.mock.calls[0][0] as AccessTarget & GroupDraftTarget
+    expect([...(target.ownerGroups ?? [])]).toEqual([2])
   })
 
   it("warns loudly when the everyone group owns the item", () => {
@@ -592,8 +617,10 @@ describe("ResourceAccessFields — groups", () => {
     )
 
     expect(screen.queryByRole("alert")).toBeNull()
-    fireEvent.click(screen.getByRole("button", { name: "Add owner group" }))
-    fireEvent.click(screen.getByRole("button", { name: "Add owner group Everyone" }))
+    fireEvent.change(screen.getByRole("combobox", { name: "Add owner group" }), {
+      target: { value: "everyone" },
+    })
+    fireEvent.click(screen.getByRole("option", { name: /Everyone/ }))
     expect(screen.getByRole("alert").textContent).toContain("Every account gets full control of this item")
   })
 

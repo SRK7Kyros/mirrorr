@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react"
+import { useMemo, useRef, useState, type KeyboardEvent } from "react"
 import {
   type AccessOverride,
   type AccessTarget,
@@ -326,6 +326,8 @@ const CARD_CLASS =
 
 const CARD_SELECTED_CLASS = "data-[granted=true]:border-brand data-[granted=true]:bg-[var(--accent-dim)]"
 
+const OWNER_LIST_ID = "owner-group-options"
+
 const CHIP_BASE =
   "inline-flex shrink-0 items-center gap-1.5 h-7 rounded-full border px-3 text-sm font-medium whitespace-nowrap " +
   "transition-colors [&:hover:not(:disabled)]:border-line-strong disabled:opacity-45"
@@ -364,15 +366,16 @@ export function ResourceAccessEditor({
   const [ownerMode, setOwnerMode] = useState(false)
   const [note, setNote] = useState("")
   const [principal, setPrincipal] = useState<Principal>("users")
-  const [ownerPicker, setOwnerPicker] = useState(false)
+  const [ownerOpen, setOwnerOpen] = useState(false)
   const [ownerQuery, setOwnerQuery] = useState("")
+  const [ownerHighlight, setOwnerHighlight] = useState(0)
 
   const userSelection = useSelection<string>()
   const groupSelection = useSelection<string>()
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
   // The owner transfer is a single-pick user list, so it forces the user
-  // catalog and hides the switch; the group owner picker is separate.
+  // catalog and hides the switch; the group owner field is separate.
   const active: Principal = ownerMode ? "users" : principal
   const activeSelection = active === "groups" ? groupSelection : userSelection
   const marquee = useMarqueeSelection(scrollRef, (keys) => activeSelection.setMany(keys))
@@ -400,6 +403,37 @@ export function ResourceAccessEditor({
       ),
     [groups, ownerGroupIdSet, ownerQuery],
   )
+
+  const ownerListOpen = ownerOpen && ownerCandidates.length > 0
+  const ownerHighlightIndex =
+    ownerCandidates.length === 0 ? 0 : Math.min(ownerHighlight, ownerCandidates.length - 1)
+
+  function addOwnerGroup(group: AccessGroup): void {
+    if (busy) return
+    draft.addOwnerGroup(group.id)
+    setOwnerQuery("")
+    setOwnerHighlight(0)
+  }
+
+  function onOwnerKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (ownerCandidates.length === 0) return
+      event.preventDefault()
+      setOwnerOpen(true)
+      const step = event.key === "ArrowDown" ? 1 : -1
+      setOwnerHighlight(
+        (current) => (current + step + ownerCandidates.length) % ownerCandidates.length,
+      )
+    } else if (event.key === "Enter") {
+      const group = ownerCandidates[ownerHighlightIndex]
+      if (group === undefined) return
+      event.preventDefault()
+      addOwnerGroup(group)
+    } else if (event.key === "Escape") {
+      setOwnerQuery("")
+      setOwnerOpen(false)
+    }
+  }
 
   const userCatalog = useMemo(() => {
     const pool = ownerMode ? users : users.filter((user) => user.username !== draft.owner)
@@ -590,53 +624,72 @@ export function ResourceAccessEditor({
                 </span>
               )
             })}
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() => {
-                setOwnerPicker((open) => !open)
-                setOwnerQuery("")
-              }}
-            >
-              <IconPlus size={14} /> Add owner group
-            </Button>
+            <div className="min-w-[200px] flex-1">
+              <Input
+                type="search"
+                autoComplete="off"
+                value={ownerQuery}
+                placeholder="Add a group as owner…"
+                aria-label="Add owner group"
+                role="combobox"
+                aria-expanded={ownerListOpen}
+                aria-controls={ownerListOpen ? OWNER_LIST_ID : undefined}
+                aria-autocomplete="list"
+                aria-activedescendant={
+                  ownerListOpen
+                    ? `${OWNER_LIST_ID}-${ownerCandidates[ownerHighlightIndex].id}`
+                    : undefined
+                }
+                disabled={busy}
+                onChange={(event) => {
+                  setOwnerQuery(event.target.value)
+                  setOwnerOpen(true)
+                  setOwnerHighlight(0)
+                }}
+                onFocus={() => setOwnerOpen(true)}
+                onBlur={() => setOwnerOpen(false)}
+                onKeyDown={onOwnerKeyDown}
+              />
+            </div>
           </div>
         )}
 
-        {ownerMode || !ownerPicker ? null : (
+        {ownerMode || !ownerOpen ? null : (
           <div className="rounded-md border border-line-subtle bg-surface-2 p-2">
-            <Input
-              type="search"
-              autoComplete="off"
-              value={ownerQuery}
-              placeholder="Search groups…"
-              aria-label="Search owner groups"
-              onChange={(event) => setOwnerQuery(event.target.value)}
-            />
-            <div className="mt-2 flex flex-wrap gap-2">
-              {ownerCandidates.length === 0 ? (
-                <p className="text-sm text-ink-muted">No groups match.</p>
-              ) : (
-                ownerCandidates.map((group) => (
-                  <button
+            {ownerCandidates.length === 0 ? (
+              <p className="text-sm text-ink-muted">No groups match.</p>
+            ) : (
+              <ul
+                id={OWNER_LIST_ID}
+                role="listbox"
+                aria-label="Groups to own this item"
+                className="flex flex-col gap-0.5"
+              >
+                {ownerCandidates.map((group, index) => (
+                  <li
                     key={group.id}
-                    type="button"
-                    aria-label={`Add owner group ${groupLabel(group)}`}
-                    disabled={busy}
-                    className={cn(CHIP_BASE, CHIP_OFF)}
-                    onClick={() => {
-                      draft.addOwnerGroup(group.id)
-                      setOwnerPicker(false)
-                      setOwnerQuery("")
-                    }}
+                    id={`${OWNER_LIST_ID}-${group.id}`}
+                    role="option"
+                    aria-selected={index === ownerHighlightIndex}
+                    className={cn(
+                      "flex cursor-pointer items-center justify-between gap-3 rounded px-2 py-1.5 text-sm",
+                      index === ownerHighlightIndex ? "bg-surface-1 text-ink" : "text-ink-muted",
+                    )}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setOwnerHighlight(index)}
+                    onClick={() => addOwnerGroup(group)}
                   >
-                    <IconPlus size={14} />
-                    {groupLabel(group)}
-                  </button>
-                ))
-              )}
-            </div>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <IconPlus size={14} className="text-ink-dim" />
+                      <span className="truncate">{groupLabel(group)}</span>
+                    </span>
+                    <span className="shrink-0 text-2xs text-ink-dim">
+                      {groupMembersLabel(group)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 

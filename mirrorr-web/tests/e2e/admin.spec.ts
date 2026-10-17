@@ -573,10 +573,12 @@ test.describe("admin resource access", () => {
 
     // Ownership is additive and `everyone` may be chosen — the panel says plainly
     // what that means before anything is applied.
-    await dialog.getByRole("button", { name: "Add owner group" }).click()
-    await dialog.getByRole("button", { name: "Add owner group F1 team" }).click()
-    await dialog.getByRole("button", { name: "Add owner group" }).click()
-    await dialog.getByRole("button", { name: "Add owner group Everyone" }).click()
+    const ownerField = dialog.getByRole("combobox", { name: "Add owner group" })
+    const ownerOptions = dialog.getByRole("listbox", { name: "Groups to own this item" })
+    await ownerField.fill("F1")
+    await ownerOptions.getByRole("option", { name: /F1 team/ }).click()
+    await ownerField.fill("everyone")
+    await ownerOptions.getByRole("option", { name: /Everyone/ }).click()
     await expect(
       dialog.getByRole("alert").filter({ hasText: "Every account gets full control of this item" }),
     ).toBeVisible()
