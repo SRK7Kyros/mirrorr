@@ -649,6 +649,14 @@ Status vocabulary and actions come from §1.4. All lists use cursor pagination
   "converts to UTC on save"; `formatDateTime`, `formatRelativeTime`,
   `formatCountdown`, `formatBytes`, `formatDuration` from the spine.
 
+- **Text selection**: the shell is an application, not a document — `body` sets
+  `user-select: none` (`base.css`), so a click on chrome never drops a caret and
+  a drag across a card or a row never starts a selection (the access catalog's
+  marquee is pointer-event based and unaffected). Selection stays where the text
+  *is* the content: `input`, `textarea`, `[contenteditable]`, `code`, `kbd`,
+  `samp`, `pre`, `.mono`, plus any `.selectable` / `[data-selectable]` opt-in
+  (banner copy, the JSON tree).
+
 ### 5.14 Per-item access (admin build only)
 
 Ownership and view access are editable **on each item**, not only from the settings panel.
@@ -841,6 +849,11 @@ indicator as a whole always has a ≥3:1 boundary. Focus is never a glow.
 - Tables: row link is the tab stop; row actions reachable via the overflow menu
   (⋯ is focusable); status chips with navigation are links.
 - Switch: Space/Enter toggles; every switch has a visible label (not colour-only).
+- Inline forms: a form (or a panel that behaves as one, e.g. Import) owns Tab —
+  `useFocusScope` (`src/ui/components/focus-scope.tsx`) cycles its own controls
+  at both edges, and Escape moves focus to the next control outside it: the
+  documented exit that keeps it clear of WCAG 2.1.2. Dialogs are untouched —
+  Radix already traps their focus, and Escape there closes the dialog.
 - Every destructive path is confirm-dialog mediated (sessions, autoruns with
   live-run warning, recordings, profiles, users, client keys).
 
