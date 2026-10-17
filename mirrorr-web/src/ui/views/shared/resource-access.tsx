@@ -167,7 +167,7 @@ export const EVERYONE_NOTE = "every account, including future ones";
 
 /** The loud inline warning shown while `everyone` owns an item. */
 export const EVERYONE_OWNER_WARNING =
-  "Everyone is selected — every account gets full control of this item, including delete.";
+  "Everyone: full control, including delete.";
 
 /** The member line on a group card — a count, or the implicit-membership note. */
 export function groupMembersLabel(group: AccessGroup): string {
@@ -935,7 +935,7 @@ export function ResourceAccessEditor({
   return (
     <div className="flex min-h-0 flex-col gap-3">
       <div className="flex flex-col gap-2 rounded-md border border-line-subtle bg-surface-1 px-2.5 py-1.5">
-        <div className="flex flex-wrap items-baseline gap-x-2">
+        <div className="flex flex-wrap items-center gap-x-2">
           <span className="text-2xs uppercase tracking-wide text-ink-dim">
             Ownership
           </span>

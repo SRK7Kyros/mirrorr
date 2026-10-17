@@ -1,23 +1,23 @@
-import type { ReactNode } from "react"
-import { cn } from "@/ui/lib/cn"
+import type { ReactNode } from "react";
+import { cn } from "@/ui/lib/cn";
 
 export interface PageProps {
-  readonly title?: ReactNode
-  readonly description?: ReactNode
-  readonly actions?: ReactNode
-  readonly children: ReactNode
-  readonly className?: string
+  readonly title?: ReactNode;
+  readonly description?: ReactNode;
+  readonly actions?: ReactNode;
+  readonly children: ReactNode;
+  readonly className?: string;
 }
 
 interface HeadProps {
-  readonly title?: ReactNode
-  readonly description?: ReactNode
-  readonly actions?: ReactNode
-  readonly level: "h1" | "h2"
+  readonly title?: ReactNode;
+  readonly description?: ReactNode;
+  readonly actions?: ReactNode;
+  readonly level: "h1" | "h2";
 }
 
 function Head({ title, description, actions, level }: HeadProps) {
-  if (title === undefined) return null
+  if (title === undefined) return null;
   return (
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div className="min-w-0">
@@ -26,10 +26,14 @@ function Head({ title, description, actions, level }: HeadProps) {
             {title}
           </h1>
         ) : (
-          <h2 className="text-xl font-semibold leading-tight tracking-[-0.01em]">{title}</h2>
+          <h2 className="text-xl font-semibold leading-tight tracking-[-0.01em]">
+            {title}
+          </h2>
         )}
         {description !== undefined ? (
-          <p className="mt-1 max-w-[68ch] text-md leading-normal text-ink-muted">{description}</p>
+          <p className="mt-1 max-w-[68ch] text-md leading-normal text-ink-muted">
+            {description}
+          </p>
         ) : null}
       </div>
       {actions !== undefined ? (
@@ -38,14 +42,20 @@ function Head({ title, description, actions, level }: HeadProps) {
         </div>
       ) : null}
     </div>
-  )
+  );
 }
 
 /**
  * Page scaffolding — the page column every view renders into, with the
  * optional title/description/actions head. Views own their own body.
  */
-export function Page({ title, description, actions, children, className }: PageProps) {
+export function Page({
+  title,
+  description,
+  actions,
+  children,
+  className,
+}: PageProps) {
   return (
     <main
       className={cn(
@@ -53,10 +63,15 @@ export function Page({ title, description, actions, children, className }: PageP
         className,
       )}
     >
-      <Head title={title} description={description} actions={actions} level="h1" />
+      <Head
+        title={title}
+        description={description}
+        actions={actions}
+        level="h1"
+      />
       {children}
     </main>
-  )
+  );
 }
 
 /**
@@ -64,11 +79,22 @@ export function Page({ title, description, actions, children, className }: PageP
  * single view holds more than one list (e.g. profiles + sources). Adjacent
  * sections are separated by the `[&+&]:mt-8` sibling margin.
  */
-export function Section({ title, description, actions, children, className }: PageProps) {
+export function Section({
+  title,
+  description,
+  actions,
+  children,
+  className,
+}: PageProps) {
   return (
     <section className={cn("flex flex-col gap-4 [&+&]:mt-8", className)}>
-      <Head title={title} description={description} actions={actions} level="h2" />
+      <Head
+        title={title}
+        description={description}
+        actions={actions}
+        level="h2"
+      />
       {children}
     </section>
-  )
+  );
 }

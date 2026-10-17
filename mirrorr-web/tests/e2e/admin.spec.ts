@@ -871,11 +871,27 @@ test.describe("admin resource access", () => {
     await ownerOptions.getByRole("option", { name: /Everyone/ }).click();
     const alert = dialog
       .getByRole("alert")
-      .filter({ hasText: "every account gets full control of this item" });
+      .filter({ hasText: "full control, including delete" });
     await expect(alert).toBeVisible();
+    const warningText = alert.getByText(
+      "Everyone: full control, including delete.",
+    );
     expect(
-      await alert.evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
+      await warningText.evaluate(
+        (node) => node.scrollWidth <= node.clientWidth + 1,
+      ),
     ).toBe(true);
+    const labelBox = await dialog
+      .getByText("Ownership", { exact: true })
+      .boundingBox();
+    const alertBox = await alert.boundingBox();
+    expect(
+      Math.abs(
+        labelBox!.y +
+          labelBox!.height / 2 -
+          (alertBox!.y + alertBox!.height / 2),
+      ),
+    ).toBeLessThanOrEqual(1.5);
     await expect(
       dialog.getByText("Owners get every permission on this item."),
     ).toHaveCount(0);
