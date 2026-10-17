@@ -151,7 +151,8 @@ def test_replace_set_idempotent_and_exact(tmp_path):
             first = await h.client.post(f"/shares/session/{sid}", json=_VIEW_OPERATE)
             assert first.status_code == 200, first.text
             assert first.json() == {
-                "resource_type": "session", "id": sid, "owner": "alice", "owner_missing": False,
+                "resource_type": "session", "id": sid, "owner": "alice", "owner_group_id": None,
+                "owner_missing": False,
                 "grants": [{"username": "bob", "capabilities": ["VIEW", "OPERATE"]}],
                 "owner_users": [], "owner_groups": [], "group_grants": [],
             }
@@ -344,7 +345,7 @@ def test_source_view_carries_no_owner_token(tmp_path):
             view = await h.client.get(f"/shares/source/{source_id}")
             assert view.status_code == 200, view.text
             assert set(view.json().keys()) == {
-                "resource_type", "id", "owner", "owner_missing", "grants",
+                "resource_type", "id", "owner", "owner_group_id", "owner_missing", "grants",
                 "owner_users", "owner_groups", "group_grants",
             }
             assert "requester_user_token" not in view.text

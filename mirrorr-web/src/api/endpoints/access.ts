@@ -70,15 +70,18 @@ export function fetchResourceAccess(resourceType: string, id: number): Promise<A
   )
 }
 
-/** `PUT /admin/resources/{type}/{id}/owner` — reassign ownership (admin-only, idempotent). */
+/** The body `PUT …/owner` takes: exactly one of the two kinds of crown. */
+export type OwnerTarget = { readonly username: string } | { readonly group_id: number }
+
+/** `PUT /admin/resources/{type}/{id}/owner` — set the crown, to a user or a group. */
 export function setResourceOwner(
   resourceType: string,
   id: number,
-  username: string,
+  target: OwnerTarget,
 ): Promise<ResourceOwner> {
   return apiFetch<unknown>(`/admin/resources/${encodeURIComponent(resourceType)}/${id}/owner`, {
     method: "PUT",
-    body: { username },
+    body: target,
   }).then((data) => parseOrThrow(ResourceOwnerSchema, data))
 }
 

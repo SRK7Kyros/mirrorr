@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, Request
 from fastapi.responses import JSONResponse
 from loguru import logger
+from sqlalchemy import or_ as sa_or
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlmodel import col as sa_col, delete as sql_delete, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -920,11 +921,18 @@ def _granted_capabilities(names: list[str]) -> list[Capability]:
 
 
 async def _access_view(
-    db: AsyncSession, tag: str, rt: ResourceType, resource_id: int, owner: str
+    db: AsyncSession,
+    tag: str,
+    rt: ResourceType,
+    resource_id: int,
+    owner: str,
+    owner_group_id: int | None = None,
 ) -> AccessView:
     """The frozen sharing view for one resource.
 
-    Owner rights are implicit, so the owner is never listed as a grant, and a
+    ``owner`` is the requester's username, empty when a group holds the crown, and
+    ``owner_group_id`` names that group — the two together are the primary owner in
+    either of its kinds. Owner rights are implicit, so the owner is never listed as a grant, and a
     user with no capability rows is omitted. A grant whose username no longer
     exists still lists — the row is the source of truth, and such a row is
     inert rather than an error. Group grants, owner users and owner groups list
@@ -1002,7 +1010,9 @@ async def _access_view(
         resource_type=tag,
         id=resource_id,
         owner=owner,
-        owner_missing=bool(owner) and owner not in usernames,
+        owner_group_id=owner_group_id,
+        owner_missing=(bool(owner) and owner not in usernames)
+        or (owner_group_id is not None and owner_group_id not in groups),
         grants=grants,
         owner_users=owner_users,
         owner_groups=owner_groups,
@@ -1071,17 +1081,22 @@ def _admin_row(
     owner_groups: dict[tuple[str, int], set[str]],
     grant_groups: dict[tuple[str, int], set[str]],
     owner_users: dict[tuple[str, int], set[str]],
+    group_names: dict[int, str],
 ) -> ResourceAccessItem:
     if tag in _SYSTEM_TYPES:
         return ResourceAccessItem(resource_type=tag, id=obj.id, label=_access_label(tag, obj), system=True)
     owner_token = getattr(obj, "requester_user_token", "") or ""
+    owner_group_id = getattr(obj, "requester_group_id", None)
+    owner = owner_token or (group_names.get(owner_group_id, "") if owner_group_id is not None else "")
     key = (tag, obj.id)
     return ResourceAccessItem(
         resource_type=tag,
         id=obj.id,
         label=_access_label(tag, obj),
-        owner=owner_token,
-        owner_missing=bool(owner_token) and owner_token not in usernames,
+        owner=owner,
+        owner_group_id=owner_group_id,
+        owner_missing=(bool(owner_token) and owner_token not in usernames)
+        or (owner_group_id is not None and owner_group_id not in group_names),
         viewer_count=counts.get(key, 0),
         owner_users=sorted(owner_users.get(key, ())),
         owner_groups=sorted(owner_groups.get(key, ())),
@@ -1116,7 +1131,12 @@ async def list_resources(
         if options:
             stmt = stmt.options(*options)
         if owner is not None:
-            stmt = stmt.where(model.requester_user_token == owner)
+            stmt = stmt.where(
+                sa_or(
+                    model.requester_user_token == owner,
+                    model.requester_group_id.in_(select(Group.id).where(Group.name == owner)),
+                )
+            )
         rows.extend((tag, row) for row in (await db.exec(stmt.order_by(model.id))).all())
 
     usernames = set((await db.exec(select(User.username))).all())
@@ -1174,7 +1194,7 @@ async def list_resources(
     )
 
     items = [
-        _admin_row(tag, obj, usernames, counts, owner_groups, grant_groups, owner_users)
+        _admin_row(tag, obj, usernames, counts, owner_groups, grant_groups, owner_users, group_names)
         for tag, obj in rows
     ]
     return ResourceAccessListResponse(items=items[offset : offset + limit], total=len(items))
@@ -1188,13 +1208,28 @@ async def transfer_owner(
     db: AsyncSession = Depends(_get_db_session),
     auth: AuthState = Depends(require_admin),
 ):
-    """Set a resource's owner. Admin only."""
+    """Set a resource's primary owner — a user or a group. Admin only."""
     tag, _rt, obj = await _load_access_target(db, resource_type, resource_id)
-    await _known_username(db, item.username)
-    obj.requester_user_token = item.username
+    if item.group_id is None and not item.username:
+        raise HTTPException(status_code=400, detail="Pass a username or a group_id")
+    if item.group_id is not None and item.username:
+        raise HTTPException(status_code=400, detail="Pass a username or a group_id, not both")
+    if item.group_id is not None:
+        await load_group(db, item.group_id)
+        obj.requester_group_id = item.group_id
+        obj.requester_user_token = ""
+    else:
+        await _known_username(db, item.username)
+        obj.requester_user_token = item.username
+        obj.requester_group_id = None
     db.add(obj)
     await db.commit()
-    return SetOwnerResponse(resource_type=tag, id=obj.id, owner=item.username)
+    return SetOwnerResponse(
+        resource_type=tag,
+        id=obj.id,
+        owner=obj.requester_user_token,
+        owner_group_id=obj.requester_group_id,
+    )
 
 
 @shares_router.get("/{resource_type}/{resource_id}", response_model=AccessView)
@@ -1207,7 +1242,14 @@ async def get_shares(
     """Owner, admin or a SHARE holder reads the resource's grants."""
     tag, rt, obj = await _load_access_target(db, resource_type, resource_id)
     await require_capability(db, auth, obj, Capability.SHARE)
-    return await _access_view(db, tag, rt, obj.id, getattr(obj, "requester_user_token", "") or "")
+    return await _access_view(
+        db,
+        tag,
+        rt,
+        obj.id,
+        getattr(obj, "requester_user_token", "") or "",
+        getattr(obj, "requester_group_id", None),
+    )
 
 
 @shares_router.post("/{resource_type}/{resource_id}", response_model=AccessView)
@@ -1224,10 +1266,11 @@ async def set_shares(
     await _known_username(db, item.username)
     target_id = obj.id
     owner = getattr(obj, "requester_user_token", "") or ""
+    owner_group_id = getattr(obj, "requester_group_id", None)
     await _replace_grants(
         db, rt, target_id, _granted_capabilities(item.capabilities), username=item.username
     )
-    return await _access_view(db, tag, rt, target_id, owner)
+    return await _access_view(db, tag, rt, target_id, owner, owner_group_id)
 
 
 @shares_router.delete("/{resource_type}/{resource_id}/{username}", response_model=AccessView)
@@ -1243,8 +1286,9 @@ async def revoke_shares(
     await require_capability(db, auth, obj, Capability.SHARE)
     target_id = obj.id
     owner = getattr(obj, "requester_user_token", "") or ""
+    owner_group_id = getattr(obj, "requester_group_id", None)
     await _replace_grants(db, rt, target_id, [], username=username)
-    return await _access_view(db, tag, rt, target_id, owner)
+    return await _access_view(db, tag, rt, target_id, owner, owner_group_id)
 
 
 @shares_router.post("/{resource_type}/{resource_id}/group/{group_id}", response_model=AccessView)
@@ -1262,10 +1306,11 @@ async def set_group_shares(
     await load_group(db, group_id)
     target_id = obj.id
     owner = getattr(obj, "requester_user_token", "") or ""
+    owner_group_id = getattr(obj, "requester_group_id", None)
     await _replace_grants(
         db, rt, target_id, _granted_capabilities(item.capabilities), group_id=group_id
     )
-    return await _access_view(db, tag, rt, target_id, owner)
+    return await _access_view(db, tag, rt, target_id, owner, owner_group_id)
 
 
 @shares_router.delete("/{resource_type}/{resource_id}/group/{group_id}", response_model=AccessView)
@@ -1282,8 +1327,9 @@ async def clear_group_shares(
     await load_group(db, group_id)
     target_id = obj.id
     owner = getattr(obj, "requester_user_token", "") or ""
+    owner_group_id = getattr(obj, "requester_group_id", None)
     await _replace_grants(db, rt, target_id, [], group_id=group_id)
-    return await _access_view(db, tag, rt, target_id, owner)
+    return await _access_view(db, tag, rt, target_id, owner, owner_group_id)
 
 
 @shares_router.put("/{resource_type}/{resource_id}/owner-group/{group_id}", response_model=AccessView)
@@ -1300,6 +1346,7 @@ async def add_owner_group(
     await load_group(db, group_id)
     target_id = obj.id
     owner = getattr(obj, "requester_user_token", "") or ""
+    owner_group_id = getattr(obj, "requester_group_id", None)
     exists = (
         await db.exec(
             select(ResourceOwnerGroup.id).where(
@@ -1315,7 +1362,7 @@ async def add_owner_group(
             await db.commit()
         except IntegrityError:
             await db.rollback()
-    return await _access_view(db, tag, rt, target_id, owner)
+    return await _access_view(db, tag, rt, target_id, owner, owner_group_id)
 
 
 @shares_router.delete("/{resource_type}/{resource_id}/owner-group/{group_id}", response_model=AccessView)
@@ -1332,6 +1379,7 @@ async def remove_owner_group(
     await load_group(db, group_id)
     target_id = obj.id
     owner = getattr(obj, "requester_user_token", "") or ""
+    owner_group_id = getattr(obj, "requester_group_id", None)
     await db.exec(
         sql_delete(ResourceOwnerGroup).where(
             ResourceOwnerGroup.resource_type == rt,
@@ -1340,7 +1388,7 @@ async def remove_owner_group(
         )
     )
     await db.commit()
-    return await _access_view(db, tag, rt, target_id, owner)
+    return await _access_view(db, tag, rt, target_id, owner, owner_group_id)
 
 
 @shares_router.put("/{resource_type}/{resource_id}/owner-user/{username}", response_model=AccessView)
@@ -1357,6 +1405,7 @@ async def add_owner_user(
     await _known_username(db, username)
     target_id = obj.id
     owner = getattr(obj, "requester_user_token", "") or ""
+    owner_group_id = getattr(obj, "requester_group_id", None)
     exists = (
         await db.exec(
             select(ResourceOwnerUser.id).where(
@@ -1372,7 +1421,7 @@ async def add_owner_user(
             await db.commit()
         except IntegrityError:
             await db.rollback()
-    return await _access_view(db, tag, rt, target_id, owner)
+    return await _access_view(db, tag, rt, target_id, owner, owner_group_id)
 
 
 @shares_router.delete("/{resource_type}/{resource_id}/owner-user/{username}", response_model=AccessView)
@@ -1388,6 +1437,7 @@ async def remove_owner_user(
     await require_capability(db, auth, obj, Capability.SHARE)
     target_id = obj.id
     owner = getattr(obj, "requester_user_token", "") or ""
+    owner_group_id = getattr(obj, "requester_group_id", None)
     await db.exec(
         sql_delete(ResourceOwnerUser).where(
             ResourceOwnerUser.resource_type == rt,
@@ -1396,7 +1446,7 @@ async def remove_owner_user(
         )
     )
     await db.commit()
-    return await _access_view(db, tag, rt, target_id, owner)
+    return await _access_view(db, tag, rt, target_id, owner, owner_group_id)
 
 
 @notifications_router.get("/")

@@ -10,7 +10,7 @@ authentication alone.
 from __future__ import annotations
 
 from fastapi import HTTPException
-from sqlalchemy import or_
+from sqlalchemy import literal, or_
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -65,6 +65,14 @@ async def has_capability(
     username = auth.user.username
     if getattr(obj, "requester_user_token", None) == username:
         return True
+    # The primary owner may be a group: every member then holds all six, and the
+    # reserved ``everyone`` group means every authenticated user (``group_holds``
+    # owns that rule, so the two kinds of owner cannot drift apart).
+    primary_group = getattr(obj, "requester_group_id", None)
+    if primary_group is not None:
+        held = select(literal(1)).where(group_holds(username, literal(primary_group)))
+        if (await db.exec(held)).first() is not None:
+            return True
     owner_user = select(ResourceOwnerUser.id).where(
         ResourceOwnerUser.resource_type == resource_type,
         ResourceOwnerUser.resource_id == obj.id,

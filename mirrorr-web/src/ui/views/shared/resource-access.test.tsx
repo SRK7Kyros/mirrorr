@@ -6,6 +6,7 @@ import {
   emptyGroupGrants,
   planItem,
   type AccessTarget,
+  type Crown,
   type ItemAccess,
 } from "@/api/domain/access-plan"
 import { CAPABILITIES, type Capability } from "@/api/schemas/privileged"
@@ -42,10 +43,18 @@ const GROUPS: readonly AccessGroup[] = [
   { id: 3, name: "ops", display_name: "Operations", system: false, member_count: 1 },
 ]
 
+function userCrown(username: string): Crown {
+  return { kind: "user", username }
+}
+
+function groupCrown(groupId: number): Crown {
+  return { kind: "group", groupId }
+}
+
 /** A full grant record — every capability present, exactly as `emptyGrants` guarantees. */
 function access(
   overrides: Partial<Record<Capability, readonly string[]>> & {
-    readonly owner?: string
+    readonly crown?: Crown
     readonly ownerMissing?: boolean
     readonly groupGrants?: Partial<Record<Capability, readonly number[]>>
     readonly ownerUsers?: readonly string[]
@@ -53,7 +62,7 @@ function access(
   } = {},
 ): ItemAccess {
   const {
-    owner = "kyros",
+    crown = userCrown("kyros"),
     ownerMissing = false,
     groupGrants = {},
     ownerUsers = [],
@@ -61,7 +70,7 @@ function access(
     ...grants
   } = overrides
   return {
-    owner,
+    crown,
     ownerMissing,
     grants: { ...emptyGrants(), ...grants },
     groupGrants: { ...emptyGroupGrants(), ...groupGrants },
@@ -154,16 +163,28 @@ describe("ResourceAccessFields", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Change" }))
     expect(screen.getByText("Pick the new owner")).toBeTruthy()
-    // A transfer is a user pick, and it hides the grant chip row.
-    expect(screen.getByRole("listbox", { name: "Users" })).toBeTruthy()
-    expect(within(catalog()).queryByRole("option", { name: /Editors/ })).toBeNull()
+    // A transfer is a single pick over both kinds, and it hides the grant chip row.
+    expect(screen.getByRole("listbox", { name: "Users and groups" })).toBeTruthy()
+    expect(card("Editors")).toBeTruthy()
     expect(screen.queryByRole("group", { name: "Capabilities for the selected users and groups" })).toBeNull()
 
     fireEvent.click(card("Carol"))
     fireEvent.click(applyButton())
 
     const target = onApply.mock.calls[0][0] as AccessTarget
-    expect(target.owner).toBe("carol")
+    expect(target.crown).toEqual(userCrown("carol"))
+  })
+
+  it("transfers the crown to a group from the owner picker", () => {
+    const onApply = vi.fn()
+    render(<ResourceAccessFields resourceType="session" access={access()} users={USERS} groups={GROUPS} onApply={onApply} />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Change" }))
+    fireEvent.click(card("Editors"))
+    fireEvent.click(applyButton())
+
+    const target = onApply.mock.calls[0][0] as AccessTarget
+    expect(target.crown).toEqual(groupCrown(2))
   })
 
   it("implies VIEW and issues one request per resulting capability", async () => {
@@ -380,10 +401,10 @@ describe("ResourceAccessFields — groups", () => {
     expect(card("Bob")).toBeTruthy()
     expect(card("Editors")).toBeTruthy()
     expect(within(catalog()).getByText("@bob")).toBeTruthy()
-    expect(screen.getByText("editors")).toBeTruthy()
-    expect(screen.getByText("3 members")).toBeTruthy()
-    expect(screen.getByText("1 member")).toBeTruthy()
-    expect(screen.getByText("every account, including future ones")).toBeTruthy()
+    expect(within(catalog()).getByText("editors")).toBeTruthy()
+    expect(within(catalog()).getByText("3 members")).toBeTruthy()
+    expect(within(catalog()).getByText("1 member")).toBeTruthy()
+    expect(within(catalog()).getByText("every account, including future ones")).toBeTruthy()
   })
 
   it("replace-sets a group's capabilities in the draft on Apply", () => {
@@ -414,7 +435,7 @@ describe("ResourceAccessFields — groups", () => {
     render(
       <ResourceAccessFields
         resourceType="session"
-        access={access({ owner: "kyros", ownerGroups: [2] })}
+        access={access({ ownerGroups: [2] })}
         users={USERS}
         groups={GROUPS}
         onApply={onApply}
@@ -431,13 +452,13 @@ describe("ResourceAccessFields — groups", () => {
 
     const target = onApply.mock.calls[0][0] as AccessTarget & GroupDraftTarget
     expect([...(target.ownerGroups ?? [])].sort((a, b) => a - b)).toEqual([2, 3])
-    expect(target.owner).toBe("kyros")
+    expect(target.crown).toEqual(userCrown("kyros"))
 
     fireEvent.click(screen.getByRole("button", { name: "Remove owner group Editors" }))
     fireEvent.click(applyButton())
     const second = onApply.mock.calls[1][0] as AccessTarget & GroupDraftTarget
     expect([...(second.ownerGroups ?? [])]).toEqual([3])
-    expect(second.owner).toBe("kyros")
+    expect(second.crown).toEqual(userCrown("kyros"))
   })
 
   it("adds the highlighted owner with the arrow keys and enter", () => {
@@ -465,7 +486,7 @@ describe("ResourceAccessFields — groups", () => {
 
     const target = onApply.mock.calls[0][0] as AccessTarget & GroupDraftTarget
     expect([...(target.ownerGroups ?? [])]).toEqual([8])
-    expect(target.owner).toBe("kyros")
+    expect(target.crown).toEqual(userCrown("kyros"))
   })
 
   it("adds and removes owner users from the owner field without transferring ownership", () => {
@@ -492,7 +513,7 @@ describe("ResourceAccessFields — groups", () => {
     fireEvent.click(applyButton())
 
     const target = onApply.mock.calls[0][0] as AccessTarget & GroupDraftTarget
-    expect(target.owner).toBe("kyros")
+    expect(target.crown).toEqual(userCrown("kyros"))
     expect([...(target.ownerUsers ?? [])]).toEqual(["alice"])
     expect([...(target.ownerGroups ?? [])]).toEqual([])
   })
@@ -514,7 +535,7 @@ describe("ResourceAccessFields — groups", () => {
 
     const target = onApply.mock.calls[0][0] as AccessTarget & GroupDraftTarget
     expect([...(target.ownerUsers ?? [])]).toEqual([])
-    expect(target.owner).toBe("kyros")
+    expect(target.crown).toEqual(userCrown("kyros"))
   })
 
   it("tints only the active search suggestion green, like a picked card", () => {
@@ -619,11 +640,11 @@ describe("ResourceAccessFields — groups", () => {
     expect(screen.getByRole("alert").textContent).toContain("Every account gets full control of this item")
   })
 
-  it("keeps the owner transfer picker on the users alone", () => {
+  it("offers users and groups in the owner transfer picker", () => {
     render(
       <ResourceAccessFields
         resourceType="session"
-        access={access()}
+        access={access({ crown: groupCrown(2) })}
         users={USERS}
         groups={GROUPS}
         onApply={vi.fn()}
@@ -631,9 +652,10 @@ describe("ResourceAccessFields — groups", () => {
     )
 
     fireEvent.click(screen.getByRole("button", { name: "Change" }))
-    expect(screen.getByRole("listbox", { name: "Users" })).toBeTruthy()
+    expect(screen.getByRole("listbox", { name: "Users and groups" })).toBeTruthy()
     expect(card("Carol")).toBeTruthy()
-    expect(within(catalog()).queryByRole("option", { name: /Editors/ })).toBeNull()
-    expect(screen.queryByText("3 members")).toBeNull()
+    expect(card("Editors")).toBeTruthy()
+    expect(card("Editors").getAttribute("aria-selected")).toBe("true")
+    expect(within(catalog()).getByText("3 members")).toBeTruthy()
   })
 })

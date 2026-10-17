@@ -551,6 +551,7 @@ class RecordingManager:
                     duration_seconds=duration_seconds,
                     size_bytes=stat.st_size,
                     requester_user_token=self.session.requester_user_token,
+                    requester_group_id=self.session.requester_group_id,
                 )
                 recording = await crud.create(db, recording)
                 await subscribe_requester(

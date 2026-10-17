@@ -297,8 +297,8 @@ describe("AccessPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Change" }))
     expect(screen.getByText("Pick the new owner")).toBeTruthy()
-    // A transfer is a user pick, and it hides the grant chip row.
-    expect(screen.getByRole("listbox", { name: "Users" })).toBeTruthy()
+    // A transfer is a single pick over both kinds, and it hides the grant chip row.
+    expect(screen.getByRole("listbox", { name: "Users and groups" })).toBeTruthy()
     expect(screen.queryByRole("group", { name: "Capabilities for the selected users and groups" })).toBeNull()
 
     fireEvent.click(card("Alice"))
@@ -307,7 +307,7 @@ describe("AccessPanel", () => {
     fireEvent.click(applyButton())
 
     await waitFor(() => expect(endpoints.setResourceOwner).toHaveBeenCalledTimes(1))
-    expect(endpoints.setResourceOwner).toHaveBeenCalledWith("session", 1, "alice")
+    expect(endpoints.setResourceOwner).toHaveBeenCalledWith("session", 1, { username: "alice" })
   })
 
   it("wears the granted-variant highlight on the selected cards alone", async () => {
@@ -354,8 +354,8 @@ describe("AccessPanel", () => {
     await loaded()
 
     expect(card("Editors")).toBeTruthy()
-    expect(screen.getByText("3 members")).toBeTruthy()
-    expect(screen.getByText("every account, including future ones")).toBeTruthy()
+    expect(within(catalog()).getByText("3 members")).toBeTruthy()
+    expect(within(catalog()).getByText("every account, including future ones")).toBeTruthy()
     expect(within(catalog()).getByText("@bob")).toBeTruthy()
   })
 })

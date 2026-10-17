@@ -127,7 +127,36 @@ test.describe("admin resource access", () => {
     await catalog.getByRole("option", { name: /Alice/ }).click()
     await dialog.getByRole("button", { name: "Apply changes" }).click()
     await expect
-      .poll(() => api.callsTo("/admin/resources/session/7/owner").some((call) => call.method === "PUT"))
+      .poll(() =>
+        api
+          .callsTo("/admin/resources/session/7/owner")
+          .some((call) => call.method === "PUT" && (call.body as { username?: string }).username === "alice"),
+      )
+      .toBe(true)
+  })
+
+  test("crowns a group from the owner picker", async ({ page, api }) => {
+    api.data.users = USERS
+    api.data.resources = [sessionRow()]
+    api.data.groups = [
+      { id: 9, name: "f1-team", display_name: "F1 team", system: false, member_count: 1, members: ["alice"] },
+    ]
+
+    await openAdminSettings(page)
+
+    await resourcePanel(page).getByRole("button", { name: "Manage access for F1 Weekend" }).click()
+
+    const dialog = page.getByRole("dialog")
+    await dialog.getByRole("button", { name: "Change", exact: true }).click()
+    await dialog.getByTestId("access-catalog").getByRole("option", { name: /F1 team/ }).click()
+    await dialog.getByRole("button", { name: "Apply changes" }).click()
+
+    await expect
+      .poll(() =>
+        api
+          .callsTo("/admin/resources/session/7/owner")
+          .some((call) => call.method === "PUT" && (call.body as { group_id?: number }).group_id === 9),
+      )
       .toBe(true)
   })
 
