@@ -436,3 +436,23 @@ class ResourceOwnerGroup(SQLModel, table=True):
     resource_type: ResourceType = Field(sa_column=Column(SQLEnum(ResourceType), index=True))
     resource_id: int = Field(index=True)
     group_id: int = Field(index=True)
+
+
+class ResourceOwnerUser(SQLModel, table=True):
+    """An additive *user* owner of one resource.
+
+    Owners are a list: the requester (``requester_user_token``) always owns the
+    item, and every row here gives that user all six capabilities on it, exactly
+    like the owner. ``username`` matches ``User.username`` without a FK (the
+    ``resource_access`` convention), so a deleted user's row is inert until
+    ``deleteUser`` clears it.
+    """
+    __tablename__ = "resource_owner_users"
+    __table_args__ = (
+        UniqueConstraint("resource_type", "resource_id", "username"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    resource_type: ResourceType = Field(sa_column=Column(SQLEnum(ResourceType), index=True))
+    resource_id: int = Field(index=True)
+    username: str = Field(index=True)

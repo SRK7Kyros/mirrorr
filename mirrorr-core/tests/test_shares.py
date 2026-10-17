@@ -153,7 +153,7 @@ def test_replace_set_idempotent_and_exact(tmp_path):
             assert first.json() == {
                 "resource_type": "session", "id": sid, "owner": "alice", "owner_missing": False,
                 "grants": [{"username": "bob", "capabilities": ["VIEW", "OPERATE"]}],
-                "owner_groups": [], "group_grants": [],
+                "owner_users": [], "owner_groups": [], "group_grants": [],
             }
             assert len(await _grant_rows(h.maker, username="bob")) == 2
 
@@ -345,7 +345,7 @@ def test_source_view_carries_no_owner_token(tmp_path):
             assert view.status_code == 200, view.text
             assert set(view.json().keys()) == {
                 "resource_type", "id", "owner", "owner_missing", "grants",
-                "owner_groups", "group_grants",
+                "owner_users", "owner_groups", "group_grants",
             }
             assert "requester_user_token" not in view.text
 

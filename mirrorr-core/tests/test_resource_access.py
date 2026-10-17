@@ -34,6 +34,7 @@ from mirrorr.storage.models import (
     Resolver,
     ResolverSource,
     ResourceAccess,
+    ResourceOwnerUser,
     Session,
     User,
 )
@@ -167,6 +168,16 @@ async def _grant_rows(maker, resource_type: ResourceType | None = None, username
         return list((await db.exec(stmt)).all())
 
 
+async def _owner_rows(maker, resource_type: ResourceType | None = None, username: str | None = None) -> list:
+    async with maker() as db:
+        stmt = select(ResourceOwnerUser)
+        if resource_type is not None:
+            stmt = stmt.where(ResourceOwnerUser.resource_type == resource_type)
+        if username is not None:
+            stmt = stmt.where(ResourceOwnerUser.username == username)
+        return list((await db.exec(stmt)).all())
+
+
 def test_admin_listing_labels_system_rows_and_missing_owner(tmp_path):
     async def scenario():
         async with _harness(tmp_path) as h:
@@ -227,7 +238,7 @@ def test_grant_revoke_transfer_and_validation(tmp_path):
             assert granted.json() == {
                 "resource_type": "session", "id": sid, "owner": "alice", "owner_missing": False,
                 "grants": [{"username": "bob", "capabilities": ["VIEW"]}],
-                "owner_groups": [], "group_grants": [],
+                "owner_users": [], "owner_groups": [], "group_grants": [],
             }
             again = await h.client.post(f"/shares/session/{sid}", json=grant)
             assert again.status_code == 200 and again.json() == granted.json()
@@ -416,15 +427,21 @@ def test_a6_deletes_drop_grants(tmp_path):
             aid, pid = ids["autorun"], ids["profile"]
             await h.client.post(f"/shares/autorun/{aid}", json={"username": "bob", "capabilities": ["VIEW"]})
             await h.client.post(f"/shares/profile/{pid}", json={"username": "bob", "capabilities": ["VIEW"]})
+            await h.client.put(f"/shares/autorun/{aid}/owner-user/bob")
+            await h.client.put(f"/shares/profile/{pid}/owner-user/bob")
             assert len(await _grant_rows(h.maker, username="bob")) == 2
+            assert len(await _owner_rows(h.maker, username="bob")) == 2
 
             assert (await h.client.delete(f"/autoruns/{aid}")).status_code == 200
             remaining = await _grant_rows(h.maker, resource_type=ResourceType.AUTORUN)
             assert remaining == []
+            assert await _owner_rows(h.maker, resource_type=ResourceType.AUTORUN) == []
             assert len(await _grant_rows(h.maker, username="bob")) == 1
+            assert len(await _owner_rows(h.maker, username="bob")) == 1
 
             assert (await h.client.delete("/auth/users/bob")).status_code == 200
             assert await _grant_rows(h.maker, username="bob") == []
+            assert await _owner_rows(h.maker, username="bob") == []
 
     asyncio.run(scenario())
 

@@ -9,7 +9,7 @@ from mirrorr.services import autorun_scheduler
 from mirrorr.services.autorun_scheduler import _tick
 from mirrorr.startup.config import MirrorrSettings
 from mirrorr.storage.enums import AutorunStatus, Capability, ResourceType
-from mirrorr.storage.models import Autorun, ResourceAccess, ResourceOwnerGroup, Session
+from mirrorr.storage.models import Autorun, ResourceAccess, ResourceOwnerGroup, ResourceOwnerUser, Session
 
 
 def _now() -> datetime:
@@ -42,10 +42,11 @@ async def _seed(db) -> None:
     db.add(ResourceAccess(resource_type=ResourceType.AUTORUN, resource_id=1, username="alice", capability=Capability.OPERATE))
     db.add(ResourceAccess(resource_type=ResourceType.AUTORUN, resource_id=1, group_id=9, capability=Capability.EDIT))
     db.add(ResourceOwnerGroup(resource_type=ResourceType.AUTORUN, resource_id=1, group_id=9))
+    db.add(ResourceOwnerUser(resource_type=ResourceType.AUTORUN, resource_id=1, username="dana"))
     await db.commit()
 
 
-def test_spawned_session_inherits_the_autoruns_grants_and_owner_groups(monkeypatch, tmp_path):
+def test_spawned_session_inherits_the_autoruns_grants_and_owners(monkeypatch, tmp_path):
     async def scenario() -> None:
         engine = create_async_engine("sqlite+aiosqlite://")
         async with engine.begin() as conn:
@@ -84,6 +85,14 @@ def test_spawned_session_inherits_the_autoruns_grants_and_owner_groups(monkeypat
                 )
             ).all()
             assert [o.group_id for o in owners] == [9]
+            owner_users = (
+                await db.exec(
+                    select(ResourceOwnerUser).where(
+                        ResourceOwnerUser.resource_type == ResourceType.SESSION
+                    )
+                )
+            ).all()
+            assert [o.username for o in owner_users] == ["dana"]
 
             autorun_grants = (
                 await db.exec(
@@ -93,6 +102,14 @@ def test_spawned_session_inherits_the_autoruns_grants_and_owner_groups(monkeypat
                 )
             ).all()
             assert len(autorun_grants) == 3
+            autorun_owners = (
+                await db.exec(
+                    select(ResourceOwnerUser).where(
+                        ResourceOwnerUser.resource_type == ResourceType.AUTORUN
+                    )
+                )
+            ).all()
+            assert [o.username for o in autorun_owners] == ["dana"]
 
         await engine.dispose()
 

@@ -25,6 +25,7 @@ from mirrorr.storage.models import (
     ResolverSource,
     ResourceAccess,
     ResourceOwnerGroup,
+    ResourceOwnerUser,
     Session,
 )
 
@@ -51,8 +52,8 @@ async def has_capability(
 
     Principals are users *and* groups: a grant counts when it names the caller
     or a group they belong to (the reserved ``everyone`` group meaning "every
-    authenticated user"), and an owner *group* confers all six, exactly like
-    the single user owner.
+    authenticated user"), and any owner row — a user owner or an owner group —
+    confers all six, exactly like the requester.
     """
     resource_type = _ACCESS_MODEL_TYPES.get(type(obj))
     if resource_type is None:
@@ -63,6 +64,13 @@ async def has_capability(
         return False
     username = auth.user.username
     if getattr(obj, "requester_user_token", None) == username:
+        return True
+    owner_user = select(ResourceOwnerUser.id).where(
+        ResourceOwnerUser.resource_type == resource_type,
+        ResourceOwnerUser.resource_id == obj.id,
+        ResourceOwnerUser.username == username,
+    )
+    if (await db.exec(owner_user)).first() is not None:
         return True
     owner_group = select(ResourceOwnerGroup.id).where(
         ResourceOwnerGroup.resource_type == resource_type,
@@ -85,7 +93,7 @@ async def has_capability(
 
 
 async def inherit_access(db: AsyncSession, source, target) -> int:
-    """Copy *source*'s grants and owner groups onto *target*, returning the rows added.
+    """Copy *source*'s grants and owner rows onto *target*, returning the rows added.
 
     A session spawned by an autorun inherits that autorun's access, so whoever
     can see the scheduled item can see what it produced. A snapshot, not a link:
@@ -101,11 +109,19 @@ async def inherit_access(db: AsyncSession, source, target) -> int:
             )
         )
     ).all()
-    owners = (
+    owner_groups = (
         await db.exec(
             select(ResourceOwnerGroup).where(
                 ResourceOwnerGroup.resource_type == source_type,
                 ResourceOwnerGroup.resource_id == source.id,
+            )
+        )
+    ).all()
+    owner_users = (
+        await db.exec(
+            select(ResourceOwnerUser).where(
+                ResourceOwnerUser.resource_type == source_type,
+                ResourceOwnerUser.resource_id == source.id,
             )
         )
     ).all()
@@ -119,13 +135,19 @@ async def inherit_access(db: AsyncSession, source, target) -> int:
                 capability=row.capability,
             )
         )
-    for row in owners:
+    for row in owner_groups:
         db.add(
             ResourceOwnerGroup(
                 resource_type=target_type, resource_id=target.id, group_id=row.group_id
             )
         )
-    return len(grants) + len(owners)
+    for row in owner_users:
+        db.add(
+            ResourceOwnerUser(
+                resource_type=target_type, resource_id=target.id, username=row.username
+            )
+        )
+    return len(grants) + len(owner_groups) + len(owner_users)
 
 
 def group_holds(username: str, group_id_column):

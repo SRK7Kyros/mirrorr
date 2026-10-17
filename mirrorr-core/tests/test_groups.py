@@ -1,5 +1,6 @@
 """The groups surface: the reserved ``everyone`` row, admin CRUD + membership,
-and the group principal in capability grants and additive ownership."""
+and the group principal in capability grants and additive ownership — plus the
+user-owner twin of an owner group."""
 
 from __future__ import annotations
 
@@ -28,6 +29,7 @@ from mirrorr.storage.models import (
     Resolver,
     ResourceAccess,
     ResourceOwnerGroup,
+    ResourceOwnerUser,
     Session,
     User,
 )
@@ -250,17 +252,19 @@ def test_delete_group_cascades_members_grants_and_owners(tmp_path):
     asyncio.run(scenario())
 
 
-def test_delete_user_removes_memberships(tmp_path):
+def test_delete_user_removes_memberships_and_owner_rows(tmp_path):
     async def scenario():
         async with _harness(tmp_path) as h:
-            await _seed(h.maker)
+            ids = await _seed(h.maker)
             h.as_user("admin", admin=True)
             gid = (await _create(h, "f1-team"))["id"]
             await h.client.put(f"/groups/{gid}/members", json={"usernames": ["bob", "carol"]})
+            await h.client.put(f"/shares/session/{ids['session']}/owner-user/bob")
 
             assert (await h.client.delete("/auth/users/bob")).status_code == 200
             members = await _rows(h.maker, GroupMember, group_id=gid)
             assert [row.username for row in members] == ["carol"]
+            assert await _rows(h.maker, ResourceOwnerUser, username="bob") == []
 
     asyncio.run(scenario())
 
@@ -379,6 +383,49 @@ def test_owner_group_is_additive_and_idempotent(tmp_path):
             assert await _rows(h.maker, ResourceOwnerGroup, group_id=gid) == []
             assert not any((await _caps(h.maker, "bob", sid)).values())
             assert (await h.client.get(f"/shares/session/{sid}")).json()["owner"] == "alice"
+
+    asyncio.run(scenario())
+
+
+def test_owner_user_is_additive_and_idempotent(tmp_path):
+    """Owners are a list: adding a user never moves the requester."""
+    async def scenario():
+        async with _harness(tmp_path) as h:
+            ids = await _seed(h.maker)
+            sid = ids["session"]
+            h.as_user("admin", admin=True)
+
+            owned = await h.client.put(f"/shares/session/{sid}/owner-user/bob")
+            assert owned.status_code == 200, owned.text
+            assert owned.json()["owner"] == "alice"
+            assert owned.json()["owner_users"] == ["bob"]
+            assert len(await _rows(h.maker, ResourceOwnerUser, username="bob")) == 1
+
+            assert (await h.client.put(f"/shares/session/{sid}/owner-user/bob")).json() == owned.json()
+            assert len(await _rows(h.maker, ResourceOwnerUser, username="bob")) == 1
+
+            # SHARE is self-escalatory for a holder, so the refuser has to be a
+            # stranger with no capability of their own.
+            h.as_user("carol")
+            assert (await h.client.put(f"/shares/session/{sid}/owner-user/carol")).status_code == 403
+
+            h.as_user("admin", admin=True)
+            both = await h.client.put(f"/shares/session/{sid}/owner-user/carol")
+            assert both.json()["owner_users"] == ["bob", "carol"]
+            assert all((await _caps(h.maker, "bob", sid)).values())
+
+            h.as_user("bob")
+            assert sid in [s["id"] for s in (await h.client.get("/sessions/")).json()["items"]]
+            assert (await h.client.get(f"/sessions/{sid}")).status_code == 200
+
+            h.as_user("admin", admin=True)
+            removed = await h.client.delete(f"/shares/session/{sid}/owner-user/bob")
+            assert removed.json()["owner_users"] == ["carol"]
+            assert await _rows(h.maker, ResourceOwnerUser, username="bob") == []
+            assert not any((await _caps(h.maker, "bob", sid)).values())
+            assert (await h.client.get(f"/shares/session/{sid}")).json()["owner"] == "alice"
+
+            assert (await h.client.put(f"/shares/session/{sid}/owner-user/nobody")).status_code == 400
 
     asyncio.run(scenario())
 
