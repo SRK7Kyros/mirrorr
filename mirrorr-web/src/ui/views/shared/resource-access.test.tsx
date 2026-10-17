@@ -652,6 +652,25 @@ describe("ResourceAccessFields — groups", () => {
     expect(target.owner).toBe("kyros")
   })
 
+  it("anchors the owner suggestions to the field so they overlay the panel", () => {
+    render(
+      <ResourceAccessFields
+        resourceType="session"
+        access={access()}
+        users={USERS}
+        groups={GROUPS}
+        onApply={vi.fn()}
+      />,
+    )
+
+    const field = screen.getByRole("combobox", { name: "Add an owner" })
+    fireEvent.focus(field)
+    const list = screen.getByRole("listbox", { name: "Users and groups to own this item" })
+
+    expect(field.parentElement?.className).toContain("relative")
+    expect(list.parentElement?.className).toContain("absolute")
+  })
+
   it("warns loudly when the everyone group owns the item", () => {
     render(
       <ResourceAccessFields
