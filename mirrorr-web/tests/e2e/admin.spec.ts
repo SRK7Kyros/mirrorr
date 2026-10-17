@@ -312,7 +312,6 @@ test.describe("admin resource access", () => {
     await page.getByRole("button", { name: "Access", exact: true }).click()
 
     const dialog = page.getByRole("dialog")
-    const catalog = dialog.getByTestId("access-catalog")
     const lower = dialog.getByRole("group", { name: "Capabilities for the selected users and groups" })
 
     await dialog.getByTestId("access-catalog").getByRole("option", { name: /F1 team/ }).click()
