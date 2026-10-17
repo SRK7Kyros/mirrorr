@@ -857,19 +857,32 @@ test.describe("admin resource access", () => {
 
     // Ownership is additive and `everyone` may be chosen — the panel says plainly
     // what that means before anything is applied.
+    const overridesLabel = dialog.getByText("Permission overrides", {
+      exact: true,
+    });
     const ownerField = dialog.getByRole("combobox", { name: "Add an owner" });
     const ownerOptions = dialog.getByRole("listbox", {
       name: "Users and groups to own this item",
     });
     await ownerField.fill("F1");
     await ownerOptions.getByRole("option", { name: /F1 team/ }).click();
+    const overridesYBeforeAlert = (await overridesLabel.boundingBox())?.y ?? -1;
     await ownerField.fill("everyone");
     await ownerOptions.getByRole("option", { name: /Everyone/ }).click();
+    const alert = dialog
+      .getByRole("alert")
+      .filter({ hasText: "every account gets full control of this item" });
+    await expect(alert).toBeVisible();
+    expect(
+      await alert.evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
+    ).toBe(true);
     await expect(
-      dialog
-        .getByRole("alert")
-        .filter({ hasText: "every account gets full control of this item" }),
-    ).toBeVisible();
+      dialog.getByText("Owners get every permission on this item."),
+    ).toHaveCount(0);
+    const overridesYAfterAlert = (await overridesLabel.boundingBox())?.y ?? -1;
+    expect(
+      Math.abs(overridesYAfterAlert - overridesYBeforeAlert),
+    ).toBeLessThanOrEqual(2);
 
     await dialog.getByRole("button", { name: "Apply changes" }).click();
     await expect

@@ -942,10 +942,10 @@ export function ResourceAccessEditor({
           {everyoneOwned ? (
             <span
               role="alert"
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-danger"
+              className="flex min-w-0 flex-1 items-center gap-1.5 text-xs font-medium text-danger"
             >
               <IconAlert size={14} className="shrink-0" />
-              {EVERYONE_OWNER_WARNING}
+              <span className="truncate">{EVERYONE_OWNER_WARNING}</span>
             </span>
           ) : (
             <span className="text-xs text-ink-dim">
