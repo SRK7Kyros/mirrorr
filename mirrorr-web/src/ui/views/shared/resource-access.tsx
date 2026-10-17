@@ -657,6 +657,10 @@ export function ResourceAccessEditor({
   return (
     <div className="flex min-h-0 flex-col gap-3">
       <div className="flex flex-col gap-2 rounded-md border border-line-subtle bg-surface-1 px-2.5 py-1.5">
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <span className="text-2xs uppercase tracking-wide text-ink-dim">Ownership</span>
+          <span className="text-xs text-ink-dim">Owners get every permission on this item.</span>
+        </div>
         <div className="flex items-center gap-2">
           <IconCrown size={16} className="text-warning" />
           <Avatar name={ownerLabel} small />
@@ -771,7 +775,7 @@ export function ResourceAccessEditor({
                           aria-selected={index === ownerHighlightIndex}
                           className={cn(
                             "flex cursor-pointer items-center justify-between gap-3 rounded px-2 py-1.5 text-sm",
-                            index === ownerHighlightIndex ? "bg-surface-1 text-ink" : "text-ink-muted",
+                            index === ownerHighlightIndex ? "bg-[var(--accent-dim)] text-ink" : "text-ink-muted",
                           )}
                           onMouseDown={(event) => event.preventDefault()}
                           onMouseEnter={() => setOwnerHighlight(index)}
@@ -797,6 +801,15 @@ export function ResourceAccessEditor({
             {EVERYONE_OWNER_WARNING}
           </p>
         ) : null}
+      </div>
+
+      <div className="flex flex-col gap-2 border-t border-line-subtle pt-3">
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <span className="text-2xs uppercase tracking-wide text-ink-dim">Permission overrides</span>
+          <span className="text-xs text-ink-dim">
+            Overrides are more specific — they grant only the capabilities you pick.
+          </span>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">

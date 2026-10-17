@@ -128,6 +128,13 @@ describe("ResourceAccessFields", () => {
     expect(within(setGroup()).queryByRole("button", { name: "Export" })).toBeNull()
     expect(screen.queryByText("Only the owner can see this item.")).toBeNull()
     expect(screen.getByText("Up to date")).toBeTruthy()
+    // The two halves are labelled and hinted: owners hold everything, overrides narrow it.
+    expect(screen.getByText("Ownership")).toBeTruthy()
+    expect(screen.getByText("Owners get every permission on this item.")).toBeTruthy()
+    expect(screen.getByText("Permission overrides")).toBeTruthy()
+    expect(
+      screen.getByText("Overrides are more specific — they grant only the capabilities you pick."),
+    ).toBeTruthy()
   })
 
   it("keeps Apply disabled until the draft is dirty", () => {
@@ -508,6 +515,25 @@ describe("ResourceAccessFields — groups", () => {
     const target = onApply.mock.calls[0][0] as AccessTarget & GroupDraftTarget
     expect([...(target.ownerUsers ?? [])]).toEqual([])
     expect(target.owner).toBe("kyros")
+  })
+
+  it("tints only the active search suggestion green, like a picked card", () => {
+    render(<ResourceAccessFields resourceType="session" access={access()} users={USERS} groups={GROUPS} onApply={vi.fn()} />)
+
+    const field = screen.getByRole("combobox", { name: "Add an owner" })
+    fireEvent.focus(field)
+
+    const options = () => within(ownerList()).getAllByRole("option")
+    const tinted = () => options().filter((option) => option.className.includes("bg-[var(--accent-dim)]"))
+    const selected = () => options().filter((option) => option.getAttribute("aria-selected") === "true")
+
+    expect(tinted()).toEqual(selected())
+    expect(tinted()).toHaveLength(1)
+
+    fireEvent.keyDown(field, { key: "ArrowDown" })
+
+    expect(tinted()).toEqual(selected())
+    expect(tinted()).toHaveLength(1)
   })
 
   it("anchors the owner suggestions to the field so they overlay the panel", () => {
