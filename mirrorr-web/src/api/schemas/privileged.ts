@@ -32,6 +32,8 @@ const AdminResourceSchema = z
     owner_missing: z.boolean(),
     viewer_count: z.number(),
     system: z.boolean(),
+    /** Usernames that own the item (additive to the requester owner). */
+    owner_users: z.array(z.string()).default([]),
     /** Group names that own the item (additive to the user owner). */
     owner_groups: z.array(z.string()).default([]),
     /** Group names holding any capability on the item. */
@@ -144,6 +146,8 @@ export const AccessViewSchema = z
     owner: z.string().nullable(),
     owner_missing: z.boolean(),
     grants: z.array(AccessGrantSchema),
+    /** Usernames that own the item — additive to the requester `owner`. */
+    owner_users: z.array(z.string()).default([]),
     owner_groups: z.array(OwnerGroupSchema).default([]),
     group_grants: z.array(GroupGrantSchema).default([]),
   })

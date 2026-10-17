@@ -1,6 +1,8 @@
 import {
   addResourceOwnerGroup,
+  addResourceOwnerUser,
   removeResourceOwnerGroup,
+  removeResourceOwnerUser,
   revokeGroupGrants,
   revokeResourceUser,
   setGroupGrants,
@@ -17,6 +19,8 @@ export interface ItemAccess {
   readonly grants: Readonly<Record<Capability, readonly string[]>>
   /** Group ids granted per capability. Absent reads as "no group grants". */
   readonly groupGrants?: Readonly<Record<Capability, readonly number[]>>
+  /** Usernames that own the item — additive to the single requester owner. */
+  readonly ownerUsers?: readonly string[]
   /** Group ids that own the item — additive to the single user owner. */
   readonly ownerGroups?: readonly number[]
 }
@@ -26,6 +30,7 @@ export interface AccessTarget {
   readonly owner?: string
   readonly grants?: Partial<Record<Capability, readonly string[]>>
   readonly groupGrants?: Partial<Record<Capability, readonly number[]>>
+  readonly ownerUsers?: readonly string[]
   readonly ownerGroups?: readonly number[]
 }
 
@@ -34,6 +39,7 @@ export type AccessOp =
   | { readonly kind: "grant"; readonly capability: Capability; readonly username: string }
   | { readonly kind: "revoke"; readonly capability: Capability; readonly username: string }
   | { readonly kind: "group"; readonly groupId: number }
+  | { readonly kind: "owner-user"; readonly username: string; readonly owner: boolean }
   | { readonly kind: "owner-group"; readonly groupId: number; readonly owner: boolean }
 
 /**
@@ -103,9 +109,9 @@ export function grantedGroupIds(access: ItemAccess): number[] {
 }
 
 /**
- * `AccessView` (wire) → the domain's full grant record. The two group fields are
- * read defensively: the wire always carries them, but hand-written literals in
- * tests and old cached payloads predate them.
+ * `AccessView` (wire) → the domain's full grant record. The owner and group
+ * fields are read defensively: the wire always carries them, but hand-written
+ * literals in tests and old cached payloads predate them.
  */
 export function itemAccessFromView(view: AccessView): ItemAccess {
   const grants = emptyGrants()
@@ -125,6 +131,7 @@ export function itemAccessFromView(view: AccessView): ItemAccess {
     ownerMissing: view.owner_missing,
     grants,
     groupGrants,
+    ownerUsers: view.owner_users ?? [],
     ownerGroups: (view.owner_groups ?? []).map((group) => group.id),
   }
 }
@@ -186,12 +193,14 @@ function capabilitiesForGroup(to: ItemAccess, groupId: number): Capability[] {
 
 export function planItem(row: AccessRow, target: AccessTarget, users: readonly string[]): ItemPlan {
   const groupGrants = mergeGroupGrants(row.access.groupGrants, target.groupGrants)
+  const ownerUsers = target.ownerUsers ?? row.access.ownerUsers ?? []
   const ownerGroups = target.ownerGroups ?? row.access.ownerGroups ?? []
   const to: ItemAccess = {
     owner: target.owner ?? row.access.owner,
     ownerMissing: row.access.ownerMissing,
     grants: mergeGrants(row.access.grants, target.grants),
     groupGrants,
+    ownerUsers,
     ownerGroups,
   }
   const ops: AccessOp[] = []
@@ -218,6 +227,13 @@ export function planItem(row: AccessRow, target: AccessTarget, users: readonly s
     if (before.length !== after.length || before.some((capability) => !after.includes(capability))) {
       ops.push({ kind: "group", groupId })
     }
+  }
+  const fromOwnerUsers = row.access.ownerUsers ?? []
+  for (const username of ownerUsers) {
+    if (!fromOwnerUsers.includes(username)) ops.push({ kind: "owner-user", username, owner: true })
+  }
+  for (const username of fromOwnerUsers) {
+    if (!ownerUsers.includes(username)) ops.push({ kind: "owner-user", username, owner: false })
   }
   const fromOwners = row.access.ownerGroups ?? []
   for (const groupId of ownerGroups) {
@@ -252,23 +268,30 @@ function namedTarget(target: AccessTarget): AccessTarget {
     ...(target.owner === undefined || target.owner === "" ? {} : { owner: target.owner }),
     ...(Object.keys(grants).length === 0 ? {} : { grants }),
     ...(Object.keys(groupGrants).length === 0 ? {} : { groupGrants }),
+    ...((target.ownerUsers ?? []).length > 0 ? { ownerUsers: target.ownerUsers } : {}),
     ...((target.ownerGroups ?? []).length > 0 ? { ownerGroups: target.ownerGroups } : {}),
   }
 }
 
 /**
- * The bulk target for one row: what the draft names, with its owner groups
- * ADDED to the row's own. A bulk apply can hand out ownership but never silently
- * revoke it — the override confirm cannot see an item whose only access is a
- * group owner, so replacement there would be invisible.
+ * The bulk target for one row: what the draft names, with its owner users and
+ * owner groups ADDED to the row's own. A bulk apply can hand out ownership but
+ * never silently revoke it — the override confirm cannot see an item whose only
+ * access is an owner row, so replacement there would be invisible.
  */
 export function bulkTargetFor(row: AccessRow, draft: AccessTarget): AccessTarget {
   const named = namedTarget(draft)
+  const ownerUsers = named.ownerUsers ?? []
   const ownerGroups = named.ownerGroups ?? []
-  if (ownerGroups.length === 0) return named
+  if (ownerUsers.length === 0 && ownerGroups.length === 0) return named
   return {
     ...named,
-    ownerGroups: [...new Set([...(row.access.ownerGroups ?? []), ...ownerGroups])],
+    ...(ownerUsers.length === 0
+      ? {}
+      : { ownerUsers: [...new Set([...(row.access.ownerUsers ?? []), ...ownerUsers])] }),
+    ...(ownerGroups.length === 0
+      ? {}
+      : { ownerGroups: [...new Set([...(row.access.ownerGroups ?? []), ...ownerGroups])] }),
   }
 }
 
@@ -302,6 +325,11 @@ export interface ApplyOutcome {
 async function runOp(plan: ItemPlan, op: AccessOp): Promise<void> {
   if (op.kind === "owner") {
     await setResourceOwner(plan.resourceType, plan.id, op.username)
+    return
+  }
+  if (op.kind === "owner-user") {
+    if (op.owner) await addResourceOwnerUser(plan.resourceType, plan.id, op.username)
+    else await removeResourceOwnerUser(plan.resourceType, plan.id, op.username)
     return
   }
   if (op.kind === "owner-group") {

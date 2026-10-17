@@ -162,6 +162,8 @@ export interface ApiData {
     string,
     readonly { readonly username: string; readonly capabilities: readonly string[] }[]
   >
+  /** Owner usernames keyed `"{type}:{id}"` — additive to the requester owner. */
+  ownerUsers?: Record<string, readonly string[]>
   /** Owner-group ids keyed `"{type}:{id}"` — additive to the single user owner. */
   ownerGroups?: Record<string, readonly number[]>
   /** Group capability sets keyed `"{type}:{id}"` — the group analogue of `resourceGrants`. */
@@ -207,6 +209,7 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
   const explicitGrants: Record<string, { username: string; capabilities: string[] }[]> = {}
   const groups: Row[] = []
   const groupGrants: Record<string, { group_id: number; capabilities: string[] }[]> = {}
+  const ownerUsers: Record<string, string[]> = {}
   const ownerGroups: Record<string, number[]> = {}
   let nextGroupId = 0
   // Seeded on the first API call, not here: a spec assigns `api.data.*` before it
@@ -225,6 +228,7 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
     for (const [key, list] of Object.entries(data.groupGrants ?? {})) {
       groupGrants[key] = list.map((grant) => ({ group_id: grant.group_id, capabilities: [...grant.capabilities] }))
     }
+    for (const [key, list] of Object.entries(data.ownerUsers ?? {})) ownerUsers[key] = [...list]
     for (const [key, list] of Object.entries(data.ownerGroups ?? {})) ownerGroups[key] = [...list]
     nextGroupId = groups.reduce((max, row) => Math.max(max, Number(row.id)), 0)
   }
@@ -345,6 +349,7 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
           const key = `${row.resource_type}:${row.id}`
           return {
             ...row,
+            owner_users: [...(ownerUsers[key] ?? [])],
             owner_groups: (ownerGroups[key] ?? []).map(groupName),
             grant_groups: [...new Set((groupGrants[key] ?? []).map((grant) => groupName(grant.group_id)))],
           }
@@ -368,6 +373,7 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
         owner: row?.owner ?? "",
         owner_missing: false,
         grants: [...byUser].map(([username, capabilities]) => ({ username, capabilities })),
+        owner_users: [...(ownerUsers[key] ?? [])],
         owner_groups: (ownerGroups[key] ?? []).map((groupId) => ({
           id: groupId,
           name: groupName(groupId),
@@ -452,6 +458,19 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
       const others = (groupGrants[key] ?? []).filter((grant) => grant.group_id !== groupId)
       groupGrants[key] =
         capabilities.length === 0 ? others : [...others, { group_id: groupId, capabilities }]
+      return answer(200, accessView(type, rawResourceId))
+    }
+
+    // Owner-user add/remove — additive to the requester owner; must precede the
+    // generic grant route below, whose `(.+)` tail would also match `owner-user/x`.
+    const ownerUser = /^\/shares\/([^/]+)\/(\d+)\/owner-user\/(.+)$/.exec(path)
+    if (ownerUser !== null) {
+      const [, type, rawResourceId, rawUsername] = ownerUser
+      const key = `${type}:${rawResourceId}`
+      const username = decodeURIComponent(rawUsername)
+      const current = ownerUsers[key] ?? []
+      ownerUsers[key] =
+        method === "DELETE" ? current.filter((name) => name !== username) : [...new Set([...current, username])]
       return answer(200, accessView(type, rawResourceId))
     }
 
