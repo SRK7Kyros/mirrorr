@@ -107,6 +107,11 @@ async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) 
                         from mirrorr.api.auth import subscribe_requester
                         from mirrorr.storage.enums import ResourceType
                         await subscribe_requester(db, autorun.requester_user_token, ResourceType.SESSION, session.id)
+
+                    # The session inherits the autorun's access: whoever can see
+                    # the scheduled item can see what it produced.
+                    from mirrorr.services.permissions import inherit_access
+                    await inherit_access(db, autorun, session)
             except Exception as e:
                 logger.error(f"Autorun {autorun.id} session creation failed (status not persisted): {e}")
                 # Savepoint rolled back; this autorun stays SCHEDULED and
