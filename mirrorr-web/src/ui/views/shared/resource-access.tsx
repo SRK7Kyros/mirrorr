@@ -679,7 +679,7 @@ export function ResourceAccessEditor({
                 </span>
               )
             })}
-            <div className="min-w-[200px] flex-1">
+            <div className="relative min-w-[200px] flex-1">
               <Input
                 type="search"
                 autoComplete="off"
@@ -705,41 +705,41 @@ export function ResourceAccessEditor({
                 onBlur={() => setOwnerOpen(false)}
                 onKeyDown={onOwnerKeyDown}
               />
-            </div>
-          </div>
-        )}
 
-        {ownerMode || !ownerOpen ? null : (
-          <div className="rounded-md border border-line-subtle bg-surface-2 p-2">
-            {ownerOptions.length === 0 ? (
-              <p className="text-sm text-ink-muted">No users or groups match.</p>
-            ) : (
-              <ul
-                id={OWNER_LIST_ID}
-                role="listbox"
-                aria-label="Users and groups to own this item"
-                className="flex max-h-64 flex-col gap-0.5 overflow-y-auto"
-              >
-                {ownerOptions.map((option, index) => (
-                  <li
-                    key={`${option.kind}-${option.id}`}
-                    id={`${OWNER_LIST_ID}-${option.kind}-${option.id}`}
-                    role="option"
-                    aria-selected={index === ownerHighlightIndex}
-                    className={cn(
-                      "flex cursor-pointer items-center justify-between gap-3 rounded px-2 py-1.5 text-sm",
-                      index === ownerHighlightIndex ? "bg-surface-1 text-ink" : "text-ink-muted",
-                    )}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onMouseEnter={() => setOwnerHighlight(index)}
-                    onClick={() => applyOwnerOption(option)}
-                  >
-                    <span className="truncate">{option.label}</span>
-                    <span className="shrink-0 text-2xs text-ink-dim">{option.detail}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
+              {ownerOpen ? (
+                <div className="absolute top-full right-0 left-0 z-[var(--z-popover)] mt-1 rounded-md border border-line-strong bg-surface-3 p-2 shadow-elev-md">
+                  {ownerOptions.length === 0 ? (
+                    <p className="text-sm text-ink-muted">No users or groups match.</p>
+                  ) : (
+                    <ul
+                      id={OWNER_LIST_ID}
+                      role="listbox"
+                      aria-label="Users and groups to own this item"
+                      className="flex max-h-64 flex-col gap-0.5 overflow-y-auto"
+                    >
+                      {ownerOptions.map((option, index) => (
+                        <li
+                          key={`${option.kind}-${option.id}`}
+                          id={`${OWNER_LIST_ID}-${option.kind}-${option.id}`}
+                          role="option"
+                          aria-selected={index === ownerHighlightIndex}
+                          className={cn(
+                            "flex cursor-pointer items-center justify-between gap-3 rounded px-2 py-1.5 text-sm",
+                            index === ownerHighlightIndex ? "bg-surface-1 text-ink" : "text-ink-muted",
+                          )}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onMouseEnter={() => setOwnerHighlight(index)}
+                          onClick={() => applyOwnerOption(option)}
+                        >
+                          <span className="truncate">{option.label}</span>
+                          <span className="shrink-0 text-2xs text-ink-dim">{option.detail}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ) : null}
+            </div>
           </div>
         )}
 
