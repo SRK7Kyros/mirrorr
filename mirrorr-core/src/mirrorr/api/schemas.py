@@ -389,9 +389,9 @@ class AccessView(BaseModel):
 
     ``grants`` excludes the owner (their rights are implicit) and every user
     with no capabilities; ``group_grants`` lists only groups that hold one.
-    ``owner_groups`` are the additive group owners, beside the single
-    ``owner`` username; the privileged ``requester_user_token`` field never
-    appears in this view.
+    ``owner_users`` and ``owner_groups`` are the additive user and group owners,
+    beside the requester ``owner``; the privileged ``requester_user_token``
+    field never appears in this view.
     """
 
     resource_type: str
@@ -399,6 +399,7 @@ class AccessView(BaseModel):
     owner: str = ""
     owner_missing: bool = False
     grants: list[GrantEntry] = Field(default_factory=list)
+    owner_users: list[str] = Field(default_factory=list)
     owner_groups: list[GroupRef] = Field(default_factory=list)
     group_grants: list[GroupGrantEntry] = Field(default_factory=list)
 
@@ -428,6 +429,7 @@ class ResourceAccessItem(BaseModel):
     owner: str = ""
     owner_missing: bool = False
     viewer_count: int = 0
+    owner_users: list[str] = Field(default_factory=list)
     owner_groups: list[str] = Field(default_factory=list)
     grant_groups: list[str] = Field(default_factory=list)
     system: bool = False
