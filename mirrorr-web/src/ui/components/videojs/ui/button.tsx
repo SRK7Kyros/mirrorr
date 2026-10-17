@@ -13,5 +13,5 @@ import { cn } from '@/ui/lib/resolve-class-name';
 export type ButtonProps = ComponentProps<'button'>;
 
 export function Button({ className, ...props }: ButtonProps) {
-  return <button className={cn('media-button', className)} {...props} />;
+  return <button className={cn('media-button', 'tab-stop', className)} {...props} />;
 }

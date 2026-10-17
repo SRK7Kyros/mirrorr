@@ -1,5 +1,6 @@
 export const controlClass = [
   "w-full min-w-0 bg-sunken border border-line rounded-sm text-ink",
+  "tab-stop",
   "placeholder:text-ink-dim",
   "transition-[border-color,background,box-shadow] duration-[var(--dur-fast)] ease-[var(--ease-out)]",
   "[&:hover:not(:disabled)]:border-line-strong",

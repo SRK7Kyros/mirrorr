@@ -48,6 +48,7 @@ export function FilePicker({
       <label
         className={cn(
           "relative flex flex-col items-center justify-center gap-1 px-4 py-5 border border-dashed rounded-md text-center",
+          "tab-stop",
           "transition-[border-color,background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]",
           "hover:border-[color:var(--accent-line)] hover:bg-surface-1 hover:text-ink",
           "focus-visible:outline-none focus-visible:border-[color:var(--accent-line)] focus-visible:shadow-ring",

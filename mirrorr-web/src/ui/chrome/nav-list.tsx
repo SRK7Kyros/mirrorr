@@ -4,7 +4,7 @@ import { cn } from "@/ui/lib/cn"
 import { NAV_SECTIONS } from "./nav-items"
 
 const NAV_ITEM_CLASS =
-  "relative flex items-center gap-3 rounded-sm p-[var(--s-2)_var(--s-3)] text-base font-medium transition-[background,color] duration-[var(--dur-fast)] ease-[var(--ease-out)] [&>svg]:shrink-0 max-lg:justify-center max-lg:p-[var(--s-2)]"
+  "relative flex items-center gap-3 rounded-sm p-[var(--s-2)_var(--s-3)] text-base font-medium transition-[background,color] duration-[var(--dur-fast)] ease-[var(--ease-out)] [&>svg]:shrink-0 max-lg:justify-center max-lg:p-[var(--s-2)] tab-stop"
 const NAV_ITEM_ACTIVE =
   "bg-[var(--accent-dim)] text-brand before:absolute before:left-0 before:top-1/2 before:h-[18px] before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-brand before:content-['']"
 const NAV_ITEM_IDLE = "text-ink-muted hover:bg-surface-2 hover:text-ink"

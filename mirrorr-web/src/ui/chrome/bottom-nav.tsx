@@ -13,7 +13,7 @@ import { HostSwitcher } from "./host-switcher";
 import { MOBILE_OVERFLOW, MOBILE_TABS } from "./nav-items";
 
 const ITEM_CLASS =
-  "relative isolate flex h-[calc(var(--bottomnav-h)_-_var(--s-2))] flex-col items-center justify-center gap-[2px] rounded-full text-2xs transition-[color,background] duration-[var(--dur-fast)] ease-[var(--ease-out)]";
+  "relative isolate flex h-[calc(var(--bottomnav-h)_-_var(--s-2))] flex-col items-center justify-center gap-[2px] rounded-full text-2xs transition-[color,background] duration-[var(--dur-fast)] ease-[var(--ease-out)] tab-stop";
 
 export function BottomNav() {
   const matchRoute = useMatchRoute();

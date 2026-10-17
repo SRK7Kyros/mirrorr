@@ -29,7 +29,7 @@ export function SessionPlayerFrame({
     <iframe
       src={url}
       title={`${label} player`}
-      className={cn("block aspect-video w-full border-0 bg-sunken", className)}
+      className={cn("block aspect-video w-full border-0 bg-sunken", "tab-stop", className)}
       allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
       allowFullScreen
       loading="lazy"

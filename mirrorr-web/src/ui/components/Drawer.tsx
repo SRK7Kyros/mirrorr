@@ -97,7 +97,7 @@ export function Drawer({
                   <DialogPrimitive.Title asChild>
                     <h2 className="text-lg font-semibold leading-tight">{title}</h2>
                   </DialogPrimitive.Title>
-                  <IconButton label="Close" icon={<IconX size={18} />} onClick={onClose} />
+                  <IconButton label="Close" icon={<IconX size={18} />} className="tab-skip" onClick={onClose} />
                 </header>
                 <div className={BODY_CLASS}>{children}</div>
                 {footer !== undefined ? <footer className={FOOT_CLASS}>{footer}</footer> : null}

@@ -7,6 +7,7 @@ import { setAuthNavigator } from "@/api/auth"
 import { queryClient } from "@/api/query-client"
 import { SettingsSectionsContext, type SettingsSection } from "@/ui/views/settings/sections"
 import { ResourceAccessSlotContext } from "@/ui/views/shared/resource-access-slot"
+import { TabStopMap } from "@/ui/components/tab-stops"
 import { router } from "@/router"
 import { ADMIN_ACCESS_SLOT } from "./admin-access"
 import { AdministrationSection } from "./admin-surface"
@@ -29,6 +30,7 @@ if (container === null) throw new Error("#root missing")
 createRoot(container).render(
   <StrictMode>
     <MotionConfig reducedMotion="user">
+      <TabStopMap />
       <SettingsSectionsContext.Provider value={SECTIONS}>
         <ResourceAccessSlotContext.Provider value={ADMIN_ACCESS_SLOT}>
           <QueryClientProvider client={queryClient}>

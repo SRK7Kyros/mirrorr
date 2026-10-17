@@ -9,7 +9,7 @@ export interface SwitchProps extends Omit<ComponentPropsWithRef<"input">, "type"
 export function Switch({ label, className, ...rest }: SwitchProps) {
   return (
     <label className={cn("inline-flex items-center gap-3 cursor-pointer", className)}>
-      <input type="checkbox" role="switch" className="sr-only peer" {...rest} />
+      <input type="checkbox" role="switch" className="sr-only peer tab-stop" {...rest} />
       <span className="switch-track" aria-hidden="true" />
       {label !== undefined ? <span>{label}</span> : null}
     </label>

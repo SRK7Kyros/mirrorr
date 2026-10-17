@@ -69,7 +69,7 @@ export function Segmented<T extends string>({
           id={panelId === undefined ? undefined : tabId(panelId, item.id)}
           role="tab"
           aria-controls={panelId}
-          className="segmented-item"
+          className="segmented-item tab-stop"
           data-active={item.id === active}
           aria-selected={item.id === active}
           tabIndex={item.id === active ? 0 : -1}

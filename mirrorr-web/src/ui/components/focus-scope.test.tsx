@@ -6,13 +6,19 @@ function Harness() {
   const scope = useFocusScope<HTMLFormElement>()
   return (
     <div>
-      <button type="button">Before</button>
+      <button type="button" className="tab-stop">
+        Before
+      </button>
       <form ref={scope.ref} onKeyDown={scope.onKeyDown}>
-        <input aria-label="First" />
-        <input aria-label="Middle" />
-        <button type="submit">Save</button>
+        <input aria-label="First" className="tab-stop" />
+        <input aria-label="Middle" className="tab-stop" />
+        <button type="submit" className="tab-stop">
+          Save
+        </button>
       </form>
-      <button type="button">After</button>
+      <button type="button" className="tab-stop">
+        After
+      </button>
     </div>
   )
 }
@@ -67,7 +73,7 @@ describe("useFocusScope", () => {
       const scope = useFocusScope<HTMLFormElement>()
       return (
         <form ref={scope.ref} onKeyDown={scope.onKeyDown}>
-          <input aria-label="Only" />
+          <input aria-label="Only" className="tab-stop" />
         </form>
       )
     }

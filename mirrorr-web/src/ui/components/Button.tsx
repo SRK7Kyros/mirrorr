@@ -23,6 +23,7 @@ const TRANSITION =
 
 const BUTTON_BASE = [
   "inline-flex items-center justify-center gap-2",
+  "tab-stop",
   "rounded-sm border leading-none whitespace-nowrap select-none",
   "[&:active:not(:disabled)]:scale-[0.975] disabled:opacity-45",
   TRANSITION,
