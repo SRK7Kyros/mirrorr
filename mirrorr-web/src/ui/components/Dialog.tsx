@@ -91,6 +91,11 @@ export function Dialog({
               forceMount
               onEscapeKeyDown={(event) => {
                 if (busy) event.preventDefault()
+                // A control may claim Escape for itself — the access editor's owner
+                // combobox closes its suggestion list and keeps the dialog open.
+                if ((event.target as HTMLElement | null)?.closest("[data-owns-escape]")) {
+                  event.preventDefault()
+                }
               }}
               onInteractOutside={(event) => {
                 if (busy) event.preventDefault()

@@ -671,6 +671,35 @@ describe("ResourceAccessFields — groups", () => {
     expect(list.parentElement?.className).toContain("absolute")
   })
 
+  it("claims Escape: the field clears and closes its suggestions, not the panel", () => {
+    render(
+      <ResourceAccessFields
+        resourceType="session"
+        access={access()}
+        users={USERS}
+        groups={GROUPS}
+        onApply={vi.fn()}
+      />,
+    )
+
+    const field = screen.getByRole("combobox", { name: "Add an owner" })
+    const list = () => screen.queryByRole("listbox", { name: "Users and groups to own this item" })
+
+    // The wrapper's marker is what tells the enclosing Dialog to skip its dismiss
+    // for an Escape that starts in this field (Radix listens in the capture phase,
+    // so stopping propagation from here could never have worked).
+    expect(field.closest("[data-owns-escape]")).not.toBeNull()
+
+    fireEvent.focus(field)
+    fireEvent.change(field, { target: { value: "ali" } })
+    expect(list()).not.toBeNull()
+
+    fireEvent.keyDown(field, { key: "Escape" })
+
+    expect((field as HTMLInputElement).value).toBe("")
+    expect(list()).toBeNull()
+  })
+
   it("warns loudly when the everyone group owns the item", () => {
     render(
       <ResourceAccessFields

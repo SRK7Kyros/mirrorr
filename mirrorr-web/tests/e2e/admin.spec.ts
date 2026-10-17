@@ -605,5 +605,14 @@ test.describe("admin resource access", () => {
     await expect
       .poll(() => api.callsTo("/shares/session/7/owner-user/alice").some((call) => call.method === "DELETE"))
       .toBe(true)
+
+    await ownerField.fill("ali")
+    await expect(ownerOptions).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeVisible()
+    await expect(ownerField).toHaveValue("")
+    await expect(ownerField).not.toBeFocused()
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeHidden()
   })
 })
