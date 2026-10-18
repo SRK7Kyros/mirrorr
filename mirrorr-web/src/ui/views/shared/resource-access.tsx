@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
   type AccessOverride,
   type AccessTarget,
+  type BulkMode,
   type Crown,
   type ItemAccess,
   crownKey,
@@ -10,11 +11,12 @@ import {
 import { rankBySearch } from "@/api/domain/search";
 import { CAPABILITIES, type Capability } from "@/api/schemas/privileged";
 import type { User } from "@/api/schemas/user";
-import { Avatar, Button, IconButton, Input } from "@/ui/components";
+import { Avatar, Button, IconButton, Input, Segmented } from "@/ui/components";
 import {
   IconAlert,
   IconCheck,
   IconCrown,
+  IconMinus,
   IconSearch,
   IconUser,
   IconX,
@@ -194,10 +196,13 @@ function grantCapability(
   access: ItemAccess,
   capability: Capability,
   username: string,
+  implyView: boolean,
 ): ItemAccess {
   const alreadyHeld = access.grants[capability].includes(username);
   const needsView =
-    capability !== "VIEW" && !access.grants.VIEW.includes(username);
+    implyView &&
+    capability !== "VIEW" &&
+    !access.grants.VIEW.includes(username);
   if (alreadyHeld && !needsView) return access;
   const grants = { ...access.grants };
   if (!alreadyHeld) grants[capability] = [...grants[capability], username];
@@ -244,11 +249,14 @@ function grantGroupCapability(
   access: ItemAccess,
   capability: Capability,
   groupId: number,
+  implyView: boolean,
 ): ItemAccess {
   const groupGrants = groupGrantRecord(access);
   const alreadyHeld = groupGrants[capability].includes(groupId);
   const needsView =
-    capability !== "VIEW" && !groupGrants.VIEW.includes(groupId);
+    implyView &&
+    capability !== "VIEW" &&
+    !groupGrants.VIEW.includes(groupId);
   if (alreadyHeld && !needsView) return access;
   if (!alreadyHeld)
     groupGrants[capability] = [...groupGrants[capability], groupId];
@@ -320,9 +328,17 @@ export interface AccessDraft {
   readonly dirty: boolean;
   readonly target: AccessTarget & GroupDraftTarget;
   readonly setOwner: (crown: Crown) => void;
-  readonly grant: (capability: Capability, username: string) => void;
+  readonly grant: (
+    capability: Capability,
+    username: string,
+    options?: { readonly implyView?: boolean },
+  ) => void;
   readonly revoke: (capability: Capability, username: string) => void;
-  readonly grantGroup: (capability: Capability, groupId: number) => void;
+  readonly grantGroup: (
+    capability: Capability,
+    groupId: number,
+    options?: { readonly implyView?: boolean },
+  ) => void;
   readonly revokeGroup: (capability: Capability, groupId: number) => void;
   readonly addOwnerUser: (username: string) => void;
   readonly removeOwnerUser: (username: string) => void;
@@ -370,12 +386,16 @@ export function useAccessDraft(access: ItemAccess): AccessDraft {
       ownerGroups,
     },
     setOwner: (crown) => setDraft((current) => ({ ...current, crown })),
-    grant: (capability, username) =>
-      setDraft((current) => grantCapability(current, capability, username)),
+    grant: (capability, username, options) =>
+      setDraft((current) =>
+        grantCapability(current, capability, username, options?.implyView ?? true),
+      ),
     revoke: (capability, username) =>
       setDraft((current) => revokeCapability(current, capability, username)),
-    grantGroup: (capability, groupId) =>
-      setDraft((current) => grantGroupCapability(current, capability, groupId)),
+    grantGroup: (capability, groupId, options) =>
+      setDraft((current) =>
+        grantGroupCapability(current, capability, groupId, options?.implyView ?? true),
+      ),
     revokeGroup: (capability, groupId) =>
       setDraft((current) =>
         revokeGroupCapability(current, capability, groupId),
@@ -446,6 +466,20 @@ const CHIP_OFF = "border-line bg-surface-2 text-ink-muted";
 const CHIP_PARTIAL = "border-brand border-dashed bg-transparent text-ink";
 
 const OVERRIDES_LIST_ID = "access-overrides-options";
+
+/** The `+` / `−` / `=` of a bulk permission edit, in the words of the API. */
+const BULK_MODES: readonly { readonly id: BulkMode; readonly label: string }[] =
+  [
+    { id: "grant", label: "Grant" },
+    { id: "revoke", label: "Revoke" },
+    { id: "replace", label: "Replace" },
+  ];
+
+const BULK_MODE_HINT: Record<BulkMode, string> = {
+  grant: "Adds these capabilities beside everyone who already holds them.",
+  revoke: "Takes these capabilities from the selected principals alone.",
+  replace: "Makes the selected principals the only holders.",
+};
 
 /** The crown badge is the warning yellow; a co-owner's is neutral. */
 const OWNER_BADGE_CROWN_CLASS =
@@ -576,15 +610,23 @@ function splitCardKey(key: string): { kind: "user" | "group"; id: string } {
   return { kind: "user", id: key.slice("user:".length) };
 }
 
-/** Does the draft hold `capability` for the principal the key names? */
+/** Does the draft hold `capability` for the principal the key names? `raw`
+ *  reads the record as the edit states it, without VIEW's implication. */
 function holdsKey(
   draft: AccessDraft,
   capability: Capability,
   key: string,
+  raw = false,
 ): boolean {
   const { kind, id } = splitCardKey(key);
-  return kind === "group"
-    ? holdsGroupCapability(draft.groupGrants, capability, Number(id))
+  if (kind === "group") {
+    const groupGrants = draft.groupGrants;
+    return raw
+      ? (groupGrants[capability] ?? []).includes(Number(id))
+      : holdsGroupCapability(groupGrants, capability, Number(id));
+  }
+  return raw
+    ? draft.grants[capability].includes(id)
     : holdsCapability(draft.grants, capability, id);
 }
 
@@ -597,6 +639,10 @@ export interface ResourceAccessEditorProps {
   readonly busy?: boolean;
   /** The owner row's label when no owner is picked — a bulk host says so instead. */
   readonly emptyOwnerLabel?: string;
+  /** The bulk host's current edit mode; omitted, the chips mean `replace`. */
+  readonly mode?: BulkMode;
+  /** Providing this renders the mode row — only a bulk edit has a `+`/`−`/`=` choice. */
+  readonly onModeChange?: (mode: BulkMode) => void;
 }
 
 export function ResourceAccessEditor({
@@ -606,6 +652,8 @@ export function ResourceAccessEditor({
   groups,
   busy = false,
   emptyOwnerLabel = "No owner",
+  mode = "replace",
+  onModeChange,
 }: ResourceAccessEditorProps) {
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
@@ -891,10 +939,12 @@ export function ResourceAccessEditor({
         (draft.groupGrants[capability] ?? []).length > 0),
   );
 
+  const revoking = mode === "revoke";
+
   function selectionState(capability: Capability): "all" | "partial" | "none" {
     if (selectedKeys.length === 0) return "none";
     const holding = selectedKeys.filter((key) =>
-      holdsKey(draft, capability, key),
+      holdsKey(draft, capability, key, revoking),
     ).length;
     if (holding === 0) return "none";
     return holding === selectedKeys.length ? "all" : "partial";
@@ -911,7 +961,7 @@ export function ResourceAccessEditor({
       const losesMore = selectedKeys.some((key) =>
         CAPABILITIES.some(
           (candidate) =>
-            candidate !== "VIEW" && holdsKey(draft, candidate, key),
+            candidate !== "VIEW" && holdsKey(draft, candidate, key, revoking),
         ),
       );
       setNote(
@@ -926,10 +976,10 @@ export function ResourceAccessEditor({
       const { kind, id } = splitCardKey(key);
       if (kind === "group") {
         const groupId = Number(id);
-        if (turnOn) draft.grantGroup(capability, groupId);
+        if (turnOn) draft.grantGroup(capability, groupId, { implyView: !revoking });
         else draft.revokeGroup(capability, groupId);
       } else if (turnOn) {
-        draft.grant(capability, id);
+        draft.grant(capability, id, { implyView: !revoking });
       } else {
         draft.revoke(capability, id);
       }
@@ -1234,6 +1284,22 @@ export function ResourceAccessEditor({
         <span className="text-ink-muted">{`${selectedKeys.length} selected`}</span>
         {note === "" ? null : <span className="text-warning">{note}</span>}
       </div>
+      {onModeChange === undefined ? null : (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <Segmented
+            items={BULK_MODES}
+            active={mode}
+            onChange={(next) => {
+              setNote("");
+              onModeChange(next);
+            }}
+            ariaLabel="How to apply the selected capabilities"
+          />
+          <span className="min-w-0 text-xs text-ink-dim">
+            {BULK_MODE_HINT[mode]}
+          </span>
+        </div>
+      )}
       <div
         role="group"
         aria-label="Capabilities for the selected users and groups"
@@ -1266,7 +1332,13 @@ export function ResourceAccessEditor({
               )}
               onClick={() => toggleCapability(capability)}
             >
-              {state === "all" ? <IconCheck size={14} /> : null}
+              {state === "all" ? (
+                mode === "revoke" ? (
+                  <IconMinus size={14} />
+                ) : (
+                  <IconCheck size={14} />
+                )
+              ) : null}
               {capabilityLabel(capability)}
             </button>
           );

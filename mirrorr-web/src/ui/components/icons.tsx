@@ -122,6 +122,7 @@ export const IconCrown = makeIcon(
 )
 
 export const IconPlus = makeIcon(<path d="M12 5v14M5 12h14" />)
+export const IconMinus = makeIcon(<path d="M5 12h14" />)
 export const IconX = makeIcon(<path d="M18 6 6 18M6 6l12 12" />)
 export const IconCheck = makeIcon(<path d="M20 6 9 17l-5-5" />)
 export const IconChevronRight = makeIcon(<path d="m9 18 6-6-6-6" />)
