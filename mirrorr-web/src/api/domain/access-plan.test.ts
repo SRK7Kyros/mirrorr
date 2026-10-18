@@ -287,6 +287,65 @@ describe("bulkTargetFor", () => {
     )
     expect(plan.items[0]?.to.ownerGroups).toEqual([3, 9])
   })
+
+  it("grants beside the holders an item already has", () => {
+    const target = bulkTargetFor(
+      row({ access: access({ grants: grants({ VIEW: ["bob"] }) }) }),
+      { grants: grants({ VIEW: ["carol"] }) },
+      "grant",
+    )
+    expect(target.grants).toEqual({ VIEW: ["bob", "carol"] })
+  })
+
+  it("names VIEW for a granted capability, as the server would", () => {
+    const target = bulkTargetFor(row(), { grants: grants({ OPERATE: ["carol"] }) }, "grant")
+    expect(target.grants).toEqual({ VIEW: ["carol"], OPERATE: ["carol"] })
+  })
+
+  it("revokes from the named principals alone", () => {
+    const target = bulkTargetFor(
+      row({ access: access({ grants: grants({ VIEW: ["alice", "bob"] }) }) }),
+      { grants: grants({ VIEW: ["bob"] }) },
+      "revoke",
+    )
+    expect(target.grants).toEqual({ VIEW: ["alice"] })
+  })
+
+  it("clears every capability when it revokes VIEW, because VIEW is the base", () => {
+    const target = bulkTargetFor(
+      row({ access: access({ grants: grants({ VIEW: ["bob"], DELETE: ["bob"] }) }) }),
+      { grants: grants({ VIEW: ["bob"] }) },
+      "revoke",
+    )
+    expect(target.grants).toEqual({ VIEW: [], DELETE: [] })
+  })
+
+  it("grants and revokes group grants the same way", () => {
+    const granted = bulkTargetFor(
+      row({ access: access({ groupGrants: groupGrantsOf({ VIEW: [3] }) }) }),
+      { groupGrants: groupGrantsOf({ VIEW: [9] }) },
+      "grant",
+    )
+    expect(granted.groupGrants).toEqual({ VIEW: [3, 9] })
+    const revoked = bulkTargetFor(
+      row({ access: access({ groupGrants: groupGrantsOf({ VIEW: [3, 9] }) }) }),
+      { groupGrants: groupGrantsOf({ VIEW: [9] }) },
+      "revoke",
+    )
+    expect(revoked.groupGrants).toEqual({ VIEW: [3] })
+  })
+
+  it("leaves an item alone when a grant or revoke names nothing it changes", () => {
+    const held = row({ access: access({ grants: grants({ VIEW: ["carol"] }) }) })
+    const target = bulkTargetFor(held, { grants: grants({ VIEW: ["carol"] }) }, "grant")
+    expect(target.grants).toBeUndefined()
+    const plan = planBulk(
+      [held],
+      (item) => bulkTargetFor(item, { grants: grants({ VIEW: ["carol"] }) }, "grant"),
+      USERS,
+    )
+    expect(plan.opCount).toBe(0)
+  })
 })
 
 describe("applyPlans", () => {

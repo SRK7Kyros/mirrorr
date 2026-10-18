@@ -1,5 +1,5 @@
 import { autorun, expect, profile, session, source, test } from "./fixtures";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 /**
  * Admin surface (plans: admin-ownership-and-access, element-access-and-bulk-perms).
@@ -540,6 +540,102 @@ test.describe("admin resource access", () => {
         capabilities: ["VIEW", "OPERATE"],
       },
     );
+  });
+
+  test("bulk access grants, revokes or replaces the same capability", async ({
+    page,
+    api,
+  }) => {
+    api.data.users = [
+      { id: 1, username: "kyros", role: "admin", display_name: "Kyros" },
+      { id: 2, username: "alice", role: "user", display_name: "Alice" },
+      { id: 3, username: "bob", role: "user", display_name: "Bob" },
+      { id: 4, username: "carol", role: "user", display_name: "Carol" },
+    ];
+    api.data.sessions = [session({ id: 7 })];
+    api.data.resources = [resourceRow("session", 7, "F1 Weekend")];
+    api.data.resourceGrants = {
+      "session:7": [{ username: "bob", capabilities: ["VIEW", "OPERATE"] }],
+    };
+
+    const posted = (username: string) =>
+      api.calls
+        .filter(
+          (call) => call.path === "/shares/session/7" && call.method === "POST",
+        )
+        .map(
+          (call) =>
+            call.body as { username: string; capabilities: readonly string[] },
+        )
+        .filter((body) => body.username === username);
+
+    await openAdmin(page);
+
+    const openBulk = async () => {
+      await page.getByRole("checkbox", { name: "Select session #7" }).check();
+      await page.getByRole("button", { name: "Access", exact: true }).click();
+      return page.getByRole("dialog");
+    };
+    const operateOn = async (
+      dialog: Locator,
+      name: RegExp,
+      mode?: string,
+    ) => {
+      await dialog
+        .getByTestId("access-catalog")
+        .getByRole("option", { name })
+        .click();
+      if (mode !== undefined)
+        await dialog.getByRole("tab", { name: mode }).click();
+      await dialog
+        .getByRole("group", {
+          name: "Capabilities for the selected users and groups",
+        })
+        .getByRole("button", { name: "Operate" })
+        .click();
+    };
+
+    let dialog = await openBulk();
+    await expect(dialog.getByRole("tab", { name: "Grant" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await operateOn(dialog, /Carol/);
+    await expect(dialog.getByText("1 already overridden")).toBeVisible();
+    await dialog.getByRole("button", { name: "Apply to 1" }).click();
+    await expect
+      .poll(() => posted("carol").at(-1)?.capabilities)
+      .toEqual(["VIEW", "OPERATE"]);
+    expect(posted("bob")).toEqual([]);
+
+    dialog = await openBulk();
+    await operateOn(dialog, /Carol/, "Revoke");
+    await expect(dialog.getByText("1 change(s) planned")).toBeVisible();
+    await dialog.getByRole("button", { name: "Apply to 1" }).click();
+    await expect.poll(() => posted("carol").at(-1)?.capabilities).toEqual([
+      "VIEW",
+    ]);
+    expect(posted("bob")).toEqual([]);
+
+    dialog = await openBulk();
+    await operateOn(dialog, /Carol/, "Replace");
+    await dialog.getByRole("button", { name: "Apply to 1" }).click();
+    await expect(page.getByText("Override 1 item(s)?")).toBeVisible();
+    await page.getByRole("button", { name: "Override and apply" }).click();
+    await expect.poll(() => posted("carol").at(-1)?.capabilities).toEqual([
+      "VIEW",
+      "OPERATE",
+    ]);
+    await expect
+      .poll(
+        () =>
+          api.calls.some(
+            (call) =>
+              call.method === "DELETE" &&
+              call.path === "/shares/session/7/bob",
+          ),
+      )
+      .toBe(true);
   });
 
   test("keeps the catalog and the capability chip row inside the dialog at 375px", async ({

@@ -10,6 +10,7 @@ import {
   itemAccessFromView,
   planBulk,
   type AccessRow,
+  type BulkMode,
   type ItemAccess,
   type ItemPlan,
 } from "@/api/domain/access-plan"
@@ -233,6 +234,7 @@ function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProp
 
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [mode, setMode] = useState<BulkMode>("grant")
   const [failures, setFailures] = useState<readonly { label: string; message: string }[]>([])
 
   const usernames = users.map((user) => user.username)
@@ -251,15 +253,21 @@ function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProp
     ]
   })
 
-  const plan = planBulk(rows, (row) => bulkTargetFor(row, draft.target), usernames)
+  const plan = planBulk(rows, (row) => bulkTargetFor(row, draft.target, mode), usernames)
+  const overridingItems =
+    mode === "replace"
+      ? plan.overriding
+      : plan.overriding.filter((item) => item.ops.some((op) => op.kind === "crown"))
   /** Items carrying their own access — read out whether or not the target touches them. */
   const overridden = plan.items.filter((item) => item.override !== null).length
   const ready = plan.opCount > 0
-  const everyoneGranted = groups.some(
-    (group) =>
-      group.system &&
-      CAPABILITIES.some((capability) => draft.groupGrants[capability].includes(group.id)),
-  )
+  const everyoneGranted =
+    mode !== "revoke" &&
+    groups.some(
+      (group) =>
+        group.system &&
+        CAPABILITIES.some((capability) => draft.groupGrants[capability].includes(group.id)),
+    )
 
   async function apply(): Promise<void> {
     setBusy(true)
@@ -286,7 +294,7 @@ function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProp
       onClose={onClose}
       busy={busy}
       size="xl"
-      title={confirming ? `Override ${plan.overriding.length} item(s)?` : `Access on ${items.length} item(s)`}
+      title={confirming ? `Override ${overridingItems.length} item(s)?` : `Access on ${items.length} item(s)`}
       description={
         confirming
           ? "These items carry their own access. Applying changes the parts you filled in."
@@ -312,7 +320,7 @@ function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProp
               loading={busy}
               disabled={!ready || loading || failed !== undefined}
               onClick={() => {
-                if (plan.overriding.length > 0) setConfirming(true)
+                if (overridingItems.length > 0) setConfirming(true)
                 else void apply()
               }}
             >
@@ -331,7 +339,7 @@ function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProp
         />
       ) : confirming ? (
         <ul className="flex flex-col gap-3">
-          {plan.overriding.map((item) => (
+          {overridingItems.map((item) => (
             <li key={item.id} className="flex flex-col gap-2 border border-line rounded-md p-3">
               <span className="font-medium">
                 {item.label} <span className="text-muted">{resourceTypeLabel(resourceType)}</span>
@@ -349,6 +357,8 @@ function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProp
             groups={groups}
             busy={busy}
             emptyOwnerLabel="Left as it is"
+            mode={mode}
+            onModeChange={setMode}
           />
 
           {everyoneGranted ? (
