@@ -242,6 +242,33 @@ describe("ResourceAccessFields", () => {
     );
   });
 
+  it("keeps a co-owner badge in the tab order and crowns it with Enter", () => {
+    render(
+      <ResourceAccessFields
+        resourceType="session"
+        access={access({ ownerUsers: ["bob"] })}
+        users={USERS}
+        groups={GROUPS}
+        onApply={vi.fn()}
+      />,
+    );
+
+    const badge = screen.getByRole("button", { name: "Make Bob the owner" });
+    expect(badge.className).toContain("tab-stop");
+    expect(badge.className).toContain("shadow-ring");
+
+    badge.focus();
+    fireEvent.click(badge);
+
+    expect(screen.getByTestId("owner-crown").textContent).toContain("Bob");
+    expect(
+      screen.queryByRole("button", { name: "Make Bob the owner" }),
+    ).toBeNull();
+    expect(document.activeElement).toBe(
+      screen.getByRole("combobox", { name: "Add an owner" }),
+    );
+  });
+
   it("keeps the crown badge and the co-owner badges in one row, with no transfer mode", () => {
     render(
       <ResourceAccessFields

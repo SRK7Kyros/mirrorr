@@ -455,7 +455,7 @@ const CO_OWNER_BADGE_CLASS =
   "inline-flex h-8 min-w-0 items-center gap-1 rounded-full border border-line bg-surface-2 pr-1 pl-2.5";
 
 const CO_OWNER_NAME_CLASS =
-  "inline-flex min-w-0 items-center gap-1.5 rounded-full tab-stop focus-visible:outline-none disabled:opacity-45";
+  "inline-flex min-w-0 items-center gap-1.5 rounded-full tab-stop focus-visible:outline-none focus-visible:shadow-ring disabled:opacity-45";
 
 /** One principal a suggestion list can offer — a sub-set of a `PrincipalCard`. */
 export interface SuggestionOption {
@@ -621,6 +621,10 @@ export function ResourceAccessEditor({
 
   const removeOwnerAndRefocus = (remove: () => void) => {
     remove();
+    ownerInputRef.current?.focus();
+  };
+  const crownOwnerAndRefocus = (crown: Crown) => {
+    crownPrincipal(crown);
     ownerInputRef.current?.focus();
   };
   const marquee = useMarqueeSelection(scrollRef, (keys) =>
@@ -969,7 +973,7 @@ export function ResourceAccessEditor({
                 disabled={busy}
                 aria-label={`Make ${usernameLabel(users, username)} the owner`}
                 aria-keyshortcuts="Backspace"
-                onClick={() => crownPrincipal({ kind: "user", username })}
+                onClick={() => crownOwnerAndRefocus({ kind: "user", username })}
                 onKeyDown={(event) => {
                   if (event.key !== "Backspace") return;
                   event.preventDefault();
@@ -1005,7 +1009,7 @@ export function ResourceAccessEditor({
                   disabled={busy}
                   aria-label={`Make ${label} the owner`}
                   aria-keyshortcuts="Backspace"
-                  onClick={() => crownPrincipal({ kind: "group", groupId })}
+                  onClick={() => crownOwnerAndRefocus({ kind: "group", groupId })}
                   onKeyDown={(event) => {
                     if (event.key !== "Backspace") return;
                     event.preventDefault();
