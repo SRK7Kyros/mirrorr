@@ -216,6 +216,25 @@ test.describe("tab-stop map", () => {
       await page.keyboard.press("Tab")
     }
     await expect(apply).toBeFocused()
+
+    // ArrowDown/ArrowUp walk that same order, so a keyboard user moves between
+    // controls without Tab; a text field keeps its own arrows, and the walk
+    // stops at the dialog's edges instead of escaping to the page behind it.
+    const search = dialog.getByRole("combobox", { name: "Search users and groups" })
+    await search.focus()
+    await page.keyboard.press("ArrowDown")
+    await expect(search).toBeFocused()
+
+    await page.keyboard.press("Tab")
+    await expect(dialog.getByRole("button", { name: "Select all" })).toBeFocused()
+    await page.keyboard.press("ArrowDown")
+    await expect(dialog.getByRole("button", { name: "Clear" })).toBeFocused()
+    await page.keyboard.press("ArrowUp")
+    await expect(dialog.getByRole("button", { name: "Select all" })).toBeFocused()
+
+    await apply.focus()
+    await page.keyboard.press("ArrowDown")
+    await expect(apply).toBeFocused()
   })
 
   test("marks the login form's own controls", async ({ page, api }) => {
