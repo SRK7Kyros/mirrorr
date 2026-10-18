@@ -862,6 +862,15 @@ indicator as a whole always has a ≥3:1 boundary. Focus is never a glow.
   pins the per-item access dialog's order — the owner field, the catalog search,
   `Select all`, a catalog card, the capability chips and `Apply changes` — plus the
   fact that the × is out of it.
+- **The arrows walk that same map** (Oct 18 2026): `ArrowDown`/`ArrowUp` move focus
+  one stop along it (`arrowStop`, mounted with the map through `useArrowKeys`), so a
+  keyboard user steps between controls without leaving the row they are on. A control
+  that answers the arrows itself keeps them — a text field or `combobox`, a
+  `listbox`/`option`, a tab strip, a menu, a slider (the caret and the highlight must
+  still move) — as does any modifier key, which is the browser's gesture. The walk is
+  scoped to the open dialog and stops at its edges instead of escaping to the page
+  behind it, and `ArrowLeft`/`ArrowRight` stay with the widget (`Segmented`, the
+  catalog) and with the browser.
 - Dialogs/drawers: focus trapped, Esc closes, focus returns to the trigger
   (API contract 12.4). Confirm dialogs open with focus on Cancel.
 - Menus/listboxes: ArrowUp/Down, Home/End, Enter, Esc; comboboxes add typeahead;

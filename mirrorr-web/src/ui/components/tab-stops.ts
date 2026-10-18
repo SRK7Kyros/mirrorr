@@ -103,8 +103,86 @@ export function useTabStopMap(): void {
   }, [])
 }
 
+/**
+ * Controls that already answer the arrow keys themselves — a caret in a text
+ * field, a highlight in a listbox or a tab strip, a menu, a slider. A key press
+ * inside one of these leaves the map alone.
+ */
+const ARROW_OWNED = [
+  "input",
+  "textarea",
+  "select",
+  "video",
+  "audio",
+  "[contenteditable=true]",
+  '[role="textbox"]',
+  '[role="combobox"]',
+  '[role="listbox"]',
+  '[role="option"]',
+  '[role="menu"]',
+  '[role="menubar"]',
+  '[role="menuitem"]',
+  '[role="menuitemradio"]',
+  '[role="menuitemcheckbox"]',
+  '[role="tab"]',
+  '[role="tablist"]',
+  '[role="radiogroup"]',
+  '[role="radio"]',
+  '[role="slider"]',
+  '[role="spinbutton"]',
+  '[role="tree"]',
+  '[role="treeitem"]',
+  '[role="grid"]',
+  '[role="gridcell"]',
+].join(", ")
+
+/**
+ * The stop one step along the map from `from` — the same order Tab walks, inside
+ * the nearest open dialog when there is one. `null` when the focus sits on a
+ * control that owns the arrow keys, when nothing is focused, or when the map
+ * ends that way.
+ */
+export function arrowStop(from: Element | null, delta: 1 | -1): HTMLElement | null {
+  if (!(from instanceof HTMLElement) || from === document.body) return null
+  if (from.closest(ARROW_OWNED) !== null) return null
+  const scope = from.closest('[role="dialog"]') ?? document.body
+  const stops = tabStops(scope).filter(
+    (stop) => !stop.hasAttribute("data-radix-focus-guard"),
+  )
+  const index = stops.indexOf(from)
+  if (index !== -1) return stops[index + delta] ?? null
+  const following = (stop: HTMLElement): boolean =>
+    (from.compareDocumentPosition(stop) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+  return delta === 1
+    ? (stops.find(following) ?? null)
+    : ([...stops].reverse().find((stop) => !following(stop)) ?? null)
+}
+
+/**
+ * ArrowUp and ArrowDown walk the map the same way Tab does, so a keyboard user
+ * can move between controls without leaving the row they are in. Any component
+ * that consumes the arrows itself (`Segmented`, the access catalog, a text
+ * field) keeps them, and a modifier leaves the gesture to the browser.
+ */
+export function useArrowKeys(): void {
+  useLayoutEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return
+      if (event.defaultPrevented || event.isComposing) return
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+      const next = arrowStop(document.activeElement, event.key === "ArrowDown" ? 1 : -1)
+      if (next === null) return
+      event.preventDefault()
+      next.focus()
+    }
+    document.addEventListener("keydown", onKeyDown)
+    return () => document.removeEventListener("keydown", onKeyDown)
+  }, [])
+}
+
 /** The hook as a node, so an entry can mount the map without a second wrapper. */
 export function TabStopMap(): null {
   useTabStopMap()
+  useArrowKeys()
   return null
 }
