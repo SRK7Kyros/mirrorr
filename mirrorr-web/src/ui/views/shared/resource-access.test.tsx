@@ -255,7 +255,7 @@ describe("ResourceAccessFields", () => {
 
     const badge = screen.getByRole("button", { name: "Make Bob the owner" });
     expect(badge.className).toContain("tab-stop");
-    expect(badge.className).toContain("shadow-ring");
+    expect(badge.parentElement?.className).toContain("focus-within:shadow-ring");
 
     badge.focus();
     fireEvent.click(badge);
