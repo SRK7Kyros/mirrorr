@@ -452,10 +452,10 @@ const OWNER_BADGE_CROWN_CLASS =
   "inline-flex h-8 max-w-full items-center gap-1.5 rounded-full border border-warning-dim bg-warning-dim px-2.5";
 
 const CO_OWNER_BADGE_CLASS =
-  "inline-flex h-8 min-w-0 items-center gap-1 rounded-full border border-line bg-surface-2 pr-1 pl-2.5";
+  "inline-flex h-8 min-w-0 items-center gap-1 rounded-full border border-line bg-surface-2 pr-1 pl-2.5 focus-within:shadow-ring";
 
 const CO_OWNER_NAME_CLASS =
-  "inline-flex min-w-0 items-center gap-1.5 rounded-full tab-stop focus-visible:outline-none focus-visible:shadow-ring disabled:opacity-45";
+  "inline-flex min-w-0 items-center gap-1.5 rounded-full tab-stop focus-visible:outline-none disabled:opacity-45";
 
 /** One principal a suggestion list can offer — a sub-set of a `PrincipalCard`. */
 export interface SuggestionOption {
