@@ -147,6 +147,8 @@ test.describe("tab-stop map", () => {
     api.data.users = [
       { id: 1, username: "kyros", role: "admin", display_name: "Kyros" },
       { id: 2, username: "alice", role: "user", display_name: "Alice" },
+      { id: 3, username: "bob", role: "user", display_name: "Bob" },
+      { id: 4, username: "carol", role: "user", display_name: "Carol" },
     ]
     api.data.autoruns = [autorun({ id: 5, user_friendly_name: "F1 Race" })]
     api.data.resources = [
@@ -161,12 +163,29 @@ test.describe("tab-stop map", () => {
       },
     ]
 
+    api.data.ownerUsers = { "autorun:5": ["bob", "carol"] }
     await page.goto("/admin.html")
     await page.getByRole("link", { name: "Back to sessions" }).click()
     await page.getByRole("link", { name: "Autoruns", exact: true }).first().click()
     await page.getByRole("button", { name: "Access for F1 Race" }).click()
     const dialog = page.getByRole("dialog")
     await expect(dialog).toBeVisible()
+
+    // Every co-owner badge is a stop of its own — Shift+Tab out of the owner
+    // field walks the badges — and the whole badge, not just its ×, is the
+    // control: Backspace drops that principal, Enter hands them the crown.
+    const ownerField = dialog.getByRole("combobox", { name: "Add an owner" })
+    await ownerField.click()
+    await page.keyboard.press("Shift+Tab")
+    await expect(dialog.getByRole("button", { name: "Make Carol the owner" })).toBeFocused()
+    await page.keyboard.press("Backspace")
+    await expect(dialog.getByRole("button", { name: "Make Carol the owner" })).toHaveCount(0)
+    await expect(ownerField).toBeFocused()
+    await page.keyboard.press("Shift+Tab")
+    await expect(dialog.getByRole("button", { name: "Make Bob the owner" })).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expect(dialog.getByTestId("owner-crown")).toContainText("Bob")
+    await expect(ownerField).toBeFocused()
 
     // Escape closes the dialog, so its × is deliberately out of the order.
     await expect(dialog.getByRole("button", { name: "Close" })).toHaveAttribute("tabindex", "-1")
@@ -180,7 +199,11 @@ test.describe("tab-stop map", () => {
     await page.keyboard.press("Tab")
     await expect(dialog.getByRole("button", { name: "Select all" })).toBeFocused()
     await page.keyboard.press("Tab")
-    await expect(dialog.getByTestId("access-catalog").getByRole("option", { name: /Alice/ })).toBeFocused()
+    // The catalog is one roving stop, and the card that holds it is whichever
+    // one is highlighted — not necessarily the first principal in the pool.
+    await expect(
+      dialog.getByTestId("access-catalog").locator('[role="option"][data-highlighted="true"]'),
+    ).toBeFocused()
 
     // Picking a card selects it; granting a capability through a chip is what
     // makes the draft dirty, and that is when Apply joins the order.
