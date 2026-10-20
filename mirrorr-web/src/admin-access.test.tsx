@@ -1,13 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { BulkAccessAction, ResourceAccessButton } from "./admin-access";
+import {
+  BulkAccessAction,
+  CreationAccess,
+  ResourceAccessButton,
+  applyCreationAccess,
+} from "./admin-access";
 
 const api = vi.hoisted(() => ({
   fetchUsers: vi.fn(),
   fetchGroups: vi.fn(),
   fetchResourceAccess: vi.fn(),
+  setResourceGrants: vi.fn(),
+  revokeResourceUser: vi.fn(),
+  addResourceOwnerUser: vi.fn(),
   getErrorMessage: vi.fn((_error: unknown, fallback: string) => fallback),
 }));
 
@@ -109,5 +117,51 @@ describe("access affordances keep their clicks off the card", () => {
 
     fireEvent.click(await screen.findByText("Access on 1 item(s)"));
     expect(openCard).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the creation panel's access section", () => {
+  it("starts collapsed, reports its draft upward, and applies it once the row exists", async () => {
+    api.setResourceGrants.mockResolvedValue(accessView());
+    const onChange = vi.fn();
+    renderInCard(<CreationAccess resourceType="session" onChange={onChange} />);
+
+    // Mount reports the empty draft, which is what a create with no grants sends.
+    await waitFor(() => expect(onChange).toHaveBeenCalledTimes(1));
+    expect(onChange.mock.calls[0]?.[0]).toMatchObject({ grants: { VIEW: [] } });
+    expect(screen.getByTestId("access-creation-toggle").textContent).toContain(
+      "Owners only",
+    );
+    expect(screen.queryByTestId("access-catalog")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("access-creation-toggle"));
+    fireEvent.click(
+      within(screen.getByTestId("access-catalog")).getByRole("option", {
+        name: /Alice/,
+      }),
+    );
+    fireEvent.click(
+      within(
+        screen.getByRole("group", {
+          name: "Capabilities for the selected users and groups",
+        }),
+      ).getByRole("button", { name: "View access" }),
+    );
+
+    await waitFor(() =>
+      expect(onChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          grants: expect.objectContaining({ VIEW: ["alice"] }),
+        }),
+      ),
+    );
+    expect(screen.getByTestId("access-creation-toggle").textContent).toContain(
+      "1 principal",
+    );
+
+    await applyCreationAccess("session", 12, { grants: { VIEW: ["alice"] } });
+    expect(api.setResourceGrants).toHaveBeenCalledWith("session", 12, "alice", [
+      "VIEW",
+    ]);
   });
 });

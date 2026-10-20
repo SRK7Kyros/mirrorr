@@ -37,6 +37,11 @@ import {
   panelTitleClass,
 } from "@/ui/components"
 import { DiscoveryDrawer, canBrowseResolver } from "@/ui/views/shared/discovery-drawer"
+import {
+  AccessCreation,
+  useCreationAccessApplier,
+} from "@/ui/views/shared/resource-access-slot"
+import type { AccessTarget } from "@/api/domain/access-plan"
 
 /**
  * The create/edit dialog for both things the Presets page holds.
@@ -176,6 +181,8 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
 
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, string>>>({})
+  const [access, setAccess] = useState<AccessTarget>({})
+  const applyCreation = useCreationAccessApplier()
 
   // Reset the whole dialog each time it opens — create after create, or a
   // different row. `profile`/`source` identity is stable while it is open.
@@ -196,11 +203,24 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
     setBrowseTarget(null)
     setError(null)
     setFieldErrors({})
+    setAccess({})
   }, [open, kind, profile, source])
 
   const saveProfile = useMutation({
-    mutationFn: (body: ProfileBody) =>
-      profile === null ? createProfile(body) : updateProfile(profile.id, body),
+    mutationFn: async (body: ProfileBody) => {
+      if (profile !== null) return updateProfile(profile.id, body)
+      const created = await createProfile(body)
+      if (applyCreation === null) return created
+      try {
+        await applyCreation("profile", created.id, access)
+      } catch (caught) {
+        toast.error(
+          "Profile created, but its access was not set",
+          getErrorMessage(caught, "Could not set access"),
+        )
+      }
+      return created
+    },
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: queryRoots.profiles })
       void queryClient.invalidateQueries({ queryKey: queryKeys.profile(saved.id) })
@@ -214,8 +234,20 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
   })
 
   const saveSource = useMutation({
-    mutationFn: (body: SourceBody) =>
-      source === null ? createSource(body) : updateSource(source.id, body),
+    mutationFn: async (body: SourceBody) => {
+      if (source !== null) return updateSource(source.id, body)
+      const created = await createSource(body)
+      if (applyCreation === null) return created
+      try {
+        await applyCreation("source", created.id, access)
+      } catch (caught) {
+        toast.error(
+          "Source created, but its access was not set",
+          getErrorMessage(caught, "Could not set access"),
+        )
+      }
+      return created
+    },
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: queryRoots.sources })
       void queryClient.invalidateQueries({ queryKey: queryKeys.source(saved.id) })
@@ -721,6 +753,15 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
           </form>
         )}
       </FormPanel>
+
+      {editing ? null : (
+        <AccessCreation
+          key={tab}
+          resourceType={tab === "profile" ? "profile" : "source"}
+          onChange={setAccess}
+          busy={pending}
+        />
+      )}
 
       <DiscoveryDrawer
         open={browseTarget !== null}

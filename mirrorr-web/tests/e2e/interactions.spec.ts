@@ -56,6 +56,15 @@ test.describe("new session dialog", () => {
     await expect(page.getByRole("button", { name: "Start session" })).toBeDisabled()
   })
 
+  test("the standard build offers no access section in a creation panel", async ({ page }) => {
+    await page.goto("/sessions")
+    await page.getByRole("button", { name: "New session" }).first().click()
+
+    const dialog = page.getByRole("dialog", { name: "New session" })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByTestId("access-creation")).toHaveCount(0)
+  })
+
   test("ArrowRight moves the segmented control and swaps the form", async ({ page }) => {
     await page.goto("/sessions")
     await page.getByRole("button", { name: "New session" }).first().click()

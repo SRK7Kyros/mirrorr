@@ -1065,3 +1065,49 @@ test.describe("admin resource access", () => {
     await expect(dialog).toBeHidden();
   });
 });
+
+test.describe("admin creation access", () => {
+  test("a new session hands out the access its creation panel names", async ({
+    page,
+    api,
+  }) => {
+    api.data.users = USERS;
+    api.data.profiles = [profile({ id: 1, name: "F1 Weekend" })];
+    api.data.sessions = [session({ id: 9 })];
+
+    await openAdmin(page);
+    await page.getByRole("button", { name: "New session" }).first().click();
+
+    const dialog = page.getByRole("dialog", { name: "New session" });
+    const section = dialog.getByTestId("access-creation");
+    await expect(section).toBeVisible();
+    await expect(section).toContainText("Owners only");
+    await expect(dialog.getByTestId("access-catalog")).toHaveCount(0);
+
+    await dialog.getByTestId("access-creation-toggle").click();
+    await dialog
+      .getByTestId("access-catalog")
+      .getByRole("option", { name: /Alice/ })
+      .click();
+    await dialog
+      .getByRole("group", {
+        name: "Capabilities for the selected users and groups",
+      })
+      .getByRole("button", { name: "View access" })
+      .click();
+    await expect(section).toContainText("1 principal");
+
+    await dialog.getByRole("combobox", { name: /^Profile/ }).selectOption("1");
+    await dialog.getByRole("button", { name: "Start session" }).click();
+
+    await expect
+      .poll(
+        () =>
+          api.calls.find(
+            (call) =>
+              call.method === "POST" && call.path === "/shares/session/1",
+          )?.body,
+      )
+      .toMatchObject({ username: "alice", capabilities: ["VIEW"] });
+  });
+});

@@ -26,6 +26,11 @@ import {
 } from "@/ui/components"
 import { DiscoveryDrawer, canBrowseResolver } from "@/ui/views/shared/discovery-drawer"
 import { SourcePicker } from "@/ui/views/shared/source-picker"
+import {
+  AccessCreation,
+  useCreationAccessApplier,
+} from "@/ui/views/shared/resource-access-slot"
+import type { AccessTarget } from "@/api/domain/access-plan"
 
 export function NewSessionDialog({
   open,
@@ -47,6 +52,8 @@ export function NewSessionDialog({
   const [browseOpen, setBrowseOpen] = useState(false)
   const [recording, setRecording] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [access, setAccess] = useState<AccessTarget>({})
+  const applyCreation = useCreationAccessApplier()
 
   const openedRef = useRef(false)
 
@@ -64,10 +71,23 @@ export function NewSessionDialog({
     setResolverId("")
     setResolverConfig({})
     setRecording(false)
+    setAccess({})
   }, [open, profiles.length])
 
   const create = useMutation({
-    mutationFn: (body: SessionCreateBody) => createSession(body),
+    mutationFn: async (body: SessionCreateBody) => {
+      const session = await createSession(body)
+      if (applyCreation === null) return session
+      try {
+        await applyCreation("session", session.id, access)
+      } catch (caught) {
+        toast.error(
+          "Session started, but its access was not set",
+          getErrorMessage(caught, "Could not set access"),
+        )
+      }
+      return session
+    },
     onSuccess: (session) => {
       toast.success("Session started", `#${session.id}`)
       void queryClient.invalidateQueries({ queryKey: queryRoots.sessions })
@@ -236,6 +256,8 @@ export function NewSessionDialog({
           checked={recording}
           onChange={(event) => setRecording(event.target.checked)}
         />
+
+        <AccessCreation resourceType="session" onChange={setAccess} busy={create.isPending} />
       </div>
 
       <DiscoveryDrawer

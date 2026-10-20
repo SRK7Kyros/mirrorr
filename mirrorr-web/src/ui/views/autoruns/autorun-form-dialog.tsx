@@ -33,6 +33,11 @@ import {
 } from "@/ui/components"
 import { DiscoveryDrawer, canBrowseResolver } from "@/ui/views/shared/discovery-drawer"
 import { SourcePicker } from "@/ui/views/shared/source-picker"
+import {
+  AccessCreation,
+  useCreationAccessApplier,
+} from "@/ui/views/shared/resource-access-slot"
+import type { AccessTarget } from "@/api/domain/access-plan"
 
 /** Slug grammar enforced live in the wizard (spec §5.5). */
 const SLUG_RE = /^[a-zA-Z0-9_-]+$/
@@ -115,6 +120,8 @@ export function AutorunFormDialog({
   const [slugError, setSlugError] = useState<string | null>(null)
   const [timeError, setTimeError] = useState<string | null>(null)
   const [confirmEnd, setConfirmEnd] = useState(false)
+  const [access, setAccess] = useState<AccessTarget>({})
+  const applyCreation = useCreationAccessApplier()
   const openedRef = useRef<string | null>(null)
 
   useEffect(() => {
@@ -129,6 +136,7 @@ export function AutorunFormDialog({
     setSlugError(null)
     setTimeError(null)
     setConfirmEnd(false)
+    setAccess({})
     if (autorun === undefined) {
       setFriendly("")
       setSlug("")
@@ -182,8 +190,20 @@ export function AutorunFormDialog({
   }
 
   const save = useMutation({
-    mutationFn: (body: AutorunBody) =>
-      autorun === undefined ? createAutorun(body) : updateAutorun(autorun.id, body),
+    mutationFn: async (body: AutorunBody) => {
+      if (autorun !== undefined) return updateAutorun(autorun.id, body)
+      const created = await createAutorun(body)
+      if (applyCreation === null) return created
+      try {
+        await applyCreation("autorun", created.id, access)
+      } catch (caught) {
+        toast.error(
+          "Scheduled recording created, but its access was not set",
+          getErrorMessage(caught, "Could not set access"),
+        )
+      }
+      return created
+    },
     onSuccess: (saved) => {
       toast.success(
         autorun === undefined ? "Scheduled recording created" : "Scheduled recording updated",
@@ -467,6 +487,10 @@ export function AutorunFormDialog({
             checked={recording}
             onChange={(event) => setRecording(event.target.checked)}
           />
+
+          {editing ? null : (
+            <AccessCreation resourceType="autorun" onChange={setAccess} busy={save.isPending} />
+          )}
         </div>
       </Dialog>
 
