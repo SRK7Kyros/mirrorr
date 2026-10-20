@@ -34,20 +34,22 @@ export function HostSwitcher() {
     };
   }, [origin]);
 
-  if (!isNativeShell() || name === null) return null;
+  if (!isNativeShell()) return null;
 
   return (
     <>
-      <div className="flex items-center gap-2 px-3 py-2 text-2xs font-semibold tracking-[0.04em] uppercase text-ink-faint">
-        <IconServer size={14} />
-        <span>Server</span>
-        <Tag
-          className="ml-auto max-w-[62%] truncate"
-          title={`Signed in to ${name}`}
-        >
-          {name}
-        </Tag>
-      </div>
+      {name !== null && (
+        <div className="flex items-center gap-2 px-3 py-2 text-2xs font-semibold tracking-[0.04em] uppercase text-ink-faint">
+          <IconServer size={14} />
+          <span>Server</span>
+          <Tag
+            className="ml-auto max-w-[62%] truncate"
+            title={`Signed in to ${name}`}
+          >
+            {name}
+          </Tag>
+        </div>
+      )}
       <a role="menuitem" className={menuItemClass} href={hostPickerUrl()}>
         <IconExternal size={16} />
         <span>Switch server</span>

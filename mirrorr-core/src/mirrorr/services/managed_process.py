@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +12,8 @@ from loguru import logger
 from psutil import Process as PsProcess
 
 from mirrorr.services.process_bus import ProcessBus, ProcessExit, ProcessOutput
+
+MAX_LINE_CHARS = 1_000_000
 
 
 class ManagedProcess:
@@ -220,20 +223,36 @@ class ManagedProcess:
     # ── internal ──────────────────────────────────────────────────────
 
     async def _read_stream(self, stream: asyncio.StreamReader, stream_name: str) -> None:
-        """Read lines from a subprocess stream and publish to the bus."""
+        """Read lines from a subprocess stream and publish to the bus.
+
+        Chunked, not ``readline()``: StreamReader caps a line at 64 KiB and
+        raises, which killed the reader on ffmpeg's ``\\r``-separated stats
+        block (no ``\\n`` for minutes) and then blocked the child on a full
+        pipe — a live session frozen with no exit event.  ``\\r`` is treated as
+        a separator too, so each stats report is emitted as it arrives.
+        """
         log_file = None
         if self._log_dir:
             log_path = self._log_dir / f"{self.name}.{stream_name}.log"
             log_file = open(log_path, "a", encoding="utf-8")
 
+        buffer = ""
         try:
             while True:
-                line = await stream.readline()
-                if not line:
+                chunk = await stream.read(65536)
+                if not chunk:
                     break
-                decoded = line.decode("utf-8", errors="replace").rstrip("\n\r")
-                if decoded:
-                    await self._emit_line(decoded, log_file, stream_name)
+                buffer += chunk.decode("utf-8", errors="replace")
+                lines = re.split(r"[\r\n]", buffer)
+                buffer = lines.pop()
+                for line in lines:
+                    if line:
+                        await self._emit_line(line, log_file, stream_name)
+                if len(buffer) > MAX_LINE_CHARS:
+                    await self._emit_line(buffer, log_file, stream_name)
+                    buffer = ""
+            if buffer:
+                await self._emit_line(buffer, log_file, stream_name)
         finally:
             if log_file:
                 log_file.close()

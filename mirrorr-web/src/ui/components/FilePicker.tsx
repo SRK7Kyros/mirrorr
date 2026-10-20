@@ -113,7 +113,7 @@ export function FilePicker({
       {hasFile && onClear !== undefined ? (
         <button
           type="button"
-          className="self-start inline-flex items-center gap-1 text-xs text-ink-dim transition-[color] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:text-danger"
+          className="tab-stop self-start inline-flex items-center gap-1 text-xs text-ink-dim transition-[color] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:text-danger"
           onClick={onClear}
           disabled={disabled}
         >

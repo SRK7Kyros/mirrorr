@@ -70,6 +70,7 @@ Every non-public route accepts any one of:
 Response envelope: `{"items":[...], "next_cursor": <int|null>, "has_more": <bool>}`.
 - Cursor = id of last item on the previous page; server orders by `id DESC` (newest first is *not* guaranteed — client must sort by `id` or its own fields).
 - `has_more: true` → fetch `?cursor=next_cursor` for the next page (infinite scroll / "load more").
+- `GET /sessions/` also accepts `?autorun=<id>`, which returns only the sessions that scheduled recording spawned — the autorun detail page reads its linked run from that instead of paging the whole history. The filter narrows the access predicate; it never widens it (an unreadable row stays unreadable, and an unknown id is an empty page rather than a 404).
 
 ---
 

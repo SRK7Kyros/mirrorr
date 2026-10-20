@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { IconCheck, IconCopy, IconExternal } from "@/ui/components"
 import { cn } from "@/ui/lib/cn"
 
@@ -15,9 +15,17 @@ export interface SessionUrl {
 export function toSessionUrls(entries: readonly Record<string, string>[] | undefined): SessionUrl[] {
   const out: SessionUrl[] = []
   for (const entry of entries ?? []) {
-    const url = entry.url ?? Object.entries(entry).find(([key]) => key !== "label")?.[1] ?? ""
+    const url =
+      entry.url ??
+      entry.href ??
+      Object.entries(entry).find(([key]) => key !== "label" && key !== "type")?.[1] ??
+      ""
     if (url === "") continue
-    out.push({ label: entry.label ?? Object.keys(entry)[0] ?? "URL", url })
+    const label =
+      entry.label ??
+      Object.keys(entry).find((key) => key !== "url" && key !== "href" && key !== "type") ??
+      "URL"
+    out.push({ label, url })
   }
   return out
 }
@@ -44,12 +52,18 @@ export function pickHtmlPlayerUrl(urls: readonly SessionUrl[]): string | null {
 
 function CopyButton({ value, label }: { readonly value: string; readonly label: string }) {
   const [copied, setCopied] = useState(false)
+  const timer = useRef<number | null>(null)
+
+  useEffect(() => () => {
+    if (timer.current !== null) window.clearTimeout(timer.current)
+  }, [])
 
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(value)
       setCopied(true)
-      window.setTimeout(() => setCopied(false), 1200)
+      if (timer.current !== null) window.clearTimeout(timer.current)
+      timer.current = window.setTimeout(() => setCopied(false), 1200)
     } catch {
       // Clipboard unavailable (insecure context or denied) — the link still opens.
     }

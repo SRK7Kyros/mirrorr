@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query"
 import { RouterProvider } from "@tanstack/react-router"
 import { MotionConfig } from "motion/react"
 import { setAuthNavigator } from "@/api/auth"
+import { installShellBackHandler } from "@/api/native"
 import { queryClient } from "@/api/query-client"
 import { SettingsSectionsContext, type SettingsSection } from "@/ui/views/settings/sections"
 import { ResourceAccessSlotContext } from "@/ui/views/shared/resource-access-slot"
@@ -23,6 +24,7 @@ import "@/app.css"
 const SECTIONS: readonly SettingsSection[] = [{ id: "administration", Component: AdministrationSection }]
 
 setAuthNavigator({ toLogin: () => void router.navigate({ to: "/login" }) })
+installShellBackHandler()
 
 const container = document.getElementById("root")
 if (container === null) throw new Error("#root missing")

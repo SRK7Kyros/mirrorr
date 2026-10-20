@@ -323,7 +323,7 @@ export function SourcesPanel({ onCreate, onEdit }: SourcesPanelProps) {
             hasMore={hasMore}
             isFetching={isFetching}
             onLoadMore={list.loadMore}
-            onLoadAll={() => void loadAll()}
+            onLoadAll={() => void loadAll().catch(() => undefined)}
             loadingAll={loadingAll}
             count={rows.length}
           />

@@ -23,11 +23,11 @@ def load_resolver_jit(resolvers_dir: Path, origin: str, expected_hash: str) -> R
     return load_plugin_jit(resolvers_dir, origin, expected_hash, ResolverInterface, "resolver")
 
 
-def _extract_db_fields(instance: ResolverInterface, module_hash: str) -> dict[str, Any]:
+def _extract_db_fields(instance: ResolverInterface, module_hash: str, origin: str) -> dict[str, Any]:
     return {
         "name": instance.name,
         "description": instance.description,
-        "origin": instance.name,
+        "origin": origin,
         "origin_hash": module_hash,
         "config_schema": instance.config_model.model_json_schema(),
         "search_schema": instance.discovery_model.model_json_schema() if instance.discovery_model else {},

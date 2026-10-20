@@ -146,7 +146,7 @@ One function per route. Lists take `(cursor, limit = 50)` and return a
 
 | Function                          | Route                                             |
 | --------------------------------- | ------------------------------------------------- |
-| `fetchSessionPage(cursor, limit)` | `GET /sessions/`                                  |
+| `fetchSessionPage(cursor, limit, autorun?)` | `GET /sessions/` (optional `&autorun=<id>`) |
 | `fetchSession(id)`                | `GET /sessions/{id}`                              |
 | `createSession(body)`             | `POST /sessions/`                                 |
 | `stopSession(id)`                 | `POST /sessions/{id}/stop`                        |

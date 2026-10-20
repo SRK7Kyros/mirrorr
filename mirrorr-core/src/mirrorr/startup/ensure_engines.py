@@ -16,12 +16,12 @@ def load_engine_jit(engines_dir: Path, origin: str, expected_hash: str) -> Engin
     return load_plugin_jit(engines_dir, origin, expected_hash, EngineInterface, "engine")
 
 
-def _extract_db_fields(instance: EngineInterface, module_hash: str) -> dict[str, Any]:
+def _extract_db_fields(instance: EngineInterface, module_hash: str, origin: str) -> dict[str, Any]:
     return {
         "name": instance.name,
         "description": instance.description,
         "capabilities": instance.capabilities,
-        "origin": instance.name,
+        "origin": origin,
         "origin_hash": module_hash,
         "retry_modes_schema": build_retry_modes_schema(instance.retry_modes),
     }

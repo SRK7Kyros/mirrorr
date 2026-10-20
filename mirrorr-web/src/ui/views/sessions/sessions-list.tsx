@@ -134,19 +134,38 @@ export function SessionsListView() {
   );
 
   const cardIds = useMemo(() => cards.map((session) => session.id), [cards]);
+  const selectedIds = cards
+    .filter((session) => selection.has(session.id))
+    .map((session) => session.id);
 
   const bulkRemove = useMutation({
     mutationFn: async (ids: readonly number[]) => {
-      for (const id of ids) await deleteSession(id);
-    },
-    onSuccess: (_data, ids) => {
+      const deleted: number[] = [];
+      const failed: number[] = [];
       for (const id of ids) {
+        try {
+          await deleteSession(id);
+          deleted.push(id);
+        } catch {
+          failed.push(id);
+        }
+      }
+      return { deleted, failed };
+    },
+    onSuccess: ({ deleted, failed }) => {
+      for (const id of deleted) {
         removeFromInfiniteLists(queryClient, queryRoots.sessions, id);
         queryClient.removeQueries({ queryKey: queryKeys.session(id) });
       }
       void queryClient.invalidateQueries({ queryKey: queryRoots.sessions });
-      toast.success("Sessions deleted", `${ids.length} removed`);
-      selection.clear();
+      if (failed.length === 0) {
+        toast.success("Sessions deleted", `${deleted.length} removed`);
+      } else if (deleted.length === 0) {
+        toast.error("Nothing was deleted", `${failed.length} could not be removed`);
+      } else {
+        toast.success("Sessions partly deleted", `${deleted.length} removed, ${failed.length} skipped`);
+      }
+      selection.setMany(failed);
     },
     onError: (error) =>
       toast.error(
@@ -333,10 +352,10 @@ export function SessionsListView() {
           </div>
 
           {selection.count > 0 ? (
-            <BulkBar count={selection.count} onClear={selection.clear}>
+            <BulkBar count={selectedIds.length} onClear={selection.clear}>
               <AccessBulkAction
                 resourceType="session"
-                items={list.items
+                items={cards
                   .filter((session) => selection.has(session.id))
                   .map((session) => ({ id: session.id, label: sessionTitle(session, names) }))}
               />
@@ -355,7 +374,7 @@ export function SessionsListView() {
             hasMore={hasMore}
             isFetching={isFetching}
             onLoadMore={list.loadMore}
-            onLoadAll={() => void loadAll()}
+            onLoadAll={() => void loadAll().catch(() => undefined)}
             loadingAll={loadingAll}
             count={cards.length}
           />
@@ -365,13 +384,13 @@ export function SessionsListView() {
       <ConfirmDialog
         open={bulkDeleteOpen}
         onClose={() => setBulkDeleteOpen(false)}
-        title={`Delete ${selection.count} selected session${selection.count === 1 ? "" : "s"}?`}
+        title={`Delete ${selectedIds.length} selected session${selectedIds.length === 1 ? "" : "s"}?`}
         description="A running session stops being tracked; recordings already on disk are not removed."
         confirmLabel="Delete"
         danger
         onConfirm={async () => {
           try {
-            await bulkRemove.mutateAsync([...selection.selected]);
+            await bulkRemove.mutateAsync(selectedIds);
           } catch {
             // The mutation's onError surfaces the failure via toast.
           }

@@ -56,7 +56,14 @@ class RecordingManager:
 
     def start_stash(self) -> None:
         """Start background task that copies oldest segments to stash
-        before ffmpeg's delete_segments flag removes them."""
+        before ffmpeg's delete_segments flag removes them.
+
+        Idempotent: ``enable_recording`` can fire while the attempt is still
+        bootstrapping, and the attempt then calls this again — a second task
+        would overwrite the handle and the first loop would never be stopped.
+        """
+        if self._stash_task and not self._stash_task.done():
+            return
         self._segment_count = self.settings.hls_window // self.settings.segment_duration
         self._stash_batch = max(1, int(0.10 * self._segment_count))
         self.stash_folder.mkdir(exist_ok=True)
@@ -68,13 +75,22 @@ class RecordingManager:
         )
 
     async def stop_stash(self) -> None:
-        """Cancel the stash task and do one final copy."""
-        if self._stash_task and not self._stash_task.done():
+        """Cancel the stash task and do one final copy.
+
+        A stash task that already failed re-raises its exception when awaited;
+        that must never escape: this runs at the top of ``_cleanup`` and an
+        ENOSPC/EIO raised here would orphan the encoder processes.
+        """
+        if self._stash_task is None:
+            return
+        if not self._stash_task.done():
             self._stash_task.cancel()
-            try:
-                await self._stash_task
-            except asyncio.CancelledError:
-                pass
+        try:
+            await self._stash_task
+        except asyncio.CancelledError:
+            pass
+        except Exception as error:
+            logger.warning(f"Session {self.session_id}: stash task failed: {error}")
 
     async def _stash_loop(self) -> None:
         interval = self.settings.segment_duration * self._stash_batch

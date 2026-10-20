@@ -28,6 +28,7 @@ export interface AuthState {
 let state: AuthState = { status: "unknown", auth: null }
 const listeners = new Set<() => void>()
 let authMeInFlight: Promise<AuthResponse> | null = null
+let sessionGeneration = 0
 
 export function getAuthState(): AuthState {
   return state
@@ -68,6 +69,7 @@ function onAuthenticated(auth: AuthResponse): void {
 }
 
 function clearSession(): void {
+  sessionGeneration += 1
   stopRealtimeManager()
   stopProactiveRefresh()
   disposeEventTable()
@@ -93,14 +95,16 @@ export async function ensureAuthMe(): Promise<AuthResponse> {
 }
 
 async function fetchAuthMe(): Promise<AuthResponse> {
+  const generation = sessionGeneration
   try {
     const raw = await apiFetch<unknown>("/auth/me")
     const auth = AuthResponseSchema.parse(raw)
+    if (generation !== sessionGeneration) throw new ApiError(401, "Session changed")
     onAuthenticated(auth)
     return auth
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) {
-      if (state.status !== "anonymous") setState({ status: "anonymous", auth: null })
+      if (state.status !== "anonymous") clearSession()
       throw error
     }
     if (error instanceof Error && error.name === "ZodError") {

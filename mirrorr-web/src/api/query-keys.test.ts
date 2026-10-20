@@ -19,17 +19,27 @@ describe("query key table", () => {
   it("emits the exact contract keys", () => {
     expect(queryKeys.authMe).toEqual(["auth", "me"])
     expect(queryKeys.sessions({ status: "active" })).toEqual(["sessions", { status: "active" }])
-    expect(queryKeys.session(7)).toEqual(["session", 7])
+    expect(queryKeys.session(7)).toEqual(["session", "7"])
     expect(queryKeys.autoruns()).toEqual(["autoruns", {}])
-    expect(queryKeys.autorun(3)).toEqual(["autorun", 3])
+    expect(queryKeys.autorun(3)).toEqual(["autorun", "3"])
     expect(queryKeys.recordings()).toEqual(["recordings", {}])
     expect(queryKeys.profiles()).toEqual(["profiles", {}])
-    expect(queryKeys.profile(9)).toEqual(["profile", 9])
+    expect(queryKeys.profile(9)).toEqual(["profile", "9"])
     expect(queryKeys.engines).toEqual(["engines"])
     expect(queryKeys.resolvers).toEqual(["resolvers"])
     expect(queryKeys.notifications).toEqual(["notifications"])
     expect(queryKeys.users).toEqual(["users"])
     expect(queryKeys.clients).toEqual(["clients"])
+  })
+
+  it("normalises numeric and string detail ids to one key", () => {
+    expect(queryKeys.session("7")).toEqual(queryKeys.session(7))
+    expect(queryKeys.autorun("3")).toEqual(queryKeys.autorun(3))
+    expect(queryKeys.profile("9")).toEqual(queryKeys.profile(9))
+    expect(queryKeys.source("2")).toEqual(queryKeys.source(2))
+    expect(queryKeys.adminResourceAccess("session", "4")).toEqual(
+      queryKeys.adminResourceAccess("session", 4),
+    )
   })
 
   it("pins the staleTime table", () => {

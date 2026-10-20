@@ -7,6 +7,7 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import and_ as sa_and
 from sqlalchemy import or_ as sa_or
 from sqlalchemy.orm import selectinload
 from loguru import logger
@@ -365,6 +366,7 @@ async def _get_paginated_for_user(
     limit: int = 50,
     options: Sequence = (),
     include_total: bool = False,
+    where_expr=None,
 ) -> dict:
     """Cursor-based pagination filtered by owner, an explicit grant, or ownership by a user or group.
 
@@ -377,6 +379,9 @@ async def _get_paginated_for_user(
     to admits them the same way (the ``everyone`` group included), so a crown
     handed to a group shows that group's work to its members. Engines/resolvers
     have no owner column and never route through here.
+
+    ``where_expr`` narrows the collection further (e.g. ``Session.autorun_id``)
+    and is combined with the access predicate rather than replacing it.
 
     Returns {"items": [...], "next_cursor": ..., "has_more": ...}.
     """
@@ -422,7 +427,8 @@ async def _get_paginated_for_user(
             owned_by_group,
             owned_by_user,
         )
-    stmt = select(model).where(predicate)
+    scope = predicate if where_expr is None else sa_and(predicate, where_expr)
+    stmt = select(model).where(scope)
     if cursor is not None:
         stmt = stmt.where(model.id < cursor)
     if options:
@@ -434,7 +440,7 @@ async def _get_paginated_for_user(
         items = items[:limit]
     total = None
     if include_total:
-        total = await crud.count(db, model, predicate)
+        total = await crud.count(db, model, scope)
     return {
         "items": items,
         "next_cursor": items[-1].id if has_more and items else None,
@@ -599,16 +605,26 @@ async def get_all_sessions(
     cursor: int | None = Query(None, description="ID of last item from previous page"),
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
     include_total: bool = Query(False, description="Include a total row count in the response"),
+    autorun: int | None = Query(None, description="Only sessions spawned by this autorun"),
 ):
+    """List sessions, newest first.
+
+    ``?autorun=<id>`` narrows the list to the runs one scheduled recording
+    spawned, so a caller never has to page through the whole history to find
+    them. Access still applies: the filter narrows what the caller may see.
+    """
+    where_expr = Session.autorun_id == autorun if autorun is not None else None
     total = None
     if auth.is_admin:
-        result = await crud.get_all_paginated(db, Session, cursor=cursor, limit=limit, options=_SESSION_OPTIONS)
+        result = await crud.get_all_paginated(
+            db, Session, cursor=cursor, limit=limit, options=_SESSION_OPTIONS, where_expr=where_expr,
+        )
         if include_total:
-            total = await crud.count(db, Session)
+            total = await crud.count(db, Session, where_expr)
     else:
         result = await _get_paginated_for_user(
             db, Session, auth.user.username, cursor=cursor, limit=limit, options=_SESSION_OPTIONS,
-            include_total=include_total,
+            include_total=include_total, where_expr=where_expr,
         )
         total = result.get("total") if isinstance(result, dict) else None
     data = _paginate_response(result)
@@ -793,6 +809,10 @@ async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(
         raise HTTPException(status_code=400, detail=f"Resolver {resolver_id} not found")
     if not auth.user:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    start_time = _naive_utc(item.start_time)
+    end_time = _naive_utc(item.end_time)
+    if end_time <= start_time:
+        raise _guard_denied(422, "End must be after start", "end-before-start")
     payload = Autorun(
         user_friendly_name=item.user_friendly_name,
         snake_case_name=item.snake_case_name,
@@ -802,11 +822,11 @@ async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(
         resolver_config=resolver_config,
         retry_mode=retry_mode,
         retry_config=retry_config,
-        start_time=item.start_time.replace(tzinfo=None) if item.start_time.tzinfo else item.start_time,
-        end_time=item.end_time.replace(tzinfo=None) if item.end_time.tzinfo else item.end_time,
+        start_time=start_time,
+        end_time=end_time,
         recording=item.recording,
         requester_user_token=auth.user.username,
-        next_run_at=item.start_time.replace(tzinfo=None) if item.start_time.tzinfo else item.start_time,
+        next_run_at=start_time,
     )
     try:
         obj = await crud.create(db, payload)
@@ -826,18 +846,21 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
     if not await has_capability(db, auth, existing, Capability.EDIT):
         raise HTTPException(status_code=403, detail="Not your autorun")
     payload_data = item.model_dump(exclude_unset=True)
-    _enforce_autorun_update_guard(existing, payload_data)
     if "profile_id" in payload_data:
         profile = await _load_owned_profile(db, payload_data["profile_id"], auth)
         payload_data = _merge_profile_capture(profile, payload_data)
-    if "start_time" in payload_data and payload_data["start_time"] is not None:
-        payload_data["start_time"] = payload_data["start_time"].replace(tzinfo=None) if payload_data["start_time"].tzinfo else payload_data["start_time"]
-    if "end_time" in payload_data and payload_data["end_time"] is not None:
-        payload_data["end_time"] = payload_data["end_time"].replace(tzinfo=None) if payload_data["end_time"].tzinfo else payload_data["end_time"]
-    # Reflect the new start in next_run_at while the autorun is still pending.
+    _enforce_autorun_update_guard(existing, payload_data)
+    for field in ("start_time", "end_time"):
+        if payload_data.get(field) is not None:
+            payload_data[field] = _naive_utc(payload_data[field])
     if "start_time" in payload_data and existing.status == AutorunStatus.SCHEDULED:
         payload_data["next_run_at"] = payload_data["start_time"]
-    payload = Autorun.model_validate({**existing.model_dump(), **payload_data})
+    fresh = await crud.get_by_id(db, Autorun, id)
+    if not fresh:
+        raise HTTPException(status_code=404, detail="Autorun not found")
+    if fresh.status != existing.status:
+        raise _guard_denied(409, "Autorun status changed while editing", "status-race")
+    payload = Autorun.model_validate({**fresh.model_dump(), **payload_data})
     if not payload.requester_user_token:
         if not auth.user:
             raise HTTPException(status_code=401, detail="Not authenticated")

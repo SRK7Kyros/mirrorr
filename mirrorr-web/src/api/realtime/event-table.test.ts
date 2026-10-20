@@ -1,5 +1,6 @@
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { queryKeys } from "@/api/query-keys"
 import { createEventTable, subscribeSessionTelemetry, type EventTable } from "./event-table"
 
 function seedClient(): QueryClient {
@@ -16,7 +17,7 @@ function seedClient(): QueryClient {
     ],
     pageParams: [undefined],
   })
-  client.setQueryData(["session", 1], { id: 1, status: "active" })
+  client.setQueryData(queryKeys.session(1), { id: 1, status: "active" })
   return client
 }
 
@@ -82,14 +83,14 @@ describe("event table", () => {
     })
 
     vi.advanceTimersByTime(29)
-    expect(client.getQueryData(["session", 1])).toMatchObject({
+    expect(client.getQueryData(queryKeys.session(1))).toMatchObject({
       status: "active",
     })
 
     vi.advanceTimersByTime(1)
     const detailWrites = spy.mock.calls.filter((call) => isSessionDetailKey(call[0]))
     expect(detailWrites).toHaveLength(1)
-    expect(client.getQueryData(["session", 1])).toMatchObject({
+    expect(client.getQueryData(queryKeys.session(1))).toMatchObject({
       status: "completed",
       rev: 2,
     })
@@ -104,7 +105,7 @@ describe("event table", () => {
     table.handleFrame({ type: "event", event: "session.updated", id: 1 })
     vi.advanceTimersByTime(30)
 
-    expect(client.getQueryData(["session", 1])).toMatchObject({
+    expect(client.getQueryData(queryKeys.session(1))).toMatchObject({
       status: "active",
     })
     expect(writeSpy.mock.calls.filter((call) => isSessionDetailKey(call[0]))).toHaveLength(0)
@@ -123,7 +124,7 @@ describe("event table", () => {
 
     const pages = client.getQueryData<{ pages: { items: { id: number }[] }[] }>(["sessions", {}])
     expect(pages?.pages[0]?.items).toHaveLength(0)
-    expect(client.getQueryData(["session", 1])).toBeUndefined()
+    expect(client.getQueryData(queryKeys.session(1))).toBeUndefined()
   })
 
   it("keeps a deleted id deleted — a later session.updated cannot resurrect it", () => {
@@ -140,7 +141,7 @@ describe("event table", () => {
 
     const pages = client.getQueryData<{ pages: { items: { id: number }[] }[] }>(["sessions", {}])
     expect(pages?.pages[0]?.items).toHaveLength(0)
-    expect(client.getQueryData(["session", 1])).toBeUndefined()
+    expect(client.getQueryData(queryKeys.session(1))).toBeUndefined()
   })
 
   it("patches detail and list rows on session.updated with data", () => {
@@ -152,7 +153,7 @@ describe("event table", () => {
     })
     vi.advanceTimersByTime(30)
 
-    expect(client.getQueryData(["session", 1])).toMatchObject({
+    expect(client.getQueryData(queryKeys.session(1))).toMatchObject({
       status: "completed",
     })
     const pages = client.getQueryData<{

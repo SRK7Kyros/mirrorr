@@ -55,7 +55,7 @@ function JsonNode({ label, value, defaultOpen }: JsonNodeProps) {
     <div className="json-node">
       <button
         type="button"
-        className="json-toggle"
+        className="json-toggle tab-stop"
         aria-expanded={open}
         disabled={empty}
         onClick={() => setOpen((prev) => !prev)}
@@ -123,7 +123,7 @@ export function JsonView({ value, label, className, defaultOpen = false }: JsonV
           <span className="json-view-label">{label}</span>
           <button
             type="button"
-            className="json-copy"
+            className="json-copy tab-stop"
             aria-label={`Copy ${label} as JSON`}
             onClick={() => void copy()}
           >

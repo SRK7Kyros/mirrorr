@@ -35,9 +35,9 @@ export function SessionTelemetryReadout({
             <span className="tnum text-xs text-dim">RSS {formatBytes(telemetry.total_rss_bytes)}</span>
           ) : null}
         </div>
-        {telemetry.processes.map((process) => (
+        {telemetry.processes.map((process, index) => (
           <div
-            key={process.name}
+            key={`${process.name}-${index}`}
             className="flex items-center justify-between gap-3 text-xs"
           >
             <span className="mono">{process.name}</span>

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react"
 import { Button } from "./Button"
 import { Dialog } from "./Dialog"
 import { IconAlert } from "./icons"
+import { toast } from "./Toast"
 
 export interface ConfirmDialogProps {
   readonly open: boolean
@@ -38,7 +39,10 @@ export function ConfirmDialog({
       await onConfirm()
       onClose()
     } catch (error) {
-      console.warn("Confirm action failed", error)
+      toast.error(
+        "That didn't work",
+        error instanceof Error && error.message !== "" ? error.message : "Please try again.",
+      )
     } finally {
       setBusy(false)
     }

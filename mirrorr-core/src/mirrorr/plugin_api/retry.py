@@ -57,22 +57,31 @@ def build_retry_modes_schema(modes: dict[str, type[BaseModel]]) -> dict[str, Any
 
 def get_retry_delay(mode: str, config: dict[str, Any]) -> float:
     """Extract the retry delay for a given mode+config, or 0 if not applicable."""
-    if mode in ("count", "exit_code"):
-        return float(config.get("delay", 5.0))
-    return 0.0
+    if mode not in ("count", "exit_code"):
+        return 0.0
+    try:
+        return max(0.0, float(config.get("delay", 5.0)))
+    except (TypeError, ValueError):
+        return 5.0
 
 
 def get_retry_max_attempts(mode: str, config: dict[str, Any]) -> int | None:
     """Return max attempts for 'count' mode, or None for infinite."""
     if mode == "count":
-        return int(config.get("count", 3))
+        try:
+            return max(1, int(config.get("count", 3)))
+        except (TypeError, ValueError):
+            return 3
     if mode in ("always", "exit_code"):
-        return None  # infinite
-    return 0  # no retry
+        return None
+    return 0
 
 
 def get_retryable_exit_codes(mode: str, config: dict[str, Any]) -> list[int] | None:
     """Return the list of retryable exit codes for 'exit_code' mode, or None."""
-    if mode == "exit_code":
-        return config.get("codes", [1])
-    return None
+    if mode != "exit_code":
+        return None
+    codes = config.get("codes", [1])
+    if not isinstance(codes, list):
+        return [1]
+    return [code for code in codes if isinstance(code, int) and not isinstance(code, bool)]

@@ -74,7 +74,7 @@ def _context() -> ResolverContext:
 
 
 def _row(instance: ResolverInterface) -> Resolver:
-    return Resolver(**_extract_db_fields(instance, "h"))
+    return Resolver(**_extract_db_fields(instance, "h", "plugin"))
 
 
 def test_discovery_defaults_are_inert():
@@ -86,11 +86,11 @@ def test_discovery_defaults_are_inert():
 
 
 def test_extract_empty_search_schema_without_discovery():
-    assert _extract_db_fields(_Plain(), "h")["search_schema"] == {}
+    assert _extract_db_fields(_Plain(), "h", "plugin")["search_schema"] == {}
 
 
 def test_extract_search_schema_from_discovery_model():
-    assert "country" in _extract_db_fields(_Discoverable(), "h")["search_schema"]["properties"]
+    assert "country" in _extract_db_fields(_Discoverable(), "h", "plugin")["search_schema"]["properties"]
 
 
 def test_schema_unchanged_when_row_matches():
@@ -111,8 +111,8 @@ def test_schema_changed_when_discovery_appears():
 
 
 def test_extract_has_catalog():
-    assert _extract_db_fields(_Plain(), "h")["has_catalog"] is False
-    assert _extract_db_fields(_Discoverable(), "h")["has_catalog"] is True
+    assert _extract_db_fields(_Plain(), "h", "plugin")["has_catalog"] is False
+    assert _extract_db_fields(_Discoverable(), "h", "plugin")["has_catalog"] is True
 
 
 def test_schema_changed_when_catalog_flag_flips():
