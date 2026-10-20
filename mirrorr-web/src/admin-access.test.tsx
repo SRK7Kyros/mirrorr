@@ -16,6 +16,11 @@ const api = vi.hoisted(() => ({
   setResourceGrants: vi.fn(),
   revokeResourceUser: vi.fn(),
   addResourceOwnerUser: vi.fn(),
+  setResourceOwner: vi.fn(),
+  useAuthState: vi.fn(() => ({
+    status: "authenticated",
+    auth: { user: { id: 1, username: "kyros", role: "admin", display_name: "Kyros" } },
+  })),
   getErrorMessage: vi.fn((_error: unknown, fallback: string) => fallback),
 }));
 
@@ -163,5 +168,90 @@ describe("the creation panel's access section", () => {
     expect(api.setResourceGrants).toHaveBeenCalledWith("session", 12, "alice", [
       "VIEW",
     ]);
+  });
+
+  it("names co-owners through the same owner field and applies them on create", async () => {
+    api.setResourceGrants.mockResolvedValue(accessView());
+    api.addResourceOwnerUser.mockResolvedValue(accessView());
+    const onChange = vi.fn();
+    renderInCard(<CreationAccess resourceType="session" onChange={onChange} />);
+
+    fireEvent.click(screen.getByTestId("access-creation-toggle"));
+    await screen.findByTestId("access-catalog");
+    // The creator is already the crown, so the slot says so before anything is picked.
+    expect(screen.getByTestId("owner-crown").textContent).toContain("Kyros");
+
+    fireEvent.change(screen.getByLabelText("Add an owner"), {
+      target: { value: "Alice" },
+    });
+    fireEvent.click(
+      within(
+        await screen.findByRole("listbox", { name: /own this item/ }),
+      ).getByRole("option", { name: /Alice/ }),
+    );
+
+    await waitFor(() =>
+      expect(onChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ ownerUsers: ["alice"] }),
+      ),
+    );
+    expect(screen.getByTestId("access-creation-toggle").textContent).toContain(
+      "1 owner",
+    );
+
+    await applyCreationAccess("session", 12, { ownerUsers: ["alice"] });
+    expect(api.addResourceOwnerUser).toHaveBeenCalledWith(
+      "session",
+      12,
+      "alice",
+    );
+  });
+
+  it("hands the item over when an added owner is crowned", async () => {
+    api.setResourceOwner.mockResolvedValue(accessView());
+    const onChange = vi.fn();
+    renderInCard(<CreationAccess resourceType="session" onChange={onChange} />);
+
+    fireEvent.click(screen.getByTestId("access-creation-toggle"));
+    await screen.findByTestId("access-catalog");
+    fireEvent.change(screen.getByLabelText("Add an owner"), {
+      target: { value: "Alice" },
+    });
+    fireEvent.click(
+      within(
+        await screen.findByRole("listbox", { name: /own this item/ }),
+      ).getByRole("option", { name: /Alice/ }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Make Alice the owner" }));
+
+    await waitFor(() =>
+      expect(onChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          ownerUsers: ["alice"],
+          crown: { kind: "user", username: "alice" },
+        }),
+      ),
+    );
+    expect(screen.getByTestId("owner-crown").textContent).toContain("Alice");
+    // A crown move takes the item away from whoever created it.
+    expect(screen.getByText("Alice will own this item — you will not.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Keep me as the owner" }));
+    await waitFor(() =>
+      expect(onChange.mock.calls.at(-1)?.[0].crown).toBeUndefined(),
+    );
+    expect(screen.getByTestId("owner-crown").textContent).toContain("Kyros");
+
+    fireEvent.click(screen.getByRole("button", { name: "Make Alice the owner" }));
+    await waitFor(() =>
+      expect(onChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ crown: { kind: "user", username: "alice" } }),
+      ),
+    );
+
+    await applyCreationAccess("session", 12, { crown: { kind: "user", username: "alice" } });
+    expect(api.setResourceOwner).toHaveBeenCalledWith("session", 12, {
+      username: "alice",
+    });
   });
 });

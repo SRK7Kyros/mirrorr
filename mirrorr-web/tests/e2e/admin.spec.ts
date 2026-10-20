@@ -1074,6 +1074,15 @@ test.describe("admin creation access", () => {
     api.data.users = USERS;
     api.data.profiles = [profile({ id: 1, name: "F1 Weekend" })];
     api.data.sessions = [session({ id: 9 })];
+    api.data.groups = [
+      {
+        id: 2,
+        name: "crew",
+        display_name: "Crew",
+        system: false,
+        members: ["alice"],
+      },
+    ];
 
     await openAdmin(page);
     await page.getByRole("button", { name: "New session" }).first().click();
@@ -1085,6 +1094,15 @@ test.describe("admin creation access", () => {
     await expect(dialog.getByTestId("access-catalog")).toHaveCount(0);
 
     await dialog.getByTestId("access-creation-toggle").click();
+    // The row does not exist yet, so the crown slot starts on whoever creates it.
+    await expect(dialog.getByTestId("owner-crown")).toContainText("Kyros");
+    await dialog.getByLabel("Add an owner").fill("Crew");
+    await dialog
+      .getByRole("listbox", { name: /own this item/ })
+      .getByRole("option", { name: /Crew/ })
+      .click();
+    await expect(section).toContainText("1 owner");
+
     await dialog
       .getByTestId("access-catalog")
       .getByRole("option", { name: /Alice/ })
@@ -1095,7 +1113,7 @@ test.describe("admin creation access", () => {
       })
       .getByRole("button", { name: "View access" })
       .click();
-    await expect(section).toContainText("1 principal");
+    await expect(section).toContainText("1 owner · 1 principal");
 
     await dialog.getByRole("combobox", { name: /^Profile/ }).selectOption("1");
     await dialog.getByRole("button", { name: "Start session" }).click();
@@ -1109,5 +1127,12 @@ test.describe("admin creation access", () => {
           )?.body,
       )
       .toMatchObject({ username: "alice", capabilities: ["VIEW"] });
+    await expect
+      .poll(() =>
+        api
+          .callsTo("/shares/session/1/owner-group/2")
+          .some((call) => call.method === "PUT"),
+      )
+      .toBe(true);
   });
 });
