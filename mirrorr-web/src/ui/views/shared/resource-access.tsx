@@ -478,7 +478,7 @@ const BULK_MODES: readonly { readonly id: BulkMode; readonly label: string }[] =
 const BULK_MODE_HINT: Record<BulkMode, string> = {
   grant: "Adds these capabilities beside everyone who already holds them.",
   revoke: "Takes these capabilities from the selected principals alone.",
-  replace: "Makes the selected principals the only holders.",
+  replace: "Resets each item to its owners, then applies exactly this.",
 };
 
 /** The crown badge is the warning yellow; a co-owner's is neutral. */

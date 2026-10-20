@@ -288,6 +288,15 @@ function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProp
     )
   }
 
+  const editHint =
+    mode === "replace"
+      ? "Nothing is sent until you apply. Replace resets each item to its owners first, so anyone you leave out loses access."
+      : "Nothing is sent until you apply. What you leave empty stays as it is.";
+  const confirmHint =
+    mode === "replace"
+      ? "These items carry their own access. Replace clears it first: a principal you did not name here loses access."
+      : "These items carry their own access. Applying changes the parts you filled in.";
+
   return (
     <Dialog
       open
@@ -295,11 +304,7 @@ function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProp
       busy={busy}
       size="xl"
       title={confirming ? `Override ${overridingItems.length} item(s)?` : `Access on ${items.length} item(s)`}
-      description={
-        confirming
-          ? "These items carry their own access. Applying changes the parts you filled in."
-          : "Nothing is sent until you apply. What you leave empty stays as it is."
-      }
+      description={confirming ? confirmHint : editHint}
       footer={
         confirming ? (
           <>

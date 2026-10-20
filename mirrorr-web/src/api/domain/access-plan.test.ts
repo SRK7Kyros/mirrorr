@@ -254,35 +254,45 @@ describe("planBulk", () => {
 })
 
 describe("bulkTargetFor", () => {
-  it("names only the parts the draft fills in", () => {
-    const target = bulkTargetFor(row(), {
-      grants: grants({ EDIT: ["carol"] }),
-      groupGrants: groupGrantsOf(),
-      ownerGroups: [],
-    })
-    expect(target).toEqual({ grants: { EDIT: ["carol"] } })
+  it("names only the parts the draft fills in when granting", () => {
+    const target = bulkTargetFor(
+      row(),
+      {
+        grants: grants({ EDIT: ["carol"] }),
+        groupGrants: groupGrantsOf(),
+        ownerGroups: [],
+      },
+      "grant",
+    )
+    expect(target).toEqual({ grants: { VIEW: ["carol"], EDIT: ["carol"] } })
   })
 
-  it("leaves the owner and every unnamed capability out of the target", () => {
-    const target = bulkTargetFor(row(), {
-      grants: grants(),
-      groupGrants: groupGrantsOf(),
-      ownerGroups: [],
-    })
+  it("leaves the owner and every unnamed capability out of a grant or revoke", () => {
+    const target = bulkTargetFor(
+      row(),
+      {
+        grants: grants(),
+        groupGrants: groupGrantsOf(),
+        ownerGroups: [],
+      },
+      "revoke",
+    )
     expect(target).toEqual({})
   })
 
   it("adds its owner groups to the row's own instead of replacing them", () => {
-    const target = bulkTargetFor(row({ access: access({ ownerGroups: [3] }) }), {
-      ownerGroups: [9],
-    })
+    const target = bulkTargetFor(
+      row({ access: access({ ownerGroups: [3] }) }),
+      { ownerGroups: [9] },
+      "grant",
+    )
     expect(target.ownerGroups).toEqual([3, 9])
   })
 
   it("plans a row-dependent target when given a function", () => {
     const plan = planBulk(
       [row({ id: 1, access: access({ ownerGroups: [3] }) })],
-      (item) => bulkTargetFor(item, { ownerGroups: [9] }),
+      (item) => bulkTargetFor(item, { ownerGroups: [9] }, "grant"),
       USERS,
     )
     expect(plan.items[0]?.to.ownerGroups).toEqual([3, 9])
@@ -345,6 +355,42 @@ describe("bulkTargetFor", () => {
       USERS,
     )
     expect(plan.opCount).toBe(0)
+  })
+
+  it("resets an item to its owners before applying the draft", () => {
+    const target = bulkTargetFor(
+      row({ access: access({ grants: grants({ VIEW: ["bob"], DELETE: ["bob"] }) }) }),
+      { grants: grants({ OPERATE: ["carol"] }) },
+      "replace",
+    )
+    expect(target.grants).toEqual(grants({ VIEW: ["carol"], OPERATE: ["carol"] }))
+  })
+
+  it("clears the group grants a replace does not name", () => {
+    const target = bulkTargetFor(
+      row({ access: access({ groupGrants: groupGrantsOf({ VIEW: [3], OPERATE: [3] }) }) }),
+      { groupGrants: groupGrantsOf({ OPERATE: [9] }) },
+      "replace",
+    )
+    expect(target.groupGrants).toEqual(groupGrantsOf({ VIEW: [9], OPERATE: [9] }))
+  })
+
+  it("clears the item when a replace fills nothing in", () => {
+    const held = row({ access: access({ grants: grants({ VIEW: ["bob"], DELETE: ["bob"] }) }) })
+    const plan = planBulk([held], (item) => bulkTargetFor(item, {}, "replace"), USERS)
+    expect(plan.items[0]?.to.grants).toEqual(grants())
+    expect(plan.opCount).toBe(2)
+  })
+
+  it("drops the holders a replace leaves out through the DELETE route", async () => {
+    const plan = planBulk(
+      [row({ access: access({ grants: grants({ VIEW: ["bob"], DELETE: ["bob"] }) }) })],
+      (item) => bulkTargetFor(item, { grants: grants({ OPERATE: ["carol"] }) }, "replace"),
+      USERS,
+    )
+    await applyPlans(plan.items)
+    expect(grant).toHaveBeenCalledWith("session", 1, "carol", ["VIEW", "OPERATE"])
+    expect(revoke).toHaveBeenCalledWith("session", 1, "bob")
   })
 })
 
@@ -575,12 +621,16 @@ describe("planItem owner users", () => {
 
 describe("bulkTargetFor owner users", () => {
   it("adds the named owner users to the row's own, never replacing them", () => {
-    const target = bulkTargetFor(row({ access: access({ ownerUsers: ["alice"] }) }), { ownerUsers: ["bob"] })
+    const target = bulkTargetFor(
+      row({ access: access({ ownerUsers: ["alice"] }) }),
+      { ownerUsers: ["bob"] },
+      "replace",
+    )
     expect(target.ownerUsers).toEqual(["alice", "bob"])
   })
 
   it("names no owner users when the draft names none", () => {
-    const target = bulkTargetFor(row({ access: access({ ownerUsers: ["alice"] }) }), {})
+    const target = bulkTargetFor(row({ access: access({ ownerUsers: ["alice"] }) }), {}, "replace")
     expect(target.ownerUsers).toBeUndefined()
   })
 })
