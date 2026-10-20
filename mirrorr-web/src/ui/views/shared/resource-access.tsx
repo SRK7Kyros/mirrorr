@@ -327,7 +327,7 @@ export interface AccessDraft {
   readonly ownerGroups: readonly number[];
   readonly dirty: boolean;
   readonly target: AccessTarget & GroupDraftTarget;
-  readonly setOwner: (crown: Crown) => void;
+  readonly setOwner: (crown: Crown | null) => void;
   readonly grant: (
     capability: Capability,
     username: string,
