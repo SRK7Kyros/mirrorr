@@ -338,11 +338,12 @@ export function AutorunFormDialog({
             />
           </Field>
 
-          <div className="grid grid-cols-2 gap-5 max-sm:grid-cols-1">
+          <div className="flex gap-5 max-sm:flex-col">
             <Field
               label="Start"
               htmlFor="autorun-start"
               required
+              className="min-w-0 flex-1"
               hint="Your local time — stored as UTC"
             >
               <Input
@@ -356,6 +357,7 @@ export function AutorunFormDialog({
               label="End"
               htmlFor="autorun-end"
               required
+              className="min-w-0 flex-1"
               error={timeError}
               hint="Your local time — stored as UTC"
             >
