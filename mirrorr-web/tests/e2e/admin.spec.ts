@@ -555,7 +555,10 @@ test.describe("admin resource access", () => {
     api.data.sessions = [session({ id: 7 })];
     api.data.resources = [resourceRow("session", 7, "F1 Weekend")];
     api.data.resourceGrants = {
-      "session:7": [{ username: "bob", capabilities: ["VIEW", "OPERATE"] }],
+      "session:7": [
+        { username: "bob", capabilities: ["VIEW", "OPERATE"] },
+        { username: "alice", capabilities: ["VIEW", "DELETE"] },
+      ],
     };
 
     const posted = (username: string) =>
@@ -619,6 +622,9 @@ test.describe("admin resource access", () => {
 
     dialog = await openBulk();
     await operateOn(dialog, /Carol/, "Replace");
+    await expect(
+      dialog.getByText("Resets each item to its owners, then applies exactly this."),
+    ).toBeVisible();
     await dialog.getByRole("button", { name: "Apply to 1" }).click();
     await expect(page.getByText("Override 1 item(s)?")).toBeVisible();
     await page.getByRole("button", { name: "Override and apply" }).click();
@@ -626,16 +632,18 @@ test.describe("admin resource access", () => {
       "VIEW",
       "OPERATE",
     ]);
-    await expect
-      .poll(
-        () =>
-          api.calls.some(
-            (call) =>
-              call.method === "DELETE" &&
-              call.path === "/shares/session/7/bob",
-          ),
-      )
-      .toBe(true);
+    for (const dropped of ["bob", "alice"]) {
+      await expect
+        .poll(
+          () =>
+            api.calls.some(
+              (call) =>
+                call.method === "DELETE" &&
+                call.path === `/shares/session/7/${dropped}`,
+            ),
+        )
+        .toBe(true);
+    }
   });
 
   test("keeps the catalog and the capability chip row inside the dialog at 375px", async ({

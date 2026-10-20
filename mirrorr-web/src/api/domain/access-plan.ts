@@ -306,13 +306,18 @@ function namedTarget(target: AccessTarget): AccessTarget {
   }
 }
 
-/** `replace` makes the named principals the only holders; the other two keep the rest. */
+/**
+ * `replace` restores the default — the owners, and nobody else — and then
+ * applies the draft, so a principal it does not name loses what it had.
+ * `grant` and `revoke` keep every principal the draft does not name.
+ */
 export type BulkMode = "grant" | "revoke" | "replace"
 
 /**
  * Apply the draft's named capability lists to one row's current lists. `grant`
- * and `revoke` keep every principal the draft does not name; `replace` is the
- * named list itself.
+ * and `revoke` resolve the draft against what the row already has; `replace`
+ * names every capability — empty where the draft names nobody — so the row's
+ * own holders are cleared instead of kept.
  *
  * VIEW is the base capability, and the server normalises every grant to carry
  * it: granting any capability therefore names VIEW for the same principal, and
@@ -324,9 +329,8 @@ function modeCapabilities<T extends string | number>(
   current: Readonly<Record<Capability, readonly T[]>>,
   mode: BulkMode,
 ): Partial<Record<Capability, readonly T[]>> {
-  if (mode === "replace") return named
   const impliesView = new Set<T>()
-  if (mode === "grant") {
+  if (mode !== "revoke") {
     for (const capability of CAPABILITIES) {
       if (capability === "VIEW") continue
       for (const principal of named[capability] ?? []) impliesView.add(principal)
@@ -335,11 +339,15 @@ function modeCapabilities<T extends string | number>(
   const result: Partial<Record<Capability, readonly T[]>> = {}
   for (const capability of CAPABILITIES) {
     const principals = new Set<T>(named[capability] ?? [])
-    if (mode === "grant" && capability === "VIEW") {
+    if (mode !== "revoke" && capability === "VIEW") {
       for (const principal of impliesView) principals.add(principal)
     }
     if (mode === "revoke" && capability !== "VIEW") {
       for (const principal of named.VIEW ?? []) principals.add(principal)
+    }
+    if (mode === "replace") {
+      result[capability] = [...principals]
+      continue
     }
     if (principals.size === 0) continue
     if (mode === "grant") {
@@ -356,16 +364,18 @@ function modeCapabilities<T extends string | number>(
 }
 
 /**
- * The bulk target for one row: what the draft names — resolved against the
- * row's own access through `mode` — with its owner users and owner groups
- * ADDED to the row's own. A bulk apply can hand out ownership but never
- * silently revoke it: the override confirm cannot see an item whose only
- * access is an owner row, so replacement there would be invisible.
+ * The bulk target for one row. `grant` and `revoke` resolve the draft against
+ * the row's own lists, so a principal the draft does not name keeps what it
+ * has; `replace` applies the draft to the item's default — the owner, nobody
+ * else — so every other holder is dropped, group grants included. Owner users
+ * and owner groups are ADDED to the row's own in every mode: a bulk apply can
+ * hand out ownership but never silently revoke it, because the override
+ * confirm cannot see an item whose only access is an owner row.
  */
 export function bulkTargetFor(
   row: AccessRow,
   draft: AccessTarget,
-  mode: BulkMode = "replace",
+  mode: BulkMode,
 ): AccessTarget {
   const named = namedTarget(draft)
   const ownerUsers = named.ownerUsers ?? []
