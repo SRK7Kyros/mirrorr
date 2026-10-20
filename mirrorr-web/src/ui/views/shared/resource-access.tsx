@@ -643,6 +643,11 @@ export interface ResourceAccessEditorProps {
   readonly mode?: BulkMode;
   /** Providing this renders the mode row — only a bulk edit has a `+`/`−`/`=` choice. */
   readonly onModeChange?: (mode: BulkMode) => void;
+  /**
+   * A creation panel has no owner yet — the creator becomes one — so the
+   * section renders only the picker and the chips.
+   */
+  readonly hideOwnership?: boolean;
 }
 
 export function ResourceAccessEditor({
@@ -654,6 +659,7 @@ export function ResourceAccessEditor({
   emptyOwnerLabel = "No owner",
   mode = "replace",
   onModeChange,
+  hideOwnership = false,
 }: ResourceAccessEditorProps) {
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
@@ -988,6 +994,7 @@ export function ResourceAccessEditor({
 
   return (
     <div className="flex min-h-0 flex-col gap-3">
+      {hideOwnership ? null : (
       <div className="flex flex-col gap-2 rounded-md border border-line-subtle bg-surface-1 px-2.5 py-1.5">
         <div className="flex flex-wrap items-start gap-x-2">
           <span className="text-2xs uppercase tracking-wide text-ink-dim">
@@ -1128,15 +1135,23 @@ export function ResourceAccessEditor({
           />
         </div>
       </div>
+      )}
 
-      <div className="flex flex-col gap-2 border-t border-line-subtle pt-3">
+      <div
+        className={
+          hideOwnership
+            ? "flex flex-col gap-2"
+            : "flex flex-col gap-2 border-t border-line-subtle pt-3"
+        }
+      >
         <div className="flex flex-wrap items-baseline gap-x-2">
           <span className="text-2xs uppercase tracking-wide text-ink-dim">
             Permission overrides
           </span>
           <span className="text-xs text-ink-dim">
-            Overrides are more specific — they grant only the capabilities you
-            pick.
+            {hideOwnership
+              ? "Only the capabilities you pick are granted."
+              : "Overrides are more specific — they grant only the capabilities you pick."}
           </span>
         </div>
       </div>
@@ -1210,14 +1225,14 @@ export function ResourceAccessEditor({
         aria-label="Users and groups"
         aria-multiselectable={true}
         data-testid="access-catalog"
-        className="relative max-h-[calc(100dvh-520px)] min-h-[120px] flex-1 overflow-y-auto rounded-md border border-line-subtle bg-surface-1 p-2 select-none touch-pan-y"
+        className="@container relative max-h-[calc(100dvh-520px)] min-h-[120px] flex-1 overflow-y-auto rounded-md border border-line-subtle bg-surface-1 p-2 select-none touch-pan-y"
       >
         {cards.length === 0 ? (
           <p className="p-2 text-sm text-ink-muted">
             No users or groups match.
           </p>
         ) : (
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+          <div className="grid grid-cols-3 gap-2 @sm:grid-cols-4 @lg:grid-cols-5 @2xl:grid-cols-6">
             {cards.map((card, index) => {
               const picked = isPicked(card);
               return (

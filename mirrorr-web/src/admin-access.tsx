@@ -1,4 +1,4 @@
-import { useRef, useState, type MouseEvent } from "react"
+import { useEffect, useRef, useState, type MouseEvent } from "react"
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
 import { fetchGroups, fetchResourceAccess, fetchUsers, getErrorMessage } from "@/api"
 import {
@@ -7,9 +7,13 @@ import {
   crownKey,
   emptyGrants,
   emptyGroupGrants,
+  grantedGroupIds,
+  grantedUsernames,
   itemAccessFromView,
   planBulk,
+  planItem,
   type AccessRow,
+  type AccessTarget,
   type BulkMode,
   type ItemAccess,
   type ItemPlan,
@@ -27,7 +31,7 @@ import {
   Tag,
   toast,
 } from "@/ui/components"
-import { IconUser } from "@/ui/components/icons"
+import { IconChevronRight, IconUser } from "@/ui/components/icons"
 import { AccessPanel } from "@/ui/views/shared/access-panel"
 import {
   ResourceAccessEditor,
@@ -41,6 +45,7 @@ import {
 import type {
   ResourceAccessBulkActionProps,
   ResourceAccessButtonProps,
+  ResourceAccessCreationProps,
   ResourceAccessSlot,
 } from "@/ui/views/shared/resource-access-slot"
 
@@ -429,7 +434,90 @@ export function BulkAccessAction({ resourceType, items }: ResourceAccessBulkActi
   )
 }
 
+/**
+ * The creation panels' access section. It owns its draft and reports the target
+ * upward on mount and after every edit, so the form can apply it once the core
+ * has answered with an id — a create cannot carry grants in its own body.
+ */
+export function CreationAccess({ resourceType, onChange, busy = false }: ResourceAccessCreationProps) {
+  const users = useUsers()
+  const groups = useGroups()
+  const draft = useAccessDraft(EMPTY_DRAFT)
+  const [open, setOpen] = useState(false)
+
+  const signature = JSON.stringify(draft.target)
+  const reported = useRef<string | null>(null)
+  useEffect(() => {
+    if (reported.current === signature) return
+    reported.current = signature
+    onChange(draft.target)
+  }, [signature, draft.target, onChange])
+
+  const principals = grantedUsernames(draft).length + grantedGroupIds(draft).length
+  const everyoneGranted = groups.some(
+    (group) =>
+      group.system &&
+      CAPABILITIES.some((capability) => draft.groupGrants[capability].includes(group.id)),
+  )
+  const summary =
+    principals === 0 ? "Owners only" : `${principals} principal${principals === 1 ? "" : "s"}`
+
+  return (
+    <section className="flex flex-col gap-2" data-testid="access-creation">
+      <button
+        type="button"
+        aria-expanded={open}
+        data-testid="access-creation-toggle"
+        onClick={() => setOpen((current) => !current)}
+        className="tab-stop flex w-full items-center gap-2 rounded-md border border-line-subtle bg-surface-1 px-3 py-2 text-left transition-colors [&:hover]:border-line-strong"
+      >
+        <IconUser size={16} className="shrink-0 text-ink-dim" />
+        <span className="text-sm font-semibold tracking-wider text-ink uppercase">Access</span>
+        <span className="text-sm text-ink-dim">{summary}</span>
+        <IconChevronRight
+          size={16}
+          aria-hidden="true"
+          className={`ms-auto shrink-0 text-ink-dim transition-transform ${open ? "rotate-90" : ""}`}
+        />
+      </button>
+
+      {open ? (
+        <div className="flex flex-col gap-3 rounded-md border border-line-subtle bg-surface-1 p-3">
+          <ResourceAccessEditor
+            resourceType={resourceType}
+            draft={draft}
+            users={users}
+            groups={groups}
+            busy={busy}
+            hideOwnership
+          />
+
+          {everyoneGranted ? (
+            <Banner kind="warning" title="“everyone” is selected">
+              Every account, including future ones, gets the capabilities chosen here on this item.
+            </Banner>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+/** The created row carries nothing yet, so the plan is exactly the draft. */
+export async function applyCreationAccess(
+  resourceType: ResourceType,
+  id: number,
+  target: AccessTarget,
+): Promise<void> {
+  const plan = planItem({ resourceType, id, label: String(id), access: EMPTY_DRAFT }, target, [])
+  const outcome = await applyPlans([plan])
+  const failure = outcome.failed[0]
+  if (failure !== undefined) throw new Error(failure.message)
+}
+
 export const ADMIN_ACCESS_SLOT: ResourceAccessSlot = {
   Button: ResourceAccessButton,
   BulkAction: BulkAccessAction,
+  Creation: CreationAccess,
+  applyCreation: applyCreationAccess,
 }

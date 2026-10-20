@@ -273,11 +273,20 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
 
     // A create echoes the row the server would have stored. The list branch
     // below answers ANY method, so without this a `create*()` call would parse
-    // a list envelope as one row and warn.
+    // a list envelope as one row and warn. A seeded first row is the template:
+    // its fields are what makes the echo pass the same schema the list does, so
+    // a spec that needs the create to SUCCEED seeds the collection it creates.
     const create = /^\/(autoruns|sessions|profiles|recordings|sources)\/$/.exec(path)
     if (create !== null && method === "POST") {
       createdIds += 1
-      return answer(200, { id: createdIds, ...((body as Row | undefined) ?? {}) })
+      const seeded: readonly Row[] =
+        data[create[1] as "autoruns" | "sessions" | "profiles" | "recordings" | "sources"] ?? []
+      const template = seeded[0] ?? {}
+      return answer(200, {
+        ...template,
+        ...((body as Row | undefined) ?? {}),
+        id: createdIds,
+      })
     }
 
     // Discovery: a paged catalog, so a spec can watch the browser read it and
