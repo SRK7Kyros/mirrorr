@@ -24,7 +24,13 @@ export interface VideoSkinProps extends Omit<NonNullable<ComponentProps<typeof C
 
 export function VideoSkin({ children, className, renderPoster, renderThumbnail, ...props }: VideoSkinProps = {}) {
   return (
-    <Container className={cn('video-skin', className)} data-theme="default" data-preset="video" {...props}>
+    <Container
+      className={cn('video-skin', className)}
+      data-theme="default"
+      data-preset="video"
+      data-owns-arrows=""
+      {...props}
+    >
       {children}
       <Poster renderImage={renderPoster} />
       <BufferingIndicator />

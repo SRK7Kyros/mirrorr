@@ -80,6 +80,7 @@ def load_plugin_jit(
             inspect.isclass(attr)
             and issubclass(attr, interface_type)
             and attr is not interface_type
+            and attr.__module__ == module.__name__
         ):
             return attr()
 
@@ -90,7 +91,7 @@ async def sync_plugins_db(
     plugin_dir: Path,
     model_type: type[T],
     interface_type: type,
-    extract_db_fields: Callable[[Any, str], dict[str, Any]],
+    extract_db_fields: Callable[[Any, str, str], dict[str, Any]],
     schema_changed: Callable[[Any, T | None, str], bool],
     plugin_label: str,
     session_factory: async_sessionmaker,
@@ -102,7 +103,7 @@ async def sync_plugins_db(
         plugin_dir: Directory containing plugin .py files.
         model_type: SQLModel class for the DB table.
         interface_type: ABC class that plugins implement.
-        extract_db_fields: (instance, module_hash) → dict of fields for model constructor.
+        extract_db_fields: (instance, module_hash, origin) → dict of fields for model constructor.
         schema_changed: (instance, existing_db_row, module_hash) → True if DB needs update.
         plugin_label: Human-readable label for log messages (e.g. "engine", "resolver").
         session_factory: Async session factory.
@@ -135,6 +136,7 @@ async def sync_plugins_db(
                     inspect.isclass(attr)
                     and issubclass(attr, interface_type)
                     and attr is not interface_type
+                    and attr.__module__ == module.__name__
                 ):
                     try:
                         instance = attr()
@@ -147,7 +149,7 @@ async def sync_plugins_db(
 
                         module_hash = await _hash_file_async(file_path)
                         existing = db_items.get(instance.name)
-                        fields = extract_db_fields(instance, module_hash)
+                        fields = extract_db_fields(instance, module_hash, module_name)
 
                         if existing is None:
                             new_obj = model_type(**fields)

@@ -265,6 +265,11 @@ export function createEventTable(client: QueryClient, options: EventTableOptions
     client.setQueryData<T>(key, (previous) => applyAuthoritative(previous, snapshot))
   }
 
+  function isDetailOpen(key: readonly unknown[]): boolean {
+    const query = client.getQueryCache().find({ queryKey: key, exact: true })
+    return (query?.getObserversCount() ?? 0) > 0
+  }
+
   function onSessionCreated(frame: ParsedFrame): void {
     const data = entityFromData(frame)
     if (data === null) {
@@ -323,7 +328,7 @@ export function createEventTable(client: QueryClient, options: EventTableOptions
     const id = frameEntityId(frame)
     if (id === undefined) return
     markDeleted("session", id)
-    const detailOpen = client.getQueryData(queryKeys.session(id)) !== undefined
+    const detailOpen = isDetailOpen(queryKeys.session(id))
     removeFromInfiniteLists(client, queryRoots.sessions, id)
     client.removeQueries({ queryKey: queryKeys.session(id), exact: true })
     if (detailOpen) options.navigate?.("/sessions")
@@ -345,7 +350,7 @@ export function createEventTable(client: QueryClient, options: EventTableOptions
     const id = frameEntityId(frame)
     if (id === undefined) return
     markDeleted("autorun", id)
-    const detailOpen = client.getQueryData(queryKeys.autorun(id)) !== undefined
+    const detailOpen = isDetailOpen(queryKeys.autorun(id))
     removeFromInfiniteLists(client, queryRoots.autoruns, id)
     client.removeQueries({ queryKey: queryKeys.autorun(id), exact: true })
     if (detailOpen) options.navigate?.("/autoruns")

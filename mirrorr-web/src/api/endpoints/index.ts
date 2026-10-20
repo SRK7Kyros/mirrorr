@@ -38,8 +38,8 @@ function parseOrWarn<T>(parse: (raw: unknown) => T, raw: unknown): T {
   }
 }
 
-function listQuery(cursor: number | undefined, limit: number): string {
-  return cursor === undefined ? `?limit=${limit}` : `?cursor=${cursor}&limit=${limit}`
+function listQuery(cursor: number | undefined, limit: number, extra = ""): string {
+  return cursor === undefined ? `?limit=${limit}${extra}` : `?cursor=${cursor}&limit=${limit}${extra}`
 }
 
 async function fetchPageOf<T>(
@@ -47,15 +47,21 @@ async function fetchPageOf<T>(
   item: z.ZodType<T>,
   cursor: number | undefined,
   limit: number,
+  extra = "",
 ): Promise<CursorPage<T>> {
   const schema = cursorPageSchema(item)
-  const raw = await apiFetch<unknown>(`${path}${listQuery(cursor, limit)}`)
+  const raw = await apiFetch<unknown>(`${path}${listQuery(cursor, limit, extra)}`)
   return parseOrWarn((value) => schema.parse(value), raw)
 }
 
 /* ── sessions ─────────────────────────────────────────────────────── */
-export function fetchSessionPage(cursor: number | undefined, limit = PAGE_SIZE) {
-  return fetchPageOf("/sessions/", SessionSchema, cursor, limit)
+export function fetchSessionPage(
+  cursor: number | undefined,
+  limit = PAGE_SIZE,
+  autorun?: number | string,
+) {
+  const extra = autorun === undefined ? "" : `&autorun=${encodeURIComponent(String(autorun))}`
+  return fetchPageOf("/sessions/", SessionSchema, cursor, limit, extra)
 }
 export function fetchSession(id: number | string): Promise<Session> {
   return apiFetch<unknown>(`/sessions/${id}`).then((raw) => parseOrWarn(SessionSchema.parse, raw))

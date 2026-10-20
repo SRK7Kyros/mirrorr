@@ -227,11 +227,23 @@ export function AutorunFormDialog({
     setError(null)
     setSlugError(null)
     setTimeError(null)
+    const initialStart = autorun === undefined ? null : naiveUtcToDatetimeLocal(autorun.start_time)
+    const initialEnd = autorun === undefined ? null : naiveUtcToDatetimeLocal(autorun.end_time)
     save.mutate({
       user_friendly_name: friendly.trim(),
       snake_case_name: slug,
-      start_time: datetimeLocalToNaiveUtc(startLocal),
-      end_time: datetimeLocalToNaiveUtc(endLocal),
+      ...(live
+        ? endEarlierWhileLive
+          ? { end_time: datetimeLocalToNaiveUtc(endLocal) }
+          : {}
+        : {
+            ...(initialStart === null || startLocal !== initialStart
+              ? { start_time: datetimeLocalToNaiveUtc(startLocal) }
+              : {}),
+            ...(initialEnd === null || endLocal !== initialEnd
+              ? { end_time: datetimeLocalToNaiveUtc(endLocal) }
+              : {}),
+          }),
       recording,
       ...(mode === "profile"
         ? { profile_id: Number(profileId) }
@@ -297,7 +309,7 @@ export function AutorunFormDialog({
       >
         <div className="flex flex-col gap-4">
           {error !== null ? <Banner kind="danger" title={error} /> : null}
-          {startInPast && autorun?.status === "scheduled" ? (
+          {startInPast && (autorun === undefined || autorun.status === "scheduled") ? (
             <Banner
               kind="warning"
               title="Start time is in the past — the server will fire it immediately."

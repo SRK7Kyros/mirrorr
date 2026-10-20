@@ -17,11 +17,22 @@ from mirrorr.storage.models import Client, User
 
 
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    return bcrypt.hashpw(_bcrypt_bytes(password), bcrypt.gensalt()).decode()
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    return bcrypt.checkpw(password.encode(), password_hash.encode())
+    try:
+        raw = _bcrypt_bytes(password)
+    except ValueError:
+        return False
+    return bcrypt.checkpw(raw, password_hash.encode())
+
+
+def _bcrypt_bytes(password: str) -> bytes:
+    raw = password.encode()
+    if len(raw) > 72:
+        raise ValueError("Password must be at most 72 bytes of UTF-8.")
+    return raw
 
 
 async def hash_password_async(password: str) -> str:
@@ -104,6 +115,10 @@ async def subscribe_requester(
         created_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
     db.add(sub)
+    # The request-scoped session is closed without a commit, so an INSERT left
+    # pending here is rolled back and the subscription silently disappears —
+    # no notifications and no per-resource WS events for the new item.
+    await db.commit()
 
 
 # ── Notification helpers ────────────────────────────────────────────

@@ -62,7 +62,10 @@ export function StatusChip({ status, className }: { readonly status: string; rea
       data-tone={descriptor.tone}
       data-status={status}
     >
-      <span className="my-[3px] w-[3px] self-stretch rounded-full" aria-hidden="true" />
+      <span
+        className="my-[3px] w-[3px] self-stretch rounded-full bg-[color:var(--chip-hue)]"
+        aria-hidden="true"
+      />
       {descriptor.icon !== undefined ? (
         <span className="grid size-4 place-content-center text-[color:var(--chip-hue)]" aria-hidden="true">
           {descriptor.icon === "check" ? <IconCheck size={13} /> : <IconX size={13} />}

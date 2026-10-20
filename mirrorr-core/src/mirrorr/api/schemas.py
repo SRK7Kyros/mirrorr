@@ -12,7 +12,18 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+BCRYPT_MAX_PASSWORD_BYTES = 72
+
+
+def _bcrypt_sized(password: str) -> str:
+    if len(password.encode("utf-8")) > BCRYPT_MAX_PASSWORD_BYTES:
+        raise ValueError(
+            f"Password must be at most {BCRYPT_MAX_PASSWORD_BYTES} bytes of UTF-8."
+        )
+    return password
 
 
 # ── Auth ───────────────────────────────────────────────────────────────
@@ -28,6 +39,11 @@ class RegisterRequest(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     display_name: str = Field(default="", max_length=128)
 
+    @field_validator("password")
+    @classmethod
+    def _check_password_bytes(cls, value: str) -> str:
+        return _bcrypt_sized(value)
+
 
 class RefreshRequest(BaseModel):
     refresh_token: str
@@ -36,6 +52,11 @@ class RefreshRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     old_password: str = Field(max_length=128)
     new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def _check_password_bytes(cls, value: str) -> str:
+        return _bcrypt_sized(value)
 
 
 # ── Sessions ───────────────────────────────────────────────────────────

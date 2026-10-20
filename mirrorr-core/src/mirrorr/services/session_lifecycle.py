@@ -419,7 +419,7 @@ async def _emit_session_diff(
 
         # If status changed, emit lifecycle events + autorun update
         if "status" in diff:
-            new_status = diff["status"][1]
+            old_status, new_status = diff["status"]
 
             # Emit autorun update if we propagated
             if autorun_id:
@@ -428,8 +428,12 @@ async def _emit_session_diff(
                     MirrorrEvent.AUTORUN_UPDATED(id=autorun_id).model_dump_json().encode(),
                 )
 
-            # Lifecycle-specific events
-            if new_status == SessionStatus.ACTIVE:
+            # A recording session skips ACTIVE entirely, so STARTED belongs to
+            # the first transition into either playing state.
+            if new_status in (SessionStatus.ACTIVE, SessionStatus.RECORDING) and old_status not in (
+                SessionStatus.ACTIVE,
+                SessionStatus.RECORDING,
+            ):
                 await _nc.publish(
                     MirrorrEvent.SESSION_STARTED.subject,
                     MirrorrEvent.SESSION_STARTED(id=session_id).model_dump_json().encode(),

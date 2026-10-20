@@ -155,7 +155,7 @@ export function SessionPreviewPlayer({
       ) : (
         <>
           <SessionPreview src={src} load={visible} active={previewing} loop={loop} />
-          {src !== null ? (
+          {src !== null || canExpand ? (
             <button
               type="button"
               className={CENTER_BUTTON}

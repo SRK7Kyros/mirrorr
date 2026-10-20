@@ -54,6 +54,20 @@ def _content_hash(data: dict[str, Any]) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def _as_naive_utc(value: str) -> datetime:
+    """Parse an ISO timestamp into the naive-UTC shape the columns store."""
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
+async def _profiles_owned_by(db: AsyncSession, requester: str | None) -> list[Profile]:
+    """Only the requester's own profiles — an import must never link across users."""
+    profiles = await crud.get_all(db, Profile)
+    return [profile for profile in profiles if profile.requester_user_token == requester]
+
+
 def _profile_to_bundle(p: Profile, engine: Engine, resolver: Resolver) -> dict[str, Any]:
     """Serialise a Profile into a portable bundle entry."""
     return {
@@ -340,7 +354,8 @@ async def validate_bundle(
     resolver_name_map = {r.name: r for r in all_resolvers}
 
     # Fetch existing profiles for name-conflict and content-hash checks
-    existing_profiles = await crud.get_all(db, Profile)
+    requester = auth.user.username if auth.user is not None else None
+    existing_profiles = await _profiles_owned_by(db, requester)
     existing_by_name = {p.name: p for p in existing_profiles}
 
     profile_reports: list[dict[str, Any]] = []
@@ -595,7 +610,7 @@ async def apply_bundle(
     # Cache for created profiles (by name → Profile obj)
     created_profiles: dict[str, Profile] = {}
 
-    existing_profiles = await crud.get_all(db, Profile)
+    existing_profiles = await _profiles_owned_by(db, requester)
     existing_by_name = {p.name: p for p in existing_profiles}
 
     profiles_created = 0
@@ -686,10 +701,7 @@ async def apply_bundle(
         # the instant it lands, so discard it and report it back instead.
         raw_start = a.get("start_time")
         if raw_start:
-            start = datetime.fromisoformat(raw_start)
-            if start.tzinfo is not None:
-                start = start.astimezone(timezone.utc).replace(tzinfo=None)
-            if start <= datetime.now(timezone.utc).replace(tzinfo=None):
+            if _as_naive_utc(raw_start) <= datetime.now(timezone.utc).replace(tzinfo=None):
                 discarded_autoruns.append({"name": a_name, "start_time": raw_start})
                 continue
 
@@ -724,8 +736,8 @@ async def apply_bundle(
             resolver_config=a.get("resolver_config", linked_profile.resolver_config),
             retry_mode=a.get("retry_mode", linked_profile.retry_mode),
             retry_config=a.get("retry_config", linked_profile.retry_config),
-            start_time=datetime.fromisoformat(a["start_time"]) if a.get("start_time") else datetime.now(timezone.utc).replace(tzinfo=None),
-            end_time=datetime.fromisoformat(a["end_time"]) if a.get("end_time") else datetime.now(timezone.utc).replace(tzinfo=None),
+            start_time=_as_naive_utc(a["start_time"]) if a.get("start_time") else datetime.now(timezone.utc).replace(tzinfo=None),
+            end_time=_as_naive_utc(a["end_time"]) if a.get("end_time") else datetime.now(timezone.utc).replace(tzinfo=None),
             recording=a.get("recording", True),
             requester_user_token=requester,
         )

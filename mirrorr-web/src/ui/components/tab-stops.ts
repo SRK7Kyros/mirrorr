@@ -134,6 +134,7 @@ const ARROW_OWNED = [
   '[role="treeitem"]',
   '[role="grid"]',
   '[role="gridcell"]',
+  "[data-owns-arrows]",
 ].join(", ")
 
 /**

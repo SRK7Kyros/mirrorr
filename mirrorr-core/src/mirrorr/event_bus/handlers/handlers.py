@@ -16,6 +16,13 @@ _sessions: dict[int, tuple[multiprocessing.Process, ShutdownEvent]] = {}
 
 def _spawn_supervisor(session_id: int) -> multiprocessing.Process:
     from mirrorr.di import container
+    existing = _sessions.get(session_id)
+    if existing is not None and existing[0].is_alive():
+        logger.warning(
+            f"Supervisor for session {session_id} is already running "
+            f"(pid={existing[0].pid}); ignoring duplicate spawn"
+        )
+        return existing[0]
     shutdown_event = multiprocessing.Event()
     process = multiprocessing.Process(
         name=f"mirrorr-session-{session_id}",

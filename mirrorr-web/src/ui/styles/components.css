@@ -45,9 +45,6 @@
 }
 
 .table thead th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
   text-align: left;
   font-size: var(--fs-xs);
   font-weight: var(--fw-semibold);
@@ -352,7 +349,7 @@ kbd {
 .video-skin .video-controls-content {
   inset-inline: calc(var(--media-spacing) * 2);
   bottom: calc(var(--media-spacing) * 2);
-  z-index: 30;
+  z-index: var(--z-topbar);
   border-radius: var(--media-controls-radius);
   background-color: var(--media-popover);
   color: var(--media-popover-foreground);
@@ -370,6 +367,11 @@ kbd {
   scale: var(--media-hidden-scale) var(--media-hidden-scale);
   opacity: 0;
   transition-duration: var(--media-duration-controls);
+}
+@media (pointer: fine) {
+  .video-skin .video-controls-content:not([data-visible]) {
+    filter: blur(var(--media-hidden-blur));
+  }
 }
 .video-skin .video-controls-content::after {
   content: "";
@@ -398,6 +400,12 @@ kbd {
   translate: 0 0;
   scale: 1 1;
   opacity: 1;
+}
+
+@container media-root (width < 32rem) {
+  .video-skin .video-controls-captions-button {
+    display: none;
+  }
 }
 
 /* Square the outer frame only — the skin's own chrome radii (99px tokens in

@@ -56,8 +56,9 @@ function isForbidden(error: unknown): boolean {
  * config snapshot · linked run · retirement note. Every row action comes from
  * `STATUS_MAP.autorunActions` (spec §1.4) via `AutorunActionsMenu`; there is no
  * server "run now" endpoint, so that action composes a `POST /sessions/` body
- * from this autorun's captured config. The linked run is discovered client-side
- * — no session→autorun backlink endpoint exists (spec §5.6).
+ * from this autorun's captured config. The linked run comes from the session
+ * list narrowed by `?autorun=` — a server-side filter, not a history scan
+ * (spec §5.6 has no dedicated backlink endpoint).
  */
 export function AutorunDetailView({ autorunId }: { readonly autorunId: string }) {
   const names = useNameMaps()
@@ -71,11 +72,11 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
   })
   const autorun = query.data
 
-  // The spawned run is found by scanning session pages — there is no
-  // session→autorun backlink endpoint (spec §5.6).
+  // The core narrows the session list to this autorun's runs (`?autorun=`),
+  // so the first page already carries the spawned run.
   const sessions = useEntityList<Session>({
     queryKey: queryKeys.sessions({ autorun: autorunId }),
-    fetchPage: (cursor) => fetchSessionPage(cursor),
+    fetchPage: (cursor) => fetchSessionPage(cursor, undefined, autorunId),
   })
   const { hasMore, isFetching, loadingAll, loadAll } = sessions
 
@@ -90,11 +91,10 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
   const live = autorun !== undefined && isLive(autorun.status)
   const shouldFindRun = autorun !== undefined && (spent || live)
 
-  // A run that has fired is somewhere in the session history — exhaust the
-  // (small) list until it is found, mirroring the list view's scope filters.
+  // Only reached if an autorun ever spawns more runs than one page holds.
   useEffect(() => {
     if (!shouldFindRun || linked !== null || loadingAll || isFetching || !hasMore) return
-    void loadAll()
+    void loadAll().catch(() => undefined)
   }, [shouldFindRun, linked, loadingAll, isFetching, hasMore, loadAll])
 
   const linkedDuration = useLiveDurationSeconds(linked?.started_at, linked?.ended_at)

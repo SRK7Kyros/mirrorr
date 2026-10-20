@@ -5,7 +5,6 @@ import atexit
 from contextlib import closing
 import hashlib
 import io
-import os
 import platform
 import subprocess
 import sys
@@ -213,6 +212,12 @@ class NatsServerManager:
 
         await self.ensure()
 
+        if is_port_open(self.port):
+            raise RuntimeError(
+                f"Port {self.port} is already in use by another process; "
+                "refusing to attach to a NATS server this core did not start."
+            )
+
         js_conf = self._write_js_conf()
 
         # Start NATS in its own process group so Ctrl+C in the parent
@@ -232,7 +237,7 @@ class NatsServerManager:
                 subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
             )
         else:
-            kwargs["preexec_fn"] = os.setsid
+            kwargs["start_new_session"] = True
 
         # On Windows, create a Job Object and assign the child to it.
         # When the parent process dies (for ANY reason), Windows automatically
@@ -320,6 +325,9 @@ class NatsServerManager:
         max_retries = 10
         for i in range(max_retries):
             await asyncio.sleep(0.5)
+            if self._process is None or self._process.poll() is not None:
+                code = None if self._process is None else self._process.poll()
+                raise RuntimeError(f"NATS server exited during startup (code {code}).")
             if is_port_open(self.port):
                 logger.info("NATS server is up and accepting connections!")
                 return

@@ -126,6 +126,9 @@ export function useMenuDismiss() {
     const onPointerDown = (event: MouseEvent) => {
       if (wrapRef.current !== null && !wrapRef.current.contains(event.target as Node)) setOpen(false)
     }
+    const onFocusIn = (event: FocusEvent) => {
+      if (wrapRef.current !== null && !wrapRef.current.contains(event.target as Node)) setOpen(false)
+    }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setOpen(false)
@@ -146,10 +149,12 @@ export function useMenuDismiss() {
     }
 
     document.addEventListener("mousedown", onPointerDown)
+    document.addEventListener("focusin", onFocusIn)
     document.addEventListener("keydown", onKeyDown)
     items()[0]?.focus()
     return () => {
       document.removeEventListener("mousedown", onPointerDown)
+      document.removeEventListener("focusin", onFocusIn)
       document.removeEventListener("keydown", onKeyDown)
     }
   }, [open])

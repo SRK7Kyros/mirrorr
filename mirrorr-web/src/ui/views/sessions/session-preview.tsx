@@ -33,7 +33,10 @@ export function SessionPreview({
 }) {
   const ref = useRef<HTMLVideoElement>(null);
   const activeRef = useRef(active);
-  activeRef.current = active;
+
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
 
   useEffect(() => {
     const video = ref.current;

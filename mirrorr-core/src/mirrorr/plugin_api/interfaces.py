@@ -175,9 +175,10 @@ class EngineInterface(ABC):
                 return True, get_retry_delay(mode, params)
             return False, 0.0
 
-        # none/always/count modes
+        # `attempt` is 1-based (the first crash is attempt 1), while `count`
+        # is the number of RETRIES, so the comparison is strictly greater.
         max_attempts = get_retry_max_attempts(mode, params)
-        if max_attempts is not None and attempt >= max_attempts:
+        if max_attempts is not None and attempt > max_attempts:
             return False, 0.0
 
         if mode == "none":

@@ -18,6 +18,8 @@ import { listRefetchInterval, type PollingContext } from "@/api/polling"
  * its resources emit no WS events, and a dead socket falls back to 15s.
  */
 
+const MAX_LOAD_ALL_PAGES = 1_000
+
 /* ── polling context (auth + realtime external stores) ─────────────── */
 let pollSnapshot: PollingContext = {
   isApiClient: false,
@@ -110,8 +112,9 @@ export function useEntityList<T extends { id: number }>(options: {
     setLoadingAll(true)
     try {
       let pages: Array<CursorPage<T>> | undefined
-      for (;;) {
+      for (let fetched = 0; fetched < MAX_LOAD_ALL_PAGES; fetched += 1) {
         const result = await fetchNextPage()
+        if (result.isFetchNextPageError) throw result.error
         pages = result.data?.pages
         const last = result.data?.pages.at(-1)
         if (last === undefined || !last.has_more || last.next_cursor == null) break

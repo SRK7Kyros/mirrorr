@@ -118,7 +118,9 @@ def _client_ip(request: Request) -> str:
     """
     forwarded_for = request.headers.get("x-forwarded-for")
     if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
+        # The last hop is the one the nearest trusted proxy appended; the first
+        # is client-supplied and lets a caller evade the limit by spoofing it.
+        return forwarded_for.split(",")[-1].strip()
     return request.client.host if request.client else "unknown"
 
 def _check_rate_limit(key: str, max_attempts: int, window: float = 60.0) -> bool:

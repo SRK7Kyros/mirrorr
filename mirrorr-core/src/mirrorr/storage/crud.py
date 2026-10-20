@@ -29,6 +29,7 @@ async def get_all_paginated(
     limit: int = 50,
     order_desc: bool = True,
     options: Sequence = (),
+    where_expr=None,
 ) -> PaginatedResult:
     """Fetch entities with cursor-based pagination.
 
@@ -40,11 +41,17 @@ async def get_all_paginated(
         order_desc: If True, order by ID descending (newest first)
         options: SQLAlchemy loader options (e.g. selectinload) to eager-load
             relationships so the caller can serialize related names without N+1.
+        where_expr: Optional SQLAlchemy filter applied before pagination, so a
+            list endpoint can narrow a collection without the client paging
+            through every row to find the ones it wants.
 
     Returns:
         PaginatedResult with items, next_cursor, and has_more flag
     """
     stmt = select(model)
+
+    if where_expr is not None:
+        stmt = stmt.where(where_expr)
 
     if options:
         stmt = stmt.options(*options)

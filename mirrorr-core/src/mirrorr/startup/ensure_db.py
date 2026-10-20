@@ -28,6 +28,29 @@ def _safe_identifier(name: str) -> str:
     return name
 
 
+def _sql_default(column, type_str: str) -> str:
+    """Render a type-correct literal for a new NOT NULL column.
+
+    SQLite refuses ``ADD COLUMN … NOT NULL`` without a default, and a blanket
+    ``DEFAULT ''`` makes existing boolean/integer rows unreadable.
+    """
+    value = getattr(getattr(column, "default", None), "arg", None)
+    if callable(value):
+        value = None
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        return "'" + value.replace("'", "''") + "'"
+    upper = type_str.upper()
+    if upper == "JSON":
+        return "'{}'"
+    if upper in ("INTEGER", "BOOLEAN", "REAL", "NUMERIC", "FLOAT"):
+        return "0"
+    return "''"
+
+
 async def reset_database(engine: AsyncEngine) -> None:
     """Delete all rows from all tables. Called when DEV_RESET_DATABASE is set."""
     async with engine.begin() as conn:
@@ -140,17 +163,18 @@ def _rebuild_table_sqlite(sync_conn, table_name: str, model_table, dialect) -> N
         cols_csv = ", ".join(_safe_identifier(c) for c in common)
 
         # 4. Copy data
-        sync_conn.execute(text(
-            f"INSERT INTO {_safe_identifier(table_name)} ({cols_csv}) SELECT {cols_csv} FROM {_safe_identifier(temp_name)}"
-        ))
+        if common:
+            sync_conn.execute(text(
+                f"INSERT INTO {_safe_identifier(table_name)} ({cols_csv}) SELECT {cols_csv} FROM {_safe_identifier(temp_name)}"
+            ))
 
         # Validate row counts match
         old_count = sync_conn.execute(text(f"SELECT COUNT(*) FROM [{temp_name}]")).scalar()
         new_count = sync_conn.execute(text(f"SELECT COUNT(*) FROM [{table_name}]")).scalar()
         if old_count != new_count:
             logger.error(f"Row count mismatch after rebuild: old={old_count} new={new_count}")
-            # Roll back by renaming old table back
-            sync_conn.execute(text(f"ALTER TABLE [{temp_name}] RENAME TO [{table_name}]"))
+            sync_conn.execute(text(f"DROP TABLE {_safe_identifier(table_name)}"))
+            sync_conn.execute(text(f"ALTER TABLE {_safe_identifier(temp_name)} RENAME TO {_safe_identifier(table_name)}"))
             return
 
         # 5. Drop old table
@@ -232,12 +256,8 @@ async def ensure_db(engine: AsyncEngine) -> None:
                             logger.warning(f"New column detected: {table_name}.{col_name}. Adding it...")
                             type_str = column.type.compile(dialect=dialect)
                             statement = f"ALTER TABLE {_safe_identifier(table_name)} ADD COLUMN {_safe_identifier(col_name)} {type_str}"
-                            if not column.nullable and column.default is None:
-                                # Use JSON-compatible default for JSON columns
-                                if type_str.upper() == "JSON":
-                                    statement += " DEFAULT '{}'"
-                                else:
-                                    statement += " DEFAULT ''"
+                            if not column.nullable:
+                                statement += f" DEFAULT {_sql_default(column, type_str)}"
                             logger.debug(f"SQL: {statement}")
                             sync_conn.execute(text(statement))
                             logger.info(f"Added column {table_name}.{col_name}")
@@ -316,3 +336,8 @@ async def ensure_db(engine: AsyncEngine) -> None:
             )
 
         await conn.run_sync(sync_columns)
+
+    # A rebuild pins `foreign_keys=OFF` on its pooled connection and SQLite
+    # ignores the restore while the copy's transaction is still open, so the
+    # pool is recycled to re-run the connect-time pragmas.
+    await engine.dispose()

@@ -21,14 +21,14 @@ export interface CursorPage<T> {
 export const queryKeys = {
   authMe: ["auth", "me"] as const,
   sessions: (params: ListParams = {}) => ["sessions", params] as const,
-  session: (id: number | string) => ["session", id] as const,
+  session: (id: number | string) => ["session", String(id)] as const,
   autoruns: (params: ListParams = {}) => ["autoruns", params] as const,
-  autorun: (id: number | string) => ["autorun", id] as const,
+  autorun: (id: number | string) => ["autorun", String(id)] as const,
   recordings: (params: ListParams = {}) => ["recordings", params] as const,
   profiles: (params: ListParams = {}) => ["profiles", params] as const,
-  profile: (id: number | string) => ["profile", id] as const,
+  profile: (id: number | string) => ["profile", String(id)] as const,
   sources: (params: ListParams = {}) => ["sources", params] as const,
-  source: (id: number | string) => ["source", id] as const,
+  source: (id: number | string) => ["source", String(id)] as const,
   engines: ["engines"] as const,
   resolvers: ["resolvers"] as const,
   notifications: ["notifications"] as const,
@@ -36,7 +36,7 @@ export const queryKeys = {
   clients: ["clients"] as const,
   adminResources: (params: ListParams = {}) => ["admin", "resources", params] as const,
   adminResourceAccess: (resourceType: string, id: number | string) =>
-    ["admin", "resources", resourceType, id, "access"] as const,
+    ["admin", "resources", resourceType, String(id), "access"] as const,
   groups: ["admin", "groups"] as const,
 } as const
 
