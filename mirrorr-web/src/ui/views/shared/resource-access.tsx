@@ -644,10 +644,11 @@ export interface ResourceAccessEditorProps {
   /** Providing this renders the mode row — only a bulk edit has a `+`/`−`/`=` choice. */
   readonly onModeChange?: (mode: BulkMode) => void;
   /**
-   * A creation panel has no owner yet — the creator becomes one — so the
-   * section renders only the picker and the chips.
+   * A creation panel has no owner yet — the creator becomes one. The section
+   * still edits owners (they are what the admin is choosing), but the crown
+   * slot starts on the creator rather than on an item's own owner.
    */
-  readonly hideOwnership?: boolean;
+  readonly creation?: boolean;
 }
 
 export function ResourceAccessEditor({
@@ -659,7 +660,7 @@ export function ResourceAccessEditor({
   emptyOwnerLabel = "No owner",
   mode = "replace",
   onModeChange,
-  hideOwnership = false,
+  creation = false,
 }: ResourceAccessEditorProps) {
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
@@ -994,7 +995,6 @@ export function ResourceAccessEditor({
 
   return (
     <div className="flex min-h-0 flex-col gap-3">
-      {hideOwnership ? null : (
       <div className="flex flex-col gap-2 rounded-md border border-line-subtle bg-surface-1 px-2.5 py-1.5">
         <div className="flex flex-wrap items-start gap-x-2">
           <span className="text-2xs uppercase tracking-wide text-ink-dim">
@@ -1010,7 +1010,9 @@ export function ResourceAccessEditor({
             </span>
           ) : (
             <span className="text-xs text-ink-dim">
-              Owners get every permission on this item.
+              {creation
+                ? "The creator owns this item; anyone added here owns it too."
+                : "Owners get every permission on this item."}
             </span>
           )}
         </div>
@@ -1096,6 +1098,19 @@ export function ResourceAccessEditor({
           })}
         </div>
 
+        {creation && draft.crown !== null ? (
+          <p className="flex flex-wrap items-baseline gap-x-2 text-xs text-warning">
+            <span>{ownerLabel} will own this item — you will not.</span>
+            <button
+              type="button"
+              onClick={() => draft.setOwner(null)}
+              className="tab-stop underline underline-offset-2 transition-colors [&:hover]:text-ink"
+            >
+              Keep me as the owner
+            </button>
+          </p>
+        ) : null}
+
         <div className="relative min-w-[200px]" data-owns-escape>
           <Input
             ref={ownerInputRef}
@@ -1135,11 +1150,10 @@ export function ResourceAccessEditor({
           />
         </div>
       </div>
-      )}
 
       <div
         className={
-          hideOwnership
+          creation
             ? "flex flex-col gap-2"
             : "flex flex-col gap-2 border-t border-line-subtle pt-3"
         }
@@ -1149,7 +1163,7 @@ export function ResourceAccessEditor({
             Permission overrides
           </span>
           <span className="text-xs text-ink-dim">
-            {hideOwnership
+            {creation
               ? "Only the capabilities you pick are granted."
               : "Overrides are more specific — they grant only the capabilities you pick."}
           </span>

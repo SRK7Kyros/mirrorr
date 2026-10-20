@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react"
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
-import { fetchGroups, fetchResourceAccess, fetchUsers, getErrorMessage } from "@/api"
+import { fetchGroups, fetchResourceAccess, fetchUsers, getErrorMessage, useAuthState } from "@/api"
 import {
   applyPlans,
   bulkTargetFor,
@@ -437,11 +437,14 @@ export function BulkAccessAction({ resourceType, items }: ResourceAccessBulkActi
 /**
  * The creation panels' access section. It owns its draft and reports the target
  * upward on mount and after every edit, so the form can apply it once the core
- * has answered with an id — a create cannot carry grants in its own body.
+ * has answered with an id — a create cannot carry grants in its own body. The
+ * creator becomes the owner, which is what the crown slot starts on; an owner
+ * added here is a co-owner, and crowning one hands the item over.
  */
 export function CreationAccess({ resourceType, onChange, busy = false }: ResourceAccessCreationProps) {
   const users = useUsers()
   const groups = useGroups()
+  const me = useAuthState().auth?.user ?? null
   const draft = useAccessDraft(EMPTY_DRAFT)
   const [open, setOpen] = useState(false)
 
@@ -453,14 +456,24 @@ export function CreationAccess({ resourceType, onChange, busy = false }: Resourc
     onChange(draft.target)
   }, [signature, draft.target, onChange])
 
+  const creator =
+    me === null ? "You" : me.display_name !== "" ? me.display_name : me.username
   const principals = grantedUsernames(draft).length + grantedGroupIds(draft).length
+  const owners = draft.ownerUsers.length + draft.ownerGroups.length
   const everyoneGranted = groups.some(
     (group) =>
       group.system &&
       CAPABILITIES.some((capability) => draft.groupGrants[capability].includes(group.id)),
   )
   const summary =
-    principals === 0 ? "Owners only" : `${principals} principal${principals === 1 ? "" : "s"}`
+    owners === 0 && principals === 0
+      ? "Owners only"
+      : [
+          owners === 0 ? "" : `${owners} owner${owners === 1 ? "" : "s"}`,
+          principals === 0 ? "" : `${principals} principal${principals === 1 ? "" : "s"}`,
+        ]
+          .filter((part) => part !== "")
+          .join(" · ")
 
   return (
     <section className="flex flex-col gap-2" data-testid="access-creation">
@@ -489,7 +502,8 @@ export function CreationAccess({ resourceType, onChange, busy = false }: Resourc
             users={users}
             groups={groups}
             busy={busy}
-            hideOwnership
+            creation
+            emptyOwnerLabel={creator}
           />
 
           {everyoneGranted ? (
