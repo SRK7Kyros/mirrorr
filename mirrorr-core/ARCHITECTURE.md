@@ -748,10 +748,10 @@ When `/auth/status` returns `has_users: false`:
 Frontend ←── WS ───→ Backend ←── NATS ───→ Supervisor
 ```
 
-- Authenticates via `?token=JWT` or `X-API-Key` header
+- Authenticates via the `mirrorr_access_token` cookie, `X-API-Key` header, `Authorization: Bearer`, or `?api_key=` (`?token=` is **not** accepted); an unauthenticated handshake closes `4001`
 - Subscribes to NATS wildcard `>` (all subjects)
 - Filters: skips per-process `.telemetry.` samples and `_INBOX.` subjects; the coalesced `session.{id}.telemetry` frame passes
-- For authenticated users: filters to subscribed resources only
+- For authenticated users: sends each frame only to its resource's **audience** — every `VIEW` holder (`permissions.viewer_usernames`: owner user or crown group, owner users, owner groups, any grant), cached ~10 s per resource; admins receive everything. A broadcast CRUD subject is resolved from its payload `id`; a frame whose row is gone goes nowhere, except `*.deleted` (admin only)
 - **Enrichment**: fetches full entity from DB, injects as `data` field
 - Zero-roundtrip cache updates: frontend patches React Query cache directly
 
@@ -759,7 +759,7 @@ Frontend ←── WS ───→ Backend ←── NATS ───→ Superviso
 
 - Requires authentication (closes if unauthenticated)
 - On connect: sends all unread notifications from DB
-- Then subscribes to NATS, pushes new notifications in real-time
+- Then subscribes to NATS, pushes new notifications in real-time — same audience rule as `/ws/events`, and the coalesced `.telemetry` sample is dropped (a live readout is not a notification)
 - Deduplicates by notification ID
 
 ---

@@ -358,7 +358,7 @@ Two endpoints, both **server-push only** (client never sends data; ping/heartbea
 
 ### 11.1 `/ws/events` — entity events
 Auth: cookie / `X-API-Key` / `Authorization: Bearer` / `?api_key=`.
-Server filters to the user's **subscribed resources** (auto-subscribed to resources they create; unauthenticated relays all — but the endpoint requires auth, so effectively: own resources + admin sees all).
+Each frame is delivered only to that resource's **audience** — every user holding `VIEW` on it (owner user or crown group, additional owner users and owner groups, and anyone with a capability grant, since any grant implies `VIEW`), resolved by `services/permissions.viewer_usernames` and cached ~10 s per resource. An admin receives everything. So: a per-resource subject whose resource you cannot view is never sent to you; a broadcast CRUD subject (`session.updated`, whose payload carries the `id`) is resolved from that id like any other; a subject the process does not model (`resolver_source.*`, `proc.*`) is dropped; and a frame whose row is gone is dropped for everyone except `*.deleted`, which only an admin hears (the row and its access rows cascade together). A revoke therefore takes up to one cache window to reach the stream, and a client must not depend on the echo of its own delete — its mutation already removes the row locally.
 
 Frame (as actually emitted by the relay): the server **enriches** every non-delete event with the full current entity from the DB, replacing the original `data`:
 ```json
@@ -398,6 +398,8 @@ Frame:
    "resource_type":"session","resource_id":5,"event_type":"session.crashed",
    "title":"session 5: session.crashed","created_at":"...", "read":false}}
 ```
+
+Delivery follows the same audience rule as §11.1 — a frame reaches only users holding `VIEW` on its resource (so an unrelated user's bell never learns of it), and the coalesced `.telemetry` sample is never forwarded here: a live readout is not a notification.
 
 **Client requirements:**
 1. Bell + unread count badge (receive on connect, decrement on read).
@@ -490,7 +492,7 @@ Never loop step 2 more than once per boot, and never re-attempt refresh after a 
 | Event | Detail |
 |---|---|
 | Client sends | `POST /sessions/ {profile_id? \| engine_id, resolver_id, resolver_config?, retry_mode?, retry_config?, recording?}` |
-| Server does | Validates FK + config; inserts row (`status=initializing`, `requester_user_token=you`); `subscribe_requester` (so your WS gets its events); emits `session.created` on NATS → your `/ws/events` gets `session.created` + enriched entity |
+| Server does | Validates FK + config; inserts row (`status=initializing`, `requester_user_token=you`); `subscribe_requester` (so notifications have a target); emits `session.created` on NATS → your `/ws/events` gets `session.created` + enriched entity because you are the row's owner (the stream's audience is the VIEW set, §11.1) |
 | 200 body | Full `SessionResponse` (status `initializing`, `retry_attempts:0`, `attempts:[]`, `session_urls:[]`, `started_at:null`) |
 | Errors | 400 duplicate name/IntegrityError; 409 conflict; 422 validation (incl. invalid engine/resolver IDs) |
 | When expected | Within ~1 round-trip; the supervisor spawn happens async — **the row is `initializing` immediately, before any process actually starts**, and only becomes playable after the two-stage startup gate (§13.2.1) |
@@ -618,7 +620,7 @@ Every managed process samples itself (psutil: CPU + RSS) at 1 Hz. The supervisor
 |---|---|---|
 | `session.{id}.telemetry` | `{session_id, ts, processes:[{name, cpu_percent, rss_bytes, vms_bytes}], total_rss_bytes}` | 1 Hz, only while the attempt has live processes (`initializing` → `terminating`); nothing during `remuxing`/`finalizing` |
 
-The per-process subjects (`session.{id}.telemetry.<proc>`) are the raw samples and are **never** forwarded.
+The per-process subjects (`session.{id}.telemetry.<proc>`) are the raw samples and are **never** forwarded. The coalesced frame follows the same audience rule as every other WS frame (11.1): every holder of `VIEW` on that session receives it, not only the account that created it — which is the point of the readout on a shared item.
 
 **Client MUST:**
 - Route it to listeners registered for that session id and **never** invalidate list/detail queries from it — at 1 Hz that is cache thrash. Unsubscribe when the view unmounts.
@@ -748,7 +750,7 @@ This subsection collects facts an implementer discovers only by reading the serv
 
 #### 13.10.1 API-key clients are "visible but not real" (critical gotcha)
 - A request authenticated by `X-API-Key` resolves to `AuthState(client=<client>, user=None)`. It **can** create sessions/autoruns/profiles (`requester_user_token=""` — the server writes an empty token).
-- But `subscribe_requester` **skips** when the token is empty → **no EventSubscription rows** → the key-created resource is **invisible in every user's WS event stream** and **never generates a notification** (notifications target users via subscriptions).
+- But `subscribe_requester` **skips** when the token is empty → **no EventSubscription rows**, and an owner-less row has an **empty audience** (`viewer_usernames` = nobody) → the key-created resource is **invisible in every user's WS event stream** and **never generates a notification** (notifications target users via subscriptions).
 - Consequence for UI:
   - A resource created via API key shows `requester_user_token: ""` and **belongs to nobody** — no user list/table can filter to it, its events are dead air, and an admin viewing "all" sees it only by explicit `GET /sessions/` (no WS updates, no detail-enrichment on delete — enrichment is skipped for deleted subjects).
   - **Client MUST surface this**: when creating a resource while authenticated by key, show a hint "created as system/API-client resource — will appear to nobody, no notifications will fire unless a user adopts it." There is **no adopt/transfer endpoint** — document that limitation rather than pretend it exists.

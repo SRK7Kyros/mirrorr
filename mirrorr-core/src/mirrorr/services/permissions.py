@@ -27,6 +27,7 @@ from mirrorr.storage.models import (
     ResourceOwnerGroup,
     ResourceOwnerUser,
     Session,
+    User,
 )
 
 # Owner-bearing resource kinds a grant can point at. Engines and resolvers are
@@ -98,6 +99,85 @@ async def has_capability(
     if capability is not Capability.VIEW:
         stmt = stmt.where(ResourceAccess.capability == capability)
     return (await db.exec(stmt)).first() is not None
+
+
+async def viewer_usernames(
+    db: AsyncSession, resource_type: ResourceType, resource_id: int
+) -> frozenset[str] | None:
+    """Every username that may VIEW one resource, or ``None`` when it is gone.
+
+    The socket layer's audience. It expands the same rows ``has_capability``
+    consults — the requester owner (a user or a group), owner users, owner
+    groups, and **any** grant — into user names, so a live event reaches exactly
+    the users an authenticated GET would serve it to.
+
+    Admins are absent on purpose: they hold everything implicitly, and the
+    caller short-circuits them instead of enumerating every account.
+    """
+    model = next(
+        (m for m, rt in _ACCESS_MODEL_TYPES.items() if rt is resource_type), None
+    )
+    obj = await db.get(model, resource_id) if model is not None else None
+    if obj is None:
+        return None
+
+    usernames: set[str] = set()
+    if obj.requester_user_token:
+        usernames.add(obj.requester_user_token)
+    usernames.update(
+        (
+            await db.exec(
+                select(ResourceOwnerUser.username).where(
+                    ResourceOwnerUser.resource_type == resource_type,
+                    ResourceOwnerUser.resource_id == resource_id,
+                )
+            )
+        ).all()
+    )
+
+    groups: set[int] = set()
+    if obj.requester_group_id is not None:
+        groups.add(obj.requester_group_id)
+    groups.update(
+        (
+            await db.exec(
+                select(ResourceOwnerGroup.group_id).where(
+                    ResourceOwnerGroup.resource_type == resource_type,
+                    ResourceOwnerGroup.resource_id == resource_id,
+                )
+            )
+        ).all()
+    )
+    for username, group_id in (
+        await db.exec(
+            select(ResourceAccess.username, ResourceAccess.group_id).where(
+                ResourceAccess.resource_type == resource_type,
+                ResourceAccess.resource_id == resource_id,
+            )
+        )
+    ).all():
+        if username:
+            usernames.add(username)
+        if group_id is not None:
+            groups.add(group_id)
+
+    if groups:
+        everyone_id = (
+            await db.exec(select(Group.id).where(Group.system.is_(True)))
+        ).first()
+        if everyone_id in groups:
+            usernames.update((await db.exec(select(User.username))).all())
+        else:
+            usernames.update(
+                (
+                    await db.exec(
+                        select(GroupMember.username).where(
+                            GroupMember.group_id.in_(groups)
+                        )
+                    )
+                ).all()
+            )
+    return frozenset(usernames)
 
 
 async def inherit_access(db: AsyncSession, source, target) -> int:

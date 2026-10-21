@@ -5,8 +5,15 @@ Architecture (H3/H4 fix): a **shared relay** per endpoint type.
 Instead of opening one NATS `">"` wildcard subscription per WebSocket
 client (O(clients × messages) CPU + NATS fan-out cost), the process keeps
 a single NATS subscription per endpoint type (`/ws/events`, `/ws/notifications`)
-and fans each inbound NATS message out to all connected clients whose
-subscription filter matches.
+and fans each inbound NATS message out to its authorised viewers.
+
+**Every frame is authorised per connection.** A connection is authenticated at
+the handshake, and an event reaches only the users who hold VIEW on its
+resource — the same set an authenticated GET would serve it to
+(`services.permissions.viewer_usernames`). There is no broadcast bypass: a CRUD
+event is resolved from its payload id exactly like a per-resource subject
+(`session.5.telemetry`), and a subject this process does not model is dropped.
+Admins hold everything implicitly and receive every frame.
 
 This drops the NATS subscription count from O(clients) to O(1) and removes
 the per-event DB query that previously fetched the full `Notification` row
@@ -48,33 +55,74 @@ from sqlmodel import col, select
 
 from mirrorr.event_bus.nats import bus
 from mirrorr.api.dependencies import pick_ws_subprotocol, ws_auth
+from mirrorr.services.permissions import viewer_usernames
 from mirrorr.storage.database import get_session_factory
-from mirrorr.storage.models import EventSubscription, Notification
+from mirrorr.storage.enums import ResourceType
+from mirrorr.storage.models import Notification
 
 ws_router = APIRouter()
 
 
 # ── Shared relay registries ───────────────────────────────────────────
 # Each registry maps a connected WebSocket to its per-connection context
-# (username, subscribed_resources, sent_count). A single NATS wildcard
-# subscription fans messages out to every registered client.
+# (username, admin flag, sent_count). A single NATS wildcard subscription fans
+# messages out to every registered client the event is authorised for.
 
 
 class _ClientContext:
     """Per-connection state stored in a relay registry."""
 
-    __slots__ = ("websocket", "username", "subscribed_resources", "sent_count")
+    __slots__ = ("websocket", "username", "is_admin", "sent_count")
 
-    def __init__(
-        self,
-        websocket: WebSocket,
-        username: str,
-        subscribed_resources: set[tuple[str, int]] | None,
-    ) -> None:
+    def __init__(self, websocket: WebSocket, username: str, is_admin: bool) -> None:
         self.websocket = websocket
         self.username = username
-        self.subscribed_resources = subscribed_resources
+        self.is_admin = is_admin
         self.sent_count = 0
+
+
+class _Audience:
+    """Who may VIEW each resource, cached briefly.
+
+    Grants change rarely while frames arrive at 1 Hz (telemetry), so one read
+    per resource per window beats one read per frame. The window is also the
+    bound on how long a revoked viewer can still receive frames — no worse than
+    the staleness their next list fetch already accepts.
+    """
+
+    def __init__(self, ttl_s: float = 10.0, max_entries: int = 512) -> None:
+        self.ttl_s = ttl_s
+        self.max_entries = max_entries
+        self._cache: dict[
+            tuple[ResourceType, int], tuple[float, frozenset[str] | None]
+        ] = {}
+
+    async def viewers(
+        self, resource_type: ResourceType, resource_id: int
+    ) -> frozenset[str] | None:
+        key = (resource_type, resource_id)
+        now = time.monotonic()
+        cached = self._cache.get(key)
+        if cached is not None and now - cached[0] < self.ttl_s:
+            return cached[1]
+        async with get_session_factory()() as db:
+            viewers = await viewer_usernames(db, resource_type, resource_id)
+        if len(self._cache) >= self.max_entries:
+            self._cache.clear()
+        self._cache[key] = (now, viewers)
+        return viewers
+
+
+_audience = _Audience()
+
+
+def _is_viewer(ctx: _ClientContext, viewers: frozenset[str] | None) -> bool:
+    """An admin sees every item; everyone else needs a VIEW audience entry.
+
+    ``viewers is None`` means the row itself is gone — a delete event arrives
+    after the access rows have cascaded with it — so only an admin hears it.
+    """
+    return ctx.is_admin or (viewers is not None and ctx.username in viewers)
 
 
 class _RelayRegistry:
@@ -125,6 +173,25 @@ class _RelayRegistry:
         """Endpoint-specific fan-out. Overridden by subclasses."""
         raise NotImplementedError
 
+    async def _send_to_viewers(
+        self,
+        text: str,
+        clients: list[_ClientContext],
+        viewers: frozenset[str] | None,
+    ) -> None:
+        async def _send(ctx: _ClientContext) -> None:
+            if not _is_viewer(ctx, viewers):
+                return
+            try:
+                await ctx.websocket.send_text(text)
+                ctx.sent_count += 1
+            except Exception as e:
+                # M9: log at warning (not silently drop) and prune the dead client.
+                logger.warning(f"[{self.name}] send failed for user={ctx.username}: {e}")
+                await self.unregister(ctx)
+
+        await asyncio.gather(*[_send(c) for c in clients], return_exceptions=True)
+
 
 # ── /ws/events relay ─────────────────────────────────────────────────
 
@@ -136,6 +203,12 @@ class _EventsRelay(_RelayRegistry):
             payload = json.loads(msg.data.decode())
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
             logger.warning(f"[ws/events] bad payload on {subject}: {e}")
+            return
+        resource = _event_resource(subject, payload)
+        if resource is None:
+            return
+        viewers = await _audience.viewers(*resource)
+        if viewers is None and not subject.endswith(".deleted"):
             return
         payload["event"] = subject
 
@@ -149,22 +222,7 @@ class _EventsRelay(_RelayRegistry):
                 if entity_data is not None:
                     payload["data"] = entity_data
 
-        text = json.dumps(payload, default=str)
-
-        async def _send(ctx: _ClientContext) -> None:
-            if ctx.subscribed_resources is not None and not _is_relevant_event(
-                subject, ctx.subscribed_resources
-            ):
-                return
-            try:
-                await ctx.websocket.send_text(text)
-                ctx.sent_count += 1
-            except Exception as e:
-                # M9: log at warning (not silently drop) and prune the dead client.
-                logger.warning(f"[ws/events] send failed for user={ctx.username}: {e}")
-                await self.unregister(ctx)
-
-        await asyncio.gather(*[_send(c) for c in clients], return_exceptions=True)
+        await self._send_to_viewers(json.dumps(payload, default=str), clients, viewers)
 
 
 # ── /ws/notifications relay ──────────────────────────────────────────
@@ -173,13 +231,20 @@ class _EventsRelay(_RelayRegistry):
 class _NotificationsRelay(_RelayRegistry):
     async def _dispatch(self, msg, clients: list[_ClientContext]) -> None:
         subject = msg.subject
+        # A live sample is not a notification: forwarding it refetches the bell 1 Hz.
+        if subject.endswith(".telemetry"):
+            return
         try:
             data = json.loads(msg.data.decode())
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
             logger.warning(f"[ws/notifications] bad payload on {subject}: {e}")
             return
-        resource_type, resource_id = _parse_resource_from_subject(subject)
-        if not resource_type:
+        resource = _event_resource(subject, data)
+        if resource is None:
+            return
+        resource_type, resource_id = resource[0].value, resource[1]
+        viewers = await _audience.viewers(*resource)
+        if viewers is None and not subject.endswith(".deleted"):
             return
         event_type = subject
         # H4 fix: forward the NATS payload directly instead of opening a DB
@@ -204,21 +269,7 @@ class _NotificationsRelay(_RelayRegistry):
             notif_payload = {**notif_payload, **embedded}
 
         text = json.dumps({"type": "notification", "data": notif_payload})
-
-        async def _send(ctx: _ClientContext) -> None:
-            if ctx.subscribed_resources is not None and not _is_relevant_event(
-                subject, ctx.subscribed_resources
-            ):
-                return
-            try:
-                await ctx.websocket.send_text(text)
-                ctx.sent_count += 1
-            except Exception as e:
-                # M9: log at warning (not silently drop) and prune the dead client.
-                logger.warning(f"[ws/notifications] send failed for user={ctx.username}: {e}")
-                await self.unregister(ctx)
-
-        await asyncio.gather(*[_send(c) for c in clients], return_exceptions=True)
+        await self._send_to_viewers(text, clients, viewers)
 
 
 _events_relay = _EventsRelay("ws/events")
@@ -231,9 +282,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
     Auth: ``mirrorr_access_token`` cookie (browser SPA) or
     ``X-API-Key`` header / ``?api_key=`` query param (API clients) or
-    ``Authorization: Bearer <jwt>`` header.
-    If authenticated, events are filtered to only those matching the user's
-    subscriptions. Unauthenticated connections receive all events.
+    ``Authorization: Bearer <jwt>`` header. An unauthenticated connection is
+    closed; an authenticated one receives only the events it holds VIEW on.
     """
     subprotocol = pick_ws_subprotocol(websocket)
     if subprotocol:
@@ -256,10 +306,7 @@ async def websocket_endpoint(websocket: WebSocket):
     username = auth.user.username
     logger.info(f"[ws/events] connected — user={username}")
 
-    subscribed_resources = await _get_subscribed_resources(username)
-    logger.debug(f"[ws/events] user={username} subscribed to {len(subscribed_resources)} resources")
-
-    ctx = _ClientContext(websocket, username, subscribed_resources)
+    ctx = _ClientContext(websocket, username, auth.is_admin)
     await _events_relay.register(ctx)
 
     try:
@@ -346,10 +393,7 @@ async def notifications_endpoint(websocket: WebSocket):
                 return
         await db.commit()
 
-    subscribed_resources = await _get_subscribed_resources(user.username)
-    logger.debug(f"[ws/notifications] user={user.username} subscribed to {len(subscribed_resources)} resources")
-
-    ctx = _ClientContext(websocket, user.username, subscribed_resources)
+    ctx = _ClientContext(websocket, user.username, auth.is_admin)
     await _notifications_relay.register(ctx)
 
     try:
@@ -379,59 +423,32 @@ def _should_skip_subject(subject: str) -> bool:
     return False
 
 
-async def _get_subscribed_resources(
-    username: str,
-) -> set[tuple[str, int]]:
-    """Return set of (resource_type, resource_id) tuples the user is subscribed to."""
-    from mirrorr.storage.models import User
-
-    async with get_session_factory()() as db:
-        stmt = select(User.id).where(User.username == username)
-        result = await db.exec(stmt)
-        internal_id = result.first()
-
-        if not internal_id:
-            return set()
-
-        stmt = select(EventSubscription.resource_type, EventSubscription.resource_id).where(
-            EventSubscription.user_id == internal_id
-        )
-        result = await db.exec(stmt)
-        return set(result.all())
+_EVENT_TYPES: dict[str, ResourceType] = {
+    "session": ResourceType.SESSION,
+    "autorun": ResourceType.AUTORUN,
+    "recording": ResourceType.RECORDING,
+    "profile": ResourceType.PROFILE,
+}
 
 
-_BROADCAST_PREFIXES = (
-    "session.created", "session.updated", "session.deleted",
-    "session.started", "session.stopped", "session.crashed",
-    "autorun.created", "autorun.updated", "autorun.deleted",
-    "recording.created", "recording.updated", "recording.deleted",
-    "profile.created", "profile.updated", "profile.deleted",
-)
+def _event_resource(subject: str, payload: dict) -> tuple[ResourceType, int] | None:
+    """The (resource, id) an event is about, or `None` when it has no audience.
 
-
-def _is_relevant_event(subject: str, subscribed_resources: set[tuple[str, int]]) -> bool:
-    """Check if a NATS subject should be forwarded to the client.
-
-    Broadcast CRUD events always are; a per-resource subject only to a
-    subscriber of that exact resource — ``session.1.*`` is not ``session.15.*``.
+    A per-resource subject carries the id in the subject (`session.5.telemetry`);
+    a broadcast CRUD event (`session.created`) carries it in the payload. A
+    subject this process does not model is dropped rather than broadcast.
     """
-    if subject in _BROADCAST_PREFIXES:
-        return True
-
-    return _parse_resource_from_subject(subject) in subscribed_resources
-
-
-def _parse_resource_from_subject(subject: str) -> tuple[str | None, int | None]:
-    """Try to extract (resource_type, resource_id) from a NATS subject."""
-    for rtype in ("session", "autorun", "recording", "profile"):
-        if subject.startswith(f"{rtype}."):
-            parts = subject.split(".")
-            if len(parts) >= 2:
-                try:
-                    return rtype, int(parts[1])
-                except ValueError:
-                    pass
-    return None, None
+    parts = subject.split(".")
+    resource_type = _EVENT_TYPES.get(parts[0])
+    if resource_type is None:
+        return None
+    if len(parts) > 2:
+        try:
+            return resource_type, int(parts[1])
+        except ValueError:
+            return None
+    entity_id = payload.get("id")
+    return (resource_type, entity_id) if isinstance(entity_id, int) else None
 
 
 # ── Entity enrichment for zero-roundtrip updates ─────────────────────
@@ -453,9 +470,9 @@ def _get_model_map() -> dict[str, type]:
 
 # Fields the relay must never broadcast: the owner token (see
 # api/privileged.PRIVILEGED_FIELDS) and server filesystem paths (see
-# crud._serialize_session / _serialize_recording). Unlike the HTTP routes the
-# relay fans out to every connected client, so it cannot vary the payload per
-# principal and must strip these unconditionally.
+# crud._serialize_session / _serialize_recording). The relay fans out to every
+# VIEW holder, not only the owner, so it cannot vary the payload per principal
+# and must strip these unconditionally.
 _WS_HIDDEN_FIELDS = frozenset({"requester_user_token", "session_folder", "disk_path"})
 
 
