@@ -43,6 +43,55 @@ async def autorun_scheduler_loop(
         logger.info("Autorun scheduler stopped")
 
 
+def slot_key(autorun: Autorun, tag: str = "slot") -> str:
+    """Identity of one autorun slot; a slot starts at most one session, ever."""
+    return f"autorun:{autorun.id}:{tag}:{autorun.start_time.isoformat(timespec='seconds')}"
+
+
+async def _spawn_session(db, autorun: Autorun, now: datetime, key: str) -> int | None:
+    """Create the session for one slot, or ``None`` if that slot already ran."""
+    used = (await db.exec(select(Session.id).where(Session.idempotency_key == key))).first()
+    if used is not None:
+        logger.warning(f"Autorun {autorun.id}: slot {key} already started session {used}, skipping")
+        return None
+
+    autorun.status = AutorunStatus.ACTIVE
+    autorun.next_run_at = None
+    autorun.last_run_at = now
+    db.add(autorun)
+
+    session = Session(
+        id=await crud.next_free_id(db, Session),
+        profile_id=autorun.profile_id,
+        autorun_id=autorun.id,
+        engine_id=autorun.engine_id,
+        resolver_id=autorun.resolver_id,
+        resolver_config=autorun.resolver_config,
+        retry_mode=autorun.retry_mode,
+        retry_config=autorun.retry_config,
+        requester_user_token=autorun.requester_user_token
+        or ("" if autorun.requester_group_id is not None else f"autorun:{autorun.id}"),
+        requester_group_id=autorun.requester_group_id,
+        recording=autorun.recording,
+        idempotency_key=key,
+    )
+    db.add(session)
+    await db.flush()
+
+    # Subscribe the autorun's owner to session events so they
+    # receive per-resource WS events (telemetry, recording state, etc.)
+    if autorun.requester_user_token:
+        from mirrorr.api.auth import subscribe_requester
+        from mirrorr.storage.enums import ResourceType
+        await subscribe_requester(db, autorun.requester_user_token, ResourceType.SESSION, session.id)
+
+    # The session inherits the autorun's access: whoever can see
+    # the scheduled item can see what it produced.
+    from mirrorr.services.permissions import inherit_access
+    await inherit_access(db, autorun, session)
+    return session.id
+
+
 async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) -> None:
     # Use naive UTC to match the naive UTC datetimes stored in the DB
     # (SQLite strips tzinfo, and _parse_datetimes stores naive UTC)
@@ -78,42 +127,11 @@ async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) 
             # the successful ones.
             try:
                 async with db.begin_nested():
-                    autorun.status = AutorunStatus.ACTIVE
-                    autorun.next_run_at = None
-                    autorun.last_run_at = now
-                    db.add(autorun)
-
-                    session = Session(
-                        id=await crud.next_free_id(db, Session),
-                        profile_id=autorun.profile_id,
-                        autorun_id=autorun.id,
-                        engine_id=autorun.engine_id,
-                        resolver_id=autorun.resolver_id,
-                        resolver_config=autorun.resolver_config,
-                        retry_mode=autorun.retry_mode,
-                        retry_config=autorun.retry_config,
-                        requester_user_token=autorun.requester_user_token
-                        or ("" if autorun.requester_group_id is not None else f"autorun:{autorun.id}"),
-                        requester_group_id=autorun.requester_group_id,
-                        recording=autorun.recording,
-                    )
-                    db.add(session)
-                    await db.flush()
-                    just_created_ids.add(session.id)
-                    created_session_ids.append(session.id)
-                    updated_autorun_ids.append(autorun.id)
-
-                    # Subscribe the autorun's owner to session events so they
-                    # receive per-resource WS events (telemetry, recording state, etc.)
-                    if autorun.requester_user_token:
-                        from mirrorr.api.auth import subscribe_requester
-                        from mirrorr.storage.enums import ResourceType
-                        await subscribe_requester(db, autorun.requester_user_token, ResourceType.SESSION, session.id)
-
-                    # The session inherits the autorun's access: whoever can see
-                    # the scheduled item can see what it produced.
-                    from mirrorr.services.permissions import inherit_access
-                    await inherit_access(db, autorun, session)
+                    session_id = await _spawn_session(db, autorun, now, slot_key(autorun))
+                    if session_id is not None:
+                        just_created_ids.add(session_id)
+                        created_session_ids.append(session_id)
+                        updated_autorun_ids.append(autorun.id)
             except Exception as e:
                 logger.error(f"Autorun {autorun.id} session creation failed (status not persisted): {e}")
                 # Savepoint rolled back; this autorun stays SCHEDULED and

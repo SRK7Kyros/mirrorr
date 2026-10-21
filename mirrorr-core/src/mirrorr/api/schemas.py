@@ -10,7 +10,7 @@ Pydantic models, enabling:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -87,6 +87,7 @@ class CreateAutorunRequest(BaseModel):
     start_time: datetime
     end_time: datetime
     recording: bool = True
+    orphan_policy: Literal["fail", "retry"] = "fail"
 
 
 class UpdateAutorunRequest(BaseModel):
@@ -101,6 +102,7 @@ class UpdateAutorunRequest(BaseModel):
     start_time: datetime | None = None
     end_time: datetime | None = None
     recording: bool | None = None
+    orphan_policy: Literal["fail", "retry"] | None = None
 
 
 # ── Profiles ───────────────────────────────────────────────────────────
@@ -223,6 +225,7 @@ class AutorunResponse(BaseModel):
     start_time: datetime
     end_time: datetime
     recording: bool = True
+    orphan_policy: str = "fail"
     requester_user_token: str = ""
     engine_name: str | None = None
     resolver_name: str | None = None

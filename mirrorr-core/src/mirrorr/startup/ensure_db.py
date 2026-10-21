@@ -21,6 +21,16 @@ def _unique_column_sets(table) -> set[tuple[str, ...]]:
     }
 
 
+def _ensure_indexes(sync_conn, inspector_obj) -> None:
+    """Create every model-declared index: ALTER TABLE cannot add one, so a
+    column added after the table was created (or survived a rebuild) has none."""
+    for table in SQLModel.metadata.tables.values():
+        if not inspector_obj.has_table(table.name):
+            continue
+        for index in table.indexes:
+            index.create(bind=sync_conn, checkfirst=True)
+
+
 def _safe_identifier(name: str) -> str:
     """Validate and return a SQL identifier to prevent injection."""
     if not _IDENTIFIER_RE.match(name):
@@ -292,6 +302,8 @@ async def ensure_db(engine: AsyncEngine) -> None:
                 orphan_name = f"_old_{table_name}"
                 if inspect(sync_conn).has_table(orphan_name):
                     _rescue_then_drop_orphan(sync_conn, table_name, orphan_name)
+
+            _ensure_indexes(sync_conn, inspector_obj)
 
             # ── Backfill the capability column added to resource_access ──
             # A column default only reaches ORM inserts, so pre-existing

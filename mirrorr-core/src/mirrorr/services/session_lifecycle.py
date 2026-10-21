@@ -232,7 +232,8 @@ async def fail_orphaned_sessions(
 
     Without this a restarted core shows sessions stuck as running that no
     supervisor is serving, and stopping one times out because its control
-    command has no subscriber.
+    command has no subscriber. An autorun that opted into ``retry`` then gets a
+    fresh session, so a restart does not silently cost it the rest of its window.
     """
     async with _get_session_factory(settings) as session_factory:
         async with session_factory() as db:
@@ -244,7 +245,54 @@ async def fail_orphaned_sessions(
         await update_session(settings, session_id, status=SessionStatus.FAILED, nc=nc)
     if orphaned:
         logger.warning(f"Failed {len(orphaned)} orphaned session(s) left by a previous run: {orphaned}")
+    await _retry_orphaned_autoruns(settings, orphaned)
     return orphaned
+
+
+async def _retry_orphaned_autoruns(settings: MirrorrSettings, orphaned: list[int]) -> None:
+    """Start a fresh session per orphaned autorun whose ``orphan_policy`` is
+    ``retry``, while its window is still open. One retry per orphan, ever —
+    the session's idempotency key names the orphan it replaces."""
+    from sqlalchemy.orm import selectinload
+
+    from mirrorr.event_bus.nats import bus
+    from mirrorr.services.autorun_scheduler import _spawn_session, slot_key
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    started: list[tuple[int, int]] = []
+
+    async with _get_session_factory(settings) as session_factory:
+        async with session_factory() as db:
+            rows = (
+                await db.exec(
+                    select(Session)
+                    .where(Session.id.in_(orphaned))  # ty:ignore
+                    .options(selectinload(Session.autorun))  # ty:ignore
+                )
+            ).all()
+            for row in rows:
+                autorun = row.autorun
+                if autorun is None or autorun.orphan_policy != "retry":
+                    continue
+                if autorun.end_time <= now:
+                    logger.info(f"Autorun {autorun.id}: window closed, not retrying session {row.id}")
+                    continue
+                try:
+                    async with db.begin_nested():
+                        session_id = await _spawn_session(
+                            db, autorun, now, slot_key(autorun, f"retry-{row.id}")
+                        )
+                except Exception as e:
+                    logger.error(f"Autorun {autorun.id}: retry after boot failed: {e}")
+                    continue
+                if session_id is not None:
+                    started.append((session_id, autorun.id))
+            await db.commit()
+
+    for session_id, autorun_id in started:
+        logger.warning(f"Autorun {autorun_id}: retried after boot as session {session_id}")
+        await bus.emit(MirrorrEvent.SESSION_CREATED(id=session_id))
+        await bus.emit(MirrorrEvent.AUTORUN_UPDATED(id=autorun_id))
 
 
 async def remove_session_folder(

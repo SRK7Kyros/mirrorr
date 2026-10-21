@@ -825,6 +825,7 @@ async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(
         start_time=start_time,
         end_time=end_time,
         recording=item.recording,
+        orphan_policy=item.orphan_policy,
         requester_user_token=auth.user.username,
         next_run_at=start_time,
     )
