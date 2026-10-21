@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel
-from sqlalchemy import JSON as SAJSON, UniqueConstraint
+from sqlalchemy import JSON as SAJSON, Index, UniqueConstraint
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel, TypeDecorator, Enum as SQLEnum
 
 from mirrorr.plugin_api.interfaces import Capabilities
@@ -98,6 +98,9 @@ class Autorun(SQLModel, table=True):
     requester_user_token: str = Field(default="")
     # A group primary owner (at most one of the two is set); see AccessView.
     requester_group_id: int | None = Field(default=None, index=True)
+    # What a boot does when it finds this autorun's session mid-flight:
+    # "fail" (leave it failed) or "retry" (fail it, then start a fresh one).
+    orphan_policy: str = Field(default="fail")
 
     # One-shot schedule — the "next run" is simply start_time until it fires.
     # last_run_at is set when the autorun transitions out of SCHEDULED.
@@ -140,6 +143,10 @@ class Session(SQLModel, table=True):
     session_folder: str | None = Field(default=None)
     # Latest remux progress as published on session.<id>.remux.progress.
     recording_progress: dict[str, Any] | None = Field(default=None, sa_column=Column(SAJSON))
+    # Set by the scheduler: one autorun slot can spawn at most one session.
+    idempotency_key: str | None = Field(default=None)
+
+    __table_args__ = (Index("ux_sessions_idempotency_key", "idempotency_key", unique=True),)
 
     profile: "Profile" = Relationship(back_populates="sessions")
     autorun: "Autorun" = Relationship(back_populates="session")
