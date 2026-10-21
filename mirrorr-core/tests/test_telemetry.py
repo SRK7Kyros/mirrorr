@@ -10,6 +10,7 @@ from mirrorr.services import session_supervisor
 from mirrorr.services.session_supervisor import SessionSupervisor
 from mirrorr.services.telemetry import build_frame, record_sample
 from mirrorr.startup.config import MirrorrSettings
+from mirrorr.storage.enums import ResourceType
 
 
 def _session() -> SimpleNamespace:
@@ -138,10 +139,20 @@ def test_ws_skips_per_process_samples_but_not_the_session_level_frame():
     assert ws._should_skip_subject("session.5.telemetry.engine") is True
 
 
-def test_ws_forwards_a_per_resource_subject_only_to_its_exact_subscriber():
-    subscribed = {("session", 1)}
+def test_ws_resolves_an_event_to_the_resource_it_is_about():
+    assert ws._event_resource("session.1.telemetry", {}) == (ResourceType.SESSION, 1)
+    assert ws._event_resource("session.15.telemetry", {}) == (ResourceType.SESSION, 15)
+    assert ws._event_resource("session.created", {"id": 3}) == (ResourceType.SESSION, 3)
+    assert ws._event_resource("session.created", {}) is None
+    assert ws._event_resource("proc.engine.telemetry", {}) is None
+    assert ws._event_resource("resolver_source.created", {"id": 3}) is None
 
-    assert ws._is_relevant_event("session.1.telemetry", subscribed) is True
-    assert ws._is_relevant_event("session.15.telemetry", subscribed) is False
-    assert ws._is_relevant_event("session.created", subscribed) is True
-    assert ws._is_relevant_event("proc.engine.telemetry", subscribed) is False
+
+def test_ws_admits_only_the_users_in_the_audience():
+    viewer = SimpleNamespace(username="bob", is_admin=False)
+    admin = SimpleNamespace(username="root", is_admin=True)
+
+    assert ws._is_viewer(viewer, frozenset({"bob"})) is True
+    assert ws._is_viewer(viewer, frozenset({"alice"})) is False
+    assert ws._is_viewer(viewer, None) is False
+    assert ws._is_viewer(admin, None) is True
