@@ -294,6 +294,27 @@ async def _load_visible_profile(
     return profile
 
 
+async def _load_fallback_chain(
+    db: AsyncSession, ids: list[int] | None, auth: AuthState, primary_profile_id: int | None
+) -> list[int]:
+    """Validate an autorun's fallback profiles: all visible, once each, never its own.
+
+    Each profile is loaded through ``_load_visible_profile`` so a fallback obeys
+    the same rule as the primary: using a profile copies out of it, which is a
+    read of it. Only reuse of the primary is refused, because the chain advances
+    by position and a repeated profile could never advance.
+    """
+    chain: list[int] = []
+    for pid in ids or []:
+        if pid == primary_profile_id:
+            raise _guard_denied(422, "A fallback cannot be the autorun's own profile", "fallback-is-primary")
+        if pid in chain:
+            raise _guard_denied(422, "A fallback profile is listed twice", "fallback-duplicate")
+        await _load_visible_profile(db, pid, auth)
+        chain.append(pid)
+    return chain
+
+
 async def _safe_emit(event: BaseEvent) -> None:
     """Emit a NATS event, logging but not raising on failure.
 
@@ -563,13 +584,24 @@ def _serialize_session(s: Session) -> dict:
     }
 
 
-def _serialize_autorun(a: Autorun) -> dict:
+def _serialize_autorun(a: Autorun, fallback_names: dict[int, str] | None = None) -> dict:
+    chain = a.fallback_profile_ids or []
+    names = fallback_names or {}
     return {
         **a.model_dump(mode="json"),
+        "fallback_profile_ids": chain,
+        "fallback_profile_names": [names.get(pid, "") for pid in chain],
         "engine_name": _name_of(getattr(a, "engine", None)),
         "resolver_name": _name_of(getattr(a, "resolver", None)),
         "profile_name": _name_of(getattr(a, "profile", None)),
     }
+
+
+async def _fallback_names(db: AsyncSession, rows: list[Autorun]) -> dict[int, str]:
+    ids = {pid for row in rows for pid in (row.fallback_profile_ids or [])}
+    if not ids:
+        return {}
+    return dict((await db.exec(select(Profile.id, Profile.name).where(Profile.id.in_(ids)))).all())
 
 
 def _serialize_profile(p: Profile) -> dict:
@@ -822,7 +854,8 @@ async def get_all_autoruns(
         total = result.get("total") if isinstance(result, dict) else None
     data = _paginate_response(result)
     if isinstance(data.get("items"), list):
-        data["items"] = [_serialize_autorun(i) for i in data["items"]]
+        fallback_names = await _fallback_names(db, data["items"])
+        data["items"] = [_serialize_autorun(i, fallback_names) for i in data["items"]]
     return {**data, "total": total}
 
 
@@ -833,7 +866,7 @@ async def get_autorun(id: int, db: AsyncSession = Depends(_get_db_session), auth
         raise HTTPException(status_code=404, detail="Autorun not found")
     if not await _require_read_access(db, auth, item):
         raise HTTPException(status_code=403, detail="Not your autorun")
-    return _serialize_autorun(item)
+    return _serialize_autorun(item, await _fallback_names(db, [item]))
 
 
 @autoruns_router.post("/", response_model=AutorunResponse)
@@ -867,6 +900,9 @@ async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(
         end_time=end_time,
         recording=item.recording,
         orphan_policy=item.orphan_policy,
+        fallback_profile_ids=await _load_fallback_chain(
+            db, item.fallback_profile_ids, auth, item.profile_id
+        ),
         requester_user_token=auth.user.username,
         next_run_at=start_time,
     )
@@ -877,7 +913,7 @@ async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(
     await subscribe_requester(db, payload.requester_user_token, ResourceType.AUTORUN, obj.id)
     await _safe_emit(MirrorrEvent.AUTORUN_CREATED(id=obj.id))
     enriched = await crud.get_by_id(db, Autorun, obj.id, options=_AUTORUN_OPTIONS)
-    return _serialize_autorun(enriched) if enriched else obj
+    return _serialize_autorun(enriched, await _fallback_names(db, [enriched])) if enriched else obj
 
 
 @autoruns_router.put("/{id}", response_model=AutorunResponse)
@@ -891,6 +927,13 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
     if "profile_id" in payload_data:
         profile = await _load_visible_profile(db, payload_data["profile_id"], auth)
         payload_data = _merge_profile_capture(profile, payload_data)
+    if "fallback_profile_ids" in payload_data:
+        payload_data["fallback_profile_ids"] = await _load_fallback_chain(
+            db,
+            payload_data["fallback_profile_ids"],
+            auth,
+            payload_data.get("profile_id", existing.profile_id),
+        )
     _enforce_autorun_update_guard(existing, payload_data)
     for field in ("start_time", "end_time"):
         if payload_data.get(field) is not None:
@@ -916,7 +959,7 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
     await subscribe_requester(db, payload.requester_user_token, ResourceType.AUTORUN, id)
     await _safe_emit(MirrorrEvent.AUTORUN_UPDATED(id=id))
     enriched = await crud.get_by_id(db, Autorun, id, options=_AUTORUN_OPTIONS)
-    return _serialize_autorun(enriched) if enriched else obj
+    return _serialize_autorun(enriched, await _fallback_names(db, [enriched])) if enriched else obj
 
 
 @autoruns_router.delete("/{id}", response_model=DeleteResultResponse)

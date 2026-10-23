@@ -88,12 +88,14 @@ class CreateAutorunRequest(BaseModel):
     end_time: datetime
     recording: bool = True
     orphan_policy: Literal["fail", "retry"] = "fail"
+    fallback_profile_ids: list[int] = Field(default_factory=list)
 
 
 class UpdateAutorunRequest(BaseModel):
     user_friendly_name: str | None = None
     snake_case_name: str | None = Field(default=None, pattern=r'^[a-zA-Z0-9_-]+$')
     profile_id: int | None = None
+    fallback_profile_ids: list[int] | None = None
     engine_id: int | None = None
     resolver_id: int | None = None
     resolver_config: dict[str, Any] | None = None
@@ -226,6 +228,8 @@ class AutorunResponse(BaseModel):
     end_time: datetime
     recording: bool = True
     orphan_policy: str = "fail"
+    fallback_profile_ids: list[int] = Field(default_factory=list)
+    fallback_profile_names: list[str] = Field(default_factory=list)
     requester_user_token: str = ""
     engine_name: str | None = None
     resolver_name: str | None = None

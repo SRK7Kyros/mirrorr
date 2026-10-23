@@ -101,6 +101,10 @@ class Autorun(SQLModel, table=True):
     # What a boot does when it finds this autorun's session mid-flight:
     # "fail" (leave it failed) or "retry" (fail it, then start a fresh one).
     orphan_policy: str = Field(default="fail")
+    # Profiles to try, in order, after this autorun's own capture failed while
+    # its window was still open. Ids, not rows: each attempt copies its
+    # profile's engine/resolver/config at spawn time (see ``autorun_scheduler``).
+    fallback_profile_ids: list[int] = Field(default_factory=list, sa_column=Column(SAJSON))
 
     # One-shot schedule — the "next run" is simply start_time until it fires.
     # last_run_at is set when the autorun transitions out of SCHEDULED.

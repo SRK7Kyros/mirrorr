@@ -112,6 +112,8 @@ export interface AutorunBody {
   readonly start_time?: string
   readonly end_time?: string
   readonly recording?: boolean
+  readonly orphan_policy?: string
+  readonly fallback_profile_ids?: readonly number[]
 }
 export function createAutorun(body: AutorunBody): Promise<Autorun> {
   return apiFetch<unknown>("/autoruns/", { body }).then((raw) => parseOrWarn(AutorunSchema.parse, raw))
