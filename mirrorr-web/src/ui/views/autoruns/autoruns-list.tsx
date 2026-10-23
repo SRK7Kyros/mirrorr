@@ -131,6 +131,9 @@ function AutorunCard({
   const resolver = resolveEntityName(autorun.resolver_name, names.resolvers, autorun.resolver_id)
   const engine = resolveEntityName(autorun.engine_name, names.engines, autorun.engine_id)
   const profile = resolveEntityName(autorun.profile_name, names.profiles, autorun.profile_id)
+  const fallbacks = (autorun.fallback_profile_ids ?? []).map((id, index) =>
+    resolveEntityName(autorun.fallback_profile_names?.[index], names.profiles, id),
+  )
 
   return (
     <article
@@ -187,8 +190,14 @@ function AutorunCard({
           </span>
           {engine}
         </span>
-        <span className="text-xs text-dim">
+        <span className="text-xs text-dim" title={fallbacks.length > 0 ? `Fallbacks: ${fallbacks.join(" → ")}` : undefined}>
           {profile}
+          {fallbacks.length > 0 ? (
+            <span className="text-ink-muted">
+              {" "}
+              · {fallbacks.length} fallback{fallbacks.length === 1 ? "" : "s"}
+            </span>
+          ) : null}
           {__ADMIN__ ? (
             <>
               <span aria-hidden="true">{" • "}</span>

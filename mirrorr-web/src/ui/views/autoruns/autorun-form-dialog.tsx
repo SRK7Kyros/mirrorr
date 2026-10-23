@@ -33,6 +33,7 @@ import {
 } from "@/ui/components"
 import { DiscoveryDrawer, canBrowseResolver } from "@/ui/views/shared/discovery-drawer"
 import { SourcePicker } from "@/ui/views/shared/source-picker"
+import { FallbackProfiles } from "./fallback-profiles"
 import {
   AccessCreation,
   useCreationAccessApplier,
@@ -111,6 +112,7 @@ export function AutorunFormDialog({
   const [endLocal, setEndLocal] = useState("")
   const [mode, setMode] = useState<"profile" | "custom">("profile")
   const [profileId, setProfileId] = useState("")
+  const [fallbackIds, setFallbackIds] = useState<number[]>([])
   const [engineId, setEngineId] = useState("")
   const [resolverId, setResolverId] = useState("")
   const [resolverConfig, setResolverConfig] = useState<Record<string, unknown>>({})
@@ -145,6 +147,7 @@ export function AutorunFormDialog({
       setEndLocal("")
       setMode(profiles.length > 0 ? "profile" : "custom")
       setProfileId("")
+      setFallbackIds([])
       setEngineId("")
       setResolverId("")
       setResolverConfig({})
@@ -161,6 +164,7 @@ export function AutorunFormDialog({
     setProfileId(
       existingProfile !== null && existingProfile !== undefined ? String(existingProfile) : "",
     )
+    setFallbackIds(autorun.fallback_profile_ids ?? [])
     setEngineId(String(autorun.engine_id))
     setResolverId(String(autorun.resolver_id))
     setResolverConfig(autorun.resolver_config ?? {})
@@ -246,11 +250,15 @@ export function AutorunFormDialog({
           }),
       recording,
       ...(mode === "profile"
-        ? { profile_id: Number(profileId) }
+        ? {
+            profile_id: Number(profileId),
+            fallback_profile_ids: fallbackIds,
+          }
         : {
             engine_id: Number(engineId),
             resolver_id: Number(resolverId),
             resolver_config: resolverConfig,
+            fallback_profile_ids: [],
           }),
     })
   }
@@ -404,21 +412,36 @@ export function AutorunFormDialog({
 
           <TabPanel panelId="autorun-mode" active={mode} className="flex flex-col gap-4">
             {mode === "profile" ? (
-              <Field label="Profile" htmlFor="autorun-profile" required>
-                <Select
-                  id="autorun-profile"
-                  value={profileId}
+              <>
+                <Field label="Profile" htmlFor="autorun-profile" required>
+                  <Select
+                    id="autorun-profile"
+                    value={profileId}
+                    disabled={live}
+                    onChange={(event) => {
+                      const next = event.target.value
+                      setProfileId(next)
+                      setFallbackIds((previous) =>
+                        previous.filter((id) => String(id) !== next),
+                      )
+                    }}
+                  >
+                    <option value="">Select a profile…</option>
+                    {profiles.map((profile) => (
+                      <option key={profile.id} value={String(profile.id)}>
+                        {profile.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <FallbackProfiles
+                  profiles={profiles}
+                  primaryId={profileId}
+                  value={fallbackIds}
+                  onChange={setFallbackIds}
                   disabled={live}
-                  onChange={(event) => setProfileId(event.target.value)}
-                >
-                  <option value="">Select a profile…</option>
-                  {profiles.map((profile) => (
-                    <option key={profile.id} value={String(profile.id)}>
-                      {profile.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
+                />
+              </>
             ) : (
               <div className="grid grid-cols-2 gap-5 max-sm:grid-cols-1">
                 <Field label="Engine" htmlFor="autorun-engine" required>

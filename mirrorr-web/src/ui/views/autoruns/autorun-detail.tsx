@@ -142,6 +142,9 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
   const engine = resolveEntityName(autorun.engine_name, names.engines, autorun.engine_id)
   const resolver = resolveEntityName(autorun.resolver_name, names.resolvers, autorun.resolver_id)
   const profile = resolveEntityName(autorun.profile_name, names.profiles, autorun.profile_id)
+  const fallbacks = (autorun.fallback_profile_ids ?? []).map((id, index) =>
+    resolveEntityName(autorun.fallback_profile_names?.[index], names.profiles, id),
+  )
   const countdown = spent ? "retired" : formatCountdown(autorun.start_time, now)
   const startInPast =
     autorun.status === "scheduled" && parseNaiveUtc(autorun.start_time).getTime() < now.getTime()
@@ -236,6 +239,9 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
                   <KeyValue label="Engine">{engine}</KeyValue>
                   <KeyValue label="Resolver">{resolver}</KeyValue>
                   <KeyValue label="Profile">{profile}</KeyValue>
+                  <KeyValue label="Fallbacks">
+                    {fallbacks.length === 0 ? "—" : fallbacks.join(" → ")}
+                  </KeyValue>
                   <KeyValue label="Retry mode">{autorun.retry_mode ?? "—"}</KeyValue>
                   <KeyValue label="Recording">{autorun.recording === true ? "On" : "Off"}</KeyValue>
                 </div>
