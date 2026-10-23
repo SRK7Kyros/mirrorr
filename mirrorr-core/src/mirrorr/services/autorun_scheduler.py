@@ -83,7 +83,9 @@ async def _spawn_session(db, autorun: Autorun, now: datetime, key: str) -> int |
     if autorun.requester_user_token:
         from mirrorr.api.auth import subscribe_requester
         from mirrorr.storage.enums import ResourceType
-        await subscribe_requester(db, autorun.requester_user_token, ResourceType.SESSION, session.id)
+        await subscribe_requester(
+            db, autorun.requester_user_token, ResourceType.SESSION, session.id, commit=False
+        )
 
     # The session inherits the autorun's access: whoever can see
     # the scheduled item can see what it produced.

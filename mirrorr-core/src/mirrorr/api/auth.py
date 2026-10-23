@@ -87,8 +87,16 @@ async def subscribe_requester(
     requester_user_token: str,
     resource_type: str,
     resource_id: int,
+    *,
+    commit: bool = True,
 ) -> None:
-    """If the requester token is non-empty, create a subscription for the matching user."""
+    """If the requester token is non-empty, create a subscription for the matching user.
+
+    ``commit=False`` is for a caller that already owns the transaction — the
+    request-scoped session closes without one, so the entry point must commit;
+    a caller inside an open savepoint must not, because committing ends the
+    enclosing transaction and every later statement raises.
+    """
     if not requester_user_token:
         return
     stmt = select(User).where(User.username == requester_user_token)
@@ -115,10 +123,13 @@ async def subscribe_requester(
         created_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
     db.add(sub)
-    # The request-scoped session is closed without a commit, so an INSERT left
-    # pending here is rolled back and the subscription silently disappears —
-    # no notifications and no per-resource WS events for the new item.
-    await db.commit()
+    if commit:
+        # A request-scoped session is closed without a commit, so an INSERT left
+        # pending here is rolled back and the subscription silently disappears —
+        # no notifications and no per-resource WS events for the new item.
+        await db.commit()
+    else:
+        await db.flush()
 
 
 # ── Notification helpers ────────────────────────────────────────────
