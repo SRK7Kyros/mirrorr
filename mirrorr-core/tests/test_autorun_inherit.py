@@ -9,7 +9,15 @@ from mirrorr.services import autorun_scheduler
 from mirrorr.services.autorun_scheduler import _tick
 from mirrorr.startup.config import MirrorrSettings
 from mirrorr.storage.enums import AutorunStatus, Capability, ResourceType
-from mirrorr.storage.models import Autorun, ResourceAccess, ResourceOwnerGroup, ResourceOwnerUser, Session
+from mirrorr.storage.models import (
+    Autorun,
+    EventSubscription,
+    ResourceAccess,
+    ResourceOwnerGroup,
+    ResourceOwnerUser,
+    Session,
+    User,
+)
 
 
 def _now() -> datetime:
@@ -110,6 +118,45 @@ def test_spawned_session_inherits_the_autoruns_grants_and_owners(monkeypatch, tm
                 )
             ).all()
             assert [o.username for o in autorun_owners] == ["dana"]
+
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_spawn_survives_the_requester_subscription_insert(monkeypatch, tmp_path):
+    """A real requester user makes subscribe_requester write, which used to
+    commit the tick's transaction from inside its savepoint and strand the
+    session row with no supervisor (the Oct 23 2026 autorun failure)."""
+
+    async def scenario() -> None:
+        engine = create_async_engine("sqlite+aiosqlite://")
+        async with engine.begin() as conn:
+            await conn.run_sync(SQLModel.metadata.create_all)
+        maker = async_sessionmaker(engine, class_=SQLModelAsyncSession, expire_on_commit=False)
+        monkeypatch.setattr(autorun_scheduler, "bus", _Bus())
+
+        async with maker() as db:
+            db.add(User(id=1, username="kyros"))
+            await _seed(db)
+
+        await _tick(maker, MirrorrSettings(base_dir=tmp_path))
+
+        async with maker() as db:
+            session = (await db.exec(select(Session))).first()
+            assert session is not None
+            subs = (await db.exec(select(EventSubscription))).all()
+            assert [(s.user_id, s.resource_type, s.resource_id) for s in subs] == [
+                (1, ResourceType.SESSION, session.id)
+            ]
+            grants = (
+                await db.exec(
+                    select(ResourceAccess).where(
+                        ResourceAccess.resource_type == ResourceType.SESSION
+                    )
+                )
+            ).all()
+            assert len(grants) == 3
 
         await engine.dispose()
 
