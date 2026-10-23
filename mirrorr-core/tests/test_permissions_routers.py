@@ -32,13 +32,13 @@ def _actions(ids: dict[str, int]) -> dict[str, list[tuple[str, str, str, dict | 
             ("stop", "POST", f"/sessions/{ids['session']}/stop", None, Capability.OPERATE),
             ("enable_recording", "POST", f"/sessions/{ids['session']}/recording/enable", None, Capability.OPERATE),
             ("disable_recording", "POST", f"/sessions/{ids['session']}/recording/disable", None, Capability.OPERATE),
-            ("save_as_profile", "POST", f"/sessions/{ids['session']}/save-as-profile", {"name": "s-prof"}, Capability.EDIT),
+            ("save_as_profile", "POST", f"/sessions/{ids['session']}/save-as-profile", {"name": "s-prof"}, Capability.VIEW),
             ("delete", "DELETE", f"/sessions/{ids['session']}", None, Capability.DELETE),
         ],
         "autorun": [
             ("read", "GET", f"/autoruns/{ids['autorun']}", None, Capability.VIEW),
             ("update", "PUT", f"/autoruns/{ids['autorun']}", {"user_friendly_name": "renamed"}, Capability.EDIT),
-            ("save_as_profile", "POST", f"/autoruns/{ids['autorun']}/save-as-profile", {"name": "a-prof"}, Capability.EDIT),
+            ("save_as_profile", "POST", f"/autoruns/{ids['autorun']}/save-as-profile", {"name": "a-prof"}, Capability.VIEW),
             ("delete", "DELETE", f"/autoruns/{ids['autorun']}", None, Capability.DELETE),
         ],
         "profile": [
@@ -157,13 +157,14 @@ def test_view_only_grant_reads_but_never_controls_edits_or_deletes(tmp_path):
             assert (await h.client.get(f"/sessions/{sid}")).status_code == 200
             assert sid in [s["id"] for s in (await h.client.get("/sessions/")).json()["items"]]
             assert (await h.client.get(f"/autoruns/{aid}")).status_code == 200
+            cloned = await h.client.post(f"/sessions/{sid}/save-as-profile", json={"name": "mine"})
+            assert cloned.status_code == 200, cloned.text
 
             with patch(_CONTROL_STUB, AsyncMock(return_value={"status": "stopping"})):
                 denied = {
                     "stop": await h.client.post(f"/sessions/{sid}/stop"),
                     "enable_recording": await h.client.post(f"/sessions/{sid}/recording/enable"),
                     "update_autorun": await h.client.put(f"/autoruns/{aid}", json={"user_friendly_name": "x"}),
-                    "save_as_profile": await h.client.post(f"/sessions/{sid}/save-as-profile", json={"name": "mine"}),
                     "delete_session": await h.client.delete(f"/sessions/{sid}"),
                     "delete_autorun": await h.client.delete(f"/autoruns/{aid}"),
                 }

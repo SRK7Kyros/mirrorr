@@ -1,16 +1,18 @@
-"""Admin resource listing/owner routes + the sharing read-only boundary.
+"""Admin resource listing/owner routes + the sharing boundary.
 
 Grants now flow through the ``/shares/`` surface (see ``test_shares.py``); here a
-``VIEW`` grant still admits READS only — a granted viewer sees a resource's list
-row, detail and logs, while every control / update / delete / save-as-profile /
-export / linking path stays owner-or-admin (or the matching capability).
+``VIEW`` grant admits reads — a granted viewer sees a resource's list row, detail
+and logs — plus the ways a seen item is *reused* in the viewer's own items
+(starting a session/autorun from it, cloning it to a profile), and nothing that
+mutates it: control / update / delete / export stay owner-or-admin (or the
+matching capability).
 """
 
 from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from httpx import ASGITransport, AsyncClient
 from fastapi import Request
@@ -390,7 +392,7 @@ def test_a4_transfer_moves_control_and_removes_old_owner(tmp_path):
     asyncio.run(scenario())
 
 
-def test_a7_a_grant_confers_no_use_edit_or_link_powers(tmp_path):
+def test_a7_a_grant_confers_no_mutation_powers_but_a_profile_may_be_used(tmp_path):
     async def scenario():
         async with _harness(tmp_path) as h:
             ids = await _seed(h.maker)
@@ -404,10 +406,16 @@ def test_a7_a_grant_confers_no_use_edit_or_link_powers(tmp_path):
             assert (await h.client.post(f"/sessions/{sid}/recording/enable")).status_code == 403
             assert (await h.client.post(f"/sessions/{sid}/recording/disable")).status_code == 403
             assert (await h.client.delete(f"/sessions/{sid}")).status_code == 403
-            assert (await h.client.post(f"/sessions/{sid}/save-as-profile", json={"name": "mine"})).status_code == 403
+            for url, name in (
+                (f"/sessions/{sid}/save-as-profile", "from session"),
+                (f"/autoruns/{aid}/save-as-profile", "from autorun"),
+            ):
+                cloned = await h.client.post(url, json={"name": name})
+                assert cloned.status_code == 200, f"{url}: {cloned.text}"
+                async with h.maker() as db:
+                    assert (await db.get(Profile, cloned.json()["id"])).requester_user_token == "bob"
             assert (await h.client.put(f"/autoruns/{aid}", json={"user_friendly_name": "mine"})).status_code == 403
             assert (await h.client.delete(f"/autoruns/{aid}")).status_code == 403
-            assert (await h.client.post(f"/autoruns/{aid}/save-as-profile", json={"name": "mine"})).status_code == 403
             assert (await h.client.get(f"/import-export/profiles/{pid}/export")).status_code == 403
             assert (await h.client.get(f"/import-export/autoruns/{aid}/export")).status_code == 403
             assert (await h.client.put(f"/profiles/{pid}", json={"name": "mine"})).status_code == 403
@@ -415,7 +423,12 @@ def test_a7_a_grant_confers_no_use_edit_or_link_powers(tmp_path):
             assert (await h.client.delete(f"/sources/{ids['source']}")).status_code == 403
             assert (await h.client.delete(f"/recordings/{ids['recording']}")).status_code == 403
             linked = await h.client.post("/sessions/", json={"profile_id": pid})
-            assert linked.status_code == 403, linked.text
+            assert linked.status_code == 200, linked.text
+            assert linked.json()["profile_id"] == pid
+            async with h.maker() as db:
+                theirs = await db.get(Session, linked.json()["id"])
+                assert theirs.requester_user_token == "bob"
+                assert (await db.get(Profile, pid)).name == "Alice News"
 
     asyncio.run(scenario())
 
@@ -564,9 +577,12 @@ def test_a1_granted_viewer_reads_recording_progress(tmp_path):
     asyncio.run(scenario())
 
 
-def test_a7_granted_profile_cannot_be_linked_into_an_autorun(tmp_path):
-    """Negative: a viewed profile must not be usable as a capture target — the
-    autorun profile-link path (crud.py create_autorun → _load_owned_profile)."""
+def test_a7_a_granted_profile_is_usable_as_a_capture_target(tmp_path):
+    """A profile shared for use is a template: VIEW may point an autorun at it.
+
+    The autorun copies the profile's capture into its own row and never touches
+    the profile, so this is a read of the template, not an edit of it.
+    """
     async def scenario():
         async with _harness(tmp_path) as h:
             ids = await _seed(h.maker)
@@ -579,10 +595,42 @@ def test_a7_granted_profile_cannot_be_linked_into_an_autorun(tmp_path):
                 "snake_case_name": "bob_evening",
                 "profile_id": ids["profile"],
                 "start_time": NOW.isoformat(),
-                "end_time": NOW.isoformat(),
+                "end_time": (NOW + timedelta(hours=1)).isoformat(),
             }
             resp = await h.client.post("/autoruns/", json=payload)
-            assert resp.status_code == 403, resp.text
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["profile_id"] == ids["profile"]
+            assert resp.json()["engine_id"] == ids["engine"]
+            async with h.maker() as db:
+                theirs = await db.get(Autorun, resp.json()["id"])
+                assert theirs.requester_user_token == "bob"
+                assert (await db.get(Profile, ids["profile"])).name == "Alice News"
+
+    asyncio.run(scenario())
+
+
+def test_a7_deleting_a_profile_detaches_another_users_session(tmp_path):
+    """Deleting a shared template must not destroy what someone else built from it."""
+    async def scenario():
+        async with _harness(tmp_path) as h:
+            ids = await _seed(h.maker)
+            h.as_user("alice", admin=True)
+            await h.client.post(f"/shares/profile/{ids['profile']}", json={"username": "bob", "capabilities": ["VIEW"]})
+
+            h.as_user("bob")
+            created = await h.client.post("/sessions/", json={"profile_id": ids["profile"]})
+            assert created.status_code == 200, created.text
+            sid = created.json()["id"]
+
+            h.as_user("alice")
+            resp = await h.client.delete(f"/profiles/{ids['profile']}")
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["deleted"]["detached"] == 1
+
+            h.as_user("bob")
+            kept = await h.client.get(f"/sessions/{sid}")
+            assert kept.status_code == 200, kept.text
+            assert kept.json()["profile_id"] is None
 
     asyncio.run(scenario())
 

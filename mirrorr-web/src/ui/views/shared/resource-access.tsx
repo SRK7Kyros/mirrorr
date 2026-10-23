@@ -106,7 +106,7 @@ export const TYPE_CAPABILITIES: Record<string, readonly Capability[]> = {
   session: ["VIEW", "OPERATE", "EDIT", "DELETE", "SHARE"], // view/list/detail+logs · stop/recording · save-as-profile · delete · shares
   autorun: ["VIEW", "EDIT", "DELETE", "SHARE", "EXPORT"], // view · update+save-as-profile · delete · shares · /import-export/autoruns/{id}/export
   recording: ["VIEW", "DELETE", "SHARE"], // view · delete · shares
-  profile: ["VIEW", "EDIT", "DELETE", "SHARE", "EXPORT"], // view · update+profile-link · delete · shares · /import-export/profiles/{id}/export
+  profile: ["VIEW", "EDIT", "DELETE", "SHARE", "EXPORT"], // view + start a session/autorun from it · update · delete · shares · /import-export/profiles/{id}/export
   source: ["VIEW", "EDIT", "DELETE", "SHARE"], // view · update · delete · shares
 };
 

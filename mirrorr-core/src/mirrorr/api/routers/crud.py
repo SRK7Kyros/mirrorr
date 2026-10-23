@@ -176,30 +176,63 @@ async def _cascade_delete_autorun(db: AsyncSession, autorun_id: int) -> dict[str
 
 
 async def _cascade_delete_profile(db: AsyncSession, profile_id: int) -> dict[str, int]:
-    """Delete a profile, its autoruns (and their sessions), and its
-    standalone sessions. Recordings are detached, not deleted. Emits
-    PROFILE_DELETED. Returns cascade counts."""
+    """Delete a profile with the items its owner derived from it.
+
+    ``profile_id`` also appears on rows this owner does not control: a profile
+    shared for use is a template other users start their own sessions and
+    autoruns from (``VIEW`` is enough to reference one). Those rows are
+    **detached** — ``profile_id`` cleared, everything else kept — because their
+    engine/resolver/config were copied into their own columns at creation, so
+    they keep running unchanged and another user's capture is never a profile
+    owner's to destroy. Records the count as ``detached``.
+
+    The owner's own sessions (standalone ones) and autoruns still cascade, and
+    recordings are detached, not deleted. Emits PROFILE_DELETED. Returns counts.
+    """
+    profile = await crud.get_by_id(db, Profile, profile_id)
+    owner = (
+        getattr(profile, "requester_user_token", None),
+        getattr(profile, "requester_group_id", None),
+    )
+
+    def derived_by_owner(row) -> bool:
+        return (
+            getattr(row, "requester_user_token", None),
+            getattr(row, "requester_group_id", None),
+        ) == owner
+
+    async def detach(rows: list) -> int:
+        for row in rows:
+            row.profile_id = None
+            db.add(row)
+        await db.flush()
+        return len(rows)
+
     counts: dict[str, int] = {"profiles": 1}
 
     # Standalone sessions (not spawned by an autorun)
     sess = (await db.exec(
         select(Session).where(Session.profile_id == profile_id, Session.autorun_id.is_(None))
     )).all()
-    for s in sess:
+    own_sess = [s for s in sess if derived_by_owner(s)]
+    detached = await detach([s for s in sess if not derived_by_owner(s)])
+    for s in own_sess:
         folder = s.session_folder
         sub = await _cascade_delete_session(db, s.id)
         for k, v in sub.items():
             counts[k] = counts.get(k, 0) + v
         await _reclaim_session(s.id, folder)
         await _safe_emit(MirrorrEvent.SESSION_DELETED(id=s.id))
-    counts["sessions"] = counts.get("sessions", 0) + len(sess)
+    counts["sessions"] = counts.get("sessions", 0) + len(own_sess)
 
-    # Autoruns referencing this profile (which cascade to their sessions)
     autoruns = (await db.exec(select(Autorun).where(Autorun.profile_id == profile_id))).all()
-    for a in autoruns:
+    detached += await detach([a for a in autoruns if not derived_by_owner(a)])
+    for a in (a for a in autoruns if derived_by_owner(a)):
         sub = await _cascade_delete_autorun(db, a.id)
         for k, v in sub.items():
             counts[k] = counts.get(k, 0) + v
+    if detached:
+        counts["detached"] = detached
 
     counts.update(await _count_related_records(db, ResourceType.PROFILE, profile_id))
     await _cleanup_related_records(db, ResourceType.PROFILE, profile_id)
@@ -225,30 +258,38 @@ async def _require_read_access(db: AsyncSession, auth: AuthState, obj) -> bool:
 
     A bool wrapper over the frozen ``has_capability`` predicate, so read handlers
     keep their 403 shape while the decision moves to capabilities. Deliberately
-    used on **read handlers only** — ``VIEW`` admits
-    reads, never control, update, delete, save-as-profile, export/import or
-    linking the item into another principal's own object. Authentication is owned
-    by the ``require_auth`` dependency, so no anonymous caller reaches a handler.
+    used on **read handlers only** — ``VIEW`` admits reads, never control,
+    update, delete, save-as-profile or export/import. The one write it admits is
+    ``_load_visible_profile``: pointing a *new* item of your own at an existing
+    profile changes nothing on that profile. Authentication is owned by the
+    ``require_auth`` dependency, so no anonymous caller reaches a handler.
     """
     return await has_capability(db, auth, obj, Capability.VIEW)
 
 
-async def _load_owned_profile(
+async def _load_visible_profile(
     db: AsyncSession, profile_id: int | None, auth: AuthState
 ) -> Profile | None:
-    """Load a profile a request points at, enforcing ``EDIT``.
+    """Load a profile a request points at, enforcing ``VIEW``.
 
-    A profile carries capture config (resolver_config, retry policy), so a
-    caller may only link to a profile they hold ``EDIT`` on — otherwise pointing
-    at another user's profile would leak that config into their own
-    session/autorun. Owner, admin, and an ``EDIT`` grantee may reference it.
+    A profile exists to be *used*: a session or an autorun only ever copies from
+    it (engine, resolver, config, retry policy land in the new row; the profile
+    is never touched), so referencing one is a read of it, and ``VIEW`` is the
+    capability for reading an item. The two ``save-as-profile`` routes follow the
+    same rule — they copy an item's capture into a profile the caller owns and
+    leave the source alone.
+
+    Requiring ``EDIT`` here used to make a profile shared with ``everyone``
+    unusable, while protecting nothing: ``ProfileResponse`` already ships the
+    same ``resolver_config`` to every ``VIEW`` holder, and a caller may name the
+    engine/resolver/config explicitly without a profile at all.
     """
     if profile_id is None:
         return None
     profile = await crud.get_by_id(db, Profile, profile_id)
     if not profile:
         raise HTTPException(status_code=400, detail=f"Profile {profile_id} not found")
-    if not await has_capability(db, auth, profile, Capability.EDIT):
+    if not await has_capability(db, auth, profile, Capability.VIEW):
         raise HTTPException(status_code=403, detail="Not your profile")
     return profile
 
@@ -696,7 +737,7 @@ def _merge_profile_capture(profile: Profile | None, payload_data: dict[str, Any]
 
 @sessions_router.post("/", response_model=SessionResponse)
 async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    profile = await _load_owned_profile(db, item.profile_id, auth)
+    profile = await _load_visible_profile(db, item.profile_id, auth)
     engine_id, resolver_id, resolver_config, retry_mode, retry_config = _resolve_capture_target(
         profile, item.engine_id, item.resolver_id, item.resolver_config, item.retry_mode, item.retry_config
     )
@@ -797,7 +838,7 @@ async def get_autorun(id: int, db: AsyncSession = Depends(_get_db_session), auth
 
 @autoruns_router.post("/", response_model=AutorunResponse)
 async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
-    profile = await _load_owned_profile(db, item.profile_id, auth)
+    profile = await _load_visible_profile(db, item.profile_id, auth)
     engine_id, resolver_id, resolver_config, retry_mode, retry_config = _resolve_capture_target(
         profile, item.engine_id, item.resolver_id, item.resolver_config, item.retry_mode, item.retry_config
     )
@@ -848,7 +889,7 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
         raise HTTPException(status_code=403, detail="Not your autorun")
     payload_data = item.model_dump(exclude_unset=True)
     if "profile_id" in payload_data:
-        profile = await _load_owned_profile(db, payload_data["profile_id"], auth)
+        profile = await _load_visible_profile(db, payload_data["profile_id"], auth)
         payload_data = _merge_profile_capture(profile, payload_data)
     _enforce_autorun_update_guard(existing, payload_data)
     for field in ("start_time", "end_time"):
@@ -932,7 +973,7 @@ async def save_autorun_as_profile(autorun_id: int, req: SaveProfileRequest, db: 
     autorun = await crud.get_by_id(db, Autorun, autorun_id)
     if not autorun:
         raise HTTPException(status_code=404, detail="Autorun not found")
-    if not await has_capability(db, auth, autorun, Capability.EDIT):
+    if not await has_capability(db, auth, autorun, Capability.VIEW):
         raise HTTPException(status_code=403, detail="Not your autorun")
     return await _create_profile_from_entity(
         db, auth, req.name,
@@ -951,7 +992,7 @@ async def save_session_as_profile(session_id: int, req: SaveProfileRequest, db: 
     session = await crud.get_by_id(db, Session, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    if not await has_capability(db, auth, session, Capability.EDIT):
+    if not await has_capability(db, auth, session, Capability.VIEW):
         raise HTTPException(status_code=403, detail="Not your session")
     return await _create_profile_from_entity(
         db, auth, req.name,
