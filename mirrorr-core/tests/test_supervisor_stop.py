@@ -39,6 +39,7 @@ def _patches():
         patch.object(session_supervisor, "make_session_dirs", AsyncMock()),
         patch.object(session_supervisor, "build_session_urls", lambda *a, **k: []),
         patch.object(session_supervisor, "update_session", AsyncMock()),
+        patch.object(session_supervisor, "live_folder_holder", AsyncMock(return_value=None)),
         patch("mirrorr.startup.ensure_resolvers.get_validated_config", lambda **k: {}),
     )
 
