@@ -239,6 +239,31 @@ LIVE_STATUSES = (
 )
 
 
+async def live_folder_holder(
+    settings: MirrorrSettings,
+    folder: Path,
+    session_id: int,
+) -> int | None:
+    """The id of another live session already writing into ``folder``.
+
+    A folder holds one playlist and one segment set, so a second session
+    writing there would interleave its segments with the first one's.
+    """
+    async with _get_session_factory(settings) as session_factory:
+        async with session_factory() as db:
+            return (
+                await db.exec(
+                    select(Session.id)
+                    .where(
+                        Session.session_folder == str(folder),
+                        Session.status.in_(LIVE_STATUSES),
+                        Session.id != session_id,
+                    )
+                    .limit(1)
+                )
+            ).first()
+
+
 async def fail_orphaned_sessions(
     settings: MirrorrSettings,
     nc: NATS | None = None,

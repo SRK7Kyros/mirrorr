@@ -19,7 +19,11 @@ from mirrorr.storage.models import Session
 from mirrorr.services.process_bus import ProcessBus, EngineDone, EngineCrashed
 from mirrorr.services.managed_process import ManagedProcess
 from mirrorr.services.recording import RecordingManager
-from mirrorr.services.session_lifecycle import update_session, delete_session
+from mirrorr.services.session_lifecycle import (
+    update_session,
+    delete_session,
+    live_folder_holder,
+)
 from mirrorr.services.session_helpers import make_session_dirs, build_session_urls
 from mirrorr.services.telemetry import (
     PUBLISH_INTERVAL_S as TELEMETRY_PUBLISH_INTERVAL_S,
@@ -32,6 +36,10 @@ from nats.aio.client import Client as NATS
 
 _HEARTBEAT_INTERVAL = 60.0
 STREAM_READY_POLL_S = 0.5
+# Bounds the startup gate: a source whose engine never writes a segment is
+# dead, and a session left in stream_pending kept its autorun's chain from
+# advancing. Unlike a slow-channel poll, this deadline is deliberate.
+STREAM_READY_TIMEOUT_S = 30.0
 # A config that never resolves cannot resolve by retrying (a stale channel
 # name): past this many failures in a row the attempt is terminal, so the row
 # FAILS and an autorun's fallback chain can advance instead of looping forever.
@@ -87,7 +95,13 @@ class SessionSupervisor:
 
         # Resolve session folder
         if self.session.is_autorun:
-            self.session_folder = settings.autoruns_dir / self.session.autorun.snake_case_name
+            folder_name = self.session.autorun.snake_case_name
+            # Each fallback rung captures a different source, so it gets its own
+            # folder: the primary keeps the historical name, a rung appends the
+            # profile it runs.
+            if self.session.profile and self.session.profile.id != self.session.autorun.profile_id:
+                folder_name = f"{folder_name}_{self.session.profile.name}"
+            self.session_folder = settings.autoruns_dir / folder_name
         else:
             profile_name = self.session.profile.name if self.session.profile else f"session-{self.session.id}"
             base = settings.content_dir / profile_name
@@ -218,8 +232,7 @@ class SessionSupervisor:
                     logger.opt(colors=True).error(
                         f"giving up after attempt <yellow>{attempt}</yellow>: {signal.reason}"
                     )
-                    await self._cleanup(reason="failed")
-                    await update_session(self.settings, self.session_id, status=SessionStatus.FAILED, nc=self._nc)
+                    await self._fail(signal.reason)
                     return
 
                 if outcome == "done" and signal is not None:
@@ -295,6 +308,12 @@ class SessionSupervisor:
         if self._stop.is_set():
             logger.info("stop requested before start — skipping attempt")
             return "stopped", None
+
+        holder = await live_folder_holder(self.settings, self.session_folder, self.session_id)
+        if holder is not None:
+            return await self._preflight_failed(
+                f"session folder {self.session_folder.name} is in use by session {holder}"
+            )
 
         # 2. Publish the session as initializing. URLs are published now, before
         # the playlist exists, so the player can mount the instant the status
@@ -377,8 +396,7 @@ class SessionSupervisor:
             for t in (done_task, crash_task, stop_task):
                 t.cancel()
             await asyncio.gather(done_task, crash_task, stop_task, return_exceptions=True)
-            await self._cleanup(reason="failed")
-            await update_session(self.settings, self.session_id, status=SessionStatus.FAILED, nc=self._nc)
+            await self._fail(f"failed to start processes: {e}")
             return "failed", None
 
         logger.opt(colors=True).success(f"<green>Session</green> bootstrapped — "
@@ -401,6 +419,9 @@ class SessionSupervisor:
             # playable. (stop_task is pre-created, so a stop latched earlier fires
             # immediately here.)
             if not any(t in finished for t in lifecycle):
+                expired = ready_task.exception() if ready_task in finished else None
+                if expired is not None:
+                    return await self._preflight_failed(str(expired))
                 await update_session(
                     self.settings, self.session_id,
                     status=SessionStatus.RECORDING if self.session.recording else SessionStatus.ACTIVE,
@@ -431,38 +452,69 @@ class SessionSupervisor:
         return "done", result
 
     async def _preflight_failed(self, reason: str) -> tuple[str, EngineCrashed]:
-        """End the attempt after the resolver's pre-flight rejected the source.
+        """End the attempt after a verdict that cannot change on a retry.
 
-        The probe is the resolver's verdict on the source, not a runtime fault:
-        the identical config cannot resolve differently a moment later, so the
-        retry policy is not consulted and the session goes straight to FAILED
-        with the reason recorded. The row is kept, never deleted. A source that
-        has never once resolved falls under the same rule (`_MAX_RESOLVE_FAILURES`).
+        The resolver's probe is its verdict on the *source*, and the startup
+        gate's deadline is the engine's — neither resolves differently a moment
+        later, so the retry policy is not consulted and the session goes
+        straight to FAILED with the reason recorded. A source that has never
+        once resolved falls under the same rule (`_MAX_RESOLVE_FAILURES`).
         """
         logger.opt(colors=True).error(f"<red>Pre-flight failed</red>: {reason}")
-        await self._cleanup(reason="failed")
-        await update_session(self.settings, self.session_id, status=SessionStatus.FAILED, nc=self._nc)
+        await self._fail(reason)
         return "failed", EngineCrashed(reason=reason)
+
+    async def _fail(self, reason: str) -> None:
+        """Stop everything, then keep the row FAILED with whatever it recorded.
+
+        A session that reached its engine may already hold segments, so they are
+        remuxed into a recording and stay attached to the FAILED row rather than
+        being thrown away with the folder.
+        """
+        await self._cleanup(reason="failed")
+        if self._recording and self._has_segments():
+            await self._do_remux_and_finalize(
+                delete_after=False, final_status=SessionStatus.FAILED
+            )
+        else:
+            await update_session(
+                self.settings, self.session_id,
+                status=SessionStatus.FAILED, nc=self._nc,
+            )
+
+    def _has_segments(self) -> bool:
+        return any(self.segments_folder.glob("*.ts")) or any(
+            (self.session_folder / "stash").glob("*.ts")
+        )
 
     async def _wait_for_playlist(self) -> None:
         """Block until the engine has written a non-empty ``stream.m3u8``.
 
-        The poll ends only on readiness; process death and the stop latch are
-        observed by the tasks racing this one in ``_run_attempt``.
+        Process death and the stop latch are observed by the tasks racing this
+        one in ``_run_attempt``; this one ends only on readiness or on the
+        deadline, which it raises as ``TimeoutError``.
         """
         playlist = self.session_folder / "stream.m3u8"
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + STREAM_READY_TIMEOUT_S
         while True:
             try:
                 if playlist.stat().st_size > 0:
                     return
             except OSError:
                 pass
+            if loop.time() >= deadline:
+                raise TimeoutError(
+                    f"stream did not appear within {STREAM_READY_TIMEOUT_S:g}s"
+                )
             await asyncio.sleep(STREAM_READY_POLL_S)
 
     # ── recording / remux ────────────────────────────────────────────
 
-    async def _do_remux_and_finalize(self, *, delete_after: bool = True) -> None:
-        """Shared remux + finalize logic for both normal completion and stop-then-finalize."""
+    async def _do_remux_and_finalize(
+        self, *, delete_after: bool = True, final_status: SessionStatus = SessionStatus.COMPLETED
+    ) -> None:
+        """Shared remux + finalize logic for completion, stop and terminal failure."""
         await update_session(
             self.settings, self.session_id,
             status=SessionStatus.REMUXING, nc=self._nc,
@@ -470,13 +522,14 @@ class SessionSupervisor:
         try:
             recording_id = await self._recording.remux()
             logger.success(f"recording created")
+            if final_status is SessionStatus.COMPLETED:
+                await update_session(
+                    self.settings, self.session_id,
+                    status=SessionStatus.FINALIZING, nc=self._nc,
+                )
             await update_session(
                 self.settings, self.session_id,
-                status=SessionStatus.FINALIZING, nc=self._nc,
-            )
-            await update_session(
-                self.settings, self.session_id,
-                status=SessionStatus.COMPLETED, nc=self._nc,
+                status=final_status, nc=self._nc,
             )
             if delete_after:
                 await delete_session(

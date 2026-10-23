@@ -88,7 +88,7 @@ def _supervisor(tmp_path, resolver, engine, *, recording=False, **settings_kw) -
     return sup
 
 
-def _drive(sup, *, full_run: bool):
+def _drive(sup, *, full_run: bool, holder: int | None = None):
     """Run the gate with the module seams patched; return (result, delete_mock, calls)."""
     calls: list[dict] = []
 
@@ -102,6 +102,8 @@ def _drive(sup, *, full_run: bool):
             patch.object(session_supervisor, "build_session_urls", lambda *a, **k: []),
             patch.object(session_supervisor, "update_session", _update),
             patch.object(session_supervisor, "delete_session", delete),
+            # The gate tests carry no DB; the folder guard has its own tests.
+            patch.object(session_supervisor, "live_folder_holder", AsyncMock(return_value=holder)),
             patch("mirrorr.startup.ensure_resolvers.get_validated_config", lambda **k: {}),
         )
         for p in ctx:
@@ -352,6 +354,57 @@ def test_stop_during_stream_pending_never_marks_active(tmp_path):
     assert _statuses(calls) == [SessionStatus.INITIALIZING, SessionStatus.STREAM_PENDING]
 
 
+# ── the ready deadline, and a terminal failure that keeps its recording ──
+
+def test_stream_that_never_appears_times_out(tmp_path):
+    sup = _supervisor(tmp_path, _resolver(), _engine())
+
+    with patch.object(session_supervisor, "STREAM_READY_TIMEOUT_S", 0.2):
+        result, _delete, calls = _drive(sup, full_run=False)
+
+    assert result[0] == "failed"
+    assert "stream did not appear" in result[1].reason
+    assert _statuses(calls) == [
+        SessionStatus.INITIALIZING,
+        SessionStatus.STREAM_PENDING,
+        SessionStatus.FAILED,
+    ]
+
+
+def test_folder_held_by_another_live_session_refuses_the_start(tmp_path):
+    engine = _engine(playlist_after=0.05, done_after=0.7)
+    sup = _supervisor(tmp_path, _resolver(), engine)
+
+    result, _delete, calls = _drive(sup, full_run=False, holder=9)
+
+    assert result[0] == "failed"
+    assert "in use by session 9" in result[1].reason
+    assert _statuses(calls) == [SessionStatus.FAILED]
+    engine.start.assert_not_awaited()
+
+
+def test_terminal_failure_remuxes_what_it_recorded(tmp_path):
+    async def crash(ctx):
+        await asyncio.sleep(0.1)
+        (ctx.segments_folder / "stream-000000000000.ts").write_bytes(b"\x47")
+        await ctx.bus.emit("engine.crashed", EngineCrashed(reason="boom"))
+
+    sup = _supervisor(tmp_path, _resolver(), _engine(on_start=crash), recording=True)
+
+    with patch.object(
+        session_supervisor.RecordingManager, "remux", AsyncMock(return_value=42)
+    ):
+        _result, delete, calls = _drive(sup, full_run=True)
+
+    assert _statuses(calls) == [
+        SessionStatus.INITIALIZING,
+        SessionStatus.STREAM_PENDING,
+        SessionStatus.REMUXING,
+        SessionStatus.FAILED,
+    ]
+    assert not delete.await_count
+
+
 # ── the recording toggle must not fabricate a playable state ────────────
 
 def _toggle(sup, command: str) -> list[dict]:
@@ -485,6 +538,7 @@ def test_failed_playable_publish_still_reaps_the_gate_tasks(tmp_path):
         ctx = (
             patch.object(session_supervisor, "build_session_urls", lambda *a, **k: []),
             patch.object(session_supervisor, "update_session", _update),
+            patch.object(session_supervisor, "live_folder_holder", AsyncMock(return_value=None)),
             patch.object(asyncio, "wait", _capturing_wait),
             patch("mirrorr.startup.ensure_resolvers.get_validated_config", lambda **k: {}),
         )
