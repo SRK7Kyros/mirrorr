@@ -236,6 +236,28 @@ def test_smoke_failure_is_never_retried_even_with_retry_always(tmp_path):
     assert "ReadTimeout" in _last_reason(calls)
 
 
+def test_repeated_resolve_failures_stop_retrying_even_with_retry_always(tmp_path):
+    """A config that cannot resolve at all is the same class of verdict: a stale
+    channel name does not start matching on the next loop, so the attempt goes
+    terminal and an autorun's fallback chain can advance."""
+
+    async def stale_channel(config, ctx):
+        raise RuntimeError("tvnow247: no channel matches 'premium577'")
+
+    engine = _engine()
+    engine.should_retry = AsyncMock(return_value=(True, 0.0))
+    sup = _supervisor(tmp_path, _resolver(resolve=stale_channel), engine)
+    sup.session.retry_mode = "always"
+
+    _result, delete, calls = _drive(sup, full_run=True)
+
+    assert sup.session.retry_attempts == session_supervisor._MAX_RESOLVE_FAILURES
+    assert engine.should_retry.await_count == session_supervisor._MAX_RESOLVE_FAILURES - 1
+    assert _statuses(calls)[-1] == SessionStatus.FAILED
+    assert "resolve failed" in _last_reason(calls)
+    delete.assert_not_awaited()
+
+
 def _crashing_engine(retry: list[tuple[bool, float]]) -> SimpleNamespace:
     engine = _engine()
     engine.should_retry = AsyncMock(side_effect=retry)

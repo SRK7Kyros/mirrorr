@@ -32,6 +32,10 @@ from nats.aio.client import Client as NATS
 
 _HEARTBEAT_INTERVAL = 60.0
 STREAM_READY_POLL_S = 0.5
+# A config that never resolves cannot resolve by retrying (a stale channel
+# name): past this many failures in a row the attempt is terminal, so the row
+# FAILS and an autorun's fallback chain can advance instead of looping forever.
+_MAX_RESOLVE_FAILURES = 3
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -79,6 +83,7 @@ class SessionSupervisor:
         self._control_sub = None
         self._recording: RecordingManager | None = None
         self._telemetry_tasks: list[asyncio.Task] = []
+        self._resolve_failures = 0
 
         # Resolve session folder
         if self.session.is_autorun:
@@ -316,8 +321,15 @@ class SessionSupervisor:
             )
             source = await self.resolver.resolve(config, self.resolver_ctx)
         except Exception as e:
+            self._resolve_failures += 1
             logger.error(f"Failed to resolve source: {e}")
+            if self._resolve_failures >= _MAX_RESOLVE_FAILURES:
+                return await self._preflight_failed(
+                    f"resolve failed {self._resolve_failures}× in a row: {e}"
+                )
             return "crashed", EngineCrashed(reason=f"resolve failed: {e}")
+
+        self._resolve_failures = 0
 
         try:
             await asyncio.wait_for(
@@ -424,7 +436,8 @@ class SessionSupervisor:
         The probe is the resolver's verdict on the source, not a runtime fault:
         the identical config cannot resolve differently a moment later, so the
         retry policy is not consulted and the session goes straight to FAILED
-        with the reason recorded. The row is kept, never deleted.
+        with the reason recorded. The row is kept, never deleted. A source that
+        has never once resolved falls under the same rule (`_MAX_RESOLVE_FAILURES`).
         """
         logger.opt(colors=True).error(f"<red>Pre-flight failed</red>: {reason}")
         await self._cleanup(reason="failed")
