@@ -189,8 +189,23 @@ async def update_session(
                     await crud.update(db, Session, session_id, session)
 
                     # ── Propagate status to autorun ──────────────────────
+                    # Only the autorun's newest session speaks for it, so a
+                    # rung that failed before its fallback took over cannot
+                    # overwrite the fallback's live status when it lands late.
                     if "status" in diff and session.autorun_id:
-                        autorun = await crud.get_by_id(db, Autorun, session.autorun_id)
+                        newest = (
+                            await db.exec(
+                                select(Session.id)
+                                .where(Session.autorun_id == session.autorun_id)
+                                .order_by(Session.id.desc())
+                                .limit(1)
+                            )
+                        ).first()
+                        autorun = (
+                            await crud.get_by_id(db, Autorun, session.autorun_id)
+                            if newest == session_id
+                            else None
+                        )
                         if autorun:
                             new_status = diff["status"][1]
                             mapped = _STATUS_MAP.get(new_status)
