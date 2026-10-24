@@ -68,6 +68,7 @@ export function fetchSession(id: number | string): Promise<Session> {
 }
 export interface SessionCreateBody {
   readonly profile_id?: number
+  readonly fallback_profile_ids?: readonly number[]
   readonly engine_id?: number
   readonly resolver_id?: number
   readonly resolver_config?: Record<string, unknown>

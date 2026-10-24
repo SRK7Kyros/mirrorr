@@ -1,4 +1,4 @@
-import { expect, profile, resolver, test } from "./fixtures"
+import { engine, expect, profile, resolver, session, test } from "./fixtures"
 
 /**
  * Overlay + keyboard interactions: Escape closes the dialog and hands focus
@@ -94,6 +94,39 @@ test.describe("new session dialog", () => {
     await page.getByRole("dialog", { name: "Browse Wide IPTV" }).getByRole("button", { name: "Use" }).first().click()
 
     await expect(page.getByLabel("Channel")).toHaveValue("premium9")
+  })
+  test("the custom branch chains fallback profiles", async ({ page, api }) => {
+    api.data.engines = [engine({ id: 1, name: "Streamlink" })]
+    api.data.resolvers = [resolver({ id: 1, name: "Direct" })]
+    api.data.sessions = [session({ id: 1 })]
+
+    await page.goto("/sessions")
+    await page.getByRole("button", { name: "New session" }).first().click()
+    await page.getByRole("tab", { name: "Engine + resolver" }).click()
+    await page.getByRole("combobox", { name: /^Engine/ }).selectOption("1")
+    await page.getByRole("combobox", { name: /^Resolver/ }).selectOption("1")
+
+    const add = page.getByLabel("Add a fallback profile")
+    await expect(add.locator("option")).toHaveText([
+      "Add a fallback profile…",
+      "F1 Weekend",
+      "News Hour",
+    ])
+    await add.selectOption("2")
+    await add.selectOption("1")
+    await expect(
+      page.getByRole("list", { name: "Fallback profiles, in order" }).getByRole("listitem"),
+    ).toHaveCount(2)
+
+    await page.getByRole("button", { name: "Start session" }).click()
+
+    await expect(page.getByText("Session started")).toBeVisible()
+    const [post] = api.callsTo("/sessions/").filter((call) => call.method === "POST")
+    expect(post?.body).toMatchObject({
+      engine_id: 1,
+      resolver_id: 1,
+      fallback_profile_ids: [2, 1],
+    })
   })
 })
 

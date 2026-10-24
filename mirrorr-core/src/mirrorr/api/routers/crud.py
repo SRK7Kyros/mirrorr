@@ -295,9 +295,13 @@ async def _load_visible_profile(
 
 
 async def _load_fallback_chain(
-    db: AsyncSession, ids: list[int] | None, auth: AuthState, primary_profile_id: int | None
+    db: AsyncSession,
+    ids: list[int] | None,
+    auth: AuthState,
+    primary_profile_id: int | None,
+    subject: str = "autorun",
 ) -> list[int]:
-    """Validate an autorun's fallback profiles: all visible, once each, never its own.
+    """Validate a fallback chain: all visible, once each, never the primary.
 
     Each profile is loaded through ``_load_visible_profile`` so a fallback obeys
     the same rule as the primary: using a profile copies out of it, which is a
@@ -307,7 +311,9 @@ async def _load_fallback_chain(
     chain: list[int] = []
     for pid in ids or []:
         if pid == primary_profile_id:
-            raise _guard_denied(422, "A fallback cannot be the autorun's own profile", "fallback-is-primary")
+            raise _guard_denied(
+                422, f"A fallback cannot be the {subject}'s own profile", "fallback-is-primary"
+            )
         if pid in chain:
             raise _guard_denied(422, "A fallback profile is listed twice", "fallback-duplicate")
         await _load_visible_profile(db, pid, auth)
@@ -770,6 +776,9 @@ def _merge_profile_capture(profile: Profile | None, payload_data: dict[str, Any]
 @sessions_router.post("/", response_model=SessionResponse)
 async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(_get_db), auth: AuthState = Depends(require_auth)):
     profile = await _load_visible_profile(db, item.profile_id, auth)
+    fallbacks = await _load_fallback_chain(
+        db, item.fallback_profile_ids, auth, item.profile_id, subject="session"
+    )
     engine_id, resolver_id, resolver_config, retry_mode, retry_config = _resolve_capture_target(
         profile, item.engine_id, item.resolver_id, item.resolver_config, item.retry_mode, item.retry_config
     )
@@ -790,7 +799,9 @@ async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(
         retry_mode=retry_mode,
         retry_config=retry_config,
         recording=item.recording,
-        capture_plan=[item.profile_id] if item.profile_id else [],
+        capture_plan=(
+            [item.profile_id, *fallbacks] if item.profile_id is not None or fallbacks else []
+        ),
         requester_user_token=auth.user.username,
     )
     try:

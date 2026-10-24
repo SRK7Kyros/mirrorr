@@ -25,7 +25,8 @@ function move(ids: readonly number[], from: number, to: number): number[] {
 }
 
 /**
- * Ordered list of profiles to try after the primary one fails. Order is the
+ * Ordered list of profiles to try after the subject's own capture fails — an
+ * autorun's run, or a session started from an engine and resolver. Order is the
  * chain, so each rung carries up/down; a profile already in the chain (or the
  * primary) is never offered twice — the server rejects both.
  */
@@ -47,8 +48,8 @@ export function FallbackProfiles({
       htmlFor={selectId}
       hint={
         value.length === 0
-          ? "None — the recording fails if its capture does."
-          : "Tried in this order while the window is still open."
+          ? "None — the session fails if its own capture does."
+          : "Tried in this order, after its own capture."
       }
     >
       <div className="flex flex-col gap-2">

@@ -64,6 +64,7 @@ class ChangePasswordRequest(BaseModel):
 
 class CreateSessionRequest(BaseModel):
     profile_id: int | None = None
+    fallback_profile_ids: list[int] | None = None
     engine_id: int | None = None
     resolver_id: int | None = None
     resolver_config: dict[str, Any] | None = None

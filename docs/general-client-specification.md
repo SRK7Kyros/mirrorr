@@ -151,7 +151,7 @@ A **Session** = one live recording attempt (usually one-shot; may be tied to an 
 | Endpoint | Auth | Behavior |
 |---|---|---|
 | `GET /sessions/` | auth | Paginated |
-| `POST /sessions/ {profile_id? | engine_id, resolver_id, resolver_config?, retry_mode?, retry_config?, recording?}` | auth | Create **immediately starts** supervision. The row is born `initializing` (resolver smoke check, then engine start — §13.2.1); `recording` defaults false. Emits `session.created`. `requester_user_token` = current user. |
+| `POST /sessions/ {profile_id? | engine_id, resolver_id, resolver_config?, retry_mode?, retry_config?, fallback_profile_ids?, recording?}` | auth | Create **immediately starts** supervision. The row is born `initializing` (resolver smoke check, then engine start — §13.2.1); `recording` defaults false. Emits `session.created`. `requester_user_token` = current user. |
 | `GET /sessions/{id}` | auth | Enriched. |
 | `DELETE /sessions/{id}` | auth | **204.** 409 if status==`remuxing` (forbidden — remux can't be interrupted). If `active`/`recording` → sends stop control (`session.stop_requested`) then deletes after cleanup; a **pre-playable** session (`initializing`/`stream_pending`) is hard-killed (its supervisor is killed directly, no graceful finalize). |
 | `POST /sessions/{id}/stop` | auth+owner | Sends `stop` control; supervisor finalizes (completed) instead of failed. Valid in every live state, including `initializing`/`stream_pending` (aborts the gate; no `active` row is produced). |
@@ -161,7 +161,7 @@ A **Session** = one live recording attempt (usually one-shot; may be tied to an 
 
 **Attempts:** `session.attempts` is a list; each element reflects one resolver-join/engine-start cycle. `retry_attempts` counts retries.
 
-**Captures:** `capture_plan` is the ordered list of profiles the session will try — its own capture first (`profile_id`), then any autorun fallbacks; each entry runs as a *capture* with that profile's engine, resolver, config and retry policy, into its own folder. A capture that never becomes playable hands over to the next instead of failing the row, so **one autorun slot is one session even when it falls back**. `session.captures` records what each capture did: `{index, status, reason, profile_id, profile_name, engine_name, resolver_name, started_at, ended_at, attempts, seconds, bytes}` and, once the session ends, `merged: true` on every capture whose media is in the recording. A session that never fell back carries a single-entry `capture_plan` and an empty-or-one `captures`.
+**Captures:** `capture_plan` is the ordered list of profiles the session will try — its own capture first (`profile_id`, or `null` for the engine + resolver the request named), then any fallbacks (a manual session's own `fallback_profile_ids`, or the autorun's chain); each entry runs as a *capture* with that profile's engine, resolver, config and retry policy, into its own folder. A fallback must be visible to the caller (`VIEW`, so a profile shared with `everyone` can back up a session), may appear once, and is never the primary (`422 fallback-is-primary`). A capture that never becomes playable hands over to the next instead of failing the row, so **one session is one session even when it falls back**. `session.captures` records what each capture did: `{index, status, reason, profile_id, profile_name, engine_name, resolver_name, started_at, ended_at, attempts, seconds, bytes}` and, once the session ends, `merged: true` on every capture whose media is in the recording. A session that never fell back carries a single-entry `capture_plan` and an empty-or-one `captures`.
 
 ### 4.1 Client requirements — Sessions
 - **Start session** form: pick Profile (prefill) or set engine+resolver+config directly; recording toggle; retry policy. Date/time NOT needed (immediate).
@@ -493,7 +493,7 @@ Never loop step 2 more than once per boot, and never re-attempt refresh after a 
 **Create (immediate start):**
 | Event | Detail |
 |---|---|
-| Client sends | `POST /sessions/ {profile_id? \| engine_id, resolver_id, resolver_config?, retry_mode?, retry_config?, recording?}` |
+| Client sends | `POST /sessions/ {profile_id? \| engine_id, resolver_id, resolver_config?, retry_mode?, retry_config?, fallback_profile_ids?, recording?}` |
 | Server does | Validates FK + config; inserts row (`status=initializing`, `requester_user_token=you`); `subscribe_requester` (so notifications have a target); emits `session.created` on NATS → your `/ws/events` gets `session.created` + enriched entity because you are the row's owner (the stream's audience is the VIEW set, §11.1) |
 | 200 body | Full `SessionResponse` (status `initializing`, `retry_attempts:0`, `attempts:[]`, `session_urls:[]`, `started_at:null`) |
 | Errors | 400 duplicate name/IntegrityError; 409 conflict; 422 validation (incl. invalid engine/resolver IDs) |
