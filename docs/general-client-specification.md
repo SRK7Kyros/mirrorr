@@ -216,7 +216,7 @@ Completed `.mp4`s produced from sessions with `recording=true`.
 |---|---|---|
 | `GET /recordings/` | auth | Paginated |
 | `GET /recordings/{id}` | auth | |
-| `DELETE /recordings/{id}` | auth | 204, removes file+row. Emits `recording.deleted`. |
+| `DELETE /recordings/{id}` | auth | 204, removes the row and its `recordings/<name>` folder (media, player shells, logs) — a folder another recording still names, or one outside the content dir, is never touched. Emits `recording.deleted`. |
 
 No POST/PUT — recordings are created by the system (remux finalize).
 
