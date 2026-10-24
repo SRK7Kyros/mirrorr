@@ -26,6 +26,7 @@ import {
 } from "@/ui/components"
 import { DiscoveryDrawer, canBrowseResolver } from "@/ui/views/shared/discovery-drawer"
 import { SourcePicker } from "@/ui/views/shared/source-picker"
+import { FallbackProfiles } from "@/ui/views/autoruns/fallback-profiles"
 import {
   AccessCreation,
   useCreationAccessApplier,
@@ -49,6 +50,7 @@ export function NewSessionDialog({
   const [engineId, setEngineId] = useState("")
   const [resolverId, setResolverId] = useState("")
   const [resolverConfig, setResolverConfig] = useState<Record<string, unknown>>({})
+  const [fallbackIds, setFallbackIds] = useState<number[]>([])
   const [browseOpen, setBrowseOpen] = useState(false)
   const [recording, setRecording] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -70,6 +72,7 @@ export function NewSessionDialog({
     setEngineId("")
     setResolverId("")
     setResolverConfig({})
+    setFallbackIds([])
     setRecording(false)
     setAccess({})
   }, [open, profiles.length])
@@ -116,6 +119,7 @@ export function NewSessionDialog({
             engine_id: Number(engineId),
             resolver_id: Number(resolverId),
             resolver_config: resolverConfig,
+            fallback_profile_ids: fallbackIds,
             recording,
           }
     create.mutate(body)
@@ -247,6 +251,13 @@ export function NewSessionDialog({
                   />
                 </section>
               )}
+              <FallbackProfiles
+                profiles={profiles}
+                primaryId=""
+                value={fallbackIds}
+                onChange={setFallbackIds}
+                disabled={create.isPending}
+              />
             </>
           )}
         </TabPanel>
