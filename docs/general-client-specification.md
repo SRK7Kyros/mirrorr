@@ -144,7 +144,7 @@ A Profile is a **named, reusable recording configuration**: a saved snapshot of 
 
 A **Session** = one live recording attempt (usually one-shot; may be tied to an autorun).
 
-**`SessionResponse`:** `{id, profile_id?, autorun_id?, engine_id, resolver_id, resolver_config, retry_mode, retry_config, status, recording, retry_attempts, started_at?, ended_at?, requester_user_token, session_urls: [], attempts: []}`
+**`SessionResponse`:** `{id, profile_id?, autorun_id?, engine_id, resolver_id, resolver_config, retry_mode, retry_config, status, recording, retry_attempts, started_at?, ended_at?, requester_user_token, session_urls: [], attempts: [], stints: [], stint_plan: []}`
 
 **`status`: `initializing | stream_pending | active | recording | terminating | remuxing | finalizing | completed | failed`** (string enum — client must map & render all). A created session is born **`initializing`** and passes the startup gate (§13.2.1) before it becomes playable; the player MUST NOT mount until `active`/`recording`.
 
@@ -161,12 +161,14 @@ A **Session** = one live recording attempt (usually one-shot; may be tied to an 
 
 **Attempts:** `session.attempts` is a list; each element reflects one resolver-join/engine-start cycle. `retry_attempts` counts retries.
 
+**Stints:** `stint_plan` is the ordered list of profiles the session will try — its own capture first (`profile_id`), then any autorun fallbacks; each entry runs as a *stint* with that profile's engine, resolver, config and retry policy, into its own folder. A stint that never becomes playable hands over to the next instead of failing the row, so **one autorun slot is one session even when it falls back**. `session.stints` records what each tried one did: `{index, status, reason, profile_id, profile_name, engine_name, resolver_name, started_at, ended_at, attempts, seconds, bytes}` and, once the session ends, `merged: true` on every stint whose media is in the recording. A session that never fell back carries a single-entry `stint_plan` and an empty-or-one `stints`.
+
 ### 4.1 Client requirements — Sessions
 - **Start session** form: pick Profile (prefill) or set engine+resolver+config directly; recording toggle; retry policy. Date/time NOT needed (immediate).
 - **Live monitor:** card/row per session reflecting status transitions via WS (see 11) — colors/icons per status:
   - `initializing` (resolver + smoke check running — show a loading affordance, **no player**) · `stream_pending` (engine started, HLS playlist not yet on disk — same loading affordance) · `active` (running, not recording) · `recording` · `terminating` (stop requested) · `remuxing` (finalizing media — show spinner, disable delete) · `finalizing` · `completed` (green, done) · `failed` (red, error summary from attempts).
 - **Actions per status:** stop (`initializing`/`stream_pending`/`active`/`recording`), enable/disable recording (`active`), delete (any except remuxing), save-as-profile (completed/failed).
-- **Detail view:** attempts timeline (per attempt: status, started/ended, exit code), `session_urls` → HLS links (open in player; **only populated when operator sets `web_url`** — if empty, show "live URLs unavailable" with hint), duration (from started_at→ended_at), owner.
+- **Detail view:** attempts timeline (per attempt: status, started/ended, exit code), a **sources** list when the session has more than one source in its plan (per stint: profile, engine → resolver, status, reason, attempts, media; `merged` marks the media in the recording; the profiles still owed are named while the session is live), `session_urls` → HLS links (open in player; **only populated when operator sets `web_url`** — if empty, show "live URLs unavailable" with hint), duration (from started_at→ended_at), owner.
 - **Auto-refresh:** prefer WS events + `GET /sessions/{id}` on important transitions; fallback poll every 10–30s when WS down.
 - **Recording toggle:** optimistic UI + confirm; surfaces server 400 if mid-remux etc.
 

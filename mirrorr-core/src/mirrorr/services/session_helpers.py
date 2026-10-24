@@ -134,3 +134,50 @@ async def load_session_from_db(
             return session, engine_interface, resolver_interface
     finally:
         await engine.dispose()
+
+
+async def load_profile_capture(settings: MirrorrSettings, profile_id: int):
+    """Load one profile's capture for a later stint of a session.
+
+    A fallback runs a *different source*, so it takes that profile's engine,
+    resolver, config and retry policy whole rather than the session's snapshot.
+    Returns ``(capture, engine, resolver)``; ``capture`` carries the names and
+    config as JSON-ready values.
+    """
+    from mirrorr.storage.database import create_db_engine
+    from mirrorr.startup.ensure_engines import load_engine_jit
+    from mirrorr.startup.ensure_resolvers import load_resolver_jit
+
+    engine, session_factory = create_db_engine(settings)
+    try:
+        async with session_factory() as db_session:
+            stmt = (
+                select(Profile)
+                .where(Profile.id == profile_id)
+                .options(selectinload(Profile.resolver), selectinload(Profile.default_engine))
+            )
+            profile: Profile | None = (await db_session.exec(stmt)).one_or_none()
+            if profile is None:
+                raise ValueError(f"Profile {profile_id} not found")
+            resolver = profile.resolver
+            engine_row = profile.default_engine
+            if resolver is None or engine_row is None:
+                raise ValueError(f"Profile {profile_id} has no resolver or engine")
+            capture = {
+                "profile_id": profile.id,
+                "profile_name": profile.name,
+                "engine_name": engine_row.name,
+                "resolver_name": resolver.name,
+                "resolver_origin": resolver.origin,
+                "resolver_hash": resolver.origin_hash,
+                "resolver_config": profile.resolver_config,
+                "retry_mode": profile.retry_mode,
+                "retry_config": profile.retry_config,
+            }
+            return (
+                capture,
+                load_engine_jit(settings.engines_dir, engine_row.origin, engine_row.origin_hash),
+                load_resolver_jit(settings.resolvers_dir, resolver.origin, resolver.origin_hash),
+            )
+    finally:
+        await engine.dispose()

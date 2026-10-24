@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -24,7 +26,7 @@ from mirrorr.services.session_lifecycle import (
     delete_session,
     live_folder_holder,
 )
-from mirrorr.services.session_helpers import make_session_dirs, build_session_urls
+from mirrorr.services.session_helpers import make_session_dirs, build_session_urls, load_profile_capture
 from mirrorr.services.telemetry import (
     PUBLISH_INTERVAL_S as TELEMETRY_PUBLISH_INTERVAL_S,
     build_frame,
@@ -93,15 +95,33 @@ class SessionSupervisor:
         self._telemetry_tasks: list[asyncio.Task] = []
         self._resolve_failures = 0
 
+        # Stints: one session may run several sources in turn — its own capture,
+        # then any fallback profile. Each is a fresh attempt loop writing into its
+        # own folder, and their artifacts merge into one recording at the end.
+        self._stint_index = 0
+        self._stint_attempts = 0
+        self._attempts_total = session.retry_attempts or 0
+        self._stint_started_at: datetime | None = None
+        self._stint_artifacts: list[Path] = []
+        self._stint_capture: dict[str, Any] = {
+            "profile_id": session.profile_id,
+            "profile_name": session.profile.name if session.profile else "",
+            "engine_name": session.engine.name if session.engine else "",
+            "resolver_name": session.resolver.name if session.resolver else "",
+            "resolver_origin": session.resolver.origin if session.resolver else "",
+            "resolver_hash": session.resolver.origin_hash if session.resolver else "",
+            "resolver_config": session.resolver_config,
+            "retry_mode": session.retry_mode,
+            "retry_config": session.retry_config,
+        }
+        self.stints: list[dict[str, Any]] = list(session.stints or [])
+        # The current stint has processes to tear down; one that never started
+        # must not run cleanup twice.
+        self._live = False
+
         # Resolve session folder
         if self.session.is_autorun:
-            folder_name = self.session.autorun.snake_case_name
-            # Each fallback rung captures a different source, so it gets its own
-            # folder: the primary keeps the historical name, a rung appends the
-            # profile it runs.
-            if self.session.profile and self.session.profile.id != self.session.autorun.profile_id:
-                folder_name = f"{folder_name}_{self.session.profile.name}"
-            self.session_folder = settings.autoruns_dir / folder_name
+            self.session_folder = settings.autoruns_dir / self.session.autorun.snake_case_name
         else:
             profile_name = self.session.profile.name if self.session.profile else f"session-{self.session.id}"
             base = settings.content_dir / profile_name
@@ -125,23 +145,11 @@ class SessionSupervisor:
                 f"{self.session_folder} outside {roots}; using a per-session folder"
             )
             self.session_folder = roots[0] / f"session-{self.session_id}"
+        self._primary_folder = self.session_folder
         self.logs_folder = self.session_folder / "logs"
         self.segments_folder = self.session_folder / "segments"
-        self._recording = (
-            RecordingManager(
-                session_id=self.session_id,
-                session=self.session,
-                settings=self.settings,
-                session_folder=self.session_folder,
-                stash_folder=self.session_folder / "stash",
-                segments_folder=self.segments_folder,
-                bus=self.bus,
-                logs_folder=self.logs_folder,
-                nc=self._nc,
-            )
-            if self.session.recording
-            else None
-        )
+        if self.session.recording:
+            self._recording = self._make_recorder()
 
     # ── public ────────────────────────────────────────────────────────
 
@@ -150,127 +158,241 @@ class SessionSupervisor:
         self._stop.set()
 
     async def run(self) -> None:
-        """Run the session to completion, with retry logic if configured."""
-        retry_config = {
-            "mode": self.session.retry_mode,
-            "params": self.session.retry_config,
-        }
-        attempt = 0
+        """Run the session's stints in order, merging what they record.
+
+        A stint is one source: the session's own capture or one fallback
+        profile. It runs the whole attempt/retry loop, and a stint that never
+        becomes playable hands over to the next one instead of failing the
+        session. The first stint that completes, or the user's stop, ends the run.
+        """
         heartbeat = asyncio.create_task(self._heartbeat())
-
+        plan = self.stint_plan()
         try:
-            while True:
-                attempt += 1
-                self.session.retry_attempts = attempt
-                attempt_started_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                logger.opt(colors=True).info(
-                    f"starting attempt <yellow>{attempt}</yellow>"
-                    f" (retry_mode={retry_config['mode']})"
-                )
-
-                # Emit the attempt record immediately so the UI shows it
-                # as running.  We update it after the attempt finishes.
-                attempt_record: dict[str, Any] = {
-                    "index": attempt,
-                    "started_at": attempt_started_at.isoformat(),
-                    "ended_at": None,
-                    "duration_seconds": None,
-                    "returncode": None,
-                    "reason": None,
-                }
-                self.session.attempts = (self.session.attempts or []) + [attempt_record]
-                await update_session(
-                    self.settings, self.session_id,
-                    retry_attempts=attempt,
-                    attempts=self.session.attempts,
-                    nc=self._nc,
-                )
-
-                outcome, signal = await self._run_attempt()
-
-                # Finalize the attempt record in-place
-                attempt_ended_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                attempt_duration = (attempt_ended_at - attempt_started_at).total_seconds()
-                attempt_record["ended_at"] = attempt_ended_at.isoformat()
-                attempt_record["duration_seconds"] = round(attempt_duration, 2)
-                attempt_record["returncode"] = getattr(signal, "returncode", None) if signal else None
-                attempt_record["reason"] = getattr(signal, "reason", None) if signal else ("stopped" if outcome == "stopped" else None)
-
-                await update_session(
-                    self.settings, self.session_id,
-                    attempts=self.session.attempts,
-                    nc=self._nc,
-                )
-
-                if outcome == "stopped":
-                    # Session was user-stopped — finalize recording (if any) but keep the session in DB
+            for index, profile_id in enumerate(plan, start=1):
+                if self._stop.is_set():
+                    logger.info("stop requested — no further stints")
                     await self._finalize_stopped()
                     return
 
-                if outcome == "failed":
-                    # Startup failure (pre-flight or process start) — the row was
-                    # already marked FAILED in _run_attempt and kept, so the
-                    # reason stays visible. Neither is retried.
-                    return
+                failure = await self._begin_stint(index, profile_id)
+                outcome, reason = (
+                    ("failed", failure) if failure else await self._run_stint()
+                )
+                await self._close_stint(outcome, reason, captured=failure is None)
 
-                # Check retry for both crashes and done signals
-                if outcome == "crashed" and isinstance(signal, EngineCrashed):
+                if outcome == "stopped":
+                    await self._finalize_stopped()
+                    return
+                if outcome == "completed":
+                    await self._finalize_session()
+                    return
+                if index < len(plan):
+                    logger.opt(colors=True).warning(
+                        f"stint <yellow>{index}</yellow> failed ({reason}) — "
+                        f"trying the next source"
+                    )
+
+            await self._fail()
+        finally:
+            heartbeat.cancel()
+            # Always disconnect NATS last, after all status updates
+            await self._disconnect_nats()
+
+    def stint_plan(self) -> list[int | None]:
+        """The profiles this session tries in order, one stint each."""
+        return list(self.session.stint_plan or []) or [self.session.profile_id]
+
+    async def _begin_stint(self, index: int, profile_id: int | None) -> str | None:
+        """Point the supervisor at one stint's source and folder.
+
+        Returns ``None`` when the stint can start, else why it cannot. The first
+        stint runs the capture the session was created with; a later one loads
+        its profile — a fallback is a *different source*, so it takes that
+        profile's engine, resolver, config and retry policy whole.
+        """
+        self._stint_index = index
+        self._stint_attempts = 0
+        self._resolve_failures = 0
+        self._stint_started_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        if index > 1:
+            if profile_id is None:
+                return "no profile to run the stint with"
+            try:
+                capture, self.engine, self.resolver = await load_profile_capture(
+                    self.settings, profile_id
+                )
+            except Exception as e:
+                logger.error(f"Session {self.session_id}: stint {index} cannot load profile {profile_id}: {e}")
+                return f"profile {profile_id} could not be loaded: {e}"
+            self._stint_capture = capture
+            logger.opt(colors=True).info(
+                f"stint <yellow>{index}</yellow>: running profile "
+                f"{capture['profile_name']} ({capture['engine_name']} + {capture['resolver_name']})"
+            )
+
+        folder = self._primary_folder
+        if index > 1:
+            folder = self._primary_folder.parent / f"{self._primary_folder.name}_stint{index}"
+        self._use_folder(folder)
+        return None
+
+    def _use_folder(self, folder: Path) -> None:
+        self.session_folder = folder
+        self.logs_folder = folder / "logs"
+        self.segments_folder = folder / "segments"
+        if self._recording:
+            self._recording.use_folder(folder)
+
+    async def _run_stint(self) -> tuple[str, str | None]:
+        """One stint's attempt loop, until it completes, is terminal, or is stopped."""
+        attempt = 0
+        while True:
+            attempt += 1
+            self._stint_attempts = attempt
+            self._attempts_total += 1
+            self.session.retry_attempts = self._attempts_total
+            attempt_started_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            logger.opt(colors=True).info(
+                f"starting attempt <yellow>{self._attempts_total}</yellow>"
+                f" (stint {self._stint_index}, retry_mode={self._stint_capture['retry_mode']})"
+            )
+
+            # Emit the attempt record immediately so the UI shows it
+            # as running.  We update it after the attempt finishes.
+            attempt_record: dict[str, Any] = {
+                "index": self._attempts_total,
+                "stint": self._stint_index,
+                "started_at": attempt_started_at.isoformat(),
+                "ended_at": None,
+                "duration_seconds": None,
+                "returncode": None,
+                "reason": None,
+            }
+            self.session.attempts = (self.session.attempts or []) + [attempt_record]
+            await update_session(
+                self.settings, self.session_id,
+                retry_attempts=self._attempts_total,
+                attempts=self.session.attempts,
+                nc=self._nc,
+            )
+
+            outcome, signal = await self._run_attempt()
+
+            # Finalize the attempt record in-place
+            attempt_ended_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            attempt_duration = (attempt_ended_at - attempt_started_at).total_seconds()
+            attempt_record["ended_at"] = attempt_ended_at.isoformat()
+            attempt_record["duration_seconds"] = round(attempt_duration, 2)
+            attempt_record["returncode"] = getattr(signal, "returncode", None) if signal else None
+            attempt_record["reason"] = getattr(signal, "reason", None) if signal else ("stopped" if outcome == "stopped" else None)
+
+            await update_session(
+                self.settings, self.session_id,
+                attempts=self.session.attempts,
+                nc=self._nc,
+            )
+
+            if outcome == "stopped":
+                return "stopped", None
+
+            if outcome == "failed":
+                # A startup or pre-flight verdict (folder in use, dead channel,
+                # no stream): neither resolves differently a moment later, so
+                # the retry policy is not consulted.
+                return "failed", attempt_record["reason"] or "startup failed"
+
+            retry_config = {
+                "mode": self._stint_capture["retry_mode"],
+                "params": self._stint_capture["retry_config"],
+            }
+
+            if outcome == "crashed" and isinstance(signal, EngineCrashed):
+                retry, delay = await self.engine.should_retry(
+                    crash=signal,
+                    attempt=attempt,
+                    config=retry_config,
+                )
+                if retry:
+                    logger.opt(colors=True).info(
+                        f"retrying in <yellow>{delay}s</yellow> after: {signal.reason}"
+                    )
+                    await self._cleanup(reason="retry")
+                    await self._reset_for_retry()
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                    continue
+                logger.opt(colors=True).error(
+                    f"giving up after attempt <yellow>{attempt}</yellow>: {signal.reason}"
+                )
+                return "failed", signal.reason
+
+            if outcome == "done" and signal is not None:
+                # Engine reported done — check if exit_code mode wants to retry
+                if signal.returncode is not None and retry_config["mode"] == "exit_code":
+                    synthetic = EngineCrashed(
+                        reason=f"completed with exit code {signal.returncode}",
+                        returncode=signal.returncode,
+                    )
                     retry, delay = await self.engine.should_retry(
-                        crash=signal,
+                        crash=synthetic,
                         attempt=attempt,
                         config=retry_config,
                     )
                     if retry:
                         logger.opt(colors=True).info(
-                            f"retrying in <yellow>{delay}s</yellow> after: {signal.reason}"
+                            f"retrying in <yellow>{delay}s</yellow> after: {synthetic.reason}"
                         )
                         await self._cleanup(reason="retry")
                         await self._reset_for_retry()
                         if delay > 0:
                             await asyncio.sleep(delay)
                         continue
-                    logger.opt(colors=True).error(
-                        f"giving up after attempt <yellow>{attempt}</yellow>: {signal.reason}"
-                    )
-                    await self._fail(signal.reason)
-                    return
 
-                if outcome == "done" and signal is not None:
-                    # Engine reported done — check if exit_code mode wants to retry
-                    if signal.returncode is not None and retry_config["mode"] == "exit_code":
-                        synthetic = EngineCrashed(
-                            reason=f"completed with exit code {signal.returncode}",
-                            returncode=signal.returncode,
-                        )
-                        retry, delay = await self.engine.should_retry(
-                            crash=synthetic,
-                            attempt=attempt,
-                            config=retry_config,
-                        )
-                        if retry:
-                            logger.opt(colors=True).info(
-                                f"retrying in <yellow>{delay}s</yellow> after: {synthetic.reason}"
-                            )
-                            await self._cleanup(reason="retry")
-                            await self._reset_for_retry()
-                            if delay > 0:
-                                await asyncio.sleep(delay)
-                            continue
+                return "completed", signal.reason
 
-                    # No retry — finalize the session
-                    await self._cleanup(reason="stop")
-                    await self._finalize_session()
-                    return
+            logger.error(f"Unexpected outcome: {outcome} — ending the stint")
+            return "completed", None
 
-                # Should never reach here
-                logger.error(f"Unexpected outcome: {outcome} — stopping")
-                await self._cleanup(reason="stop")
-                await self._finalize_session()
-                return
-        finally:
-            heartbeat.cancel()
-            # Always disconnect NATS last, after all status updates
-            await self._disconnect_nats()
+    async def _close_stint(self, outcome: str, reason: str | None, *, captured: bool = True) -> None:
+        """End a stint: tear its processes down, then keep what it recorded.
+
+        ``captured=False`` is a stint that never began — it has no folder of its
+        own, so remuxing would hand the previous stint's artifact in twice.
+        """
+        await self._cleanup(reason="failed" if outcome == "failed" else "stop")
+        artifact = None
+        if self._recording and captured:
+            try:
+                artifact = await self._recording.remux_stint()
+            except Exception as e:
+                logger.error(f"Session {self.session_id}: stint {self._stint_index} remux failed: {e}")
+
+        if artifact and artifact.exists():
+            self._stint_artifacts.append(artifact)
+            seconds = round(await self._recording.probe_duration(artifact), 2)
+            bytes_ = artifact.stat().st_size
+        else:
+            seconds, bytes_ = None, None
+
+        ended_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        record = {
+            **self._stint_capture,
+            "index": self._stint_index,
+            "status": outcome,
+            "reason": reason,
+            "started_at": self._stint_started_at.isoformat() if self._stint_started_at else None,
+            "ended_at": ended_at.isoformat(),
+            "attempts": self._stint_attempts,
+            "seconds": seconds,
+            "bytes": bytes_,
+        }
+        self.stints.append(record)
+        await update_session(
+            self.settings, self.session_id,
+            stints=self.stints, nc=self._nc,
+        )
+
 
     async def _heartbeat(self) -> None:
         """Log liveness so a silent supervisor is distinguishable from a dead one."""
@@ -284,6 +406,7 @@ class SessionSupervisor:
 
     async def _run_attempt(self) -> tuple[str, EngineCrashed | EngineDone | None]:
         """Single resolve→smoke→start→ready cycle. Returns (outcome, signal)."""
+        self._live = True
         await make_session_dirs(self.session_folder, self.logs_folder, self.segments_folder, self.settings)
 
         self.engine_ctx = EngineContext(
@@ -330,13 +453,11 @@ class SessionSupervisor:
         try:
             from mirrorr.startup.ensure_resolvers import get_validated_config
 
-            _res = self.session.resolver
-
             config = get_validated_config(
                 resolvers_dir=self.settings.resolvers_dir,
-                origin=_res.origin,
-                expected_hash=_res.origin_hash,
-                data=self.session.resolver_config,
+                origin=self._stint_capture["resolver_origin"],
+                expected_hash=self._stint_capture["resolver_hash"],
+                data=self._stint_capture["resolver_config"],
             )
             source = await self.resolver.resolve(config, self.resolver_ctx)
         except Exception as e:
@@ -396,8 +517,7 @@ class SessionSupervisor:
             for t in (done_task, crash_task, stop_task):
                 t.cancel()
             await asyncio.gather(done_task, crash_task, stop_task, return_exceptions=True)
-            await self._fail(f"failed to start processes: {e}")
-            return "failed", None
+            return "failed", EngineCrashed(reason=f"failed to start processes: {e}")
 
         logger.opt(colors=True).success(f"<green>Session</green> bootstrapped — "
                        f"{len(self.processes)} processes running")
@@ -452,27 +572,25 @@ class SessionSupervisor:
         return "done", result
 
     async def _preflight_failed(self, reason: str) -> tuple[str, EngineCrashed]:
-        """End the attempt after a verdict that cannot change on a retry.
+        """End the stint after a verdict that cannot change on a retry.
 
         The resolver's probe is its verdict on the *source*, and the startup
         gate's deadline is the engine's — neither resolves differently a moment
-        later, so the retry policy is not consulted and the session goes
-        straight to FAILED with the reason recorded. A source that has never
-        once resolved falls under the same rule (`_MAX_RESOLVE_FAILURES`).
+        later, so the retry policy is not consulted: the stint is failed straight
+        away and the session's plan decides whether another source follows.
         """
         logger.opt(colors=True).error(f"<red>Pre-flight failed</red>: {reason}")
-        await self._fail(reason)
         return "failed", EngineCrashed(reason=reason)
 
-    async def _fail(self, reason: str) -> None:
-        """Stop everything, then keep the row FAILED with whatever it recorded.
+    async def _fail(self) -> None:
+        """Every stint failed: keep the row FAILED with what they recorded merged.
 
-        A session that reached its engine may already hold segments, so they are
-        remuxed into a recording and stay attached to the FAILED row rather than
-        being thrown away with the folder.
+        A session that reached its engine may already hold minutes of the event,
+        so the stints' artifacts are merged into one recording and stay attached
+        to the FAILED row rather than being thrown away with their folders.
         """
-        await self._cleanup(reason="failed")
-        if self._recording and self._has_segments():
+        if self._recording and self._stint_artifacts:
+            self._use_folder(self._primary_folder)
             await self._do_remux_and_finalize(
                 delete_after=False, final_status=SessionStatus.FAILED
             )
@@ -481,11 +599,6 @@ class SessionSupervisor:
                 self.settings, self.session_id,
                 status=SessionStatus.FAILED, nc=self._nc,
             )
-
-    def _has_segments(self) -> bool:
-        return any(self.segments_folder.glob("*.ts")) or any(
-            (self.session_folder / "stash").glob("*.ts")
-        )
 
     async def _wait_for_playlist(self) -> None:
         """Block until the engine has written a non-empty ``stream.m3u8``.
@@ -514,14 +627,20 @@ class SessionSupervisor:
     async def _do_remux_and_finalize(
         self, *, delete_after: bool = True, final_status: SessionStatus = SessionStatus.COMPLETED
     ) -> None:
-        """Shared remux + finalize logic for completion, stop and terminal failure."""
+        """Merge the stints' artifacts into one recording, then close the session."""
         await update_session(
             self.settings, self.session_id,
             status=SessionStatus.REMUXING, nc=self._nc,
         )
         try:
-            recording_id = await self._recording.remux()
+            # The recording is named after the source whose media it holds: when
+            # a fallback produced it, the session's own profile did not.
+            producer = next((s for s in reversed(self.stints) if s.get("bytes")), None)
+            recording_id = await self._recording.finalize(self._stint_artifacts, producer)
             logger.success(f"recording created")
+            for stint in self.stints:
+                if stint.get("bytes"):
+                    stint["merged"] = True
             if final_status is SessionStatus.COMPLETED:
                 await update_session(
                     self.settings, self.session_id,
@@ -529,7 +648,7 @@ class SessionSupervisor:
                 )
             await update_session(
                 self.settings, self.session_id,
-                status=final_status, nc=self._nc,
+                status=final_status, stints=self.stints, nc=self._nc,
             )
             if delete_after:
                 await delete_session(
@@ -558,13 +677,15 @@ class SessionSupervisor:
                 )
 
     async def _finalize_session(self) -> None:
-        """Cleanup processes, then remux and create Recording if applicable.
+        """Merge what the stints recorded, then close the session.
 
         Note: _cleanup() is called by the caller (run()), not here.
         NATS is disconnected at the very end of run().
         """
+        self._use_folder(self._primary_folder)
         if not self._recording:
             await update_session(self.settings, self.session_id, status=SessionStatus.COMPLETED, nc=self._nc)
+            await self._drop_stint_folders()
             await delete_session(
                 self.settings, self.session_id, self.session_folder,
                 nc=self._nc, autorun_id=self.session.autorun_id,
@@ -578,10 +699,35 @@ class SessionSupervisor:
         Unlike _finalize_session(), this does NOT delete the session — a stopped
         session should remain visible in the sidebar.
         """
+        self._use_folder(self._primary_folder)
         if not self._recording:
             await update_session(self.settings, self.session_id, status=SessionStatus.COMPLETED, nc=self._nc)
+            await self._drop_stint_folders()
             return
         await self._do_remux_and_finalize(delete_after=False)
+
+    async def _drop_stint_folders(self) -> None:
+        """Remove every fallback stint's scratch folder.
+
+        Its media is in the merged recording (or was never recorded); only the
+        session's own folder is kept, as its playlist, logs and the UI expect.
+        """
+        for index in range(2, len(self.stint_plan()) + 1):
+            folder = self._primary_folder.parent / f"{self._primary_folder.name}_stint{index}"
+            await asyncio.to_thread(shutil.rmtree, folder, True)
+
+    def _make_recorder(self) -> RecordingManager:
+        return RecordingManager(
+            session_id=self.session_id,
+            session=self.session,
+            settings=self.settings,
+            session_folder=self.session_folder,
+            stash_folder=self.session_folder / "stash",
+            segments_folder=self.segments_folder,
+            bus=self.bus,
+            logs_folder=self.logs_folder,
+            nc=self._nc,
+        )
 
     # ── control channel ──────────────────────────────────────────────
 
@@ -597,17 +743,7 @@ class SessionSupervisor:
         elif command == "enable_recording":
             if not self.session.recording:
                 self.session.recording = True
-                self._recording = RecordingManager(
-                    session_id=self.session_id,
-                    session=self.session,
-                    settings=self.settings,
-                    session_folder=self.session_folder,
-                    stash_folder=self.session_folder / "stash",
-                    segments_folder=self.segments_folder,
-                    bus=self.bus,
-                    logs_folder=self.logs_folder,
-                    nc=self._nc,
-                )
+                self._recording = self._make_recorder()
                 self._recording.start_stash()
                 # The gate owns the status: before it publishes ACTIVE/RECORDING
                 # a toggle only flags the intent (no premature playable state).
@@ -725,6 +861,9 @@ class SessionSupervisor:
         Does NOT disconnect NATS — call _disconnect_nats() after all
         status updates are sent.
         """
+        if not self._live:
+            return
+        self._live = False
         if self._recording:
             await self._recording.stop_stash()
 

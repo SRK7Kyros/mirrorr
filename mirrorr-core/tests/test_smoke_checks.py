@@ -36,13 +36,17 @@ def _session(recording: bool = False) -> SimpleNamespace:
         autorun=None,
         autorun_id=None,
         profile=None,
+        profile_id=1,
+        engine=None,
         recording=recording,
-        resolver=SimpleNamespace(origin="static", origin_hash="h"),
+        resolver=SimpleNamespace(name="static", origin="static", origin_hash="h"),
         resolver_config={},
         retry_mode="none",
         retry_config={},
         retry_attempts=0,
         attempts=[],
+        stints=[],
+        stint_plan=[1],
     )
 
 
@@ -360,26 +364,24 @@ def test_stream_that_never_appears_times_out(tmp_path):
     sup = _supervisor(tmp_path, _resolver(), _engine())
 
     with patch.object(session_supervisor, "STREAM_READY_TIMEOUT_S", 0.2):
-        result, _delete, calls = _drive(sup, full_run=False)
+        _result, _delete, calls = _drive(sup, full_run=True)
 
-    assert result[0] == "failed"
-    assert "stream did not appear" in result[1].reason
     assert _statuses(calls) == [
         SessionStatus.INITIALIZING,
         SessionStatus.STREAM_PENDING,
         SessionStatus.FAILED,
     ]
+    assert "stream did not appear" in _last_reason(calls)
 
 
 def test_folder_held_by_another_live_session_refuses_the_start(tmp_path):
     engine = _engine(playlist_after=0.05, done_after=0.7)
     sup = _supervisor(tmp_path, _resolver(), engine)
 
-    result, _delete, calls = _drive(sup, full_run=False, holder=9)
+    _result, _delete, calls = _drive(sup, full_run=True, holder=9)
 
-    assert result[0] == "failed"
-    assert "in use by session 9" in result[1].reason
     assert _statuses(calls) == [SessionStatus.FAILED]
+    assert "in use by session 9" in _last_reason(calls)
     engine.start.assert_not_awaited()
 
 
@@ -390,9 +392,13 @@ def test_terminal_failure_remuxes_what_it_recorded(tmp_path):
         await ctx.bus.emit("engine.crashed", EngineCrashed(reason="boom"))
 
     sup = _supervisor(tmp_path, _resolver(), _engine(on_start=crash), recording=True)
+    stint_mp4 = tmp_path / "stint.mp4"
+    stint_mp4.write_bytes(b"\x00")
 
-    with patch.object(
-        session_supervisor.RecordingManager, "remux", AsyncMock(return_value=42)
+    with (
+        patch.object(session_supervisor.RecordingManager, "remux_stint", AsyncMock(return_value=stint_mp4)),
+        patch.object(session_supervisor.RecordingManager, "probe_duration", AsyncMock(return_value=1.0)),
+        patch.object(session_supervisor.RecordingManager, "finalize", AsyncMock(return_value=42)),
     ):
         _result, delete, calls = _drive(sup, full_run=True)
 

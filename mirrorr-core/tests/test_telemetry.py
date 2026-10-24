@@ -20,13 +20,17 @@ def _session() -> SimpleNamespace:
         autorun=None,
         autorun_id=None,
         profile=None,
+        profile_id=1,
+        engine=None,
         recording=False,
-        resolver=SimpleNamespace(origin="static", origin_hash="h"),
+        resolver=SimpleNamespace(name="static", origin="static", origin_hash="h"),
         resolver_config={},
         retry_mode="none",
         retry_config={},
         retry_attempts=0,
         attempts=[],
+        stints=[],
+        stint_plan=[1],
     )
 
 
