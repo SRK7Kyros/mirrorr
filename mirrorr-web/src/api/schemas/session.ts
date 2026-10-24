@@ -24,6 +24,8 @@ export const SessionSchema = z
     ...adminOnlyFields,
     session_urls: z.array(z.record(z.string(), z.string())).optional(),
     attempts: z.array(z.record(z.string(), z.unknown())).optional(),
+    stints: z.array(z.record(z.string(), z.unknown())).optional(),
+    stint_plan: z.array(z.number().nullable()).optional(),
     engine_name: z.string().nullable().optional(),
     resolver_name: z.string().nullable().optional(),
     profile_name: z.string().nullable().optional(),

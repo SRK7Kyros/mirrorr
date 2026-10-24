@@ -38,8 +38,8 @@ async def _fresh_db():
     return engine, async_sessionmaker(engine, class_=SQLModelAsyncSession, expire_on_commit=False)
 
 
-async def _seed(maker, fallbacks: list[int], *, status=AutorunStatus.ACTIVE, window_open=True):
-    """One autorun on profile 1 with *fallbacks*, plus a FAILED first attempt."""
+async def _seed(maker, fallbacks: list[int], *, status=AutorunStatus.SCHEDULED, window_open=True, prior=None):
+    """One autorun on profile 1 with *fallbacks*; *prior* seeds an earlier session."""
     async with maker() as db:
         for pid, resolver in ((1, 1), (2, 2), (3, 3)):
             db.add(
@@ -70,18 +70,19 @@ async def _seed(maker, fallbacks: list[int], *, status=AutorunStatus.ACTIVE, win
                 requester_user_token="kyros",
             )
         )
-        db.add(
-            Session(
-                id=1,
-                profile_id=1,
-                autorun_id=1,
-                engine_id=1,
-                resolver_id=1,
-                requester_user_token="kyros",
-                status=SessionStatus.FAILED,
-                idempotency_key="autorun:1:slot:x",
+        if prior is not None:
+            db.add(
+                Session(
+                    id=1,
+                    profile_id=1,
+                    autorun_id=1,
+                    engine_id=1,
+                    resolver_id=1,
+                    requester_user_token="kyros",
+                    status=prior,
+                    idempotency_key="autorun:1:slot:x",
+                )
             )
-        )
         await db.commit()
 
 
@@ -122,19 +123,22 @@ def test_an_autorun_without_a_profile_falls_back_from_nothing():
     assert fallback_chain(autorun) == [None, 2]
 
 
-def test_failed_attempt_starts_the_next_profile_and_copies_its_capture(monkeypatch, tmp_path):
+def test_a_slot_spawns_one_session_carrying_the_whole_chain(monkeypatch, tmp_path):
+    """The fallbacks are a plan on the session, never sessions of their own."""
+
     async def scenario(settings):
         engine, maker = await _fresh_db()
-        await _seed(maker, [2, 3])
+        await _seed(maker, [2, 3], prior=SessionStatus.FAILED)
 
         await _tick(maker, settings)
 
         sessions = await _sessions(maker)
         assert len(sessions) == 2
         spawned = sessions[-1]
-        assert spawned.profile_id == 2
-        assert (spawned.engine_id, spawned.resolver_id) == (2, 2)
-        assert spawned.resolver_config == {"channel": "ch2"}
+        assert spawned.profile_id == 1
+        assert (spawned.engine_id, spawned.resolver_id) == (1, 1)
+        assert spawned.resolver_config == {"channel": "ch1"}
+        assert spawned.stint_plan == [1, 2, 3]
         assert spawned.status == SessionStatus.INITIALIZING
         async with maker() as db:
             autorun = await crud.get_by_id(db, Autorun, 1)
@@ -144,65 +148,34 @@ def test_failed_attempt_starts_the_next_profile_and_copies_its_capture(monkeypat
     _run(scenario, monkeypatch, tmp_path)
 
 
-def test_each_rung_starts_at_most_one_session(monkeypatch, tmp_path):
+def test_a_failed_session_never_spawns_a_second_one(monkeypatch, tmp_path):
     async def scenario(settings):
         engine, maker = await _fresh_db()
         await _seed(maker, [2, 3])
+
+        await _tick(maker, settings)
+        async with maker() as db:
+            autorun = await crud.get_by_id(db, Autorun, 1)
+            spawned = (await db.exec(select(Session).order_by(Session.id.desc()))).first()
+            spawned.status = SessionStatus.FAILED
+            await db.commit()
+
         for _ in range(3):
             await _tick(maker, settings)
+
         sessions = await _sessions(maker)
-        async with maker() as db:
-            expected = slot_key(await crud.get_by_id(db, Autorun, 1), "fb1")
-        assert [(s.profile_id, s.idempotency_key) for s in sessions] == [(1, "autorun:1:slot:x"), (2, expected)]
+        assert [(s.profile_id, s.idempotency_key) for s in sessions] == [
+            (1, slot_key(autorun))
+        ]
         await engine.dispose()
 
     _run(scenario, monkeypatch, tmp_path)
 
 
-def test_chain_walks_to_the_last_rung_then_stops(monkeypatch, tmp_path):
+def test_completed_session_does_not_start_another(monkeypatch, tmp_path):
     async def scenario(settings):
         engine, maker = await _fresh_db()
-        await _seed(maker, [2, 3])
-        async with maker() as db:
-            for sid, pid in ((2, 2),):
-                db.add(
-                    Session(
-                        id=sid,
-                        profile_id=pid,
-                        autorun_id=1,
-                        engine_id=pid,
-                        resolver_id=pid,
-                        requester_user_token="kyros",
-                        status=SessionStatus.FAILED,
-                    )
-                )
-            await db.commit()
-
-        await _tick(maker, settings)
-        sessions = await _sessions(maker)
-        assert [s.profile_id for s in sessions] == [1, 2, 3]
-
-        async with maker() as db:
-            third = await crud.get_by_id(db, Session, 3)
-            third.status = SessionStatus.FAILED
-            await db.commit()
-
-        await _tick(maker, settings)
-        sessions = await _sessions(maker)
-        assert [s.profile_id for s in sessions] == [1, 2, 3]
-        await engine.dispose()
-
-    _run(scenario, monkeypatch, tmp_path)
-
-
-def test_completed_attempt_does_not_fall_back(monkeypatch, tmp_path):
-    async def scenario(settings):
-        engine, maker = await _fresh_db()
-        await _seed(maker, [2])
-        async with maker() as db:
-            first = await crud.get_by_id(db, Session, 1)
-            first.status = SessionStatus.COMPLETED
-            await db.commit()
+        await _seed(maker, [2], prior=SessionStatus.COMPLETED, status=AutorunStatus.ACTIVE)
 
         await _tick(maker, settings)
         assert len(await _sessions(maker)) == 1
@@ -211,10 +184,13 @@ def test_completed_attempt_does_not_fall_back(monkeypatch, tmp_path):
     _run(scenario, monkeypatch, tmp_path)
 
 
-def test_closed_window_does_not_fall_back(monkeypatch, tmp_path):
+def test_a_closed_window_spawns_nothing_more(monkeypatch, tmp_path):
     async def scenario(settings):
         engine, maker = await _fresh_db()
-        await _seed(maker, [2], window_open=False)
+        await _seed(
+            maker, [2], prior=SessionStatus.FAILED,
+            status=AutorunStatus.ACTIVE, window_open=False,
+        )
 
         await _tick(maker, settings)
         assert len(await _sessions(maker)) == 1
@@ -266,27 +242,3 @@ def test_fallback_chain_accepts_a_visible_profile_and_rejects_the_rest():
 
     asyncio.run(scenario())
 
-
-def test_a_manual_session_of_another_profile_does_not_advance(monkeypatch, tmp_path):
-    async def scenario(settings):
-        engine, maker = await _fresh_db()
-        await _seed(maker, [2])
-        async with maker() as db:
-            db.add(
-                Session(
-                    id=2,
-                    profile_id=7,
-                    autorun_id=1,
-                    engine_id=1,
-                    resolver_id=1,
-                    requester_user_token="kyros",
-                    status=SessionStatus.FAILED,
-                )
-            )
-            await db.commit()
-
-        await _tick(maker, settings)
-        assert len(await _sessions(maker)) == 2
-        await engine.dispose()
-
-    _run(scenario, monkeypatch, tmp_path)

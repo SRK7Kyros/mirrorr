@@ -121,11 +121,37 @@ class RecordingManager:
 
     # ── remux ───────────────────────────────────────────────────────
 
-    async def remux(self) -> int:
-        """Concatenate stash + remaining segments into MP4 via ManagedProcess,
-        track progress with telemetry, move to recordings, create Recording DB
-        entry. Returns the recording ID."""
-        # 1. Gather and deduplicate segments (sync I/O — run in a thread)
+    def use_folder(self, folder: Path) -> None:
+        self.session_folder = folder
+        self.stash_folder = folder / "stash"
+        self.segments_folder = folder / "segments"
+        self.logs_folder = folder / "logs"
+
+    async def remux_stint(self) -> Path | None:
+        """This stint's segments → one MP4 in its own folder, or ``None`` if it
+        captured nothing.
+
+        The artifact is an input to the session's final merge, so it stays where
+        it was written (no move, no Recording row) until the session ends.
+        """
+        ordered = await self._ordered_segments()
+        if not ordered:
+            return None
+
+        logger.info(f"Session {self.session_id}: remuxing {len(ordered)} stint segments")
+        target = self.session_folder / f"{self.session_folder.name}.mp4"
+        await self._concat(
+            ordered,
+            target,
+            total_duration=len(ordered) * self.settings.segment_duration,
+        )
+        logger.success(
+            f"Session {self.session_id}: stint remuxed — {len(ordered)} segments → {target.name}"
+        )
+        return target
+
+    async def _ordered_segments(self) -> list[Path]:
+        """The stint's segments in play order: the stash first, then the live window."""
         loop = asyncio.get_running_loop()
         stash_segments = (
             sorted(await loop.run_in_executor(None, lambda: list(self.stash_folder.glob("*.ts"))))
@@ -134,118 +160,61 @@ class RecordingManager:
         )
         live_segments = sorted(await loop.run_in_executor(None, lambda: list(self.segments_folder.glob("*.ts"))))
         stash_names = {s.name for s in stash_segments}
-        live_only = [s for s in live_segments if s.name not in stash_names]
-        ordered = stash_segments + live_only
+        return stash_segments + [s for s in live_segments if s.name not in stash_names]
 
-        if not ordered:
-            raise RuntimeError("No segments found to remux")
+    async def finalize(self, artifacts: list[Path], stint: dict | None = None) -> int:
+        """Merge the stints' artifacts into one recording, then file it.
 
-        logger.info(
-            f"Session {self.session_id}: remuxing {len(ordered)} segments "
-            f"({len(stash_segments)} from stash + {len(live_only)} from live)"
-        )
+        One artifact is a copy; several are concatenated in stint order. Two
+        sources can differ in codec, so a failed stream copy keeps the longest
+        artifact as the recording rather than losing the whole session to a
+        container detail.
+        """
+        sources = [p for p in artifacts if p.exists()]
+        if not sources:
+            raise RuntimeError("No recording produced")
 
-        # 2. Write concat list
-        mp4_name = self.session_folder.name + ".mp4"
-        mp4_path = self.session_folder / mp4_name
-        concat_list = self.session_folder / "concat.txt"
-
-        def _write_concat():
-            with open(concat_list, "w") as f:
-                for seg in ordered:
-                    f.write(f"file '{seg.resolve()}'\n")
-
-        await asyncio.to_thread(_write_concat)
-
-        ffmpeg_bin = os.environ.get("FFMPEG_EXECUTABLE") or await asyncio.to_thread(shutil.which, "ffmpeg")
-        if not ffmpeg_bin:
-            raise RuntimeError("ffmpeg not found")
-
-        # 3. Create and start ManagedProcess for remux
-        self._remux_proc = ManagedProcess(
-            name="remux",
-            command=[
-                ffmpeg_bin,
-                "-hide_banner", "-loglevel", "info", "-stats",
-                "-f", "concat", "-safe", "0", "-i", str(concat_list),
-                "-c", "copy", str(mp4_path),
-            ],
-            bus=self.bus,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        self._remux_proc.set_log_dir(self.logs_folder)
-
-        # Wire telemetry forwarding to NATS (same pattern as supervisor)
-        if self.nc:
-            self._wire_remux_telemetry()
-
-        # Spawn progress coordinator before starting the process
-        progress_task = asyncio.create_task(
-            self._remux_progress_coordinator(ordered)
-        )
-        self._remux_tasks.append(progress_task)
-
-        await self._remux_proc.start()
-
-        # 4. Wait for the remux process to exit
-        exit_q = self.bus.subscribe("proc.remux.exit")
-        exit_event: ProcessExit = await exit_q.get()
-
-        # Give progress coordinator a moment to flush final summary
-        if progress_task and not progress_task.done():
+        target = self.session_folder / f"{self.session_folder.name}.mp4"
+        if len(sources) == 1:
+            if sources[0] != target:
+                await asyncio.to_thread(shutil.copy2, sources[0], target)
+        else:
+            logger.info(f"Session {self.session_id}: merging {len(sources)} stints")
+            total = sum([await self.probe_duration(p) for p in sources])
+            merged = self.session_folder / f"{target.name}.part"
             try:
-                await asyncio.wait_for(progress_task, timeout=2.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
-                pass
+                await self._concat(sources, merged, total_duration=total)
+                await asyncio.to_thread(merged.replace, target)
+            except Exception as e:
+                merged.unlink(missing_ok=True)
+                logger.error(
+                    f"Session {self.session_id}: stint merge failed ({e}) — keeping the longest"
+                )
+                keeper = max(sources, key=lambda p: p.stat().st_size)
+                if keeper != target:
+                    await asyncio.to_thread(shutil.copy2, keeper, target)
 
-        # Clean up coordinator tasks
-        for t in self._remux_tasks:
-            if not t.done():
-                t.cancel()
-        if self._remux_tasks:
-            await asyncio.gather(*self._remux_tasks, return_exceptions=True)
-        self._remux_tasks.clear()
-
-        # Clean up telemetry tasks
-        for t in self._telemetry_tasks:
-            if not t.done():
-                t.cancel()
-        if self._telemetry_tasks:
-            await asyncio.gather(*self._telemetry_tasks, return_exceptions=True)
-        self._telemetry_tasks.clear()
-
-        # Close ManagedProcess internals
-        await self._remux_proc.close()
-
-        if exit_event.returncode != 0:
-            raise RuntimeError(f"ffmpeg concat failed (code {exit_event.returncode})")
-
-        logger.success(
-            f"Session {self.session_id}: remux complete — {len(ordered)} segments → {mp4_name}"
-        )
-
-        # 5. Move to recordings dir
+        mp4_name = target.name
         recordings_dir = self.settings.recordings_dir
         recordings_dir.mkdir(parents=True, exist_ok=True)
         dest = recordings_dir / self.session_folder.name
-        if dest.exists():
-            i = 2
-            while dest.exists():
-                dest = recordings_dir / f"{self.session_folder.name}_{i}"
-                i += 1
+        i = 2
+        while dest.exists():
+            dest = recordings_dir / f"{self.session_folder.name}_{i}"
+            i += 1
 
-        # Clean up temp files before moving
-        concat_list.unlink(missing_ok=True)
+        (self.session_folder / "concat.txt").unlink(missing_ok=True)
         (self.session_folder / "stream.m3u8").unlink(missing_ok=True)
 
         await asyncio.get_running_loop().run_in_executor(None, shutil.move, str(self.session_folder), str(dest))
         logger.info(f"Session {self.session_id}: moved to {dest}")
 
-        # 6. Create Recording DB entry
-        recording_id = await self._create_recording_entry(dest, mp4_name)
+        recording_id = await self._create_recording_entry(dest, mp4_name, stint)
 
-        # 7. Clean up segments and stash (deferred until DB entry confirmed)
+        # A failed stint's folder is spent: its media is in the merged file.
+        for folder in {p.parent for p in sources if p.parent != self.session_folder}:
+            await asyncio.to_thread(shutil.rmtree, folder, ignore_errors=True)
+
         try:
             dest_stash = dest / "stash"
             if dest_stash.exists():
@@ -261,6 +230,70 @@ class RecordingManager:
             logger.warning(f"Failed to clean up segments for session {self.session_id}: {e}")
 
         return recording_id
+
+    async def _concat(self, sources: list[Path], out: Path, *, total_duration: float) -> None:
+        concat_list = self.session_folder / "concat.txt"
+
+        def _write_concat():
+            with open(concat_list, "w") as f:
+                for path in sources:
+                    f.write(f"file '{path.resolve()}'\n")
+
+        await asyncio.to_thread(_write_concat)
+
+        ffmpeg_bin = os.environ.get("FFMPEG_EXECUTABLE") or await asyncio.to_thread(shutil.which, "ffmpeg")
+        if not ffmpeg_bin:
+            raise RuntimeError("ffmpeg not found")
+
+        self._remux_proc = ManagedProcess(
+            name="remux",
+            command=[
+                ffmpeg_bin,
+                "-hide_banner", "-loglevel", "info", "-stats",
+                "-f", "concat", "-safe", "0", "-i", str(concat_list),
+                "-c", "copy", str(out),
+            ],
+            bus=self.bus,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        self._remux_proc.set_log_dir(self.logs_folder)
+
+        if self.nc:
+            self._wire_remux_telemetry()
+
+        progress_task = asyncio.create_task(self._remux_progress_coordinator(total_duration))
+        self._remux_tasks.append(progress_task)
+
+        await self._remux_proc.start()
+        exit_q = self.bus.subscribe("proc.remux.exit")
+        exit_event: ProcessExit = await exit_q.get()
+
+        # Give progress coordinator a moment to flush final summary
+        if progress_task and not progress_task.done():
+            try:
+                await asyncio.wait_for(progress_task, timeout=2.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+
+        for t in self._remux_tasks:
+            if not t.done():
+                t.cancel()
+        if self._remux_tasks:
+            await asyncio.gather(*self._remux_tasks, return_exceptions=True)
+        self._remux_tasks.clear()
+
+        for t in self._telemetry_tasks:
+            if not t.done():
+                t.cancel()
+        if self._telemetry_tasks:
+            await asyncio.gather(*self._telemetry_tasks, return_exceptions=True)
+        self._telemetry_tasks.clear()
+
+        await self._remux_proc.close()
+
+        if exit_event.returncode != 0:
+            raise RuntimeError(f"ffmpeg concat failed (code {exit_event.returncode})")
 
     # ── remux progress tracking ──────────────────────────────────────
 
@@ -295,14 +328,11 @@ class RecordingManager:
 
         self._telemetry_tasks.append(asyncio.create_task(_forward()))
 
-    async def _remux_progress_coordinator(
-        self, segments: list[Path]
-    ) -> None:
+    async def _remux_progress_coordinator(self, total_duration: float) -> None:
         """Subscribe to remux stderr, parse ffmpeg progress, and emit
         periodic summary logs with percentage, ETA, and speed."""
         stderr_q = self.bus.subscribe("proc.remux.stderr")
         exit_q = self.bus.subscribe("proc.remux.exit")
-        total_duration = len(segments) * self.settings.segment_duration
         start_time = datetime.now(timezone.utc)
         last_summary_time = start_time
         summary_interval = 5.0  # seconds between summary logs
@@ -515,7 +545,7 @@ class RecordingManager:
             return f"{hours}:{minutes:02d}:{secs:02d}"
         return f"{minutes}:{secs:02d}"
 
-    async def _probe_duration(self, path: Path) -> float:
+    async def probe_duration(self, path: Path) -> float:
         ffprobe_bin = os.environ.get("FFPROBE_EXECUTABLE") or await asyncio.to_thread(shutil.which, "ffprobe")
         if not ffprobe_bin:
             logger.warning("ffprobe not found — falling back to wall-clock duration")
@@ -537,8 +567,12 @@ class RecordingManager:
         except (KeyError, json.JSONDecodeError, ValueError):
             return 0.0
 
-    async def _create_recording_entry(self, dest: Path, mp4_name: str) -> int:
-        """Create the recording DB entry. Returns the recording ID."""
+    async def _create_recording_entry(self, dest: Path, mp4_name: str, stint: dict | None = None) -> int:
+        """Create the recording DB entry. Returns the recording ID.
+
+        ``stint`` is the one that produced the media when a session fell back —
+        the entry names that source, not the profile the session was created for.
+        """
         from mirrorr.services.session_lifecycle import _get_session_factory
         from mirrorr.storage.models import Recording
         from mirrorr.storage import crud
@@ -549,18 +583,27 @@ class RecordingManager:
         stat = mp4_in_dest.stat()
         started_at = self.session.started_at or datetime.now(timezone.utc).replace(tzinfo=None)
         ended_at = datetime.now(timezone.utc).replace(tzinfo=None)
-        duration_seconds = await self._probe_duration(mp4_in_dest)
+        duration_seconds = await self.probe_duration(mp4_in_dest)
+        profile_name = (stint or {}).get("profile_name") or (
+            self.session.profile.name if self.session.profile else ""
+        )
+        engine_name = (stint or {}).get("engine_name") or (
+            self.session.engine.name if self.session.engine else ""
+        )
+        resolver_name = (stint or {}).get("resolver_name") or (
+            self.session.profile.resolver.name if self.session.profile else self.session.resolver.name
+        )
 
         async with _get_session_factory(self.settings) as session_factory:
             async with session_factory() as db:
                 recording = Recording(
-                    user_friendly_name=self.session.profile.name if self.session.profile else f"Session #{self.session.id}",
+                    user_friendly_name=profile_name or f"Session #{self.session.id}",
                     snake_case_name=dest.name,
                     disk_path=str(dest),
                     content_url=f"{self.settings.web_url}/content/recordings/{dest.name}/{mp4_name}",
-                    profile_name=self.session.profile.name if self.session.profile else "",
-                    engine_name=self.session.engine.name if self.session.engine else "",
-                    resolver_name=(self.session.profile.resolver.name if self.session.profile else self.session.resolver.name),
+                    profile_name=profile_name,
+                    engine_name=engine_name,
+                    resolver_name=resolver_name,
                     session_id=self.session.id,
                     started_at=started_at,
                     ended_at=ended_at,

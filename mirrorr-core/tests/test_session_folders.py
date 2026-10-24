@@ -9,13 +9,14 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 
 from mirrorr.di import container
+from mirrorr.services import session_supervisor
 from mirrorr.services.session_lifecycle import live_folder_holder
 from mirrorr.services.session_supervisor import SessionSupervisor
 from mirrorr.startup.config import MirrorrSettings
@@ -23,31 +24,60 @@ from mirrorr.storage.enums import SessionStatus
 from mirrorr.storage.models import Session
 
 
-def _autorun_session(profile_id: int, profile_name: str) -> SimpleNamespace:
+def _autorun_session() -> SimpleNamespace:
     return SimpleNamespace(
         id=5,
         is_autorun=True,
         autorun=SimpleNamespace(profile_id=1, snake_case_name="united_states_gp_fp2"),
         autorun_id=1,
-        profile=SimpleNamespace(id=profile_id, name=profile_name),
+        profile=SimpleNamespace(id=1, name="F1"),
+        profile_id=1,
+        engine=SimpleNamespace(name="yt-dlp piped"),
         recording=False,
+        resolver=SimpleNamespace(name="tvnow247", origin="tvnow247", origin_hash="h"),
+        resolver_config={"channel": "577"},
+        retry_mode="none",
+        retry_config={},
+        retry_attempts=0,
+        attempts=[],
+        stints=[],
+        stint_plan=[1, 2],
     )
 
 
-def _folder(tmp_path, session: SimpleNamespace, settings=None) -> Path:
+def _supervisor(tmp_path, settings=None) -> SessionSupervisor:
     settings = settings or MirrorrSettings(base_dir=tmp_path)
-    sup = SessionSupervisor(5, session, SimpleNamespace(), SimpleNamespace(), settings)
-    return sup.session_folder
+    return SessionSupervisor(5, _autorun_session(), SimpleNamespace(), SimpleNamespace(), settings)
 
 
-def test_a_fallback_rung_captures_into_its_own_folder(tmp_path):
+def test_each_stint_captures_into_its_own_folder(tmp_path):
     settings = MirrorrSettings(base_dir=tmp_path)
+    sup = _supervisor(tmp_path, settings)
+    primary = (settings.autoruns_dir / "united_states_gp_fp2").resolve()
+    assert sup.session_folder == primary
+    assert sup._primary_folder == primary
 
-    primary = _folder(tmp_path, _autorun_session(1, "F1"), settings)
-    rung = _folder(tmp_path, _autorun_session(2, "F1 UK"), settings)
+    capture = {
+        "profile_id": 2,
+        "profile_name": "F1 UK",
+        "engine_name": "yt-dlp piped",
+        "resolver_name": "tvnow247",
+        "resolver_origin": "tvnow247",
+        "resolver_hash": "h",
+        "resolver_config": {"channel": "60"},
+        "retry_mode": "none",
+        "retry_config": {},
+    }
+    with patch.object(
+        session_supervisor,
+        "load_profile_capture",
+        AsyncMock(return_value=(capture, SimpleNamespace(), SimpleNamespace())),
+    ):
+        assert asyncio.run(sup._begin_stint(2, 2)) is None
 
-    assert primary == (settings.autoruns_dir / "united_states_gp_fp2").resolve()
-    assert rung == (settings.autoruns_dir / "united_states_gp_fp2_F1 UK").resolve()
+    assert sup.session_folder == primary.parent / f"{primary.name}_stint2"
+    assert sup.segments_folder.parent == sup.session_folder
+    assert sup._stint_capture["profile_name"] == "F1 UK"
 
 
 def test_live_folder_holder_names_the_other_live_session(tmp_path):

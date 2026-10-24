@@ -57,15 +57,12 @@ def fallback_chain(autorun: Autorun) -> list[int | None]:
     return chain
 
 
-async def _spawn_session(
-    db, autorun: Autorun, now: datetime, key: str, profile: Profile | None = None
-) -> int | None:
+async def _spawn_session(db, autorun: Autorun, now: datetime, key: str) -> int | None:
     """Create the session for one slot, or ``None`` if that slot already ran.
 
-    ``profile`` is the fallback being tried: a fallback is a different source,
-    so the session takes that profile's engine, resolver, config and retry
-    policy whole instead of the autorun's snapshot. ``None`` means the chain's
-    first rung — the autorun's own capture.
+    One slot is one session even when its capture falls back: the session carries
+    the whole chain in ``stint_plan`` and runs it itself, so a fallback never
+    spawns a session of its own.
     """
     used = (await db.exec(select(Session.id).where(Session.idempotency_key == key))).first()
     if used is not None:
@@ -77,25 +74,6 @@ async def _spawn_session(
     autorun.last_run_at = now
     db.add(autorun)
 
-    if profile is None:
-        capture = {
-            "profile_id": autorun.profile_id,
-            "engine_id": autorun.engine_id,
-            "resolver_id": autorun.resolver_id,
-            "resolver_config": autorun.resolver_config,
-            "retry_mode": autorun.retry_mode,
-            "retry_config": autorun.retry_config,
-        }
-    else:
-        capture = {
-            "profile_id": profile.id,
-            "engine_id": profile.default_engine_id,
-            "resolver_id": profile.resolver_id,
-            "resolver_config": profile.resolver_config,
-            "retry_mode": profile.retry_mode,
-            "retry_config": profile.retry_config,
-        }
-
     session = Session(
         id=await crud.next_free_id(db, Session),
         autorun_id=autorun.id,
@@ -104,7 +82,13 @@ async def _spawn_session(
         requester_group_id=autorun.requester_group_id,
         recording=autorun.recording,
         idempotency_key=key,
-        **capture,
+        profile_id=autorun.profile_id,
+        engine_id=autorun.engine_id,
+        resolver_id=autorun.resolver_id,
+        resolver_config=autorun.resolver_config,
+        retry_mode=autorun.retry_mode,
+        retry_config=autorun.retry_config,
+        stint_plan=fallback_chain(autorun),
     )
     db.add(session)
     await db.flush()
@@ -178,60 +162,8 @@ async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) 
         for aid in updated_autorun_ids:
             await bus.emit(MirrorrEvent.AUTORUN_UPDATED(id=aid))
 
-    # ── 1b. Move a failed attempt down its fallback chain ─────────────
-    # The last attempt of a slot decides: failed while the window is open and
-    # a rung remains, so the next profile is tried; the last rung failing (or
-    # the window closing) leaves the autorun failed.
-    advanced: list[tuple[int, int]] = []
+    # ── 2. Stop autoruns whose end_time has passed ────────────────
     async with session_factory() as db:
-        rows = (
-            await db.exec(
-                select(Autorun).where(
-                    Autorun.end_time > now,
-                    Autorun.status.in_([AutorunStatus.ACTIVE, AutorunStatus.FAILED]),  # ty:ignore[invalid-argument-type]
-                )
-            )
-        ).all()
-        for autorun in rows:
-            chain = fallback_chain(autorun)
-            if len(chain) < 2:
-                continue
-            last = (
-                await db.exec(
-                    select(Session)
-                    .where(Session.autorun_id == autorun.id)  # ty:ignore[invalid-argument-type]
-                    .order_by(Session.id.desc())  # ty:ignore[invalid-argument-type]
-                    .limit(1)
-                )
-            ).first()
-            if last is None or last.status != SessionStatus.FAILED or last.profile_id not in chain:
-                continue
-            rank = chain.index(last.profile_id)
-            if rank + 1 >= len(chain) or chain[rank + 1] is None:
-                continue
-            profile = await crud.get_by_id(db, Profile, chain[rank + 1])
-            if not profile:
-                logger.warning(f"Autorun {autorun.id}: fallback {rank + 1} points at a profile that is gone")
-                continue
-            logger.warning(f"Autorun {autorun.id}: attempt {rank + 1} failed, falling back to profile {profile.id}")
-            try:
-                async with db.begin_nested():
-                    session_id = await _spawn_session(
-                        db, autorun, now, slot_key(autorun, f"fb{rank + 1}"), profile
-                    )
-                    if session_id is not None:
-                        just_created_ids.add(session_id)
-                        advanced.append((session_id, autorun.id))
-            except Exception as e:
-                logger.error(f"Autorun {autorun.id}: fallback {rank + 1} could not start: {e}")
-        await db.commit()
-
-    for session_id, autorun_id in advanced:
-        await bus.emit(MirrorrEvent.SESSION_CREATED(id=session_id))
-        await bus.emit(MirrorrEvent.AUTORUN_UPDATED(id=autorun_id))
-
-    async with session_factory() as db:
-        # ── 2. Stop autoruns whose end_time has passed ────────────────
         stmt = (
             select(Session)
             .where(
