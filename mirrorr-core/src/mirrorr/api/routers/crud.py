@@ -1094,7 +1094,14 @@ async def delete_recording(id: int, db: AsyncSession = Depends(_get_db), auth: A
 
     counts = await _count_related_records(db, ResourceType.RECORDING, id)
     await _cleanup_related_records(db, ResourceType.RECORDING, id)
+    disk_path = obj.disk_path
     await _safe_delete(db, Recording, id)
+    # The row is gone before the folder: remove_session_folder's guard reads the
+    # kept rows, and this recording must not block its own removal.
+    from mirrorr.di import container
+    from mirrorr.services.session_lifecycle import remove_recording_folder
+
+    await remove_recording_folder(container.settings, disk_path)
     await _safe_emit(MirrorrEvent.RECORDING_DELETED(id=id))
     return DeleteResultResponse(status="deleted", deleted=counts)
 

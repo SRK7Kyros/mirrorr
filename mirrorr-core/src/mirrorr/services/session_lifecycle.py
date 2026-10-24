@@ -335,38 +335,70 @@ async def _retry_orphaned_autoruns(settings: MirrorrSettings, orphaned: list[int
         await bus.emit(MirrorrEvent.AUTORUN_UPDATED(id=autorun_id))
 
 
+def _content_folder(settings: MirrorrSettings, raw: Path | str | None) -> Path | None:
+    """``raw`` as a folder we may remove, or ``None``.
+
+    Only folders inside the content dir are ever touched, and the reserved
+    ``autoruns``/``recordings`` roots are never touched themselves.
+    """
+    if not raw:
+        return None
+    target = Path(raw).resolve()
+    try:
+        rel = target.relative_to(settings.content_dir.resolve())
+    except (ValueError, OSError):
+        return None  # outside the content dir — not ours to manage
+    if not rel.parts or target in {settings.autoruns_dir.resolve(), settings.recordings_dir.resolve()}:
+        return None  # the content root itself, or a reserved tree
+    return target
+
+
+async def _kept_artifacts(settings: MirrorrSettings) -> list[Path]:
+    """Every folder a kept recording's row still names."""
+    async with _get_db_factory(settings) as db_factory:
+        async with db_factory() as db:
+            rows = (await db.exec(select(Recording.disk_path))).all()
+    return [Path(raw).resolve() for raw in rows if raw]
+
+
 async def remove_session_folder(
     settings: MirrorrSettings,
     session_folder: Path | str | None,
 ) -> None:
     """Remove a session's content folder and everything in it.
 
-    Only folders inside the content dir are ever touched, the reserved roots
-    are never touched, and a folder holding a kept recording's artifact is left
-    alone — remux moves a finished session's folder under ``recordings/``, and
-    that is not ours to remove.
+    A folder holding a kept recording's artifact is left alone — remux moves a
+    finished session's folder under ``recordings/``, and that is not ours to
+    remove.
     """
-    if not session_folder:
+    target = _content_folder(settings, session_folder)
+    if target is None:
         return
-
-    from mirrorr.storage import crud
-
-    target = Path(session_folder).resolve()
-    try:
-        rel = target.relative_to(settings.content_dir.resolve())
-    except (ValueError, OSError):
-        return  # outside the content dir — not ours to manage
-    if not rel.parts or target in {settings.autoruns_dir.resolve(), settings.recordings_dir.resolve()}:
-        return  # the content root itself, or a reserved tree
-
-    async with _get_db_factory(settings) as db_factory:
-        async with db_factory() as db:
-            artifacts = (await db.exec(select(Recording.disk_path))).all()
-    if any(
-        raw and (Path(raw).resolve() == target or target in Path(raw).resolve().parents)
-        for raw in artifacts
-    ):
+    if any(p == target or target in p.parents for p in await _kept_artifacts(settings)):
         return  # something kept lives in there
+
+    await asyncio.to_thread(shutil.rmtree, target, True)
+
+
+async def remove_recording_folder(
+    settings: MirrorrSettings,
+    disk_path: Path | str | None,
+) -> None:
+    """Remove a deleted recording's folder and everything in it.
+
+    ``Recording.disk_path`` is the recording's own folder under ``recordings/``
+    (``finalize`` moves the session folder there and names the row after it), so
+    the media, the player shells and the logs go with it — the delete the
+    console describes, which used to remove the row and leave the bytes.
+    """
+    target = _content_folder(settings, disk_path)
+    if target is None or not target.is_dir():
+        return
+    if any(
+        p == target or target in p.parents or p in target.parents
+        for p in await _kept_artifacts(settings)
+    ):
+        return  # another recording still points at, in, or above it
 
     await asyncio.to_thread(shutil.rmtree, target, True)
 
