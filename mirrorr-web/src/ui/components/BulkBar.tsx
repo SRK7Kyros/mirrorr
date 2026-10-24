@@ -4,7 +4,7 @@ import { pluralize } from "@/ui/lib/format"
 import { Button } from "./Button"
 
 const BULK_BAR_CLASS =
-  "sticky bottom-3 z-[var(--z-sticky)] flex items-center gap-3 py-2 px-3 border [border-color:var(--accent-line)] rounded-md bg-surface-3 shadow-elev-md animate-[bulk-in_var(--dur-med)_var(--ease-out)]"
+  "sticky bottom-[calc(var(--s-3)_+_var(--safe-bottom))] z-[var(--z-sticky)] flex items-center gap-3 py-2 px-3 border [border-color:var(--accent-line)] rounded-md bg-surface-3 shadow-elev-md animate-[bulk-in_var(--dur-med)_var(--ease-out)] max-sm:bottom-[calc(var(--bottomnav-h)_+_var(--safe-bottom)_+_var(--s-5))]"
 
 const BULK_COUNT_CLASS = "text-sm font-medium text-ink whitespace-nowrap"
 

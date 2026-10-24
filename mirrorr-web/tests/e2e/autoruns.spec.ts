@@ -105,4 +105,22 @@ test.describe("scheduled recordings", () => {
     ])
     for (const call of puts) expect(call.body).toEqual({ profile_id: 2 })
   })
+
+  test("a phone keeps the bulk bar clear of the bottom nav", async ({ page }) => {
+    await page.setViewportSize({ width: 402, height: 874 })
+    await page.goto("/autoruns")
+    await page.getByLabel("Select all scheduled recordings").check()
+
+    const bar = page.getByRole("region", { name: "Bulk actions" })
+    const nav = page.getByRole("navigation", { name: "Primary" })
+    await expect(bar).toBeVisible()
+    await expect(nav).toBeVisible()
+    await page.mouse.wheel(0, 600)
+
+    const barBox = await bar.boundingBox()
+    const navBox = await nav.boundingBox()
+    if (barBox === null || navBox === null) throw new Error("the bulk bar or the nav is not laid out")
+    expect(barBox.y + barBox.height).toBeLessThanOrEqual(navBox.y - 4)
+    expect(barBox.y + barBox.height).toBeLessThanOrEqual(874)
+  })
 })
