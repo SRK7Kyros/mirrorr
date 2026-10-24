@@ -98,7 +98,7 @@ const REGION_CLASS = [
   "fixed bottom-5 right-5 z-[var(--z-toast)] flex flex-col gap-2",
   "w-[min(24rem,calc(100vw_-_32px))] pointer-events-none",
   "max-sm:left-3 max-sm:right-3 max-sm:w-auto",
-  "max-sm:bottom-[calc(var(--bottomnav-h)_+_env(safe-area-inset-bottom,0px)_+_var(--s-6))]",
+  "max-sm:bottom-[calc(var(--bottomnav-h)_+_var(--safe-bottom)_+_var(--s-6))]",
 ].join(" ")
 
 /** Fixed bottom-right toast stack. Mount once per app. */

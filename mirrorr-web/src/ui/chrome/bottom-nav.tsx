@@ -21,7 +21,7 @@ export function BottomNav() {
 
   return (
     <nav
-      className="fixed bottom-[calc(var(--s-3)_+_env(safe-area-inset-bottom,0px))] left-1/2 z-[var(--z-sidebar)] hidden w-[min(calc(100%_-_var(--s-6)),30rem)] -translate-x-1/2 max-sm:block"
+      className="fixed bottom-[calc(var(--s-3)_+_var(--safe-bottom))] left-1/2 z-[var(--z-sidebar)] hidden w-[min(calc(100%_-_var(--s-6)),30rem)] -translate-x-1/2 max-sm:block"
       aria-label="Primary"
     >
       <div className="flex h-[var(--bottomnav-h)] items-center gap-1 rounded-full border border-line-strong bg-[color-mix(in_srgb,var(--surface-2)_86%,transparent)] px-1 shadow-elev-lg backdrop-blur-[16px]">
