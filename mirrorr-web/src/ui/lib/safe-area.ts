@@ -1,14 +1,23 @@
 /**
  * Safe-area insets, kept current in `--safe-top/right/bottom/left`.
  *
- * `env(safe-area-inset-*)` alone is not reliable on a phone that turns: the
- * WebView can keep answering with the orientation it just left, so a portrait
- * screen comes back carrying the landscape notch on one side and no top inset
- * at all — the status bar then covers the top bar and the content column starts
- * a notch's width in from the edge. A notch's thickness does not depend on the
- * orientation, so the value can be moved to the edge the current orientation
- * needs; the same reading is re-taken on every rotation and written where the
- * stylesheet reads it.
+ * Reading them once is not enough, for two separate reasons.
+ *
+ * A WKWebView answers `env(safe-area-inset-*)` with zeros until shortly after
+ * it has been initialised — on first launch *and* again on every return from
+ * suspension (WebKit bug 191872) — so a single read at start-up records a phone
+ * with no notch and the status bar keeps the top bar. The reading is therefore
+ * re-taken a few times over the next couple of seconds, and again whenever the
+ * page is shown after being hidden.
+ *
+ * A turned WebView can also keep answering with the orientation it just left,
+ * so a portrait screen comes back carrying the landscape notch on one side and
+ * no top inset at all. A notch's thickness does not depend on the orientation,
+ * so the value can be moved to the edge the current orientation needs.
+ *
+ * The native shell may also publish the insets itself (Capacitor's Android
+ * `SystemBars` injects `--safe-area-inset-*`, which is what to trust where
+ * `env()` is still wrong — Android WebView below 140). Those win when present.
  */
 
 export interface SafeAreaInsets {
@@ -29,9 +38,18 @@ const PROBE_PADDING =
 const PROBE_STYLE =
   "position:fixed;top:0;left:0;width:0;height:0;visibility:hidden;pointer-events:none;padding:"
 
+/** How long the engine may take to publish real insets after it starts or
+ *  resumes. The last few reads are cheap (one throwaway element each) and are
+ *  what turns a zero from a cold WebView into the phone's real notch. */
+const SETTLE_DELAYS_MS = [60, 180, 400, 800, 1600, 2400]
+
 function toPixels(value: string | undefined): number {
   const parsed = Number.parseFloat(value ?? "")
   return Number.isFinite(parsed) ? parsed : 0
+}
+
+function sum(insets: SafeAreaInsets): number {
+  return insets.top + insets.right + insets.bottom + insets.left
 }
 
 /**
@@ -53,6 +71,32 @@ export function readEnvInsets(doc: Document): SafeAreaInsets {
   }
   probe.remove()
   return insets
+}
+
+/**
+ * The insets the native shell published on `<html>`, if any. Capacitor's
+ * Android `SystemBars` writes `--safe-area-inset-*` because `env()` is still
+ * wrong there on older WebViews; a browser has neither variable and both
+ * readings are zero.
+ */
+export function readNativeInsets(doc: Document): SafeAreaInsets {
+  const style = doc.defaultView?.getComputedStyle(doc.documentElement)
+  const read = (name: string): number =>
+    toPixels(style?.getPropertyValue(name))
+  return {
+    top: read("--safe-area-inset-top"),
+    right: read("--safe-area-inset-right"),
+    bottom: read("--safe-area-inset-bottom"),
+    left: read("--safe-area-inset-left"),
+  }
+}
+
+/** The phone's insets: the shell's own reading when it has one, else the
+ *  engine's. */
+export function readInsets(doc: Document): SafeAreaInsets {
+  const native = readNativeInsets(doc)
+  if (sum(native) > 0) return native
+  return readEnvInsets(doc)
 }
 
 /**
@@ -82,35 +126,70 @@ export function applyInsets(root: HTMLElement, insets: SafeAreaInsets): void {
   root.style.setProperty("--safe-left", `${insets.left}px`)
 }
 
-/** Write the insets now and after every rotation, resize and back/forward
- *  return. Returns the disposer. */
+function sameInsets(a: SafeAreaInsets, b: SafeAreaInsets): boolean {
+  return (
+    a.top === b.top &&
+    a.right === b.right &&
+    a.bottom === b.bottom &&
+    a.left === b.left
+  )
+}
+
+/** Write the insets now, again while a cold or resumed WebView settles, and
+ *  after every rotation, resize and return to the page. Returns the disposer. */
 export function installSafeArea(doc: Document, win: Window): () => void {
   const root = doc.documentElement
+  let last: SafeAreaInsets | null = null
+  let settleTimers: number[] = []
+  let disposed = false
+
   const update = (): void => {
+    if (disposed) return
     const insets = normalizeInsets(
-      readEnvInsets(doc),
+      readInsets(doc),
       win.innerHeight >= win.innerWidth,
       win.innerWidth,
     )
+    if (last !== null && sameInsets(last, insets)) return
+    last = insets
     applyInsets(root, insets)
   }
-
-  update()
 
   const later = (): void => {
     update()
     win.requestAnimationFrame(update)
   }
 
+  const settle = (): void => {
+    for (const timer of settleTimers) win.clearTimeout(timer)
+    settleTimers = SETTLE_DELAYS_MS.map((delay) => win.setTimeout(update, delay))
+    update()
+  }
+
+  const resume = (): void => {
+    if (doc.visibilityState === "hidden") return
+    later()
+    settle()
+  }
+
+  settle()
+
   win.addEventListener("resize", later)
   win.addEventListener("orientationchange", later)
-  win.addEventListener("pageshow", update)
+  win.addEventListener("pageshow", resume)
+  win.addEventListener("focus", resume)
+  doc.addEventListener("visibilitychange", resume)
   win.visualViewport?.addEventListener("resize", later)
 
   return () => {
+    disposed = true
+    for (const timer of settleTimers) win.clearTimeout(timer)
+    settleTimers = []
     win.removeEventListener("resize", later)
     win.removeEventListener("orientationchange", later)
-    win.removeEventListener("pageshow", update)
+    win.removeEventListener("pageshow", resume)
+    win.removeEventListener("focus", resume)
+    doc.removeEventListener("visibilitychange", resume)
     win.visualViewport?.removeEventListener("resize", later)
   }
 }

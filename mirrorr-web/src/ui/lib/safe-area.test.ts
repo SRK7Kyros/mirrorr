@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   applyInsets,
+  installSafeArea,
   normalizeInsets,
   readEnvInsets,
+  readInsets,
   type SafeAreaInsets,
 } from "./safe-area"
 
@@ -11,6 +13,42 @@ const HOME = 34
 
 function insets(overrides: Partial<SafeAreaInsets>): SafeAreaInsets {
   return { top: 0, right: 0, bottom: 0, left: 0, ...overrides }
+}
+
+function port(overrides: Partial<SafeAreaInsets>): void {
+  const root = document.documentElement
+  root.style.setProperty("--safe-area-inset-top", `${overrides.top ?? 0}px`)
+  root.style.setProperty("--safe-area-inset-right", `${overrides.right ?? 0}px`)
+  root.style.setProperty("--safe-area-inset-bottom", `${overrides.bottom ?? 0}px`)
+  root.style.setProperty("--safe-area-inset-left", `${overrides.left ?? 0}px`)
+}
+
+function clearPort(): void {
+  const style = document.documentElement.style
+  for (const name of [
+    "--safe-area-inset-top",
+    "--safe-area-inset-right",
+    "--safe-area-inset-bottom",
+    "--safe-area-inset-left",
+    "--safe-top",
+    "--safe-right",
+    "--safe-bottom",
+    "--safe-left",
+  ]) {
+    style.removeProperty(name)
+  }
+}
+
+function applied(): SafeAreaInsets {
+  const style = document.documentElement.style
+  const read = (name: string): number =>
+    Number.parseFloat(style.getPropertyValue(name) || "0")
+  return {
+    top: read("--safe-top"),
+    right: read("--safe-right"),
+    bottom: read("--safe-bottom"),
+    left: read("--safe-left"),
+  }
 }
 
 describe("normalizeInsets", () => {
@@ -71,5 +109,69 @@ describe("readEnvInsets", () => {
     const before = document.body.children.length
     expect(readEnvInsets(document)).toEqual({ top: 0, right: 0, bottom: 0, left: 0 })
     expect(document.body.children.length).toBe(before)
+  })
+})
+
+describe("readInsets", () => {
+  afterEach(clearPort)
+
+  it("prefers the insets the native shell published", () => {
+    port({ top: 59, bottom: 34 })
+    expect(readInsets(document)).toEqual({ top: 59, right: 0, bottom: 34, left: 0 })
+  })
+
+  it("falls back to the engine when the shell published nothing", () => {
+    expect(readInsets(document)).toEqual({ top: 0, right: 0, bottom: 0, left: 0 })
+  })
+})
+
+describe("installSafeArea", () => {
+  let dispose: (() => void) | null = null
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.stubGlobal("requestAnimationFrame", (callback: () => void) => {
+      callback()
+      return 0
+    })
+  })
+
+  afterEach(() => {
+    dispose?.()
+    dispose = null
+    clearPort()
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+  })
+
+  it("picks the phone's insets up after the WebView has settled", () => {
+    dispose = installSafeArea(document, window)
+    expect(applied()).toEqual({ top: 0, right: 0, bottom: 0, left: 0 })
+
+    port({ top: 59, bottom: 34 })
+    vi.advanceTimersByTime(60)
+
+    expect(applied()).toEqual({ top: 59, right: 0, bottom: 34, left: 0 })
+  })
+
+  it("re-reads when the page comes back from suspension", () => {
+    dispose = installSafeArea(document, window)
+    vi.advanceTimersByTime(2400)
+    expect(applied().top).toBe(0)
+
+    port({ top: 59, bottom: 34 })
+    document.dispatchEvent(new Event("visibilitychange"))
+
+    expect(applied()).toEqual({ top: 59, right: 0, bottom: 34, left: 0 })
+  })
+
+  it("stops writing once it is disposed", () => {
+    const uninstall = installSafeArea(document, window)
+    uninstall()
+
+    port({ top: 59 })
+    vi.advanceTimersByTime(2400)
+
+    expect(applied().top).toBe(0)
   })
 })

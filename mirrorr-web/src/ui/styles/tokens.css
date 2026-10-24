@@ -123,13 +123,15 @@
   --content-max: 1400px;
   --bottomnav-h: 56px;
 
-  /* Safe-area insets. `src/ui/lib/safe-area.ts` rewrites these on every
-     rotation, because a turned phone can keep answering with the previous
-     orientation's insets; the `env()` here is the no-script fallback. */
-  --safe-top: env(safe-area-inset-top, 0px);
-  --safe-right: env(safe-area-inset-right, 0px);
-  --safe-bottom: env(safe-area-inset-bottom, 0px);
-  --safe-left: env(safe-area-inset-left, 0px);
+  /* Safe-area insets. `src/ui/lib/safe-area.ts` rewrites these as the phone's
+     real insets arrive (a WKWebView answers zeros until it has initialised, and
+     again after a resume) and on every rotation. The native shell publishes its
+     own `--safe-area-inset-*` on Android, which `env()` still gets wrong below
+     WebView 140, and `env()` is the no-script fallback. */
+  --safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --safe-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+  --safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --safe-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
 
   /* ── Motion ────────────────────────────────────────────────────── */
   --dur-instant: 80ms;
