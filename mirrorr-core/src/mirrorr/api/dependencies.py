@@ -1,4 +1,4 @@
-"""Shared FastAPI dependencies: DB sessions, auth middleware, request state."""
+"""Shared FastAPI dependencies: the DB handle, auth middleware, request state."""
 
 from __future__ import annotations
 
@@ -10,19 +10,19 @@ from fastapi import Depends, HTTPException, Request, WebSocket
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from mirrorr.storage.database import get_session_factory
+from mirrorr.storage.database import get_db_factory
 from mirrorr.storage.models import Client, User
 
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 
-# ── DB session ───────────────────────────────────────────────────────
+# ── DB handle ────────────────────────────────────────────────────────
 
 
-async def _get_db_session() -> AsyncGenerator[AsyncSession, Any]:
-    async with get_session_factory()() as session:
-        yield session
+async def _get_db() -> AsyncGenerator[AsyncSession, Any]:
+    async with get_db_factory()() as db:
+        yield db
 
 
 # ── Request state for auth ───────────────────────────────────────────
@@ -81,7 +81,7 @@ async def get_auth(
     request: Request,
     x_api_key: str | None = Depends(_api_key_header),
     bearer: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
 ) -> AuthState:
     """FastAPI dependency: validate API key + JWT, resolve client + user.
 
@@ -184,7 +184,7 @@ async def ws_auth(
         except Exception:
             pass
 
-    async with get_session_factory()() as db:
+    async with get_db_factory()() as db:
         auth = await _resolve_auth(db, api_key, token)
 
     if not auth.client and not auth.user:

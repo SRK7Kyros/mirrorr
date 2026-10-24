@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import col as sa_col, delete as sql_delete, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from mirrorr.api.dependencies import _get_db_session, require_admin
+from mirrorr.api.dependencies import _get_db, require_admin
 from mirrorr.api.schemas import (
     CreateGroupRequest,
     DeleteGroupResponse,
@@ -79,7 +79,7 @@ def _reserved(action: str) -> HTTPException:
 
 
 @groups_router.get("", response_model=GroupListResponse)
-async def list_groups(db: AsyncSession = Depends(_get_db_session)):
+async def list_groups(db: AsyncSession = Depends(_get_db)):
     usernames = await _usernames(db)
     groups = (await db.exec(select(Group).order_by(Group.name))).all()
     items = [await _group_view(db, group, usernames) for group in groups]
@@ -88,7 +88,7 @@ async def list_groups(db: AsyncSession = Depends(_get_db_session)):
 
 @groups_router.post("", response_model=GroupResponse)
 async def create_group(
-    item: CreateGroupRequest, db: AsyncSession = Depends(_get_db_session)
+    item: CreateGroupRequest, db: AsyncSession = Depends(_get_db)
 ):
     group = Group(name=_clean_name(item.name), display_name=item.display_name.strip())
     db.add(group)
@@ -102,7 +102,7 @@ async def create_group(
 
 @groups_router.patch("/{group_id}", response_model=GroupResponse)
 async def update_group(
-    group_id: int, item: UpdateGroupRequest, db: AsyncSession = Depends(_get_db_session)
+    group_id: int, item: UpdateGroupRequest, db: AsyncSession = Depends(_get_db)
 ):
     group = await load_group(db, group_id)
     if group.system:
@@ -121,7 +121,7 @@ async def update_group(
 
 
 @groups_router.delete("/{group_id}", response_model=DeleteGroupResponse)
-async def delete_group(group_id: int, db: AsyncSession = Depends(_get_db_session)):
+async def delete_group(group_id: int, db: AsyncSession = Depends(_get_db)):
     group = await load_group(db, group_id)
     if group.system:
         raise _reserved("deleted")
@@ -141,7 +141,7 @@ async def delete_group(group_id: int, db: AsyncSession = Depends(_get_db_session
 
 @groups_router.put("/{group_id}/members", response_model=GroupResponse)
 async def set_members(
-    group_id: int, item: SetMembersRequest, db: AsyncSession = Depends(_get_db_session)
+    group_id: int, item: SetMembersRequest, db: AsyncSession = Depends(_get_db)
 ):
     group = await load_group(db, group_id)
     if group.system:

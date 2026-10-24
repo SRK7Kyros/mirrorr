@@ -13,7 +13,7 @@ which guarantee:
    - If session was deleted: SESSION_DELETED + AUTORUN_UPDATED
 
 DB access strategy:
-- Main process: uses the DI container's shared session_factory
+- Main process: uses the DI container's shared db_factory
 - Subprocess (supervisor): falls back to creating a fresh engine from settings
 
 Usage:
@@ -89,10 +89,10 @@ class SessionNotFoundError(RuntimeError):
 
 
 @asynccontextmanager
-async def _get_session_factory(
+async def _get_db_factory(
     settings: MirrorrSettings | None = None,
 ) -> AsyncGenerator[async_sessionmaker, None]:
-    """Get a session factory, preferring the DI container.
+    """Get a db factory, preferring the DI container.
 
     In the main process, the DI container holds a shared factory.
     In subprocesses (supervisor), the container isn't wired, so we
@@ -106,7 +106,7 @@ async def _get_session_factory(
     factory = None
     try:
         from mirrorr.di import container
-        factory = container.session_factory
+        factory = container.db_factory
     except (RuntimeError, ImportError):
         factory = None
 
@@ -116,11 +116,11 @@ async def _get_session_factory(
 
     # Fallback: create engine from settings (subprocess)
     if settings is None:
-        raise RuntimeError("No DI container and no settings — cannot get session factory")
+        raise RuntimeError("No DI container and no settings — cannot get a db factory")
     from mirrorr.storage.database import create_db_engine
-    db_engine, session_factory = create_db_engine(settings)
+    db_engine, db_factory = create_db_engine(settings)
     try:
-        yield session_factory
+        yield db_factory
     finally:
         await db_engine.dispose()
 
@@ -150,8 +150,8 @@ async def update_session(
     diff: dict[str, tuple[Any, Any]] = {}
     autorun_id: int | None = None
     try:
-        async with _get_session_factory(settings) as session_factory:
-            async with session_factory() as db:
+        async with _get_db_factory(settings) as db_factory:
+            async with db_factory() as db:
                 session = await crud.get_by_id(db, Session, session_id)
                 if not session:
                     # Session was deleted between the caller's fetch and this
@@ -249,8 +249,8 @@ async def live_folder_holder(
     A folder holds one playlist and one segment set, so a second session
     writing there would interleave its segments with the first one's.
     """
-    async with _get_session_factory(settings) as session_factory:
-        async with session_factory() as db:
+    async with _get_db_factory(settings) as db_factory:
+        async with db_factory() as db:
             return (
                 await db.exec(
                     select(Session.id)
@@ -275,8 +275,8 @@ async def fail_orphaned_sessions(
     command has no subscriber. An autorun that opted into ``retry`` then gets a
     fresh session, so a restart does not silently cost it the rest of its window.
     """
-    async with _get_session_factory(settings) as session_factory:
-        async with session_factory() as db:
+    async with _get_db_factory(settings) as db_factory:
+        async with db_factory() as db:
             orphaned = list(
                 (await db.exec(select(Session.id).where(Session.status.in_(LIVE_STATUSES)))).all()
             )
@@ -301,8 +301,8 @@ async def _retry_orphaned_autoruns(settings: MirrorrSettings, orphaned: list[int
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     started: list[tuple[int, int]] = []
 
-    async with _get_session_factory(settings) as session_factory:
-        async with session_factory() as db:
+    async with _get_db_factory(settings) as db_factory:
+        async with db_factory() as db:
             rows = (
                 await db.exec(
                     select(Session)
@@ -359,8 +359,8 @@ async def remove_session_folder(
     if not rel.parts or target in {settings.autoruns_dir.resolve(), settings.recordings_dir.resolve()}:
         return  # the content root itself, or a reserved tree
 
-    async with _get_session_factory(settings) as session_factory:
-        async with session_factory() as db:
+    async with _get_db_factory(settings) as db_factory:
+        async with db_factory() as db:
             artifacts = (await db.exec(select(Recording.disk_path))).all()
     if any(
         raw and (Path(raw).resolve() == target or target in Path(raw).resolve().parents)
@@ -390,8 +390,8 @@ async def delete_session(
 
     # 1. Delete from DB first — if this fails, we don't touch the folder
     try:
-        async with _get_session_factory(settings) as session_factory:
-            async with session_factory() as db:
+        async with _get_db_factory(settings) as db_factory:
+            async with db_factory() as db:
                 # Same cleanup as the API delete path (_cascade_delete_session):
                 # subscriptions, notifications and view grants all go with the row.
                 await _cleanup_related_records(db, ResourceType.SESSION, session_id)
@@ -441,8 +441,8 @@ async def update_autorun(
 
     diff: dict[str, tuple[Any, Any]] = {}
     try:
-        async with _get_session_factory(settings) as session_factory:
-            async with session_factory() as db:
+        async with _get_db_factory(settings) as db_factory:
+            async with db_factory() as db:
                 autorun = await crud.get_by_id(db, Autorun, autorun_id)
                 if not autorun:
                     logger.warning(f"update_autorun: autorun {autorun_id} not found")

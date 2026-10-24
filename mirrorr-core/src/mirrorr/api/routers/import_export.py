@@ -29,7 +29,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from mirrorr.api.dependencies import AuthState, _get_db_session, require_auth
+from mirrorr.api.dependencies import AuthState, _get_db, require_auth
 from mirrorr.services.permissions import has_capability
 from mirrorr.storage import crud
 from mirrorr.storage.enums import Capability
@@ -171,7 +171,7 @@ def _plugin_ref(plugin: Engine | Resolver) -> dict[str, Any]:
 @import_export_router.get("/profiles/{id}/export")
 async def export_profile(
     id: int,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(require_auth),
 ):
     """Export a single profile as a portable bundle."""
@@ -198,7 +198,7 @@ async def export_profile(
 @import_export_router.get("/autoruns/{id}/export")
 async def export_autorun(
     id: int,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(require_auth),
 ):
     """Export a single autorun (and its linked profile) as a portable bundle."""
@@ -331,7 +331,7 @@ async def fetch_bundle(
 @import_export_router.post("/validate")
 async def validate_bundle(
     bundle: dict[str, Any] = Body(...),
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(require_auth),
 ):
     """Validate an import bundle against the current installation.
@@ -561,7 +561,7 @@ async def _unique_snake_case_name(db: AsyncSession, base: str) -> str:
 @import_export_router.post("/apply")
 async def apply_bundle(
     payload: dict[str, Any] = Body(...),
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(require_auth),
 ):
     """Apply a validated import bundle.

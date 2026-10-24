@@ -1,7 +1,7 @@
 """Lightweight dependency injection container.
 
 Provides a single place to store and retrieve application-wide singletons
-(settings, session factory, event bus). Avoids module-level globals scattered
+(settings, db factory, event bus). Avoids module-level globals scattered
 across the codebase and makes testing easier by allowing swap-out of
 implementations.
 
@@ -9,11 +9,11 @@ Usage:
     from mirrorr.di import container
 
     # During boot:
-    container.configure(settings=settings, session_factory=factory, event_bus=bus)
+    container.configure(settings=settings, db_factory=factory, event_bus=bus)
 
     # Anywhere else:
     settings = container.settings
-    session_factory = container.session_factory
+    db_factory = container.db_factory
     event_bus = container.event_bus
 """
 
@@ -37,7 +37,7 @@ class _Container:
 
     def __init__(self) -> None:
         self._settings: MirrorrSettings | None = None
-        self._session_factory: async_sessionmaker | None = None
+        self._db_factory: async_sessionmaker | None = None
         self._event_bus: EventBus | None = None
         self._configured = False
 
@@ -47,21 +47,21 @@ class _Container:
         self,
         *,
         settings: MirrorrSettings,
-        session_factory: async_sessionmaker,
+        db_factory: async_sessionmaker,
         event_bus: EventBus,
     ) -> None:
         """Wire up all singletons.  Called once by MirrorrCore._boot()."""
         if self._configured:
             raise RuntimeError("DI container already configured — double boot?")
         self._settings = settings
-        self._session_factory = session_factory
+        self._db_factory = db_factory
         self._event_bus = event_bus
         self._configured = True
 
     def reset(self) -> None:
         """Reset all singletons.  For testing only."""
         self._settings = None
-        self._session_factory = None
+        self._db_factory = None
         self._event_bus = None
         self._configured = False
 
@@ -74,10 +74,10 @@ class _Container:
         return self._settings
 
     @property
-    def session_factory(self) -> async_sessionmaker:
-        if self._session_factory is None:
+    def db_factory(self) -> async_sessionmaker:
+        if self._db_factory is None:
             raise RuntimeError("Container not configured. Call container.configure() first.")
-        return self._session_factory
+        return self._db_factory
 
     @property
     def event_bus(self) -> EventBus:

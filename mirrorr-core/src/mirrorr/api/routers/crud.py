@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
-from mirrorr.api.dependencies import _get_db_session, require_auth, AuthState
+from mirrorr.api.dependencies import _get_db, require_auth, AuthState
 from mirrorr.api.privileged import PrivilegedRoute
 from mirrorr.api.auth import subscribe_requester
 from mirrorr.api.schemas import (
@@ -673,7 +673,7 @@ sessions_router = APIRouter(prefix="/sessions", route_class=PrivilegedRoute)
 
 @sessions_router.get("/", response_model=SessionListResponse)
 async def get_all_sessions(
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(require_auth),
     cursor: int | None = Query(None, description="ID of last item from previous page"),
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
@@ -707,7 +707,7 @@ async def get_all_sessions(
 
 
 @sessions_router.get("/{id}", response_model=SessionResponse)
-async def get_session(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+async def get_session(id: int, db: AsyncSession = Depends(_get_db), auth: AuthState = Depends(require_auth)):
     item = await crud.get_by_id(db, Session, id, options=_SESSION_OPTIONS)
     if not item:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -768,7 +768,7 @@ def _merge_profile_capture(profile: Profile | None, payload_data: dict[str, Any]
 
 
 @sessions_router.post("/", response_model=SessionResponse)
-async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(_get_db), auth: AuthState = Depends(require_auth)):
     profile = await _load_visible_profile(db, item.profile_id, auth)
     engine_id, resolver_id, resolver_config, retry_mode, retry_config = _resolve_capture_target(
         profile, item.engine_id, item.resolver_id, item.resolver_config, item.retry_mode, item.retry_config
@@ -804,7 +804,7 @@ async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(
 
 
 @sessions_router.delete("/{id}", response_model=DeleteResultResponse)
-async def delete_session(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+async def delete_session(id: int, db: AsyncSession = Depends(_get_db), auth: AuthState = Depends(require_auth)):
     obj = await crud.get_by_id(db, Session, id)
     if not obj:
         raise HTTPException(status_code=404, detail="Not found")
@@ -836,7 +836,7 @@ autoruns_router = APIRouter(prefix="/autoruns", route_class=PrivilegedRoute)
 
 @autoruns_router.get("/", response_model=AutorunListResponse)
 async def get_all_autoruns(
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(require_auth),
     cursor: int | None = Query(None, description="ID of last item from previous page"),
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
@@ -861,7 +861,7 @@ async def get_all_autoruns(
 
 
 @autoruns_router.get("/{id}", response_model=AutorunResponse)
-async def get_autorun(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+async def get_autorun(id: int, db: AsyncSession = Depends(_get_db), auth: AuthState = Depends(require_auth)):
     item = await crud.get_by_id(db, Autorun, id, options=_AUTORUN_OPTIONS)
     if not item:
         raise HTTPException(status_code=404, detail="Autorun not found")
@@ -871,7 +871,7 @@ async def get_autorun(id: int, db: AsyncSession = Depends(_get_db_session), auth
 
 
 @autoruns_router.post("/", response_model=AutorunResponse)
-async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(_get_db), auth: AuthState = Depends(require_auth)):
     profile = await _load_visible_profile(db, item.profile_id, auth)
     engine_id, resolver_id, resolver_config, retry_mode, retry_config = _resolve_capture_target(
         profile, item.engine_id, item.resolver_id, item.resolver_config, item.retry_mode, item.retry_config
@@ -918,7 +918,7 @@ async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(
 
 
 @autoruns_router.put("/{id}", response_model=AutorunResponse)
-async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession = Depends(_get_db), auth: AuthState = Depends(require_auth)):
     existing = await crud.get_by_id(db, Autorun, id)
     if not existing:
         raise HTTPException(status_code=404, detail="Autorun not found")
@@ -964,7 +964,7 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
 
 
 @autoruns_router.delete("/{id}", response_model=DeleteResultResponse)
-async def delete_autorun(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+async def delete_autorun(id: int, db: AsyncSession = Depends(_get_db), auth: AuthState = Depends(require_auth)):
     obj = await crud.get_by_id(db, Autorun, id)
     if not obj:
         raise HTTPException(status_code=404, detail="Not found")
@@ -1013,7 +1013,7 @@ async def _create_profile_from_entity(
 
 
 @crud_routers.post("/autoruns/{autorun_id}/save-as-profile")
-async def save_autorun_as_profile(autorun_id: int, req: SaveProfileRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+async def save_autorun_as_profile(autorun_id: int, req: SaveProfileRequest, db: AsyncSession = Depends(_get_db), auth: AuthState = Depends(require_auth)):
     autorun = await crud.get_by_id(db, Autorun, autorun_id)
     if not autorun:
         raise HTTPException(status_code=404, detail="Autorun not found")
@@ -1032,7 +1032,7 @@ crud_routers.include_router(autoruns_router)
 
 
 @crud_routers.post("/sessions/{session_id}/save-as-profile")
-async def save_session_as_profile(session_id: int, req: SaveProfileRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+async def save_session_as_profile(session_id: int, req: SaveProfileRequest, db: AsyncSession = Depends(_get_db), auth: AuthState = Depends(require_auth)):
     session = await crud.get_by_id(db, Session, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -1052,7 +1052,7 @@ recordings_router = APIRouter(prefix="/recordings", route_class=PrivilegedRoute)
 
 @recordings_router.get("/", response_model=RecordingListResponse)
 async def get_all_recordings(
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(require_auth),
     cursor: int | None = Query(None, description="ID of last item from previous page"),
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
@@ -1075,7 +1075,7 @@ async def get_all_recordings(
 
 
 @recordings_router.get("/{id}", response_model=RecordingResponse)
-async def get_recording(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+async def get_recording(id: int, db: AsyncSession = Depends(_get_db), auth: AuthState = Depends(require_auth)):
     item = await crud.get_by_id(db, Recording, id)
     if not item:
         raise HTTPException(status_code=404, detail="Recording not found")
@@ -1085,7 +1085,7 @@ async def get_recording(id: int, db: AsyncSession = Depends(_get_db_session), au
 
 
 @recordings_router.delete("/{id}", response_model=DeleteResultResponse)
-async def delete_recording(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+async def delete_recording(id: int, db: AsyncSession = Depends(_get_db), auth: AuthState = Depends(require_auth)):
     obj = await crud.get_by_id(db, Recording, id)
     if not obj:
         raise HTTPException(status_code=404, detail="Not found")
@@ -1108,7 +1108,7 @@ profiles_router = APIRouter(prefix="/profiles", route_class=PrivilegedRoute)
 
 @profiles_router.get("/", response_model=ProfileListResponse)
 async def get_all_profiles(
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(require_auth),
     cursor: int | None = Query(None, description="ID of last item from previous page"),
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
@@ -1132,7 +1132,7 @@ async def get_all_profiles(
 
 
 @profiles_router.get("/{id}", response_model=ProfileResponse)
-async def get_profile(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+async def get_profile(id: int, db: AsyncSession = Depends(_get_db), auth: AuthState = Depends(require_auth)):
     item = await crud.get_by_id(db, Profile, id, options=_PROFILE_OPTIONS)
     if not item:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -1142,7 +1142,7 @@ async def get_profile(id: int, db: AsyncSession = Depends(_get_db_session), auth
 
 
 @profiles_router.post("/", response_model=ProfileResponse)
-async def create_profile(item: CreateProfileRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+async def create_profile(item: CreateProfileRequest, db: AsyncSession = Depends(_get_db), auth: AuthState = Depends(require_auth)):
     # Validate FK references exist
     engine = await crud.get_by_id(db, Engine, item.default_engine_id)
     if not engine:
@@ -1166,7 +1166,7 @@ async def create_profile(item: CreateProfileRequest, db: AsyncSession = Depends(
 
 
 @profiles_router.put("/{id}", response_model=ProfileResponse)
-async def update_profile(id: int, item: UpdateProfileRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+async def update_profile(id: int, item: UpdateProfileRequest, db: AsyncSession = Depends(_get_db), auth: AuthState = Depends(require_auth)):
     existing = await crud.get_by_id(db, Profile, id)
     if not existing:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -1192,7 +1192,7 @@ async def update_profile(id: int, item: UpdateProfileRequest, db: AsyncSession =
 
 
 @profiles_router.delete("/{id}", response_model=DeleteResultResponse)
-async def delete_profile(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+async def delete_profile(id: int, db: AsyncSession = Depends(_get_db), auth: AuthState = Depends(require_auth)):
     obj = await crud.get_by_id(db, Profile, id)
     if not obj:
         raise HTTPException(status_code=404, detail="Not found")
@@ -1211,7 +1211,7 @@ sources_router = APIRouter(prefix="/sources", route_class=PrivilegedRoute)
 
 @sources_router.get("/", response_model=ResolverSourceListResponse)
 async def get_all_sources(
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(require_auth),
     cursor: int | None = Query(None, description="ID of last item from previous page"),
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
@@ -1235,7 +1235,7 @@ async def get_all_sources(
 
 
 @sources_router.get("/{id}", response_model=ResolverSourceResponse)
-async def get_source(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+async def get_source(id: int, db: AsyncSession = Depends(_get_db), auth: AuthState = Depends(require_auth)):
     item = await crud.get_by_id(db, ResolverSource, id, options=_SOURCE_OPTIONS)
     if not item:
         raise HTTPException(status_code=404, detail="Source not found")
@@ -1245,7 +1245,7 @@ async def get_source(id: int, db: AsyncSession = Depends(_get_db_session), auth:
 
 
 @sources_router.post("/", response_model=ResolverSourceResponse)
-async def create_source(item: CreateResolverSourceRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+async def create_source(item: CreateResolverSourceRequest, db: AsyncSession = Depends(_get_db), auth: AuthState = Depends(require_auth)):
     if not await crud.get_by_id(db, Resolver, item.resolver_id):
         raise HTTPException(status_code=400, detail=f"Resolver {item.resolver_id} not found")
     if not auth.user:
@@ -1263,7 +1263,7 @@ async def create_source(item: CreateResolverSourceRequest, db: AsyncSession = De
 
 
 @sources_router.put("/{id}", response_model=ResolverSourceResponse)
-async def update_source(id: int, item: UpdateResolverSourceRequest, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+async def update_source(id: int, item: UpdateResolverSourceRequest, db: AsyncSession = Depends(_get_db), auth: AuthState = Depends(require_auth)):
     existing = await crud.get_by_id(db, ResolverSource, id)
     if not existing:
         raise HTTPException(status_code=404, detail="Source not found")
@@ -1291,7 +1291,7 @@ async def update_source(id: int, item: UpdateResolverSourceRequest, db: AsyncSes
 
 
 @sources_router.delete("/{id}", response_model=DeleteResultResponse)
-async def delete_source(id: int, db: AsyncSession = Depends(_get_db_session), auth: AuthState = Depends(require_auth)):
+async def delete_source(id: int, db: AsyncSession = Depends(_get_db), auth: AuthState = Depends(require_auth)):
     obj = await crud.get_by_id(db, ResolverSource, id)
     if not obj:
         raise HTTPException(status_code=404, detail="Not found")
@@ -1313,7 +1313,7 @@ engines_router = APIRouter(prefix="/engines")
 
 @engines_router.get("/", response_model=EngineListResponse)
 async def get_all_engines(
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     _auth: AuthState = Depends(require_auth),
     cursor: int | None = Query(None, description="ID of last item from previous page"),
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
@@ -1327,7 +1327,7 @@ async def get_all_engines(
 
 
 @engines_router.get("/{id}", response_model=EngineResponse)
-async def get_engine(id: int, db: AsyncSession = Depends(_get_db_session), _auth: AuthState = Depends(require_auth)):
+async def get_engine(id: int, db: AsyncSession = Depends(_get_db), _auth: AuthState = Depends(require_auth)):
     item = await crud.get_by_id(db, Engine, id)
     if not item:
         raise HTTPException(status_code=404, detail="Engine not found")
@@ -1343,7 +1343,7 @@ resolvers_router = APIRouter(prefix="/resolvers")
 
 @resolvers_router.get("/", response_model=ResolverListResponse)
 async def get_all_resolvers(
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     _auth: AuthState = Depends(require_auth),
     cursor: int | None = Query(None, description="ID of last item from previous page"),
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
@@ -1357,7 +1357,7 @@ async def get_all_resolvers(
 
 
 @resolvers_router.get("/{id}", response_model=ResolverResponse)
-async def get_resolver(id: int, db: AsyncSession = Depends(_get_db_session), _auth: AuthState = Depends(require_auth)):
+async def get_resolver(id: int, db: AsyncSession = Depends(_get_db), _auth: AuthState = Depends(require_auth)):
     item = await crud.get_by_id(db, Resolver, id)
     if not item:
         raise HTTPException(status_code=404, detail="Resolver not found")
@@ -1368,7 +1368,7 @@ async def get_resolver(id: int, db: AsyncSession = Depends(_get_db_session), _au
 async def discover_resolver(
     id: int,
     body: DiscoveryRequest,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     _auth: AuthState = Depends(require_auth),
 ):
     resolver = await crud.get_by_id(db, Resolver, id)
@@ -1458,7 +1458,7 @@ async def _require_session_owner(session_id: int, auth: AuthState, db: AsyncSess
 
 
 @session_control_router.post("/{session_id}/stop")
-async def stop_session(session_id: int, auth: AuthState = Depends(require_auth), db: AsyncSession = Depends(_get_db_session)):
+async def stop_session(session_id: int, auth: AuthState = Depends(require_auth), db: AsyncSession = Depends(_get_db)):
     await _require_session_owner(session_id, auth, db)
     try:
         return await _send_control(session_id, "stop")
@@ -1477,12 +1477,12 @@ async def stop_session(session_id: int, auth: AuthState = Depends(require_auth),
 
 
 @session_control_router.post("/{session_id}/recording/enable")
-async def enable_recording(session_id: int, auth: AuthState = Depends(require_auth), db: AsyncSession = Depends(_get_db_session)):
+async def enable_recording(session_id: int, auth: AuthState = Depends(require_auth), db: AsyncSession = Depends(_get_db)):
     await _require_session_owner(session_id, auth, db)
     return await _send_control(session_id, "enable_recording")
 
 
 @session_control_router.post("/{session_id}/recording/disable")
-async def disable_recording(session_id: int, auth: AuthState = Depends(require_auth), db: AsyncSession = Depends(_get_db_session)):
+async def disable_recording(session_id: int, auth: AuthState = Depends(require_auth), db: AsyncSession = Depends(_get_db)):
     await _require_session_owner(session_id, auth, db)
     return await _send_control(session_id, "disable_recording")

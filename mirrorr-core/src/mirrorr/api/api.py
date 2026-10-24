@@ -354,7 +354,7 @@ class AutoIndexMiddleware(BaseHTTPMiddleware):
         # but we still don't want unauthenticated directory enumeration.
         from mirrorr.api.jwt import ACCESS_TOKEN_COOKIE
         from mirrorr.api.dependencies import _resolve_auth
-        from mirrorr.storage.database import get_session_factory
+        from mirrorr.storage.database import get_db_factory
 
         api_key = request.headers.get("x-api-key", "") or ""
         token = (
@@ -364,7 +364,7 @@ class AutoIndexMiddleware(BaseHTTPMiddleware):
         auth = None
         if api_key or token:
             try:
-                async with get_session_factory()() as db:
+                async with get_db_factory()() as db:
                     auth = await _resolve_auth(db, api_key, token)
             except Exception:
                 auth = None

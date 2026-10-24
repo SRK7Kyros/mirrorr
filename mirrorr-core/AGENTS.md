@@ -148,6 +148,23 @@ All paths default relative to `base_dir`. `MirrorrSettings.create_from_env()` re
 ---
 
 ## 4. Domain Models
+
+### Vocabulary — `session` means exactly one thing
+
+**A session is one supervised attempt to capture one live source into one recording** — the `Session` row and everything that hangs off it: its supervisor process, its folder, its lifecycle, its captures, its access rows. Nothing else in the codebase may be called a session, and the word is never used unqualified for a database unit of work.
+
+| Word | Means | Where it lives |
+|---|---|---|
+| **session** | the domain record + its whole lifecycle (one live source → one recording) | `models.Session`, `/sessions`, `SessionStatus`, `SessionSupervisor`, `session_folder`, `session_urls` |
+| **db** | one SQLAlchemy unit of work (`AsyncSession`), for the length of one transaction | `_get_db()` dependency, `db: AsyncSession` params, `get_db()` context manager |
+| **db factory** | the `async_sessionmaker` that produces a `db` | `storage/database.py`, `container.db_factory` |
+| **capture** | one profile's run inside a session — its own engine/resolver/config/retry policy | `capture_plan`, `captures`, `_begin_capture` |
+| **attempt** | one retry of the capture currently running | `attempts`, `retry_attempts` |
+| **recording** | the finished media artifact and its `Recording` row | `services/recording.py`, `/recordings` |
+| **supervisor** | the OS process that runs a session | `SessionSupervisor`, `handlers._supervisors` |
+
+Third-party names are not ours to rename and stay as they are: `AsyncSession` (SQLAlchemy's class), the `sqlmodel.ext.asyncio.session` import path, `subprocess(..., start_new_session=True)`, httpx/aiohttp `ClientSession`. A local typed `AsyncSession` is still called `db`.
+
 All models in `src/mirrorr/storage/models.py` using **SQLModel** (SQLAlchemy + Pydantic). Enums (`SessionStatus`, `AutorunStatus`, `UserRole`, `ResourceType`, `Capability`) live in `src/mirrorr/storage/enums.py`. Plugin ABCs (`EngineInterface`, `ResolverInterface`, `Source`, `Capabilities`) live in `src/mirrorr/plugin_api/interfaces.py`; retry schemas + helpers in `src/mirrorr/plugin_api/retry.py`.
 
 | Model | Purpose | Status |
@@ -156,7 +173,7 @@ All models in `src/mirrorr/storage/models.py` using **SQLModel** (SQLAlchemy + P
 | **ResolverSource** | A named, saved `(resolver_id, resolver_config)` pair — the "resolver-only profile", reusable in any profile/session/autorun. Live: loading one fills the consumer's resolver section. | Implemented |
 | **Engine** | Plugin that consumes `Source`, runs subprocesses to write HLS. Has `retry_modes_schema` dict (JSON Schema per mode). | Implemented |
 | **Profile** | Ties a Resolver + JSON config to a default Engine. Has `retry_mode`/`retry_config` as defaults for sessions using this profile. | Implemented |
-| **Session** | Active/past stream operation. Links Profile + Engine. Has `recording`, optional `retry_mode`/`retry_config` overrides (None = inherit from profile), `retry_attempts`, `session_urls`, `idempotency_key` (nullable, UNIQUE) which pins one autorun slot to at most one session, and the capture pair: `capture_plan` (the profiles this session tries in order — its own capture then any fallbacks; `[profile_id]` for a manual session) and `captures` (what each tried source did: profile/engine/resolver names, status, reason, attempts, `seconds`/`bytes`, `merged` once its media is in the recording). A fallback never spawns a second session (Oct 24 2026). | Implemented |
+| **Session** | One supervised attempt to capture one live source into one recording — the row outlives the process, so it is the identity (status, access, history), not the run. Links Profile + Engine. Has `recording`, optional `retry_mode`/`retry_config` overrides (None = inherit from profile), `retry_attempts`, `session_urls`, `idempotency_key` (nullable, UNIQUE) which pins one autorun slot to at most one session, and the capture pair: `capture_plan` (the profiles this session tries in order — its own capture then any fallbacks; `[profile_id]` for a manual session) and `captures` (what each tried source did: profile/engine/resolver names, status, reason, attempts, `seconds`/`bytes`, `merged` once its media is in the recording). A fallback never spawns a second session (Oct 24 2026). | Implemented |
 | **Autorun** | Scheduled session with `start_time`/`end_time`, `recording`, optional `retry_mode`/`retry_config` overrides, links Profile + Engine, `orphan_policy` (`fail` \| `retry`) deciding what a boot does with its mid-flight session, and `fallback_profile_ids` — an ordered list of further profiles copied into the spawned session's `capture_plan` and tried by that one session in turn (a fallback is a *different source*, so its capture takes that profile's engine/resolver/config/retry policy whole; Oct 24 2026). | Implemented |
 | **Recording** | Denormalized snapshot of a completed recording (profile/engine/resolver names, path, metadata, `size_bytes`). | Implemented |
 | **Source** | Pydantic model: `url` + optional `headers` dict | Used by Resolver → Engine handoff |
@@ -203,7 +220,7 @@ mirrorr-core/
 │   │   ├── api.py               # App init, exception handlers, router registration
 │   │   ├── auth.py              # Auth infrastructure: password hashing, user/client resolution, subscription/notification helpers
 │   │   ├── jwt.py               # JWT token creation and validation
-│   │   ├── dependencies.py      # DB session DI, AuthState (client + user + is_admin), require_auth/require_admin
+│   │   ├── dependencies.py      # DB handle DI, AuthState (client + user + is_admin), require_auth/require_admin
 │   │   ├── privileged.py        # Admin-only field declarations + per-principal response/OpenAPI stripping
 │   │   ├── schemas.py           # Pydantic request/response models (incl. source + discovery)
 │   │   ├── ws.py                # WebSocket event mirroring + notification push
@@ -243,7 +260,7 @@ mirrorr-core/
 │   │   ├── api_bootstrap.py     # Uvicorn server startup
 │   │   └── logging.py           # Loguru config with process-aware formatting
 │   └── storage/                 # Database layer
-│       ├── database.py          # create_db_engine(settings) → (engine, session_factory)
+│       ├── database.py          # create_db_engine(settings) → (engine, db_factory)
 │       ├── models.py            # SQLModel schemas (+ backward-compat re-exports), incl. ResolverSource
 │       ├── enums.py             # SessionStatus, AutorunStatus, UserRole, ResourceType
 │       └── crud.py              # Generic async CRUD helpers
@@ -263,6 +280,7 @@ Runtime state (gitignored, created under `base_dir`): `content/`, `plugins/`, `b
 - **`loguru` color shortcuts**: Use `logger.opt(colors=True)` with `<green>`, `<yellow>`, `<blue>` tags for highlighted values.
 - **Type hints** are expected on function signatures and class attributes. Use modern syntax (`list[str]`, `dict[str, Any]`, `str | None`).
 - **`async/await`** throughout. The entire DB layer, API, NATS client, and event handlers are async.
+- **Naming is load-bearing**: `session` is the domain `Session` and nothing else (see §4 Vocabulary). A database unit of work is `db` / `db_factory`, a supervisor process registry is `_supervisors`. If a variable needs the word "session" for something that is not the domain record, it has the wrong name.
 
 ### Architecture Patterns
 - **Plugins are interfaces**: Engines implement `EngineInterface`, Resolvers implement `ResolverInterface` (both ABCs in `src/mirrorr/plugin_api/interfaces.py`). Default plugins live in `src/mirrorr/default_plugins/` and are synced into `{engines_dir}` / `{resolvers_dir}` at boot (rewritten only when missing or changed); operator plugins live in those dirs directly. Set `sync_default_plugins=False` (`SYNC_DEFAULT_PLUGINS=false`) to skip the built-ins entirely — the dirs are still created, and boot still requires at least one engine and one resolver.
@@ -279,7 +297,7 @@ Runtime state (gitignored, created under `base_dir`): `content/`, `plugins/`, `b
 - **Long-running work happens in separate OS processes**: The event handler for `SessionCreated` spawns `multiprocessing.Process`. The supervisor must be fully self-contained.
 - **DB schema auto-syncs**: Add/remove columns in SQLModel classes and `ensure_db.py` handles ALTER TABLE at startup. No manual migrations. A constraint change SQLite cannot ALTER is applied by a full table rebuild, which pins `PRAGMA foreign_keys=OFF` **and** `PRAGMA legacy_alter_table=ON` for its duration (both saved and restored in a `finally`): without them the `RENAME TO _old_<t>` rewrites every child's `REFERENCES` to the `_old_*` name (schema-level, **even with zero child rows**) and the final `DROP TABLE _old_<t>` trips it — `legacy_alter_table` alone is not enough (Oct 15 2026). The rebuild first drops the renamed table's named indexes — the `RENAME` carries their names, so the model's `CREATE INDEX` collided (`index ix_… already exists`) and died before the data copy, leaving a silent truncation once the restart's matching schema skipped the rebuild; an abandoned `_old_<t>` is **rescued** into the live table (`INSERT OR IGNORE`, columns common to both, only when the live table is empty or smaller) instead of dropped, and the `ADD COLUMN` pass is skipped for any table already queued for rebuild (Oct 16 2026).
 - **Audit hardening (Oct 20 2026)**: a password over bcrypt's 72-byte limit is rejected at the schema *and* raises in `hash_password` (bcrypt silently truncated, so two passwords could authenticate the same account), and `verify_password` returns `False` instead of raising on an over-long candidate. The login rate-limit key uses the **last** `X-Forwarded-For` hop — the one the nearest proxy appended — because the first is client-supplied. An import validates and applies only the requester's **own** profiles (`_profiles_owned_by`): a bundle naming a profile it does not own used to link to the other user's row. `subscribe_requester` **commits** — the request session closes without one, so the `event_subscriptions` insert was rolled back and a new item's owner never received its notifications or per-resource WS events. **It takes `commit=False` for a caller that already owns the transaction** (Oct 23 2026): `autorun_scheduler._spawn_session` runs inside `_tick`'s `begin_nested()` savepoint, so the unconditional commit ended the enclosing transaction mid-savepoint and the next statement (`inherit_access`) raised `Can't operate on closed transaction inside context manager` — the session row had already been committed by that point, so the autorun lost its session, the watchdog failed it 33 s later, and the slot key blocked any retry. Every other call site sits in a request whose session closes uncommitted, hence the default. A duplicate `SessionCreated` (retry, double emit) is ignored while the first supervisor process is alive instead of spawning a second one. `ManagedProcess` reads its subprocess pipes in 64 KiB chunks and splits on `\r` as well as `\n`: `StreamReader.readline()` caps a line at 64 KiB and raised on ffmpeg's `\r`-separated stats block, which killed the reader and then blocked the child on a full pipe (a live session frozen with no exit event). `SESSION_STARTED` fires on the first transition into `active` **or** `recording` — a recording session never passes through `active`, so those runs emitted no start event. `GET /sessions/?autorun=<id>` filters server-side (the access predicate still applies; an unknown id is an empty page), so the autorun detail no longer pages the whole history to find its run. `NatsServerManager.start` refuses a port held by a server it did not spawn rather than attaching to it, and fails fast if the child exits during the wait loop.
-- **All dependencies are passed, never global**: `MirrorrSettings` is passed to every subsystem. No module-level singletons for settings, DB engine, or session factory. The only singleton is the NATS event bus (`bus`).
+- **All dependencies are passed, never global**: `MirrorrSettings` is passed to every subsystem. No module-level singletons for settings, DB engine, or db factory. The only singleton is the NATS event bus (`bus`).
 - **Event mapping lives in the CRUD router**: `event_map` dict maps model classes to their `(created, updated, deleted)` event tuples. Domain models do NOT carry event references.
 - **Supervisor-owned fields are protected**: `PUT /sessions/{id}` strips `status`, `recording`, `retry_attempts`, `started_at`, `ended_at`. Clients must use dedicated control endpoints.
 - **WebSocket delivery is capability-gated, not subscriber-gated**: `api/ws.py` resolves every frame to its **audience** with `permissions.viewer_usernames(db, type, id)` — the same rows `has_capability` consults (requester owner user or crown group, `resource_owner_users`, `resource_owner_groups`, and any `resource_access` grant, `everyone` expanded to all accounts) — and sends only to those connections; an admin receives everything. The result is cached ~10 s per `(type, id)` in `_Audience`, so a revoke can lag one window. Broadcast CRUD subjects are resolved from their payload `id` (`_event_resource`); a subject the process does not model (`resolver_source.*`, `proc.*`) is dropped; a frame whose row is gone goes nowhere, except `*.deleted`, which only an admin hears because the row and its access rows cascade together. `EventSubscription` no longer gates this stream — it remains the notification target list (`subscribe_requester`, `notify_subscribers`). The notification relay drops the coalesced `.telemetry` sample, which is a live readout rather than a notification and used to refetch the bell once a second. Verified live against the running unit with a minted admin/user pair (Oct 21 2026).
@@ -288,7 +306,7 @@ Runtime state (gitignored, created under `base_dir`): `content/`, `plugins/`, `b
 
 ### Import Conventions
 - Settings: `MirrorrSettings` passed via constructor. No module-level import of a settings singleton.
-- Database: `from mirrorr.storage.database import create_db_engine` → called with settings, returns `(engine, session_factory)`.
+- Database: `from mirrorr.storage.database import create_db_engine` → called with settings, returns `(engine, db_factory)`.
 - Models: `from mirrorr.storage.models import Session, Profile, ...`
 - Enums: `from mirrorr.storage.enums import SessionStatus, ...`
 - Plugin ABCs: `from mirrorr.plugin_api.interfaces import EngineInterface, ...`
@@ -330,7 +348,7 @@ Runtime state (gitignored, created under `base_dir`): `content/`, `plugins/`, `b
 | `src/mirrorr/plugin_api/companion.py` | `Companion` ABC (base for companion processes: `/health` + `/__companion__` identity + flock-based self-reap), `CompanionSpec`, `sibling()` loader. |
 | `src/mirrorr/services/companions.py` | `scan()` (process-table discovery) + `acquire()` (reuse or spawn via `ManagedProcess`, race-arbitrated) + `Lease`. |
 | `src/mirrorr/plugin_api/retry.py` | Retry schemas (`NoRetry`/`RetryAlways`/`RetryCount`/`RetryOnExitCode`) + `build_retry_modes_schema` + delay/attempt helpers. |
-| `src/mirrorr/storage/database.py` | `create_db_engine(settings)` → `(engine, session_factory)`. |
+| `src/mirrorr/storage/database.py` | `create_db_engine(settings)` → `(engine, db_factory)`. |
 | `src/mirrorr/event_bus/nats.py` | `NatsRegistry` singleton (`bus`): connect, emit, on(), start_subscriptions(). |
 | `src/mirrorr/event_bus/event.py` | Event class definitions. Each has a NATS subject string. |
 | `src/mirrorr/event_bus/handlers/handlers.py` | Process registry + lifecycle handlers: spawns/kills supervisors, handles autorun deletion. Creates notifications for major events. |
@@ -355,7 +373,7 @@ Runtime state (gitignored, created under `base_dir`): `content/`, `plugins/`, `b
 | `src/mirrorr/api/routers/groups.py` | Admin-only group CRUD: `GET /groups` (each group with `member_count` + `members`; the sealed `everyone` row reports every user), `POST /groups`, `PATCH /groups/{id}`, `DELETE /groups/{id}` (clears memberships + grants + owner rows in one transaction), `PUT /groups/{id}/members` replace-set. `everyone` is rejected for create/rename/delete/member-edit; names are trimmed, unique, 1..64 chars. |
 | `src/mirrorr/api/routers/import_export.py` | Bundle-based import/export. |
 | `src/mirrorr/api/routers/logs.py` | Session logs + recording progress endpoints. |
-| `src/mirrorr/api/dependencies.py` | DB session DI, `AuthState` (client, user, is_admin), `require_auth`/`require_admin`/`get_auth`/`ws_auth` dependencies. |
+| `src/mirrorr/api/dependencies.py` | DB handle DI, `AuthState` (client, user, is_admin), `require_auth`/`require_admin`/`get_auth`/`ws_auth` dependencies. |
 | `src/mirrorr/api/privileged.py` | `PRIVILEGED_FIELDS` (field → model map), `PrivilegedRoute` (response stripping), `strip_openapi` (schema stripping). Single source of truth for admin-only data. |
 | `src/mirrorr/api/ws.py` | WebSocket event mirroring + real-time notification push (`/ws/notifications`). **Both relays deliver each frame to the resource's audience** — `permissions.viewer_usernames`, cached ~10 s per `(type, id)` in `_Audience` — never to every connection, and never to a connection that cannot `VIEW` the row: broadcast CRUD subjects are resolved from their payload `id`, unmodelled subjects (`resolver_source.*`, `proc.*`) are dropped, per-process telemetry subjects are skipped, and a frame whose row is gone is dropped except `*.deleted` (admin only — the row and its access rows cascade together). The notification relay additionally drops the coalesced `.telemetry` sample (a live sample is not a notification, and forwarding it refetched the bell 1 Hz). Auth via cookie / `X-API-Key` / `Authorization: Bearer` / `?api_key=`; failure closes `4001` (Oct 21 2026). |
 | `src/mirrorr/default_plugins/engines/yt_dlp_piped.py` | Example engine: `yt-dlp` piped to `ffmpeg` → HLS output. |

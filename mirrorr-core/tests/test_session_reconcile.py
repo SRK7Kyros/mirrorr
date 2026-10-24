@@ -32,7 +32,7 @@ def test_only_mid_flight_sessions_are_failed(tmp_path):
 
         container.configure(
             settings=MirrorrSettings(base_dir=tmp_path),
-            session_factory=maker,
+            db_factory=maker,
             event_bus=AsyncMock(),
         )
         try:
@@ -76,7 +76,7 @@ def test_pre_gate_sessions_are_orphaned_too(tmp_path):
 
         container.configure(
             settings=MirrorrSettings(base_dir=tmp_path),
-            session_factory=maker,
+            db_factory=maker,
             event_bus=AsyncMock(),
         )
         try:
@@ -147,7 +147,7 @@ def test_retry_policy_replaces_the_orphan_while_the_window_is_open(monkeypatch, 
 
         container.configure(
             settings=MirrorrSettings(base_dir=tmp_path),
-            session_factory=maker,
+            db_factory=maker,
             event_bus=AsyncMock(),
         )
         monkeypatch.setattr("mirrorr.event_bus.nats.bus", _Bus())

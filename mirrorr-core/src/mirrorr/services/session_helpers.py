@@ -1,7 +1,7 @@
 """Session helper functions extracted from session_supervisor.py.
 
 These are pure utility functions that handle directory setup, URL building,
-and DB session loading. They have no class state and are easier to test
+and DB row loading. They have no class state and are easier to test
 in isolation.
 """
 
@@ -99,9 +99,9 @@ async def load_session_from_db(
     from mirrorr.startup.ensure_engines import load_engine_jit
     from mirrorr.startup.ensure_resolvers import load_resolver_jit
 
-    engine, session_factory = create_db_engine(settings)
+    engine, db_factory = create_db_engine(settings)
     try:
-        async with session_factory() as db_session:
+        async with db_factory() as db:
             stmt = (
                 select(Session)
                 .where(Session.id == session_id)
@@ -112,7 +112,7 @@ async def load_session_from_db(
                     selectinload(Session.autorun),
                 )
             )
-            result = await db_session.exec(stmt)
+            result = await db.exec(stmt)
             session: Session | None = result.one_or_none()
 
             if session is None:
@@ -148,15 +148,15 @@ async def load_profile_capture(settings: MirrorrSettings, profile_id: int):
     from mirrorr.startup.ensure_engines import load_engine_jit
     from mirrorr.startup.ensure_resolvers import load_resolver_jit
 
-    engine, session_factory = create_db_engine(settings)
+    engine, db_factory = create_db_engine(settings)
     try:
-        async with session_factory() as db_session:
+        async with db_factory() as db:
             stmt = (
                 select(Profile)
                 .where(Profile.id == profile_id)
                 .options(selectinload(Profile.resolver), selectinload(Profile.default_engine))
             )
-            profile: Profile | None = (await db_session.exec(stmt)).one_or_none()
+            profile: Profile | None = (await db.exec(stmt)).one_or_none()
             if profile is None:
                 raise ValueError(f"Profile {profile_id} not found")
             resolver = profile.resolver

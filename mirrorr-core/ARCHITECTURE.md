@@ -129,7 +129,7 @@ src/
 ├── api/                       # HTTP layer
 │   ├── api.py                 # FastAPI app, CORS, exception handlers, middleware
 │   ├── auth.py                # Password/API-key hashing, user/client resolution
-│   ├── dependencies.py        # FastAPI Depends: DB sessions, AuthState
+│   ├── dependencies.py        # FastAPI Depends: DB handle (db), AuthState
 │   ├── jwt.py                 # JWT create/decode (access + refresh tokens)
 │   ├── schemas.py             # Pydantic request/response models
 │   ├── ws.py                  # WebSocket endpoints (NATS mirror + notifications)
@@ -164,7 +164,7 @@ src/
 ├── storage/                   # Data layer
 │   ├── models.py              # SQLModel tables + backward-compat re-exports
 │   ├── crud.py                # Generic CRUD operations
-│   ├── database.py            # SQLAlchemy engine/session factory, WAL mode
+│   ├── database.py            # SQLAlchemy engine/db factory, WAL mode
 │   └── enums.py               # SessionStatus, AutorunStatus, ResourceType
 │
 ├── startup/                   # Bootstrap modules
@@ -189,7 +189,7 @@ src/
 | Module Group | Responsibility |
 |---|---|
 | `core.py` | Single entry point. Owns the boot→serve→shutdown lifecycle. Creates subsystems in order. |
-| `di.py` | Holds application-wide singletons (settings, session_factory, event_bus). Avoids scattered module globals. |
+| `di.py` | Holds application-wide singletons (settings, db_factory, event_bus). Avoids scattered module globals. |
 | `api/` | HTTP/WS layer. Validates requests, authenticates, delegates to services, returns responses. |
 | `event_bus/` | Decoupled messaging. Services emit events; handlers react. WS relay forwards to frontend. |
 | `plugin_api/` | Canonical import point for plugin authors. No DB or API dependencies. |
@@ -776,7 +776,7 @@ Frontend ←── WS ───→ Backend ←── NATS ───→ Superviso
  5. create_db_engine(settings)          — Async SQLAlchemy engine (WAL mode)
  6. [optional] reset_database()         — DEV_RESET_DATABASE truncates all tables
  7. ensure_db(engine)                   — SQLModel.metadata.create_all + column sync
- 8. set_session_factory(factory)        — Wire into FastAPI dependency
+ 8. set_db_factory(factory)        — Wire into FastAPI dependency
  9. ensure_ffmpeg(settings)             — Locate/download ffmpeg
 10. sync_engines_db()                   — Filesystem → DB sync for engines
 11. sync_resolvers_db()                 — Filesystem → DB sync for resolvers

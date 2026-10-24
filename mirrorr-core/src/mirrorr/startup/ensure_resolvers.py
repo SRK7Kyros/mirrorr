@@ -71,7 +71,7 @@ def _companion_validator() -> Callable[[ResolverInterface], None]:
     return validate
 
 
-async def sync_resolvers_db(resolvers_dir: Path, session_factory: async_sessionmaker) -> None:
+async def sync_resolvers_db(resolvers_dir: Path, db_factory: async_sessionmaker) -> None:
     """Syncs filesystem resolver plugins to DB. Call this at app startup."""
     await sync_plugins_db(
         plugin_dir=resolvers_dir,
@@ -80,6 +80,6 @@ async def sync_resolvers_db(resolvers_dir: Path, session_factory: async_sessionm
         extract_db_fields=_extract_db_fields,
         schema_changed=_schema_changed,
         plugin_label="resolver",
-        session_factory=session_factory,
+        db_factory=db_factory,
         validate=_companion_validator(),
     )

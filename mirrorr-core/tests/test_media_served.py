@@ -25,7 +25,7 @@ def _recording(folder, name: str = "speedcubing_10.mp4") -> SimpleNamespace:
 
 def _with_container(tmp_path, *, dev_serve_files: bool):
     settings = MirrorrSettings(base_dir=tmp_path, dev_serve_files=dev_serve_files)
-    container.configure(settings=settings, session_factory=None, event_bus=None)
+    container.configure(settings=settings, db_factory=None, event_bus=None)
 
 
 def test_present_file_is_reported_as_served(tmp_path):

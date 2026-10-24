@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlmodel import col as sa_col, delete as sql_delete, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from mirrorr.api.dependencies import _get_db_session, get_auth, require_auth, require_admin, AuthState
+from mirrorr.api.dependencies import _get_db, get_auth, require_auth, require_admin, AuthState
 from mirrorr.api.auth import hash_api_key, hash_password_async, verify_password_async
 from mirrorr.api.jwt import (
     create_access_token, create_refresh_token, decode_refresh_token,
@@ -155,7 +155,7 @@ def _check_rate_limit(key: str, max_attempts: int, window: float = 60.0) -> bool
 @auth_router.get("/status")
 async def auth_status(
     request: Request,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
 ):
     """Check if any users exist. Used by the register page to detect first-user setup.
 
@@ -192,7 +192,7 @@ async def register(
     item: RegisterRequest,
     request: Request,
     response: Response,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(get_auth),
 ):
     """Register a new user. First user auto-becomes admin. Sets httpOnly cookies.
@@ -384,7 +384,7 @@ async def login(
     item: LoginRequest,
     request: Request,
     response: Response,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
 ):
     """Login with username + password. Sets httpOnly cookies for token pair."""
     # Rate limit check
@@ -441,7 +441,7 @@ async def logout(
     response: Response,
     request: Request,
     auth: AuthState = Depends(get_auth),
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
 ):
     """Logout: revoke refresh token and clear cookies."""
     # Revoke the current refresh token if present
@@ -493,7 +493,7 @@ async def refresh(
     request: Request,
     response: Response,
     item: RefreshRequest | None = None,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
 ):
     """Refresh an access token. Reads from httpOnly cookie or request body.
 
@@ -601,7 +601,7 @@ async def refresh(
 @auth_router.post("/change-password")
 async def change_password(
     item: ChangePasswordRequest,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(require_auth),
 ):
     """Change current user's password and invalidate all refresh tokens."""
@@ -638,7 +638,7 @@ async def change_password(
 
 @auth_router.get("/users", response_model=list[UserResponse])
 async def get_all_users(
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(require_admin),
 ):
     """List all users. Admin only. Excludes password_hash from response."""
@@ -654,7 +654,7 @@ async def get_all_users(
 @auth_router.delete("/users/{username}")
 async def delete_user(
     username: str,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(require_admin),
 ):
     """Delete a user. Admin only. Cannot delete the last admin."""
@@ -701,7 +701,7 @@ async def delete_user(
 
 @auth_router.get("/registration-requests", response_model=list[RegistrationRequestResponse])
 async def list_registration_requests(
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(require_admin),
 ):
     """List pending registration requests. Admin only."""
@@ -721,7 +721,7 @@ async def list_registration_requests(
 @auth_router.post("/registration-requests/{request_id}/approve", response_model=UserResponse)
 async def approve_registration_request(
     request_id: int,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(require_admin),
 ):
     """Approve a pending request: mint a live user, delete the request. Admin only."""
@@ -759,7 +759,7 @@ async def approve_registration_request(
 async def deny_registration_request(
     request_id: int,
     item: DenyRequest,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(require_admin),
 ):
     """Deny a pending request: delete the row, freeing the name. Admin only."""
@@ -777,7 +777,7 @@ async def deny_registration_request(
 
 @auth_router.get("/clients")
 async def get_all_clients(
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(require_admin),
 ):
     return await crud.get_all(db, Client)
@@ -786,7 +786,7 @@ async def get_all_clients(
 @auth_router.post("/clients")
 async def create_client(
     item: CreateClientRequest,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(get_auth),
 ):
     """Create a client. Public for first client (bootstrapping), then admin only."""
@@ -813,7 +813,7 @@ async def create_client(
 @auth_router.delete("/clients/{id}")
 async def delete_client(
     id: int,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(require_admin),
 ):
     try:
@@ -939,7 +939,7 @@ async def _access_view(
     exists still lists — the row is the source of truth, and such a row is
     inert rather than an error. Group grants, owner users and owner groups list
     beside the user ones. Takes plain values, never the ORM object: a replace-set race
-    rolls the session back, which expires the loaded instance and would turn a
+    rolls the db back, which expires the loaded instance and would turn a
     later attribute access into a synchronous lazy load.
     """
     usernames = set((await db.exec(select(User.username))).all())
@@ -1112,7 +1112,7 @@ async def list_resources(
     owner: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(require_admin),
 ):
     """Every item with its owner and viewer count. Admin only."""
@@ -1207,7 +1207,7 @@ async def transfer_owner(
     resource_type: str,
     resource_id: int,
     item: TransferOwnerRequest,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(require_admin),
 ):
     """Set a resource's primary owner — a user or a group. Admin only."""
@@ -1238,7 +1238,7 @@ async def transfer_owner(
 async def get_shares(
     resource_type: str,
     resource_id: int,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(get_auth),
 ):
     """Owner, admin or a SHARE holder reads the resource's grants."""
@@ -1259,7 +1259,7 @@ async def set_shares(
     resource_type: str,
     resource_id: int,
     item: SetGrantsRequest,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(get_auth),
 ):
     """Replace-set one user's capabilities. Idempotent."""
@@ -1280,7 +1280,7 @@ async def revoke_shares(
     resource_type: str,
     resource_id: int,
     username: str,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(get_auth),
 ):
     """Clear every grant row for one user. Idempotent."""
@@ -1299,7 +1299,7 @@ async def set_group_shares(
     resource_id: int,
     group_id: int,
     item: SetGroupGrantsRequest,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(get_auth),
 ):
     """Replace-set one group's capabilities. Idempotent."""
@@ -1320,7 +1320,7 @@ async def clear_group_shares(
     resource_type: str,
     resource_id: int,
     group_id: int,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(get_auth),
 ):
     """Clear every grant row for one group. Idempotent."""
@@ -1339,7 +1339,7 @@ async def add_owner_group(
     resource_type: str,
     resource_id: int,
     group_id: int,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(get_auth),
 ):
     """Make a group an additive owner of the item. Idempotent."""
@@ -1372,7 +1372,7 @@ async def remove_owner_group(
     resource_type: str,
     resource_id: int,
     group_id: int,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(get_auth),
 ):
     """Remove a group from the item's owners. Idempotent."""
@@ -1398,7 +1398,7 @@ async def add_owner_user(
     resource_type: str,
     resource_id: int,
     username: str,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(get_auth),
 ):
     """Make a user an additive owner of the item. Idempotent."""
@@ -1431,7 +1431,7 @@ async def remove_owner_user(
     resource_type: str,
     resource_id: int,
     username: str,
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     auth: AuthState = Depends(get_auth),
 ):
     """Remove a user from the item's owners. Idempotent."""
@@ -1454,7 +1454,7 @@ async def remove_owner_user(
 @notifications_router.get("/")
 async def get_my_notifications(
     auth: AuthState = Depends(require_auth),
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
 ):
     """Get notifications for the current user only."""
     if auth.user is None:
@@ -1472,7 +1472,7 @@ async def get_my_notifications(
 async def get_notification(
     id: int,
     auth: AuthState = Depends(require_auth),
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
 ):
     if auth.user is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -1486,7 +1486,7 @@ async def get_notification(
 async def mark_notification_read(
     id: int,
     auth: AuthState = Depends(require_auth),
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
 ):
     if auth.user is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -1502,7 +1502,7 @@ async def mark_notification_read(
 @notifications_router.post("/read-all")
 async def mark_all_read(
     auth: AuthState = Depends(require_auth),
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
 ):
     if auth.user is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -1521,7 +1521,7 @@ async def mark_all_read(
 async def delete_notification(
     id: int,
     auth: AuthState = Depends(require_auth),
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
 ):
     if auth.user is None:
         raise HTTPException(status_code=401, detail="Not authenticated")

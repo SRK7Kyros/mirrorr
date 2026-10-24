@@ -18,7 +18,7 @@ def test_content_root_collapses_to_its_public_path(tmp_path):
     try:
         container.configure(
             settings=MirrorrSettings(base_dir=tmp_path),
-            session_factory=None,
+            db_factory=None,
             event_bus=None,
         )
         line = f"Output #0, hls, to '{tmp_path}/content/speedcubing/stream.m3u8':"
