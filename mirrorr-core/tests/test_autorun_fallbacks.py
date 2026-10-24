@@ -138,7 +138,7 @@ def test_a_slot_spawns_one_session_carrying_the_whole_chain(monkeypatch, tmp_pat
         assert spawned.profile_id == 1
         assert (spawned.engine_id, spawned.resolver_id) == (1, 1)
         assert spawned.resolver_config == {"channel": "ch1"}
-        assert spawned.stint_plan == [1, 2, 3]
+        assert spawned.capture_plan == [1, 2, 3]
         assert spawned.status == SessionStatus.INITIALIZING
         async with maker() as db:
             autorun = await crud.get_by_id(db, Autorun, 1)

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest"
 import { render, screen } from "@testing-library/react"
-import { SourcesTimeline, toStintView } from "./sources-timeline"
+import { CapturesTimeline, toCaptureView } from "./captures-timeline"
 
-describe("toStintView", () => {
-  it("reads a stint record and falls back to the plan's index", () => {
-    const view = toStintView(
+describe("toCaptureView", () => {
+  it("reads a capture record and falls back to the plan's index", () => {
+    const view = toCaptureView(
       {
         status: "failed",
         profile_name: "F1 UK",
@@ -31,7 +31,7 @@ describe("toStintView", () => {
   })
 
   it("names a profile by its id when the record carries no name", () => {
-    expect(toStintView({ profile_id: 4, status: "completed" }, 1)).toMatchObject({
+    expect(toCaptureView({ profile_id: 4, status: "completed" }, 1)).toMatchObject({
       index: 2,
       profile: "#4",
       engine: "—",
@@ -40,25 +40,25 @@ describe("toStintView", () => {
   })
 })
 
-describe("SourcesTimeline", () => {
+describe("CapturesTimeline", () => {
   it("renders nothing for a single-source session that never fell back", () => {
-    const { container } = render(<SourcesTimeline stints={[]} pending={[]} />)
+    const { container } = render(<CapturesTimeline captures={[]} pending={[]} />)
     expect(container.innerHTML).toBe("")
   })
 
   it("marks the fallback's row and the sources still owed", () => {
-    const stints = [
-      toStintView(
+    const captures = [
+      toCaptureView(
         { status: "failed", profile_name: "F1", bytes: null },
         0,
       ),
-      toStintView(
+      toCaptureView(
         { status: "completed", profile_name: "F1 UK", seconds: 3725, bytes: 1_500_000_000, merged: true },
         1,
       ),
     ]
 
-    render(<SourcesTimeline stints={stints} pending={["F1 Italy"]} />)
+    render(<CapturesTimeline captures={captures} pending={["F1 Italy"]} />)
 
     expect(screen.getByText("F1")).not.toBeNull()
     expect(screen.getByText("F1 UK")).not.toBeNull()

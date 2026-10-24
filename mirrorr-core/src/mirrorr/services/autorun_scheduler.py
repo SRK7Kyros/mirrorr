@@ -61,7 +61,7 @@ async def _spawn_session(db, autorun: Autorun, now: datetime, key: str) -> int |
     """Create the session for one slot, or ``None`` if that slot already ran.
 
     One slot is one session even when its capture falls back: the session carries
-    the whole chain in ``stint_plan`` and runs it itself, so a fallback never
+    the whole chain in ``capture_plan`` and runs it itself, so a fallback never
     spawns a session of its own.
     """
     used = (await db.exec(select(Session.id).where(Session.idempotency_key == key))).first()
@@ -88,7 +88,7 @@ async def _spawn_session(db, autorun: Autorun, now: datetime, key: str) -> int |
         resolver_config=autorun.resolver_config,
         retry_mode=autorun.retry_mode,
         retry_config=autorun.retry_config,
-        stint_plan=fallback_chain(autorun),
+        capture_plan=fallback_chain(autorun),
     )
     db.add(session)
     await db.flush()

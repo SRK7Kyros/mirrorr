@@ -24,7 +24,7 @@ import {
 import { useLiveDurationSeconds } from "@/ui/hooks";
 import { Page } from "@/ui/views/shared/page";
 import { AttemptsTimeline, toAttemptView } from "./attempts-timeline";
-import { SourcesTimeline, toStintView } from "./sources-timeline";
+import { CapturesTimeline, toCaptureView } from "./captures-timeline";
 import { RemuxProgressBar } from "./remux-progress";
 import { SessionSaveProfileButton } from "./session-save-profile-button";
 import { SessionStopDeleteButton } from "./session-stop-delete-button";
@@ -134,20 +134,20 @@ export function SessionDetailView({
   const attempts = (session.attempts ?? [])
     .map((raw, index) => toAttemptView(raw, index))
     .sort((a, b) => b.index - a.index);
-  const stints = (session.stints ?? [])
-    .map((raw, index) => toStintView(raw, index))
+  const captures = (session.captures ?? [])
+    .map((raw, index) => toCaptureView(raw, index))
     .sort((a, b) => a.index - b.index);
   // The plan's own first entry is the source running now, not a fallback —
   // only what follows it is still owed.
-  const plan = session.stint_plan ?? [];
+  const plan = session.capture_plan ?? [];
   const pending = isLive(session.status)
     ? plan
-        .slice(Math.max(stints.length, 1))
+        .slice(Math.max(captures.length, 1))
         .map((id) => resolveEntityName(undefined, names.profiles, id))
     : [];
   // A single-source session that never fell back has nothing to add here: its
   // profile, engine and resolver are already on the page.
-  const showSources = plan.length > 1 || stints.length > 1;
+  const showCaptures = plan.length > 1 || captures.length > 1;
   const remuxing =
     session.status === "remuxing" || session.status === "finalizing";
   // Telemetry covers the attempt's own processes — remux/finalize sample nothing.
@@ -237,16 +237,16 @@ export function SessionDetailView({
         </PanelBody>
       </Panel>
 
-      {showSources ? (
+      {showCaptures ? (
         <Panel>
           <PanelHead
-            title="Sources"
+            title="Captures"
             actions={
               plan.length > 1 ? <Tag>{plan.length} in the plan</Tag> : null
             }
           />
           <PanelBody>
-            <SourcesTimeline stints={stints} pending={pending} />
+            <CapturesTimeline captures={captures} pending={pending} />
           </PanelBody>
         </Panel>
       ) : null}
