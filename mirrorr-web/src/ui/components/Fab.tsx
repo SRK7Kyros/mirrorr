@@ -4,7 +4,7 @@ import { cn } from "@/ui/lib/cn"
 import { motionTokens, springs } from "@/ui/lib/motion"
 
 const FAB_CLASS =
-  "hidden max-sm:inline-flex tab-stop items-center justify-center fixed right-4 bottom-[calc(var(--bottomnav-h)_+_env(safe-area-inset-bottom,0px)_+_var(--s-4))] w-[52px] h-[52px] rounded-full bg-brand text-brand-ink shadow-elev-lg z-[var(--z-sticky)] transition-[background] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-brand-hover"
+  "hidden max-sm:inline-flex tab-stop items-center justify-center fixed right-4 bottom-[calc(var(--bottomnav-h)_+_var(--safe-bottom)_+_var(--s-4))] w-[52px] h-[52px] rounded-full bg-brand text-brand-ink shadow-elev-lg z-[var(--z-sticky)] transition-[background] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-brand-hover"
 
 export interface FabProps extends HTMLMotionProps<"button"> {
   /** Accessible name — required (the icon alone carries no text). */

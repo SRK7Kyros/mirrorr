@@ -9,7 +9,7 @@ export function TopBar() {
   const crumb = describeRoute(pathname)
 
   return (
-    <header className="sticky top-0 z-[var(--z-topbar)] flex h-[calc(var(--topbar-h)_+_env(safe-area-inset-top,0px))] shrink-0 items-center gap-3 border-b border-line bg-[color-mix(in_srgb,var(--bg)_86%,transparent)] px-5 pt-[env(safe-area-inset-top,0px)] backdrop-blur-[12px] max-sm:px-3">
+    <header className="sticky top-0 z-[var(--z-topbar)] flex h-[calc(var(--topbar-h)_+_var(--safe-top))] shrink-0 items-center gap-3 border-b border-line bg-[color-mix(in_srgb,var(--bg)_86%,transparent)] px-5 pt-[var(--safe-top)] backdrop-blur-[12px] max-sm:px-3">
       <div className="flex min-w-0 items-center gap-2 text-md font-semibold">
         {crumb.parent !== null ? (
           <>

@@ -7,6 +7,7 @@ import { setAuthNavigator } from "@/api/auth"
 import { installShellBackHandler } from "@/api/native"
 import { queryClient } from "@/api/query-client"
 import { TabStopMap } from "@/ui/components/tab-stops"
+import { installSafeArea } from "@/ui/lib/safe-area"
 import { router } from "@/router"
 import "@/app.css"
 
@@ -16,6 +17,8 @@ setAuthNavigator({ toLogin: () => void router.navigate({ to: "/login" }) })
 // Android's back button belongs to this console's history rather than a quit,
 // and the handler is a no-op on iOS and in a browser.
 installShellBackHandler()
+
+installSafeArea(document, window)
 
 const rootElement = document.getElementById("root")
 if (rootElement === null) throw new Error("Mirrorr: #root element is missing")
