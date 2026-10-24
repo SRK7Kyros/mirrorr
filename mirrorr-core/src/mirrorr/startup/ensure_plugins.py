@@ -94,7 +94,7 @@ async def sync_plugins_db(
     extract_db_fields: Callable[[Any, str, str], dict[str, Any]],
     schema_changed: Callable[[Any, T | None, str], bool],
     plugin_label: str,
-    session_factory: async_sessionmaker,
+    db_factory: async_sessionmaker,
     validate: Callable[[Any], None] | None = None,
 ) -> None:
     """Sync filesystem plugins to DB. Call at app startup.
@@ -106,12 +106,12 @@ async def sync_plugins_db(
         extract_db_fields: (instance, module_hash, origin) → dict of fields for model constructor.
         schema_changed: (instance, existing_db_row, module_hash) → True if DB needs update.
         plugin_label: Human-readable label for log messages (e.g. "engine", "resolver").
-        session_factory: Async session factory.
+        db_factory: Async DB factory.
         validate: Optional per-instance check; raising aborts the sync (boot).
     """
     logger.info(f"Syncing {plugin_label}s from filesystem...")
-    async with session_factory() as session:
-        db_items = {item.name: item for item in await crud.get_all(session, model_type)}  # ty:ignore[unresolved-attribute]
+    async with db_factory() as db:
+        db_items = {item.name: item for item in await crud.get_all(db, model_type)}  # ty:ignore[unresolved-attribute]
 
         for file_path in plugin_dir.glob("*.py"):
             if file_path.name.startswith("_"):
@@ -153,7 +153,7 @@ async def sync_plugins_db(
 
                         if existing is None:
                             new_obj = model_type(**fields)
-                            await crud.create(session, new_obj)
+                            await crud.create(db, new_obj)
                             db_items[instance.name] = new_obj
                             logger.info(f"{plugin_label.capitalize()} {instance.name} saved to database")
                             # Log schema on first creation
@@ -163,7 +163,7 @@ async def sync_plugins_db(
 
                         elif schema_changed(instance, existing, module_hash):
                             updated_obj = model_type(id=existing.id, **fields)  # ty:ignore[unresolved-attribute]
-                            await crud.update(session, model_type, existing.id, updated_obj)  # ty:ignore[unresolved-attribute]
+                            await crud.update(db, model_type, existing.id, updated_obj)  # ty:ignore[unresolved-attribute]
                             updated_obj.id = existing.id  # ty:ignore[unresolved-attribute]
                             db_items[instance.name] = updated_obj
                             logger.opt(colors=True).info(
@@ -184,13 +184,13 @@ async def sync_plugins_db(
                     except TypeError as e:
                         logger.error(f"Could not instantiate {attr_name}: {e}. (Is it abstract?)")
 
-            await session.commit()
+            await db.commit()
 
         # Remove stale DB entries whose origin no longer exists on disk
         existing_origins = {fp.stem for fp in plugin_dir.glob("*.py") if not fp.name.startswith("_")}
         for item in list(db_items.values()):
             if item.origin not in existing_origins:  # ty:ignore[unresolved-attribute]
                 logger.info(f"Removing stale {plugin_label} entry: {item.name} (origin={item.origin})")  # ty:ignore[unresolved-attribute]
-                await crud.delete(session, model_type, item.id)  # ty:ignore[unresolved-attribute]
+                await crud.delete(db, model_type, item.id)  # ty:ignore[unresolved-attribute]
 
     logger.info(f"{plugin_label.capitalize()}s successfully initialized and synced with database.")

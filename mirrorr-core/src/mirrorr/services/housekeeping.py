@@ -82,14 +82,14 @@ def sweep_orphans(
 
 async def reap_orphan_session_dirs(
     settings: MirrorrSettings,
-    session_factory: async_sessionmaker,
+    db_factory: async_sessionmaker,
 ) -> list[str]:
     """Reap every content folder no session or recording points at."""
     content_dir = settings.content_dir.resolve()
     if not content_dir.is_dir():
         return []
 
-    async with session_factory() as db:
+    async with db_factory() as db:
         folders = [folder for folder in (await db.exec(select(Session.session_folder))).all() if folder]
         recordings = list((await db.exec(select(Recording.disk_path))).all())
 
@@ -109,7 +109,7 @@ async def reap_orphan_session_dirs(
 
 async def housekeeping_loop(
     settings: MirrorrSettings,
-    session_factory: async_sessionmaker,
+    db_factory: async_sessionmaker,
     stop_event: asyncio.Event,
 ) -> None:
     """Sweep for orphaned content folders every ``housekeeping_interval`` seconds."""
@@ -118,7 +118,7 @@ async def housekeeping_loop(
     try:
         while not stop_event.is_set():
             try:
-                await reap_orphan_session_dirs(settings, session_factory)
+                await reap_orphan_session_dirs(settings, db_factory)
             except Exception as e:
                 logger.error(f"Housekeeping sweep failed: {e}")
             try:

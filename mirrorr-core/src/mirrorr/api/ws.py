@@ -56,7 +56,7 @@ from sqlmodel import col, select
 from mirrorr.event_bus.nats import bus
 from mirrorr.api.dependencies import pick_ws_subprotocol, ws_auth
 from mirrorr.services.permissions import viewer_usernames
-from mirrorr.storage.database import get_session_factory
+from mirrorr.storage.database import get_db_factory
 from mirrorr.storage.enums import ResourceType
 from mirrorr.storage.models import Notification
 
@@ -105,7 +105,7 @@ class _Audience:
         cached = self._cache.get(key)
         if cached is not None and now - cached[0] < self.ttl_s:
             return cached[1]
-        async with get_session_factory()() as db:
+        async with get_db_factory()() as db:
             viewers = await viewer_usernames(db, resource_type, resource_id)
         if len(self._cache) >= self.max_entries:
             self._cache.clear()
@@ -359,7 +359,7 @@ async def notifications_endpoint(websocket: WebSocket):
     logger.info(f"[ws/notifications] connected — user={user.username}")
 
     # Send existing unread notifications
-    async with get_session_factory()() as db:
+    async with get_db_factory()() as db:
         stmt = (
             select(Notification)
             .where(col(Notification.user_id) == user.id, Notification.read == False)  # type: ignore[arg-type]  # noqa: E712
@@ -369,7 +369,7 @@ async def notifications_endpoint(websocket: WebSocket):
         unread = list(result.all())
 
     logger.debug(f"[ws/notifications] user={user.username} has {len(unread)} unread notifications")
-    async with get_session_factory()() as db:
+    async with get_db_factory()() as db:
         for notif in unread:
             try:
                 await websocket.send_text(json.dumps({
@@ -495,7 +495,7 @@ async def _fetch_entity(subject: str, entity_id: int) -> dict | None:
         return None
 
     try:
-        async with get_session_factory()() as db:
+        async with get_db_factory()() as db:
             obj = await db.get(model, entity_id)
             if obj is None:
                 return None

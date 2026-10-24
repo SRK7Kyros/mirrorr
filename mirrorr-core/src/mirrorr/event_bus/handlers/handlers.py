@@ -11,12 +11,12 @@ from mirrorr.services import session_supervisor
 from mirrorr.storage.enums import ResourceType
 
 # ── Process registry: session_id → (Process, ShutdownEvent) ──────────
-_sessions: dict[int, tuple[multiprocessing.Process, ShutdownEvent]] = {}
+_supervisors: dict[int, tuple[multiprocessing.Process, ShutdownEvent]] = {}
 
 
 def _spawn_supervisor(session_id: int) -> multiprocessing.Process:
     from mirrorr.di import container
-    existing = _sessions.get(session_id)
+    existing = _supervisors.get(session_id)
     if existing is not None and existing[0].is_alive():
         logger.warning(
             f"Supervisor for session {session_id} is already running "
@@ -31,13 +31,13 @@ def _spawn_supervisor(session_id: int) -> multiprocessing.Process:
         daemon=True,
     )
     process.start()
-    _sessions[session_id] = (process, shutdown_event)
+    _supervisors[session_id] = (process, shutdown_event)
     logger.info(f"Spawned supervisor process (pid={process.pid}) for session {session_id}")
     return process
 
 
 async def _kill_supervisor(session_id: int) -> None:
-    entry = _sessions.pop(session_id, None)
+    entry = _supervisors.pop(session_id, None)
     if not entry:
         return
     process, shutdown_event = entry
@@ -83,9 +83,9 @@ async def handle_autorun_deleted(data: MirrorrEvent.AUTORUN_DELETED):
     from mirrorr.storage.enums import SessionStatus
     from sqlmodel import select
 
-    session_factory = container.session_factory
+    db_factory = container.db_factory
     try:
-        async with session_factory() as db:
+        async with db_factory() as db:
             stmt = select(Session).where(Session.autorun_id == data.id)
             result = await db.exec(stmt)
             session = result.first()
@@ -114,13 +114,13 @@ async def handle_autorun_deleted(data: MirrorrEvent.AUTORUN_DELETED):
 # ── Notification-producing event handlers ────────────────────────────
 
 async def _create_notification(resource_type: str, resource_id: int, event_type: str, title: str, body: str = "") -> None:
-    """Create notifications for all subscribed users via a standalone DB session."""
+    """Create notifications for all subscribed users via a standalone DB handle."""
     from mirrorr.di import container
     from mirrorr.api.auth import notify_subscribers
 
-    session_factory = container.session_factory
+    db_factory = container.db_factory
     try:
-        async with session_factory() as db:
+        async with db_factory() as db:
             count = await notify_subscribers(db, resource_type, resource_id, event_type, title, body)
             if count:
                 await db.commit()
@@ -172,13 +172,13 @@ async def kill_all_supervisors(timeout: float = 20.0) -> None:
     force-killed — unbounded, one wedged supervisor would stall shutdown
     until systemd SIGKILLs the whole cgroup, orphaning every session row.
     """
-    if not _sessions:
+    if not _supervisors:
         return
 
-    logger.info(f"Stopping {len(_sessions)} supervisor(s): {list(_sessions.keys())}")
+    logger.info(f"Stopping {len(_supervisors)} supervisor(s): {list(_supervisors.keys())}")
 
     # 1. Signal all supervisors to stop via the shutdown event
-    for session_id, (process, shutdown_event) in _sessions.items():
+    for session_id, (process, shutdown_event) in _supervisors.items():
         logger.info(f"  Signaling stop to session {session_id} (pid={process.pid})")
         shutdown_event.set()
 
@@ -190,12 +190,12 @@ async def kill_all_supervisors(timeout: float = 20.0) -> None:
     next_log = start + log_interval
 
     while True:
-        for session_id, (process, _) in _sessions.items():
+        for session_id, (process, _) in _supervisors.items():
             if session_id not in done and not process.is_alive():
                 done.add(session_id)
                 logger.info(f"  Session {session_id} exited")
 
-        remaining = [sid for sid in _sessions if sid not in done]
+        remaining = [sid for sid in _supervisors if sid not in done]
         if not remaining:
             break
 
@@ -211,7 +211,7 @@ async def kill_all_supervisors(timeout: float = 20.0) -> None:
 
     # 3. Force-kill any that are still alive
     killed: list[int] = []
-    for session_id, (process, _) in list(_sessions.items()):
+    for session_id, (process, _) in list(_supervisors.items()):
         if process.is_alive():
             logger.warning(f"  Force-killing session {session_id} (pid={process.pid})")
             try:
@@ -221,7 +221,7 @@ async def kill_all_supervisors(timeout: float = 20.0) -> None:
             await asyncio.to_thread(process.join, timeout=3)
             killed.append(session_id)
 
-    _sessions.clear()
+    _supervisors.clear()
     logger.success(
         f"Stopped {len(done)} supervisor(s) gracefully"
         + (f", force-killed {len(killed)}: {killed}" if killed else "")
@@ -252,7 +252,7 @@ async def _sweep_dead_supervisors(missing_since: dict[int, float]) -> list[int]:
     from mirrorr.services.session_lifecycle import LIVE_STATUSES
     from mirrorr.storage.models import Session
 
-    async with container.session_factory() as db:
+    async with container.db_factory() as db:
         live = list(
             (await db.exec(select(Session.id).where(Session.status.in_(LIVE_STATUSES)))).all()
         )
@@ -260,7 +260,7 @@ async def _sweep_dead_supervisors(missing_since: dict[int, float]) -> list[int]:
     now = time.monotonic()
     dead: list[int] = []
     for session_id in live:
-        entry = _sessions.get(session_id)
+        entry = _supervisors.get(session_id)
         if entry is not None and entry[0].is_alive():
             missing_since.pop(session_id, None)
         elif now - missing_since.setdefault(session_id, now) >= _WATCHDOG_GRACE:
@@ -269,9 +269,9 @@ async def _sweep_dead_supervisors(missing_since: dict[int, float]) -> list[int]:
     live_set = set(live)
     for session_id in [sid for sid in missing_since if sid not in live_set]:
         missing_since.pop(session_id)
-    for session_id, (process, _) in list(_sessions.items()):
+    for session_id, (process, _) in list(_supervisors.items()):
         if session_id not in live_set and not process.is_alive():
-            _sessions.pop(session_id)
+            _supervisors.pop(session_id)
     return dead
 
 
@@ -288,7 +288,7 @@ async def supervisor_watchdog_loop(stop_event: asyncio.Event) -> None:
             try:
                 for session_id in await _sweep_dead_supervisors(missing_since):
                     missing_since.pop(session_id, None)
-                    _sessions.pop(session_id, None)
+                    _supervisors.pop(session_id, None)
                     logger.warning(f"Session {session_id} has no live supervisor — marking FAILED")
                     await update_session(container.settings, session_id, status=SessionStatus.FAILED)
             except Exception as e:

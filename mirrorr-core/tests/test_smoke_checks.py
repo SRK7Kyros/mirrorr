@@ -491,7 +491,7 @@ def test_started_at_is_stamped_only_once_playable(tmp_path):
             await db.commit()
 
         settings = MirrorrSettings(base_dir=tmp_path)
-        container.configure(settings=settings, session_factory=maker, event_bus=AsyncMock())
+        container.configure(settings=settings, db_factory=maker, event_bus=AsyncMock())
         try:
             await update_session(
                 settings, 1,

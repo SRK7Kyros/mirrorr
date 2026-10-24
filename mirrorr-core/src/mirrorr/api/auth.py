@@ -93,7 +93,7 @@ async def subscribe_requester(
     """If the requester token is non-empty, create a subscription for the matching user.
 
     ``commit=False`` is for a caller that already owns the transaction — the
-    request-scoped session closes without one, so the entry point must commit;
+    request-scoped db closes without one, so the entry point must commit;
     a caller inside an open savepoint must not, because committing ends the
     enclosing transaction and every later statement raises.
     """
@@ -124,7 +124,7 @@ async def subscribe_requester(
     )
     db.add(sub)
     if commit:
-        # A request-scoped session is closed without a commit, so an INSERT left
+        # A request-scoped db is closed without a commit, so an INSERT left
         # pending here is rolled back and the subscription silently disappears —
         # no notifications and no per-resource WS events for the new item.
         await db.commit()

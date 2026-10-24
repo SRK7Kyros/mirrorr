@@ -38,7 +38,7 @@ def _schema_changed(instance: EngineInterface, existing: Engine | None, module_h
     )
 
 
-async def sync_engines_db(engines_dir: Path, session_factory: async_sessionmaker) -> None:
+async def sync_engines_db(engines_dir: Path, db_factory: async_sessionmaker) -> None:
     """Syncs filesystem engine plugins to DB. Call this at app startup."""
     await sync_plugins_db(
         plugin_dir=engines_dir,
@@ -47,5 +47,5 @@ async def sync_engines_db(engines_dir: Path, session_factory: async_sessionmaker
         extract_db_fields=_extract_db_fields,
         schema_changed=_schema_changed,
         plugin_label="engine",
-        session_factory=session_factory,
+        db_factory=db_factory,
     )

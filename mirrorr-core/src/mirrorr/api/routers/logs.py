@@ -16,7 +16,7 @@ from loguru import logger
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from mirrorr.api.dependencies import _get_db_session, require_auth, AuthState
+from mirrorr.api.dependencies import _get_db, require_auth, AuthState
 from mirrorr.api.schemas import (
     SessionLogsResponse,
     RecordingProgressResponse,
@@ -50,7 +50,7 @@ async def _resolve_own_session(
 async def get_session_logs(
     session_id: int,
     auth: AuthState = Depends(require_auth),
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
     stream: str = Query(default="stdout", pattern="^(stdout|stderr)$"),
     name: str | None = Query(default=None),
     offset: int = Query(default=0, ge=0),
@@ -92,7 +92,7 @@ async def get_session_logs(
 async def get_session_recording_progress(
     session_id: int,
     auth: AuthState = Depends(require_auth),
-    db: AsyncSession = Depends(_get_db_session),
+    db: AsyncSession = Depends(_get_db),
 ) -> RecordingProgressResponse:
     """Return the latest remux progress stored on the session."""
     session = await _resolve_own_session(db, session_id, auth)

@@ -22,7 +22,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 from unittest.mock import AsyncMock, patch
 
 from mirrorr.api.api import API
-from mirrorr.api.dependencies import AuthState, _get_db_session, get_auth
+from mirrorr.api.dependencies import AuthState, _get_db, get_auth
 from mirrorr.di import container
 from mirrorr.plugin_api.interfaces import Capabilities
 from mirrorr.storage.enums import ResourceType, SessionStatus, UserRole
@@ -68,21 +68,21 @@ async def _harness(tmp_path):
         await conn.run_sync(SQLModel.metadata.create_all)
     container.configure(
         settings=MirrorrSettings(base_dir=tmp_path, content_dir=tmp_path / "content"),
-        session_factory=maker,
+        db_factory=maker,
         event_bus=AsyncMock(),
     )
     holder: dict = {"auth": AuthState(client=None, user=None)}
 
     async def _db():
-        async with maker() as session:
-            yield session
+        async with maker() as db:
+            yield db
 
     def _auth(request: Request):
         current = holder["auth"]
         request.state.is_admin = current.is_admin
         return current
 
-    API.dependency_overrides[_get_db_session] = _db
+    API.dependency_overrides[_get_db] = _db
     API.dependency_overrides[get_auth] = _auth
     try:
         async with AsyncClient(transport=ASGITransport(app=API), base_url="http://t") as client:

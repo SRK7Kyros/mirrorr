@@ -58,7 +58,7 @@ def test_active_session_gets_started_at_on_a_non_status_update(tmp_path):
         await _seed(maker, _session(1, SessionStatus.ACTIVE))
 
         settings = MirrorrSettings(base_dir=tmp_path)
-        container.configure(settings=settings, session_factory=maker, event_bus=AsyncMock())
+        container.configure(settings=settings, db_factory=maker, event_bus=AsyncMock())
         try:
             diff = await update_session(
                 settings, 1, session_urls=[{"label": "HLS", "url": "x"}], nc=AsyncMock()
@@ -90,10 +90,10 @@ def test_watchdog_fails_only_sessions_abandoned_past_the_grace(tmp_path):
 
         container.configure(
             settings=MirrorrSettings(base_dir=tmp_path),
-            session_factory=maker,
+            db_factory=maker,
             event_bus=AsyncMock(),
         )
-        handlers._sessions.clear()
+        handlers._supervisors.clear()
         try:
             # First sighting only starts the grace clock.
             assert await handlers._sweep_dead_supervisors({}) == []
@@ -102,7 +102,7 @@ def test_watchdog_fails_only_sessions_abandoned_past_the_grace(tmp_path):
             assert await handlers._sweep_dead_supervisors(stale) == [1]
 
             # A live supervisor protects its session and clears the clock.
-            handlers._sessions[1] = (_FakeProcess(True), None)
+            handlers._supervisors[1] = (_FakeProcess(True), None)
             protected = {1: time.monotonic() - handlers._WATCHDOG_GRACE - 1}
             assert await handlers._sweep_dead_supervisors(protected) == []
             assert protected == {}
@@ -110,7 +110,7 @@ def test_watchdog_fails_only_sessions_abandoned_past_the_grace(tmp_path):
             # Terminal sessions are never considered.
             assert await handlers._sweep_dead_supervisors({2: 0.0}) == []
         finally:
-            handlers._sessions.clear()
+            handlers._supervisors.clear()
             container.reset()
 
         await engine.dispose()

@@ -510,11 +510,11 @@ class RecordingManager:
     async def _persist_recording_progress(self, progress: dict) -> None:
         """Best-effort write of the latest remux progress to the Session row."""
         try:
-            from mirrorr.services.session_lifecycle import _get_session_factory
+            from mirrorr.services.session_lifecycle import _get_db_factory
             from mirrorr.storage.models import Session
 
-            async with _get_session_factory(self.settings) as session_factory:
-                async with session_factory() as db:
+            async with _get_db_factory(self.settings) as db_factory:
+                async with db_factory() as db:
                     session = await db.get(Session, self.session_id)
                     if session is not None:
                         session.recording_progress = progress
@@ -573,7 +573,7 @@ class RecordingManager:
         ``capture`` is the one that produced the media when a session fell back —
         the entry names that source, not the profile the session was created for.
         """
-        from mirrorr.services.session_lifecycle import _get_session_factory
+        from mirrorr.services.session_lifecycle import _get_db_factory
         from mirrorr.storage.models import Recording
         from mirrorr.storage import crud
         from mirrorr.storage.enums import ResourceType
@@ -594,8 +594,8 @@ class RecordingManager:
             self.session.profile.resolver.name if self.session.profile else self.session.resolver.name
         )
 
-        async with _get_session_factory(self.settings) as session_factory:
-            async with session_factory() as db:
+        async with _get_db_factory(self.settings) as db_factory:
+            async with db_factory() as db:
                 recording = Recording(
                     user_friendly_name=profile_name or f"Session #{self.session.id}",
                     snake_case_name=dest.name,

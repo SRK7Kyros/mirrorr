@@ -83,7 +83,7 @@ def _scenario(tmp_path: Path, seed, work):
 
         container.configure(
             settings=MirrorrSettings(base_dir=tmp_path, content_dir=tmp_path / "content"),
-            session_factory=maker,
+            db_factory=maker,
             event_bus=AsyncMock(),
         )
         try:
@@ -100,7 +100,7 @@ def test_deleting_a_session_removes_its_folder(tmp_path):
 
     async def work():
         await delete_session(container.settings, 1, folder, nc=AsyncMock())
-        async with container.session_factory() as db:
+        async with container.db_factory() as db:
             return await crud.get_by_id(db, Session, 1)
 
     assert _scenario(tmp_path, lambda db: db.add(_session(str(folder))), work) is None

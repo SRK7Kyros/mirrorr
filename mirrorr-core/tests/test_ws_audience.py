@@ -42,7 +42,7 @@ class _Socket:
 async def _seeded(tmp_path):
     engine, maker = create_db_engine(MirrorrSettings(base_dir=tmp_path))
     await ensure_db(engine)
-    database.set_session_factory(maker)
+    database.set_db_factory(maker)
     ws._audience._cache.clear()
     async with maker() as db:
         db.add(Engine(id=1, name="e", origin="o", origin_hash="h"))

@@ -17,7 +17,7 @@ from mirrorr.startup.config import MirrorrSettings
 
 async def autorun_scheduler_loop(
     settings: MirrorrSettings,
-    session_factory: async_sessionmaker,
+    db_factory: async_sessionmaker,
     stop_event: asyncio.Event,
 ) -> None:
     """Background loop that starts/stops sessions based on Autorun schedules.
@@ -30,7 +30,7 @@ async def autorun_scheduler_loop(
     try:
         while not stop_event.is_set():
             try:
-                await _tick(session_factory, settings)
+                await _tick(db_factory, settings)
             except Exception as e:
                 logger.error(f"Autorun scheduler tick failed: {e}")
 
@@ -109,13 +109,13 @@ async def _spawn_session(db, autorun: Autorun, now: datetime, key: str) -> int |
     return session.id
 
 
-async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) -> None:
+async def _tick(db_factory: async_sessionmaker, settings: MirrorrSettings) -> None:
     # Use naive UTC to match the naive UTC datetimes stored in the DB
     # (SQLite strips tzinfo, and _parse_datetimes stores naive UTC)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     just_created_ids: set[int] = set()
 
-    async with session_factory() as db:
+    async with db_factory() as db:
         # ── 1. Start scheduled autoruns whose start_time has arrived ──
         stmt = (
             select(Autorun)
@@ -163,7 +163,7 @@ async def _tick(session_factory: async_sessionmaker, settings: MirrorrSettings) 
             await bus.emit(MirrorrEvent.AUTORUN_UPDATED(id=aid))
 
     # ── 2. Stop autoruns whose end_time has passed ────────────────
-    async with session_factory() as db:
+    async with db_factory() as db:
         stmt = (
             select(Session)
             .where(

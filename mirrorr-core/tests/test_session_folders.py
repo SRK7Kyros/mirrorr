@@ -87,7 +87,7 @@ def test_live_folder_holder_names_the_other_live_session(tmp_path):
             await conn.run_sync(SQLModel.metadata.create_all)
         maker = async_sessionmaker(engine, class_=SQLModelAsyncSession, expire_on_commit=False)
         settings = MirrorrSettings(base_dir=tmp_path)
-        container.configure(settings=settings, session_factory=maker, event_bus=AsyncMock())
+        container.configure(settings=settings, db_factory=maker, event_bus=AsyncMock())
         try:
             async with maker() as db:
                 for sid, status in (

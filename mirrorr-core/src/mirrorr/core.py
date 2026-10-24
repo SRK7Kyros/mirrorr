@@ -36,7 +36,7 @@ class MirrorrCore:
 
         # Resolved at runtime -- set during _boot()
         self._db_engine = None
-        self._session_factory = None
+        self._db_factory = None
         self._nats_manager = None
         self._uvicorn_server: uvicorn.Server | None = None
         self._scheduler_task: asyncio.Task | None = None
@@ -137,7 +137,7 @@ class MirrorrCore:
             )
 
         # 3. Database
-        self._db_engine, self._session_factory = create_db_engine(self.settings)
+        self._db_engine, self._db_factory = create_db_engine(self.settings)
 
         # 3a. Dev reset: truncate all tables before anything else if DEV_RESET_DATABASE is set
         if self.settings.dev_reset_database:
@@ -147,17 +147,17 @@ class MirrorrCore:
 
         await ensure_db(self._db_engine)
 
-        # Wire the session factory into the FastAPI dependency
-        from mirrorr.storage.database import set_session_factory
+        # Wire the db factory into the FastAPI dependency
+        from mirrorr.storage.database import set_db_factory
 
-        set_session_factory(self._session_factory)
+        set_db_factory(self._db_factory)
 
         # 4. FFmpeg
         ensure_ffmpeg(self.settings)
 
         # 5. Plugins → DB sync (this repopulates the tables after a reset)
-        await sync_engines_db(self.settings.engines_dir, self._session_factory)
-        await sync_resolvers_db(self.settings.resolvers_dir, self._session_factory)
+        await sync_engines_db(self.settings.engines_dir, self._db_factory)
+        await sync_resolvers_db(self.settings.resolvers_dir, self._db_factory)
 
         # 5a. Dev seed: auto-create admin user if DEV_SEED_ADMIN is set
         if self.settings.dev_seed_admin:
@@ -216,7 +216,7 @@ class MirrorrCore:
 
         container.configure(
             settings=self.settings,
-            session_factory=self._session_factory,
+            db_factory=self._db_factory,
             event_bus=bus,
         )
 
@@ -231,7 +231,7 @@ class MirrorrCore:
         self._scheduler_stop = asyncio.Event()
         self._scheduler_task = asyncio.create_task(
             autorun_scheduler_loop(
-                self.settings, self._session_factory, self._scheduler_stop
+                self.settings, self._db_factory, self._scheduler_stop
             )
         )
 
@@ -240,7 +240,7 @@ class MirrorrCore:
 
         self._housekeeping_stop = asyncio.Event()
         self._housekeeping_task = asyncio.create_task(
-            housekeeping_loop(self.settings, self._session_factory, self._housekeeping_stop)
+            housekeeping_loop(self.settings, self._db_factory, self._housekeeping_stop)
         )
 
         # 10. Supervisor liveness watchdog
@@ -282,13 +282,13 @@ class MirrorrCore:
         from mirrorr.storage.models import User
         from mirrorr.storage.enums import UserRole
 
-        if not self._session_factory:
-            logger.warning("DEV_SEED_ADMIN: session factory not ready, skipping.")
+        if not self._db_factory:
+            logger.warning("DEV_SEED_ADMIN: db factory not ready, skipping.")
             return
 
-        async with self._session_factory() as session:
+        async with self._db_factory() as db:
             stmt = select(User).where(User.username == "admin")
-            result = await session.exec(stmt)
+            result = await db.exec(stmt)
             if result.first() is not None:
                 logger.info("DEV_SEED_ADMIN: user 'admin' already exists, skipping.")
                 return
@@ -299,8 +299,8 @@ class MirrorrCore:
                 role=UserRole.ADMIN,
                 display_name="Admin",
             )
-            session.add(user)
-            await session.commit()
+            db.add(user)
+            await db.commit()
             logger.success("DEV_SEED_ADMIN: created admin user (admin/admin123).")
 
     # ── shutdown ───────────────────────────────────────────────────────

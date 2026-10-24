@@ -11,36 +11,36 @@ from mirrorr.startup.config import MirrorrSettings
 
 
 # Module-level state — set once by MirrorrCore._boot().
-_session_factory: _async_sessionmaker | None = None
+_db_factory: _async_sessionmaker | None = None
 
 
-def set_session_factory(factory: _async_sessionmaker) -> None:
-    global _session_factory
-    _session_factory = factory
+def set_db_factory(factory: _async_sessionmaker) -> None:
+    global _db_factory
+    _db_factory = factory
 
 
-def get_session_factory() -> _async_sessionmaker:
-    if _session_factory is None:
+def get_db_factory() -> _async_sessionmaker:
+    if _db_factory is None:
         raise RuntimeError("Database not initialised. Call MirrorrCore._boot() first.")
-    return _session_factory
+    return _db_factory
 
 
 @asynccontextmanager
-async def get_session() -> AsyncGenerator[SQLModelAsyncSession, None]:
-    """Standalone async context manager for DB sessions:
+async def get_db() -> AsyncGenerator[SQLModelAsyncSession, None]:
+    """Standalone async context manager for DB work:
 
-        async with get_session() as db:
+        async with get_db() as db:
             result = await db.exec(...)
     """
-    async with get_session_factory()() as session:
-        yield session
+    async with get_db_factory()() as db:
+        yield db
 
 
 def create_db_engine(settings: MirrorrSettings) -> tuple[AsyncEngine, _async_sessionmaker]:
     """Create an async SQLAlchemy engine from MirrorrSettings.
 
     Returns:
-        (engine, async_session_factory)
+        (engine, db_factory)
     """
     db_url = f"sqlite+aiosqlite:///{settings.db_file}"
     engine = _create_async_engine(
@@ -56,5 +56,5 @@ def create_db_engine(settings: MirrorrSettings) -> tuple[AsyncEngine, _async_ses
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
-    session_factory = _async_sessionmaker(engine, class_=SQLModelAsyncSession, expire_on_commit=False)
-    return engine, session_factory
+    db_factory = _async_sessionmaker(engine, class_=SQLModelAsyncSession, expire_on_commit=False)
+    return engine, db_factory
