@@ -206,8 +206,8 @@ class SessionResponse(BaseModel):
     requester_user_token: str = ""
     session_urls: list[dict[str, str]] = Field(default_factory=list)
     attempts: list[dict[str, Any]] = Field(default_factory=list)
-    stints: list[dict[str, Any]] = Field(default_factory=list)
-    stint_plan: list[int | None] = Field(default_factory=list)
+    captures: list[dict[str, Any]] = Field(default_factory=list)
+    capture_plan: list[int | None] = Field(default_factory=list)
     engine_name: str | None = None
     resolver_name: str | None = None
     profile_name: str | None = None

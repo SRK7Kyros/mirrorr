@@ -1,8 +1,8 @@
-"""One session, several stints: the plan, the handover, and the single recording.
+"""One session, several captures: the plan, the handover, and the single recording.
 
-A session's ``stint_plan`` lists the profiles it tries in turn. A stint that
+A session's ``capture_plan`` lists the profiles it tries in turn. A capture that
 never becomes playable hands over to the next source instead of failing the
-session, and whatever the stints recorded merges into one recording.
+session, and whatever the captures recorded merges into one recording.
 """
 from __future__ import annotations
 
@@ -46,8 +46,8 @@ def _session(plan: list[int], *, recording: bool = True) -> SimpleNamespace:
         retry_config={},
         retry_attempts=0,
         attempts=[],
-        stints=[],
-        stint_plan=plan,
+        captures=[],
+        capture_plan=plan,
     )
 
 
@@ -104,7 +104,7 @@ def _drive(sup, *, load_capture=None):
         calls.append(fields)
         return {}
 
-    async def _remux_stint():
+    async def _remux_capture():
         folder = sup._recording.session_folder
         if not (folder / "stream.m3u8").exists():
             return None
@@ -127,7 +127,7 @@ def _drive(sup, *, load_capture=None):
             patch("mirrorr.startup.ensure_resolvers.get_validated_config", lambda **k: {}),
             patch.object(session_supervisor.RecordingManager, "start_stash", Mock()),
             patch.object(session_supervisor.RecordingManager, "stop_stash", AsyncMock()),
-            patch.object(session_supervisor.RecordingManager, "remux_stint", staticmethod(_remux_stint)),
+            patch.object(session_supervisor.RecordingManager, "remux_capture", staticmethod(_remux_capture)),
             patch.object(session_supervisor.RecordingManager, "probe_duration", AsyncMock(return_value=2.0)),
             patch.object(session_supervisor.RecordingManager, "finalize", finalize),
         ]
@@ -147,11 +147,11 @@ def _statuses(calls: list[dict]) -> list[SessionStatus]:
     return [c["status"] for c in calls if "status" in c]
 
 
-def _stints(calls: list[dict]) -> list[dict]:
-    return [c["stints"] for c in calls if "stints" in c][-1]
+def _captures(calls: list[dict]) -> list[dict]:
+    return [c["captures"] for c in calls if "captures" in c][-1]
 
 
-def test_a_failed_stint_hands_over_and_both_artifacts_merge_into_one_recording(tmp_path):
+def test_a_failed_capture_hands_over_and_both_artifacts_merge_into_one_recording(tmp_path):
     primary = _engine(ends="crash")
     sup = _sup(tmp_path, plan=[1, 2], engine=primary)
 
@@ -160,23 +160,23 @@ def test_a_failed_stint_hands_over_and_both_artifacts_merge_into_one_recording(t
     load_capture.assert_awaited_once_with(sup.settings, 2)
     assert primary.start.await_count == 1
 
-    stints = _stints(calls)
-    assert [(s["index"], s["status"]) for s in stints] == [(1, "failed"), (2, "completed")]
-    assert stints[1]["profile_name"] == "F1 UK"
+    captures = _captures(calls)
+    assert [(s["index"], s["status"]) for s in captures] == [(1, "failed"), (2, "completed")]
+    assert captures[1]["profile_name"] == "F1 UK"
 
     artifacts, producer = finalize.call_args.args
     assert len(artifacts) == 2
     assert artifacts[0].parent == sup._primary_folder
-    assert artifacts[1].parent == sup._primary_folder.parent / f"{sup._primary_folder.name}_stint2"
+    assert artifacts[1].parent == sup._primary_folder.parent / f"{sup._primary_folder.name}_capture2"
     assert producer["profile_id"] == 2
-    assert all(s["merged"] for s in _stints(calls))
+    assert all(s["merged"] for s in _captures(calls))
 
     statuses = _statuses(calls)
     assert statuses[-1] is SessionStatus.COMPLETED
     assert SessionStatus.FAILED not in statuses
 
 
-def test_every_stint_failing_keeps_the_row_failed_with_what_they_recorded(tmp_path):
+def test_every_capture_failing_keeps_the_row_failed_with_what_they_recorded(tmp_path):
     sup = _sup(tmp_path, plan=[1, 2], engine=_engine(ends="crash"))
     crash_again = AsyncMock(
         return_value=(FALLBACK_CAPTURE, _engine(ends="crash"), _resolver())
@@ -184,8 +184,8 @@ def test_every_stint_failing_keeps_the_row_failed_with_what_they_recorded(tmp_pa
 
     calls, finalize, _load = _drive(sup, load_capture=crash_again)
 
-    stints = _stints(calls)
-    assert [(s["index"], s["status"]) for s in stints] == [(1, "failed"), (2, "failed")]
+    captures = _captures(calls)
+    assert [(s["index"], s["status"]) for s in captures] == [(1, "failed"), (2, "failed")]
     artifacts, producer = finalize.call_args.args
     assert len(artifacts) == 2
     assert producer["profile_id"] == 2
@@ -227,17 +227,17 @@ def _drive_with_stop(sup, *, after=0.05):
     return calls, load_capture
 
 
-def test_a_stop_during_the_first_stint_never_tries_the_next_source(tmp_path):
+def test_a_stop_during_the_first_capture_never_tries_the_next_source(tmp_path):
     sup = _sup(tmp_path, plan=[1, 2], engine=_engine(), recording=False)
 
     calls, load_capture = _drive_with_stop(sup)
 
     load_capture.assert_not_awaited()
-    assert [s["index"] for s in _stints(calls)] == [1]
+    assert [s["index"] for s in _captures(calls)] == [1]
     assert _statuses(calls)[-1] is SessionStatus.COMPLETED
 
 
-def test_a_profile_that_cannot_load_fails_its_stint_and_the_next_still_runs(tmp_path):
+def test_a_profile_that_cannot_load_fails_its_capture_and_the_next_still_runs(tmp_path):
     async def _boom(*a, **k):
         raise ValueError("Profile 2 has no resolver or engine")
 
@@ -245,10 +245,10 @@ def test_a_profile_that_cannot_load_fails_its_stint_and_the_next_still_runs(tmp_
 
     calls, finalize, _load = _drive(sup, load_capture=AsyncMock(side_effect=_boom))
 
-    stints = _stints(calls)
-    assert [s["index"] for s in stints] == [1, 2]
-    assert stints[1]["status"] == "failed"
-    assert "Profile 2 has no resolver or engine" in stints[1]["reason"]
+    captures = _captures(calls)
+    assert [s["index"] for s in captures] == [1, 2]
+    assert captures[1]["status"] == "failed"
+    assert "Profile 2 has no resolver or engine" in captures[1]["reason"]
     assert _statuses(calls)[-1] is SessionStatus.FAILED
     artifacts, _producer = finalize.call_args.args
     assert len(artifacts) == 1

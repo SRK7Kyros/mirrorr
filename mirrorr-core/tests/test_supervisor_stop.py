@@ -26,8 +26,8 @@ def _session() -> SimpleNamespace:
         retry_config={},
         retry_attempts=0,
         attempts=[],
-        stints=[],
-        stint_plan=[1],
+        captures=[],
+        capture_plan=[1],
     )
 
 

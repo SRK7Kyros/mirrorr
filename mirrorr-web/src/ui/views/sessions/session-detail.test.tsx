@@ -171,36 +171,36 @@ describe("SessionDetailView live sources", () => {
 describe("SessionDetailView sources", () => {
   it("hides the panel for a session with one source and no fallback", async () => {
     endpoints.fetchSession.mockResolvedValue(
-      session({ status: "active", stint_plan: [1], stints: [] }),
+      session({ status: "active", capture_plan: [1], captures: [] }),
     )
 
     renderDetail()
 
     await screen.findByRole("button", { name: /stop session #7/i })
-    expect(screen.queryByText("Sources")).toBeNull()
+    expect(screen.queryByText("Captures")).toBeNull()
   })
 
   it("hides the panel for a completed session that never fell back", async () => {
     endpoints.fetchSession.mockResolvedValue(
       session({
         status: "completed",
-        stint_plan: [1],
-        stints: [{ index: 1, status: "completed", profile_id: 1, profile_name: "F1" }],
+        capture_plan: [1],
+        captures: [{ index: 1, status: "completed", profile_id: 1, profile_name: "F1" }],
       }),
     )
 
     renderDetail()
 
     await screen.findByText("Live sources")
-    expect(screen.queryByText("Sources")).toBeNull()
+    expect(screen.queryByText("Captures")).toBeNull()
   })
 
-  it("lists the stint that failed and the profile still owed", async () => {
+  it("lists the capture that failed and the profile still owed", async () => {
     endpoints.fetchSession.mockResolvedValue(
       session({
         status: "active",
-        stint_plan: [1, 2],
-        stints: [
+        capture_plan: [1, 2],
+        captures: [
           {
             index: 1,
             status: "failed",
@@ -215,7 +215,7 @@ describe("SessionDetailView sources", () => {
     renderDetail()
 
     await screen.findByRole("button", { name: /stop session #7/i })
-    expect(screen.getByText("Sources")).not.toBeNull()
+    expect(screen.getByText("Captures")).not.toBeNull()
     expect(screen.getByText("F1")).not.toBeNull()
     expect(screen.getByText("stream never became playable")).not.toBeNull()
     expect(screen.getByText(/Falls back to #2/)).not.toBeNull()

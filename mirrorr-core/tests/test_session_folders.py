@@ -1,7 +1,7 @@
 """Where a session writes, and who may write there.
 
-An autorun's fallback rung captures a different source, so each rung needs its
-own folder — and a folder already held by a live session is refused rather than
+An autorun's fallback captures a different source, so each capture needs its own
+folder — and a folder already held by a live session is refused rather than
 interleaving two segment sets in one playlist.
 """
 from __future__ import annotations
@@ -40,8 +40,8 @@ def _autorun_session() -> SimpleNamespace:
         retry_config={},
         retry_attempts=0,
         attempts=[],
-        stints=[],
-        stint_plan=[1, 2],
+        captures=[],
+        capture_plan=[1, 2],
     )
 
 
@@ -50,14 +50,14 @@ def _supervisor(tmp_path, settings=None) -> SessionSupervisor:
     return SessionSupervisor(5, _autorun_session(), SimpleNamespace(), SimpleNamespace(), settings)
 
 
-def test_each_stint_captures_into_its_own_folder(tmp_path):
+def test_each_capture_writes_into_its_own_folder(tmp_path):
     settings = MirrorrSettings(base_dir=tmp_path)
     sup = _supervisor(tmp_path, settings)
     primary = (settings.autoruns_dir / "united_states_gp_fp2").resolve()
     assert sup.session_folder == primary
     assert sup._primary_folder == primary
 
-    capture = {
+    capture_settings = {
         "profile_id": 2,
         "profile_name": "F1 UK",
         "engine_name": "yt-dlp piped",
@@ -71,13 +71,13 @@ def test_each_stint_captures_into_its_own_folder(tmp_path):
     with patch.object(
         session_supervisor,
         "load_profile_capture",
-        AsyncMock(return_value=(capture, SimpleNamespace(), SimpleNamespace())),
+        AsyncMock(return_value=(capture_settings, SimpleNamespace(), SimpleNamespace())),
     ):
-        assert asyncio.run(sup._begin_stint(2, 2)) is None
+        assert asyncio.run(sup._begin_capture(2, 2)) is None
 
-    assert sup.session_folder == primary.parent / f"{primary.name}_stint2"
+    assert sup.session_folder == primary.parent / f"{primary.name}_capture2"
     assert sup.segments_folder.parent == sup.session_folder
-    assert sup._stint_capture["profile_name"] == "F1 UK"
+    assert sup._capture_settings["profile_name"] == "F1 UK"
 
 
 def test_live_folder_holder_names_the_other_live_session(tmp_path):

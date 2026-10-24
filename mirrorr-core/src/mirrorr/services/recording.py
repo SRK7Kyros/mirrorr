@@ -127,8 +127,8 @@ class RecordingManager:
         self.segments_folder = folder / "segments"
         self.logs_folder = folder / "logs"
 
-    async def remux_stint(self) -> Path | None:
-        """This stint's segments → one MP4 in its own folder, or ``None`` if it
+    async def remux_capture(self) -> Path | None:
+        """This capture's segments → one MP4 in its own folder, or ``None`` if it
         captured nothing.
 
         The artifact is an input to the session's final merge, so it stays where
@@ -138,7 +138,7 @@ class RecordingManager:
         if not ordered:
             return None
 
-        logger.info(f"Session {self.session_id}: remuxing {len(ordered)} stint segments")
+        logger.info(f"Session {self.session_id}: remuxing {len(ordered)} capture segments")
         target = self.session_folder / f"{self.session_folder.name}.mp4"
         await self._concat(
             ordered,
@@ -146,12 +146,12 @@ class RecordingManager:
             total_duration=len(ordered) * self.settings.segment_duration,
         )
         logger.success(
-            f"Session {self.session_id}: stint remuxed — {len(ordered)} segments → {target.name}"
+            f"Session {self.session_id}: capture remuxed — {len(ordered)} segments → {target.name}"
         )
         return target
 
     async def _ordered_segments(self) -> list[Path]:
-        """The stint's segments in play order: the stash first, then the live window."""
+        """The capture's segments in play order: the stash first, then the live window."""
         loop = asyncio.get_running_loop()
         stash_segments = (
             sorted(await loop.run_in_executor(None, lambda: list(self.stash_folder.glob("*.ts"))))
@@ -162,35 +162,35 @@ class RecordingManager:
         stash_names = {s.name for s in stash_segments}
         return stash_segments + [s for s in live_segments if s.name not in stash_names]
 
-    async def finalize(self, artifacts: list[Path], stint: dict | None = None) -> int:
-        """Merge the stints' artifacts into one recording, then file it.
+    async def finalize(self, artifacts: list[Path], capture: dict | None = None) -> int:
+        """Merge the captures' artifacts into one recording, then file it.
 
-        One artifact is a copy; several are concatenated in stint order. Two
-        sources can differ in codec, so a failed stream copy keeps the longest
+        One artifact is a copy; several are concatenated in capture order. Two
+        captures can differ in codec, so a failed stream copy keeps the longest
         artifact as the recording rather than losing the whole session to a
         container detail.
         """
-        sources = [p for p in artifacts if p.exists()]
-        if not sources:
+        existing = [p for p in artifacts if p.exists()]
+        if not existing:
             raise RuntimeError("No recording produced")
 
         target = self.session_folder / f"{self.session_folder.name}.mp4"
-        if len(sources) == 1:
-            if sources[0] != target:
-                await asyncio.to_thread(shutil.copy2, sources[0], target)
+        if len(existing) == 1:
+            if existing[0] != target:
+                await asyncio.to_thread(shutil.copy2, existing[0], target)
         else:
-            logger.info(f"Session {self.session_id}: merging {len(sources)} stints")
-            total = sum([await self.probe_duration(p) for p in sources])
+            logger.info(f"Session {self.session_id}: merging {len(existing)} captures")
+            total = sum([await self.probe_duration(p) for p in existing])
             merged = self.session_folder / f"{target.name}.part"
             try:
-                await self._concat(sources, merged, total_duration=total)
+                await self._concat(existing, merged, total_duration=total)
                 await asyncio.to_thread(merged.replace, target)
             except Exception as e:
                 merged.unlink(missing_ok=True)
                 logger.error(
-                    f"Session {self.session_id}: stint merge failed ({e}) — keeping the longest"
+                    f"Session {self.session_id}: capture merge failed ({e}) — keeping the longest"
                 )
-                keeper = max(sources, key=lambda p: p.stat().st_size)
+                keeper = max(existing, key=lambda p: p.stat().st_size)
                 if keeper != target:
                     await asyncio.to_thread(shutil.copy2, keeper, target)
 
@@ -209,10 +209,10 @@ class RecordingManager:
         await asyncio.get_running_loop().run_in_executor(None, shutil.move, str(self.session_folder), str(dest))
         logger.info(f"Session {self.session_id}: moved to {dest}")
 
-        recording_id = await self._create_recording_entry(dest, mp4_name, stint)
+        recording_id = await self._create_recording_entry(dest, mp4_name, capture)
 
-        # A failed stint's folder is spent: its media is in the merged file.
-        for folder in {p.parent for p in sources if p.parent != self.session_folder}:
+        # A failed capture's folder is spent: its media is in the merged file.
+        for folder in {p.parent for p in existing if p.parent != self.session_folder}:
             await asyncio.to_thread(shutil.rmtree, folder, ignore_errors=True)
 
         try:
@@ -314,7 +314,7 @@ class RecordingManager:
             return
         topic = "proc.remux.telemetry"
         telemetry_q = self.bus.subscribe(topic)
-        nc = self.nc  # capture for type narrowing in closure
+        nc = self.nc  # alias so the closure keeps a narrowed type
 
         async def _forward():
             while True:
@@ -567,10 +567,10 @@ class RecordingManager:
         except (KeyError, json.JSONDecodeError, ValueError):
             return 0.0
 
-    async def _create_recording_entry(self, dest: Path, mp4_name: str, stint: dict | None = None) -> int:
+    async def _create_recording_entry(self, dest: Path, mp4_name: str, capture: dict | None = None) -> int:
         """Create the recording DB entry. Returns the recording ID.
 
-        ``stint`` is the one that produced the media when a session fell back —
+        ``capture`` is the one that produced the media when a session fell back —
         the entry names that source, not the profile the session was created for.
         """
         from mirrorr.services.session_lifecycle import _get_session_factory
@@ -584,13 +584,13 @@ class RecordingManager:
         started_at = self.session.started_at or datetime.now(timezone.utc).replace(tzinfo=None)
         ended_at = datetime.now(timezone.utc).replace(tzinfo=None)
         duration_seconds = await self.probe_duration(mp4_in_dest)
-        profile_name = (stint or {}).get("profile_name") or (
+        profile_name = (capture or {}).get("profile_name") or (
             self.session.profile.name if self.session.profile else ""
         )
-        engine_name = (stint or {}).get("engine_name") or (
+        engine_name = (capture or {}).get("engine_name") or (
             self.session.engine.name if self.session.engine else ""
         )
-        resolver_name = (stint or {}).get("resolver_name") or (
+        resolver_name = (capture or {}).get("resolver_name") or (
             self.session.profile.resolver.name if self.session.profile else self.session.resolver.name
         )
 

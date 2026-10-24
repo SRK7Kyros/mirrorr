@@ -45,8 +45,8 @@ def _session(recording: bool = False) -> SimpleNamespace:
         retry_config={},
         retry_attempts=0,
         attempts=[],
-        stints=[],
-        stint_plan=[1],
+        captures=[],
+        capture_plan=[1],
     )
 
 
@@ -392,11 +392,11 @@ def test_terminal_failure_remuxes_what_it_recorded(tmp_path):
         await ctx.bus.emit("engine.crashed", EngineCrashed(reason="boom"))
 
     sup = _supervisor(tmp_path, _resolver(), _engine(on_start=crash), recording=True)
-    stint_mp4 = tmp_path / "stint.mp4"
-    stint_mp4.write_bytes(b"\x00")
+    capture_mp4 = tmp_path / "capture.mp4"
+    capture_mp4.write_bytes(b"\x00")
 
     with (
-        patch.object(session_supervisor.RecordingManager, "remux_stint", AsyncMock(return_value=stint_mp4)),
+        patch.object(session_supervisor.RecordingManager, "remux_capture", AsyncMock(return_value=capture_mp4)),
         patch.object(session_supervisor.RecordingManager, "probe_duration", AsyncMock(return_value=1.0)),
         patch.object(session_supervisor.RecordingManager, "finalize", AsyncMock(return_value=42)),
     ):

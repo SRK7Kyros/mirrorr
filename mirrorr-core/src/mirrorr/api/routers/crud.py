@@ -790,7 +790,7 @@ async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(
         retry_mode=retry_mode,
         retry_config=retry_config,
         recording=item.recording,
-        stint_plan=[item.profile_id] if item.profile_id else [],
+        capture_plan=[item.profile_id] if item.profile_id else [],
         requester_user_token=auth.user.username,
     )
     try:

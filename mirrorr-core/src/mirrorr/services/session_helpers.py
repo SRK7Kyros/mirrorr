@@ -137,7 +137,7 @@ async def load_session_from_db(
 
 
 async def load_profile_capture(settings: MirrorrSettings, profile_id: int):
-    """Load one profile's capture for a later stint of a session.
+    """Load one profile's capture for a later capture of a session.
 
     A fallback runs a *different source*, so it takes that profile's engine,
     resolver, config and retry policy whole rather than the session's snapshot.

@@ -142,12 +142,12 @@ class Session(SQLModel, table=True):
     requester_group_id: int | None = Field(default=None, index=True)
     session_urls: list[dict[str, str]] = Field(default_factory=list, sa_column=Column(SAJSON))
     attempts: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(SAJSON))
-    # The profiles this session tries, in order: its own capture first, then any
-    # fallbacks. Each runs a *stint* — its own engine/resolver/config into its own
-    # folder — and the stints merge into one recording when the session ends.
-    stint_plan: list[int | None] = Field(default_factory=list, sa_column=Column(SAJSON))
-    # What each stint did: profile/engine/resolver names, status, reason, media.
-    stints: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(SAJSON))
+    # The profiles this session tries, in order: its own profile first, then any
+    # fallbacks. Each capture runs that profile's engine/resolver/config into its
+    # own folder, and the captures merge into one recording when the session ends.
+    capture_plan: list[int | None] = Field(default_factory=list, sa_column=Column(SAJSON))
+    # What each capture did: profile/engine/resolver names, status, reason, media.
+    captures: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(SAJSON))
     # Absolute path to the session folder; lets API read logs/progress even
     # after the supervisor process exits. Set by the supervisor on start.
     session_folder: str | None = Field(default=None)
