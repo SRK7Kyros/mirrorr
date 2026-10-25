@@ -314,6 +314,9 @@ async def _retry_orphaned_autoruns(settings: MirrorrSettings, orphaned: list[int
                 autorun = row.autorun
                 if autorun is None or autorun.orphan_policy != "retry":
                     continue
+                if autorun.issue:
+                    logger.info(f"Autorun {autorun.id}: flagged ({autorun.issue}), not retrying session {row.id}")
+                    continue
                 if autorun.end_time <= now:
                     logger.info(f"Autorun {autorun.id}: window closed, not retrying session {row.id}")
                     continue

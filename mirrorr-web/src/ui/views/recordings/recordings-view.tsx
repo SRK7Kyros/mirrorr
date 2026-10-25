@@ -12,6 +12,7 @@ import { queryKeys, queryRoots } from "@/api/query-keys";
 import type { Recording } from "@/api/schemas";
 import { showingLabel } from "@/ui/lib/format";
 import {
+  BulkBar,
   Button,
   buttonClass,
   ConfirmDialog,
@@ -19,12 +20,14 @@ import {
   ErrorPanel,
   IconRecordings,
   IconRefresh,
+  IconTrash,
   LoadMore,
   Skeleton,
   toast,
 } from "@/ui/components";
-import { useHighlightRef } from "@/ui/hooks";
+import { useHighlightRef, useSelection } from "@/ui/hooks";
 import { Page } from "@/ui/views/shared/page";
+import { AccessBulkAction } from "@/ui/views/shared/resource-access-slot";
 import { RecordingCard } from "./recording-card";
 
 /**
@@ -64,6 +67,8 @@ function RecordingsSkeleton({ count = 6 }: { readonly count?: number }) {
 export function RecordingsView({ highlight }: { readonly highlight?: number }) {
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<Recording | null>(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const selection = useSelection<number>();
   const highlightRef = useHighlightRef(highlight);
 
   const list = useEntityList<Recording>({
@@ -86,7 +91,25 @@ export function RecordingsView({ highlight }: { readonly highlight?: number }) {
       ),
   });
 
+  const bulkRemove = useMutation({
+    mutationFn: async (ids: readonly number[]) => {
+      for (const id of ids) await deleteRecording(id);
+    },
+    onSuccess: (_data, ids) => {
+      for (const id of ids) removeFromInfiniteLists(queryClient, queryRoots.recordings, id);
+      void queryClient.invalidateQueries({ queryKey: queryRoots.recordings });
+      toast.success("Recordings deleted", `${ids.length} removed`);
+      selection.clear();
+    },
+    onError: (error) =>
+      toast.error(
+        "Could not delete the recordings",
+        getErrorMessage(error, "Request failed"),
+      ),
+  });
+
   const rows = list.items;
+  const selectedRecordings = rows.filter((recording) => selection.has(recording.id));
 
   return (
     <Page
@@ -137,9 +160,32 @@ export function RecordingsView({ highlight }: { readonly highlight?: number }) {
                 recording={recording}
                 onDelete={setPending}
                 highlightRef={highlightRef}
+                selected={selection.has(recording.id)}
+                onToggle={selection.toggle}
               />
             ))}
           </div>
+
+          {selection.count > 0 ? (
+            <BulkBar count={selection.count} onClear={selection.clear}>
+              <AccessBulkAction
+                resourceType="recording"
+                items={selectedRecordings.map((recording) => ({
+                  id: recording.id,
+                  label: recording.user_friendly_name,
+                }))}
+              />
+              <Button
+                size="sm"
+                variant="danger-ghost"
+                icon={<IconTrash size={15} />}
+                loading={bulkRemove.isPending}
+                onClick={() => setBulkDeleteOpen(true)}
+              >
+                Delete selected
+              </Button>
+            </BulkBar>
+          ) : null}
 
           <LoadMore
             hasMore={hasMore}
@@ -151,6 +197,23 @@ export function RecordingsView({ highlight }: { readonly highlight?: number }) {
           />
         </>
       )}
+
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        title={`Delete ${selection.count} recording${selection.count === 1 ? "" : "s"}?`}
+        description="The files are removed from disk — this cannot be undone."
+        confirmLabel="Delete"
+        danger
+        onConfirm={async () => {
+          try {
+            await bulkRemove.mutateAsync([...selection.selected]);
+          } catch {
+            // The mutation's onError surfaces the failure via toast.
+          }
+          setBulkDeleteOpen(false);
+        }}
+      />
 
       <ConfirmDialog
         open={pending !== null}

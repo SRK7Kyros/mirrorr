@@ -42,6 +42,11 @@ function listQuery(cursor: number | undefined, limit: number, extra = ""): strin
   return cursor === undefined ? `?limit=${limit}${extra}` : `?cursor=${cursor}&limit=${limit}${extra}`
 }
 
+/** `DeleteResultResponse` — what a delete cascaded, detached or flagged. */
+const DeleteCountsSchema = z.object({
+  deleted: z.record(z.string(), z.number()).optional(),
+})
+
 async function fetchPageOf<T>(
   path: string,
   item: z.ZodType<T>,
@@ -171,8 +176,11 @@ export function updateProfile(id: number, body: ProfileBody): Promise<Profile> {
     parseOrWarn(ProfileSchema.parse, raw),
   )
 }
-export function deleteProfile(id: number): Promise<void> {
-  return apiFetch<void>(`/profiles/${id}`, { method: "DELETE" })
+export function deleteProfile(id: number): Promise<Record<string, number>> {
+  return apiFetch<unknown>(`/profiles/${id}`, { method: "DELETE" }).then((raw) => {
+    const parsed = DeleteCountsSchema.safeParse(raw)
+    return parsed.success ? (parsed.data.deleted ?? {}) : {}
+  })
 }
 
 /* ── sources ──────────────────────────────────────────────────────── */

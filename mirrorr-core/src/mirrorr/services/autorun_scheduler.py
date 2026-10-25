@@ -135,6 +135,7 @@ async def _tick(db_factory: async_sessionmaker, settings: MirrorrSettings) -> No
             .where(
                 Autorun.start_time <= now,
                 Autorun.status == AutorunStatus.SCHEDULED,
+                Autorun.issue.is_(None),  # flagged: needs attention before it may run
             )
             .options(
                 selectinload(Autorun.profile).selectinload(Profile.resolver),  # ty:ignore[invalid-argument-type]

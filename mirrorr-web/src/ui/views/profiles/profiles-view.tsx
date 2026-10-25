@@ -15,6 +15,7 @@ import {
 import { fetchProfilePage } from "@/api/endpoints"
 import { queryKeys, queryRoots, resolveEntityName } from "@/api/query-keys"
 import { rankBySearch } from "@/api/domain/search"
+import { flaggedNotice } from "@/api/domain/autorun-issue"
 import type { Profile, ResolverSource } from "@/api/schemas"
 import { humanize, showingLabel } from "@/ui/lib/format"
 import { staggerContainer, staggerItem } from "@/ui/lib/motion"
@@ -270,11 +271,14 @@ function ProfilesPanel({
 
   const remove = useMutation({
     mutationFn: (id: number) => deleteProfile(id),
-    onSuccess: (_data, id) => {
+    onSuccess: (counts, id) => {
       removeFromInfiniteLists(queryClient, queryRoots.profiles, id)
       queryClient.removeQueries({ queryKey: queryKeys.profile(id) })
       void queryClient.invalidateQueries({ queryKey: queryRoots.profiles })
-      toast.success("Profile deleted")
+      void queryClient.invalidateQueries({ queryKey: queryRoots.autoruns })
+      const flagged = flaggedNotice(counts.flagged ?? 0)
+      if (flagged === "") toast.success("Profile deleted")
+      else toast.warning("Profile deleted", flagged)
     },
     onError: (error) => toast.error("Could not delete the profile", getErrorMessage(error, "Request failed")),
   })
@@ -290,15 +294,23 @@ function ProfilesPanel({
 
   const bulkRemove = useMutation({
     mutationFn: async (ids: readonly number[]) => {
-      for (const id of ids) await deleteProfile(id)
+      let flagged = 0
+      for (const id of ids) {
+        const counts = await deleteProfile(id)
+        flagged += counts.flagged ?? 0
+      }
+      return flagged
     },
-    onSuccess: (_data, ids) => {
+    onSuccess: (flagged, ids) => {
       for (const id of ids) {
         removeFromInfiniteLists(queryClient, queryRoots.profiles, id)
         queryClient.removeQueries({ queryKey: queryKeys.profile(id) })
       }
       void queryClient.invalidateQueries({ queryKey: queryRoots.profiles })
-      toast.success("Profiles deleted", `${ids.length} removed`)
+      void queryClient.invalidateQueries({ queryKey: queryRoots.autoruns })
+      const notice = flaggedNotice(flagged)
+      if (notice === "") toast.success("Profiles deleted", `${ids.length} removed`)
+      else toast.warning("Profiles deleted", `${ids.length} removed. ${notice}`)
       selection.clear()
     },
     onError: (error) => toast.error("Could not delete the profiles", getErrorMessage(error, "Request failed")),
@@ -475,7 +487,7 @@ function ProfilesPanel({
         open={pending !== null}
         onClose={() => setPending(null)}
         title={pending !== null ? `Delete profile “${pending.name}”?` : "Delete profile"}
-        description="Profiles in use by autoruns or sessions cannot be deleted — remove those references first."
+        description="Schedules built from it keep their settings but stop running until you pick a profile again."
         confirmLabel="Delete"
         danger
         onConfirm={async () => {
@@ -492,7 +504,7 @@ function ProfilesPanel({
         open={bulkDeleteOpen}
         onClose={() => setBulkDeleteOpen(false)}
         title={`Delete ${selection.count} selected profile${selection.count === 1 ? "" : "s"}?`}
-        description="Profiles in use by autoruns or sessions cannot be deleted — remove those references first."
+        description="Schedules built from it keep their settings but stop running until you pick a profile again."
         confirmLabel="Delete"
         danger
         onConfirm={async () => {

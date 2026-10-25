@@ -267,4 +267,50 @@ test.describe("presets page", () => {
       resolver_config: { channel: "premium1" },
     })
   })
+
+  test("both halves of the page select rows and raise the same bulk bar", async ({ page }) => {
+    await page.goto("/profiles")
+    const bulk = page.getByRole("region", { name: "Bulk actions" })
+
+    await expect(bulk).toBeHidden()
+
+    await page.getByRole("checkbox", { name: "Select F1 Weekend" }).check()
+    await expect(bulk).toContainText("1 selected item")
+    await expect(bulk.getByRole("button", { name: "Export selected" })).toBeVisible()
+    await expect(bulk.getByRole("button", { name: "Delete selected" })).toBeVisible()
+
+    await bulk.getByRole("button", { name: "Clear" }).click()
+    await expect(bulk).toBeHidden()
+
+    await page.getByRole("checkbox", { name: "Select Sky Sports" }).check()
+    await expect(bulk).toContainText("1 selected item")
+    await expect(bulk.getByRole("button", { name: "Delete selected" })).toBeVisible()
+  })
+
+  test("deleting a profile says which schedules it left needing one", async ({ page, api }) => {
+    api.data.profileDeleteCounts = { flagged: 2 }
+    await page.goto("/profiles")
+
+    await page.getByRole("button", { name: "Delete profile F1 Weekend" }).click()
+    await page
+      .getByRole("dialog", { name: "Delete profile “F1 Weekend”?" })
+      .getByRole("button", { name: "Delete" })
+      .click()
+
+    await expect(page.getByText("Profile deleted")).toBeVisible()
+    await expect(
+      page.getByText("2 scheduled recordings need a new profile — they will not run until you pick one."),
+    ).toBeVisible()
+  })
+
+  test("a phone can select a profile and reach the bulk actions", async ({ page }) => {
+    await page.setViewportSize(MOBILE)
+    await page.goto("/profiles")
+
+    await page.getByRole("checkbox", { name: "Select F1 Weekend" }).check()
+
+    const bulk = page.getByRole("region", { name: "Bulk actions" })
+    await expect(bulk.getByRole("button", { name: "Delete selected" })).toBeInViewport()
+    await expect(bulk.getByRole("button", { name: "Export selected" })).toBeInViewport()
+  })
 })

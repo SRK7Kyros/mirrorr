@@ -14,7 +14,9 @@ export function removeFromInfiniteLists(
 ): void {
   clearPendingActions(id)
   client.setQueriesData<InfiniteData<CursorPage<Identified>>>({ queryKey: root }, (previous) => {
-    if (previous === undefined) return undefined
+    // A prefix root also matches the flat `["<kind>", { lookup: true }]` memo
+    // list, which holds an array rather than pages — leave it alone.
+    if (previous === undefined || !Array.isArray(previous.pages)) return undefined
     return {
       ...previous,
       pages: previous.pages.map((page) => ({

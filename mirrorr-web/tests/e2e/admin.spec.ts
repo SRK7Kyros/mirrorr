@@ -542,6 +542,48 @@ test.describe("admin resource access", () => {
     );
   });
 
+  test("both presets panels carry the selection and the bulk access panel", async ({
+    page,
+    api,
+  }) => {
+    api.data.users = USERS;
+    api.data.profiles = [
+      profile({ id: 4, name: "F1 Weekend" }),
+      profile({ id: 5, name: "F1 Race" }),
+    ];
+    api.data.sources = [source({ id: 8, name: "Sky Sports" })];
+
+    await openAdmin(page);
+    await openNav(page, "Presets");
+
+    const profilesPanel = page.locator('section:has(h2:text-is("Profiles"))');
+    const sourcesPanel = page.locator('section:has(h2:text-is("Sources"))');
+
+    await profilesPanel
+      .getByRole("checkbox", { name: "Select F1 Weekend" })
+      .check();
+    await profilesPanel
+      .getByRole("button", { name: "Access", exact: true })
+      .click();
+    await expect(page.getByText("Access on 1 item(s)")).toBeVisible();
+    await expect(
+      page.getByRole("dialog", { name: /Access on 1 item/ }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+
+    await sourcesPanel
+      .getByRole("checkbox", { name: "Select Sky Sports" })
+      .check();
+    await sourcesPanel
+      .getByRole("button", { name: "Access", exact: true })
+      .click();
+    await expect(page.getByText("Access on 1 item(s)")).toBeVisible();
+    await expect(
+      page.getByRole("dialog", { name: /Access on 1 item/ }),
+    ).toBeVisible();
+  });
+
   test("bulk access grants, revokes or replaces the same capability", async ({
     page,
     api,

@@ -4,6 +4,7 @@ import type { Recording } from "@/api/schemas";
 import { formatBytes, formatDateTime, formatDuration } from "@/api/time";
 import {
   Button,
+  Checkbox,
   IconButton,
   IconCopy,
   IconExternal,
@@ -75,10 +76,14 @@ export function RecordingCard({
   recording,
   onDelete,
   highlightRef,
+  selected = false,
+  onToggle,
 }: {
   readonly recording: Recording;
   readonly onDelete: (recording: Recording) => void;
   readonly highlightRef: (element: HTMLElement | null) => void;
+  readonly selected?: boolean;
+  readonly onToggle?: (id: number) => void;
 }) {
   const [hovering, setHovering] = useState(false);
   const served = useMediaServed(recording);
@@ -95,7 +100,8 @@ export function RecordingCard({
     <article
       ref={highlightRef}
       data-id={recording.id}
-      className="session-card flex flex-col border border-line rounded-lg bg-surface-2 overflow-hidden cursor-pointer transition-[border-color,box-shadow] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:border-line-strong hover:shadow-elev-md"
+      data-selected={selected}
+      className="session-card flex flex-col border border-line rounded-lg bg-surface-2 overflow-hidden cursor-pointer transition-[border-color,box-shadow] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:border-line-strong hover:shadow-elev-md data-[selected=true]:border-[color:var(--accent-line)] data-[selected=true]:shadow-[inset_2px_0_0_var(--accent)]"
       onClick={openRecording}
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}
@@ -132,6 +138,13 @@ export function RecordingCard({
             #{recording.id}
           </span>
           <span className="flex-1" />
+          {onToggle === undefined ? null : (
+            <Checkbox
+              aria-label={`Select ${recording.user_friendly_name}`}
+              checked={selected}
+              onChange={() => onToggle(recording.id)}
+            />
+          )}
           <AccessButton
             resourceType="recording"
             id={recording.id}

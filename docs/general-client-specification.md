@@ -127,7 +127,7 @@ A Profile is a **named, reusable recording configuration**: a saved snapshot of 
 | `POST /profiles/ {name, default_engine_id, resolver_id, resolver_config?, retry_mode?, retry_config?}` | auth | Validates engine/resolver exist. `resolver_config` validated against resolver's `config_schema` (server rejects invalid → 422 with loc). 400 on duplicate name. Sets `requester_user_token=current user`. Emits `profile.created`. |
 | `GET /profiles/{id}` | auth | Enriched ProfileResponse. |
 | `PUT /profiles/{id}` | auth | Partial update (exclude-unset). Same validation. |
-| `DELETE /profiles/{id}` | auth+owner | 204. Fails if referenced by autoruns/sessions (FK) → 400. |
+| `DELETE /profiles/{id}` | auth+owner | 200 `DeleteResultResponse` — cascades/detaches/flags (§14); never a 400 for a referenced profile. |
 
 ### 3.1 Client requirements — Profiles
 - **List** with pagination, search/filter by name.
@@ -677,7 +677,7 @@ The per-process subjects (`session.{id}.telemetry.<proc>`) are the raw samples a
 | List profiles | `GET /profiles/` | Paginated; `requester_user_token` per row (owner label) |
 | Create | `POST /profiles/` | 200 `ProfileResponse`; **400** duplicate name; **422** invalid engine/resolver or bad `resolver_config` vs `config_schema` |
 | Update | `PUT /profiles/{id}` | 200; excludes unset — client should send whole form or patch? **`exclude_unset` = partial OK**; same validations |
-| Delete | `DELETE /profiles/{id}` | **204**; **400/409 if FK-referenced by autoruns/sessions** — client must pre-empt with "in use by N autoruns" dialog (query lists, count refs) |
+| Delete | `DELETE /profiles/{id}` | **200** `DeleteResultResponse`; schedules built from it are **flagged**, not deleted (`deleted.flagged`) — say so in the toast and re-read the autorun list |
 | Engines | `GET /engines/` | Paginated `EngineResponse[]{id,name,description,origin,origin_hash,capabilities:{can_record,can_stream},retry_modes_schema}` — pure introspection; **no writes ever** |
 | Resolvers | `GET /resolvers/` | Paginated `ResolverResponse[]{id,name,description,origin,origin_hash,config_schema}` — introspection only |
 
@@ -774,7 +774,8 @@ This subsection collects facts an implementer discovers only by reading the serv
 #### 13.10.5 Delete cascade semantics (server-side, not always obvious)
 - `DELETE /autoruns/{id}` → deletes the autorun **and stops+deletes** any running session (emits `session.deleted` + `autorun.deleted`). The UI confirm must say "this will stop the live recording", and the client should listen for both WS events.
 - `DELETE /sessions/{id}` on an active session → server sends `stop` control then deletes *after* cleanup — the WS event `session.deleted` arrives only after the supervisor actually exits (could be seconds). Client must not interpret the 204 as "immediately gone" — wait for the event or poll.
-- `DELETE /profiles/{id}` cascades instead of refusing: the owner's own standalone sessions and autoruns (and their sessions) are deleted, and every row **another** user derived from the profile — a session or autorun of theirs whose `profile_id` pointed at it — is **detached** (`profile_id` cleared, everything else kept) and counted as `deleted.detached` (Oct 23 2026). A shared profile is a template: its capture config was copied into each derived row at creation, so those rows keep running unchanged, and another user's capture is never a profile owner's to destroy. (The line used to claim a **400**, which the cascade had long since replaced.)
+- `DELETE /profiles/{id}` cascades instead of refusing: the owner's own **standalone sessions** (and their sessions) are deleted, and every row **another** user derived from the profile — a session or autorun of theirs whose `profile_id` pointed at it — is **detached** (`profile_id` cleared, everything else kept) and counted as `deleted.detached` (Oct 23 2026). A shared profile is a template: its capture config was copied into each derived row at creation, so those rows keep running unchanged, and another user's capture is never a profile owner's to destroy. (The line used to claim a **400**, which the cascade had long since replaced.)
+- **An autorun is flagged, never deleted (Oct 25 2026).** `DELETE /profiles/{id}` clears `profile_id` on every autorun built from the profile and sets `issue="profile-deleted"`, counted as `deleted.flagged` (whoever built the schedule may not be the profile's owner, and a schedule that silently vanishes leaves a recording nobody was told would be missed). `AutorunResponse.issue` is `null` for a healthy row; the scheduler's tick query requires `issue IS NULL`, so a flagged schedule does not start; **saving** it through `PUT /autoruns/{id}` clears the flag — that save is the acknowledgement. The owner's own autoruns are flagged exactly like anyone else's.
 
 #### 13.10.6 `session_urls` empty-case is a first-class state
 `build_session_urls` returns `[]` when `settings.web_url` is unset (the default) or when the session folder can't be made relative to content_dir. A "live" session in the default install has **no URLs, forever** — no M3U8, no player. Clients must treat empty `session_urls` as a normal state, not a bug: show "live URLs not configured (operator must set `web_url`)" and disable player affordances. Never hang a spinner on it.

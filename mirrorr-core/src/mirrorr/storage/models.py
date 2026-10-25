@@ -109,6 +109,10 @@ class Autorun(SQLModel, table=True):
     # run on this autorun's own engine and retry policy — what an engine +
     # resolver run can name without inventing a profile for it.
     fallback_sources: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(SAJSON))
+    # Why this schedule cannot run until somebody looks at it ("profile-deleted").
+    # A row with an issue is skipped by the scheduler; saving it again through
+    # ``PUT /autoruns/{id}`` is the acknowledgement that clears it.
+    issue: str | None = Field(default=None)
 
     # One-shot schedule — the "next run" is simply start_time until it fires.
     # last_run_at is set when the autorun transitions out of SCHEDULED.
