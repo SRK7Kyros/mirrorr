@@ -132,6 +132,7 @@ class CreateProfileRequest(BaseModel):
     default_engine_id: int
     resolver_id: int
     resolver_config: dict[str, Any] = Field(default_factory=dict)
+    fallback_sources: list[FallbackSource] | None = None
     retry_mode: str = "none"
     retry_config: dict[str, Any] = Field(default_factory=dict)
 
@@ -141,6 +142,7 @@ class UpdateProfileRequest(BaseModel):
     default_engine_id: int | None = None
     resolver_id: int | None = None
     resolver_config: dict[str, Any] | None = None
+    fallback_sources: list[FallbackSource] | None = None
     retry_mode: str | None = None
     retry_config: dict[str, Any] | None = None
 
@@ -283,6 +285,7 @@ class ProfileResponse(BaseModel):
     default_engine_id: int
     resolver_id: int
     resolver_config: dict[str, Any] = Field(default_factory=dict)
+    fallback_sources: list[FallbackSource] = Field(default_factory=list)
     retry_mode: str = "none"
     retry_config: dict[str, Any] = Field(default_factory=dict)
     requester_user_token: str = ""

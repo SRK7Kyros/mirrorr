@@ -186,6 +186,7 @@ class Profile(SQLModel, table=True):
     default_engine_id: int = Field(foreign_key="engines.id")
     resolver_id: int = Field(foreign_key="resolvers.id")
     resolver_config: dict[str, Any] = Field(default_factory=dict, sa_type=JSON)
+    fallback_sources: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(SAJSON))
     retry_mode: str = Field(default="none")
     retry_config: dict[str, Any] = Field(default_factory=dict, sa_column=Column(SAJSON))
     requester_user_token: str = Field(default="")

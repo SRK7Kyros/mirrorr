@@ -119,15 +119,17 @@ Public: `POST /auth/status`? No — **`GET /auth/status`** is public. Everything
 
 A Profile is a **named, reusable recording configuration**: a saved snapshot of `engine + resolver + resolver_config + retry_mode + retry_config`. Sessions/Autoruns may reference a profile or be fully self-contained.
 
-**`ProfileResponse`:** `{id, name, default_engine_id, resolver_id, resolver_config, retry_mode, retry_config, requester_user_token}`
+**`ProfileResponse`:** `{id, name, default_engine_id, resolver_id, resolver_config, fallback_sources, retry_mode, retry_config, requester_user_token}`
 
 | Endpoint | Auth | Behavior |
 |---|---|---|
 | `GET /profiles/` | auth | Paginated |
-| `POST /profiles/ {name, default_engine_id, resolver_id, resolver_config?, retry_mode?, retry_config?}` | auth | Validates engine/resolver exist. `resolver_config` validated against resolver's `config_schema` (server rejects invalid → 422 with loc). 400 on duplicate name. Sets `requester_user_token=current user`. Emits `profile.created`. |
+| `POST /profiles/ {name, default_engine_id, resolver_id, resolver_config?, fallback_sources?, retry_mode?, retry_config?}` | auth | Validates engine/resolver exist. `resolver_config` validated against resolver's `config_schema` (server rejects invalid → 422 with loc). 400 on duplicate name. Sets `requester_user_token=current user`. Emits `profile.created`. |
 | `GET /profiles/{id}` | auth | Enriched ProfileResponse. |
 | `PUT /profiles/{id}` | auth | Partial update (exclude-unset). Same validation. |
 | `DELETE /profiles/{id}` | auth+owner | 200 `DeleteResultResponse` — cascades/detaches/flags (§14); never a 400 for a referenced profile. |
+
+**Fallback chain (Oct 25 2026):** a profile may carry its own ordered `fallback_sources` — the same `{resolver_id, resolver_config}` shape a session/autorun declares — so one preset can say "this channel, then that one". It is validated like every other chain: each entry a real resolver, no repeats (compared on resolver **+** config), and never the profile's own source (422 `rule: fallback-source-is-primary` / `fallback-source-duplicate`). A session or autorun created from the profile **inherits** the chain when its request names none; anything in the request wins, and an inherited rung that would repeat the run's own source is dropped rather than refused (the caller declared nothing, so there is nothing to tell them about). `save-as-profile` snapshots the source's chain into the new profile (§13.6).
 
 ### 3.1 Client requirements — Profiles
 - **List** with pagination, search/filter by name.
@@ -677,6 +679,8 @@ The per-process subjects (`session.{id}.telemetry.<proc>`) are the raw samples a
 | List profiles | `GET /profiles/` | Paginated; `requester_user_token` per row (owner label) |
 | Create | `POST /profiles/` | 200 `ProfileResponse`; **400** duplicate name; **422** invalid engine/resolver or bad `resolver_config` vs `config_schema` |
 | Update | `PUT /profiles/{id}` | 200; excludes unset — client should send whole form or patch? **`exclude_unset` = partial OK**; same validations |
+| Profile chain | `fallback_sources` on `POST|PUT /profiles/` | Ordered `{resolver_id, resolver_config}` list; 422 `fallback-source-is-primary` / `-duplicate` / `-not-found`. A session or autorun made from the profile inherits it when it names none (§3) |
+| Save as profile | `POST /sessions/{id}\|/autoruns/{id}/save-as-profile` | The snapshot carries the source's chain into the new profile, re-seated against its own source (a rung repeating it is dropped) |
 | Delete | `DELETE /profiles/{id}` | **200** `DeleteResultResponse`; schedules built from it are **flagged**, not deleted (`deleted.flagged`) — say so in the toast and re-read the autorun list |
 | Engines | `GET /engines/` | Paginated `EngineResponse[]{id,name,description,origin,origin_hash,capabilities:{can_record,can_stream},retry_modes_schema}` — pure introspection; **no writes ever** |
 | Resolvers | `GET /resolvers/` | Paginated `ResolverResponse[]{id,name,description,origin,origin_hash,config_schema}` — introspection only |
