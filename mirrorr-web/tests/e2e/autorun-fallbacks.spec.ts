@@ -11,10 +11,31 @@ const PROFILES = [
   profile({ id: 3, name: "GB edge" }),
 ]
 
+/** The widest rung to lay out: a config form and a Browse button. */
+const WIDE = resolver({
+  id: 1,
+  name: "Wide IPTV",
+  has_catalog: true,
+  config_schema: { type: "object", properties: { channel: { type: "string", title: "Channel" } } },
+})
+
 async function openCreate(page: import("@playwright/test").Page) {
   await page.goto("/autoruns")
   await page.getByRole("button", { name: "New scheduled recording" }).first().click()
   await expect(page.getByRole("dialog")).toBeVisible()
+}
+
+/** A content-sized track widens the dialog instead of wrapping — its one past layout bug. */
+async function expectNoOverflow(dialog: import("@playwright/test").Locator): Promise<void> {
+  const [scrollWidth, clientWidth] = await dialog.evaluate((node) => [
+    node.scrollWidth,
+    node.clientWidth,
+  ])
+  expect(scrollWidth, "the dialog scrolls sideways").toBeLessThanOrEqual(clientWidth + 1)
+  const box = await dialog.boundingBox()
+  expect(box).not.toBeNull()
+  expect(box!.x, "the dialog starts off-screen").toBeGreaterThanOrEqual(0)
+  expect(box!.x + box!.width, "the dialog runs off the screen").toBeLessThanOrEqual(376)
 }
 
 test.describe("fallback profiles", () => {
@@ -122,5 +143,40 @@ test.describe("fallback profiles", () => {
 
     const [put] = api.callsTo("/autoruns/").filter((call) => call.method === "PUT")
     expect(put?.body).toMatchObject({ fallback_profile_ids: [] })
+  })
+
+  test("a phone width holds a whole chain without widening the dialog", async ({ page, api }) => {
+    await page.setViewportSize({ width: 375, height: 800 })
+    api.data.engines = [engine({ id: 1, name: "Streamlink" })]
+    api.data.resolvers = [WIDE]
+
+    await openCreate(page)
+    const dialog = page.getByRole("dialog")
+
+    await dialog.locator("#autorun-profile").selectOption("1")
+    const add = dialog.getByLabel("Add a fallback profile")
+    await add.selectOption("2")
+    await add.selectOption("3")
+    await expect(
+      dialog.getByRole("list", { name: "Fallback profiles, in order" }).getByRole("listitem"),
+    ).toHaveCount(2)
+    await expectNoOverflow(dialog)
+
+    await dialog.getByRole("tab", { name: "Engine + resolver" }).click()
+    await dialog.locator("#autorun-engine").selectOption("1")
+    await dialog.locator("#autorun-resolver").selectOption("1")
+    await dialog.getByRole("combobox", { name: "Fallback 1 · Resolver" }).selectOption("1")
+
+    const addRung = dialog.getByRole("button", { name: "Add fallback" })
+    await expect(addRung).toBeDisabled()
+    await expect(dialog.getByText(/same as the run.s own source/i)).toBeVisible()
+    await expectNoOverflow(dialog)
+
+    await dialog.locator("#fallback-source-1-channel").fill("premium9")
+    await addRung.click()
+    await expect(
+      dialog.getByRole("list", { name: "Fallback sources, in order" }).getByRole("listitem"),
+    ).toHaveCount(1)
+    await expectNoOverflow(dialog)
   })
 })
