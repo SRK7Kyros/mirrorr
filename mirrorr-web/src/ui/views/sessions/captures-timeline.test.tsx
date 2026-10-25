@@ -122,4 +122,29 @@ describe("CapturesTimeline", () => {
     expect(screen.getByText("1.4 GB")).not.toBeNull()
     expect(screen.getByText(/Falls back to F1 Italy/)).not.toBeNull()
   })
+
+  it("names a source once, with its config beside it", () => {
+    render(
+      <CapturesTimeline
+        captures={[
+          toCaptureView(
+            {
+              status: "failed",
+              source: "resolver",
+              engine_name: "yt_dlp_piped",
+              resolver_name: "daddylive",
+              resolver_config: { channel: "577" },
+            },
+            1,
+          ),
+        ]}
+        pending={[]}
+      />,
+    )
+
+    expect(screen.getAllByText("daddylive")).toHaveLength(1)
+    expect(screen.getByText("channel=577")).not.toBeNull()
+    expect(screen.getByText("yt_dlp_piped")).not.toBeNull()
+    expect(screen.getByText("Source")).not.toBeNull()
+  })
 })

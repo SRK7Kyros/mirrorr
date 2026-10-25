@@ -91,8 +91,12 @@ function CaptureRow({ capture }: { readonly capture: CaptureView }) {
 
       <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-dim">
         <span className="mono">{capture.engine}</span>
-        <span aria-hidden="true">→</span>
-        <span className="mono">{capture.resolver}</span>
+        {capture.kind === "source" ? null : (
+          <>
+            <span aria-hidden="true">→</span>
+            <span className="mono">{capture.resolver}</span>
+          </>
+        )}
         {capture.attempts === null ? null : (
           <>
             <Dot />
