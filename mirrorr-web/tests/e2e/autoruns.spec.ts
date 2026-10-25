@@ -29,6 +29,13 @@ const SPENT = autorun({
   snake_case_name: "done",
   status: "completed",
 })
+const ORPHANED = autorun({
+  id: 5,
+  user_friendly_name: "Orphaned",
+  snake_case_name: "orphaned",
+  next_run_at: "2026-10-18 09:00:00",
+  issue: "profile-deleted",
+})
 
 test.describe("scheduled recordings", () => {
   test.beforeEach(async ({ api }) => {
@@ -104,6 +111,25 @@ test.describe("scheduled recordings", () => {
       "/autoruns/4",
     ])
     for (const call of puts) expect(call.body).toEqual({ profile_id: 2 })
+  })
+
+  test("a schedule whose profile was deleted says so instead of vanishing", async ({ page, api }) => {
+    api.data.autoruns = [ALPHA, ORPHANED]
+    await page.goto("/autoruns")
+
+    const flagged = page.locator(".entity-card[data-issue=profile-deleted]")
+    await expect(flagged).toHaveCount(1)
+    await expect(flagged).toContainText("Its profile was deleted, so it will not run")
+    await expect(page.locator(".entity-card[data-issue]", { hasText: "Alpha" })).toHaveCount(0)
+
+    await flagged.getByRole("link", { name: "Orphaned" }).click()
+
+    const banner = page.locator("[role=status]", { hasText: "Its profile was deleted, so it will not run" })
+    await expect(banner).toBeVisible()
+    await expect(banner).toContainText("nothing starts it until you pick a profile again")
+
+    await banner.getByRole("button", { name: "Edit" }).click()
+    await expect(page.getByRole("dialog", { name: "Edit scheduled recording" })).toBeVisible()
   })
 
   test("a phone keeps the bulk bar clear of the bottom nav", async ({ page }) => {

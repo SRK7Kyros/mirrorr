@@ -176,18 +176,20 @@ async def _cascade_delete_autorun(db: AsyncSession, autorun_id: int) -> dict[str
 
 
 async def _cascade_delete_profile(db: AsyncSession, profile_id: int) -> dict[str, int]:
-    """Delete a profile with the items its owner derived from it.
+    """Delete a profile, keeping everything anybody (including its owner) built from it.
 
-    ``profile_id`` also appears on rows this owner does not control: a profile
-    shared for use is a template other users start their own sessions and
-    autoruns from (``VIEW`` is enough to reference one). Those rows are
-    **detached** — ``profile_id`` cleared, everything else kept — because their
-    engine/resolver/config were copied into their own columns at creation, so
-    they keep running unchanged and another user's capture is never a profile
-    owner's to destroy. Records the count as ``detached``.
+    ``profile_id`` is a link to a template, and the row that names it copied its
+    engine/resolver/config into its own columns at creation. So no consumer is
+    destroyed: a shared profile other users started from is **detached**
+    (``profile_id`` cleared, everything else kept) and counted as ``detached``,
+    and every autorun built from it is detached **and flagged** with
+    ``issue="profile-deleted"`` — a schedule that quietly vanishes leaves a
+    recording nobody is told it will miss, so it instead says it needs
+    attention, and the scheduler skips it until it is saved again. Counted as
+    ``flagged``.
 
-    The owner's own sessions (standalone ones) and autoruns still cascade, and
-    recordings are detached, not deleted. Emits PROFILE_DELETED. Returns counts.
+    The owner's own *standalone sessions* still cascade (they describe something
+    that already happened), and recordings are detached, not deleted.
     """
     profile = await crud.get_by_id(db, Profile, profile_id)
     owner = (
@@ -225,18 +227,22 @@ async def _cascade_delete_profile(db: AsyncSession, profile_id: int) -> dict[str
         await _safe_emit(MirrorrEvent.SESSION_DELETED(id=s.id))
     counts["sessions"] = counts.get("sessions", 0) + len(own_sess)
 
-    autoruns = (await db.exec(select(Autorun).where(Autorun.profile_id == profile_id))).all()
-    detached += await detach([a for a in autoruns if not derived_by_owner(a)])
-    for a in (a for a in autoruns if derived_by_owner(a)):
-        sub = await _cascade_delete_autorun(db, a.id)
-        for k, v in sub.items():
-            counts[k] = counts.get(k, 0) + v
+    flagged = (await db.exec(select(Autorun).where(Autorun.profile_id == profile_id))).all()
+    for autorun in flagged:
+        autorun.profile_id = None
+        autorun.issue = "profile-deleted"
+        db.add(autorun)
+    await db.flush()
     if detached:
         counts["detached"] = detached
+    if flagged:
+        counts["flagged"] = len(flagged)
 
     counts.update(await _count_related_records(db, ResourceType.PROFILE, profile_id))
     await _cleanup_related_records(db, ResourceType.PROFILE, profile_id)
     await _safe_delete(db, Profile, profile_id)
+    for autorun in flagged:
+        await _safe_emit(MirrorrEvent.AUTORUN_UPDATED(id=autorun.id))
     await _safe_emit(MirrorrEvent.PROFILE_DELETED(id=profile_id))
     return counts
 
@@ -1025,6 +1031,8 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
             payload_data[field] = _naive_utc(payload_data[field])
     if "start_time" in payload_data and existing.status == AutorunStatus.SCHEDULED:
         payload_data["next_run_at"] = payload_data["start_time"]
+    # Re-saving a flagged schedule is the acknowledgement that clears its issue.
+    payload_data["issue"] = None
     fresh = await crud.get_by_id(db, Autorun, id)
     if not fresh:
         raise HTTPException(status_code=404, detail="Autorun not found")

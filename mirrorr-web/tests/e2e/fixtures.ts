@@ -181,6 +181,8 @@ export interface ApiData {
   apply?: unknown
   /** `POST /import-export/fetch` — the bundle a URL resolves to. */
   fetchBundle?: unknown
+  /** `DELETE /profiles/{id}` cascade counts, e.g. `{flagged: 2}`. */
+  profileDeleteCounts?: Record<string, number>
 }
 
 export interface ApiStub {
@@ -314,7 +316,10 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
     // assert both the request and the view's reaction to it.
     const item = /^\/(autoruns|sessions|profiles|recordings|sources)\/(\d+)$/.exec(path)
     if (item !== null) {
-      if (method === "DELETE") return answer(200, {})
+      if (method === "DELETE") {
+        const counts = item[1] === "profiles" ? data.profileDeleteCounts : undefined
+        return answer(200, { status: "deleted", deleted: counts ?? {} })
+      }
       const [, collection, id] = item
       const rows: Record<string, readonly Row[] | undefined> = {
         autoruns: data.autoruns,

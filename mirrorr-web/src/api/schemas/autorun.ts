@@ -22,6 +22,8 @@ export const AutorunSchema = z
     end_time: z.string(),
     recording: z.boolean().optional(),
     orphan_policy: z.string().optional(),
+    /** Why this schedule is blocked (`"profile-deleted"`); saving the form clears it. */
+    issue: z.string().nullable().optional(),
     fallback_profile_ids: z.array(z.number()).optional(),
     fallback_profile_names: z.array(z.string()).optional(),
     fallback_sources: z

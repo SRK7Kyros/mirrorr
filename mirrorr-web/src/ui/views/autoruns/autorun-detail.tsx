@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type ReactNode } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { Link } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
 import { ApiError, getErrorMessage, useEntityList, useNameMaps } from "@/api"
@@ -16,6 +16,7 @@ import {
 import type { Session } from "@/api/schemas"
 import {
   Banner,
+  Button,
   buttonClass,
   EmptyState,
   ErrorPanel,
@@ -33,7 +34,9 @@ import {
 import { useLiveDurationSeconds, useNowTick } from "@/ui/hooks"
 import { Page } from "@/ui/views/shared/page"
 import { fallbackSourceLabel } from "@/api/domain/fallback-sources"
+import { autorunIssue } from "@/api/domain/autorun-issue"
 import { AutorunActionsMenu } from "./autorun-actions"
+import { AutorunFormDialog } from "./autorun-form-dialog"
 
 function KeyValue({ label, children }: { readonly label: string; readonly children: ReactNode }) {
   return (
@@ -64,6 +67,7 @@ function isForbidden(error: unknown): boolean {
 export function AutorunDetailView({ autorunId }: { readonly autorunId: string }) {
   const names = useNameMaps()
   const now = useNowTick(COUNTDOWN_TICK_MS)
+  const [editOpen, setEditOpen] = useState(false)
 
   const query = useQuery({
     queryKey: queryKeys.autorun(autorunId),
@@ -152,6 +156,7 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
     ),
   ]
   const countdown = spent ? "retired" : formatCountdown(autorun.start_time, now)
+  const issue = autorunIssue(autorun)
   const startInPast =
     autorun.status === "scheduled" && parseNaiveUtc(autorun.start_time).getTime() < now.getTime()
   const hasResolverConfig =
@@ -171,6 +176,19 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
         </>
       }
     >
+      {issue === null ? null : (
+        <Banner
+          kind="warning"
+          title={issue.title}
+          action={
+            <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+              Edit
+            </Button>
+          }
+        >
+          {issue.detail}
+        </Banner>
+      )}
       {live ? (
         <Banner
           kind="warning"
@@ -316,6 +334,8 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
           </Panel>
         </div>
       </div>
+
+      <AutorunFormDialog open={editOpen} autorun={autorun} onClose={() => setEditOpen(false)} />
     </Page>
   )
 }

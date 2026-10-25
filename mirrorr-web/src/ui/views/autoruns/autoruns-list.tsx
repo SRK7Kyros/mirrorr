@@ -34,6 +34,7 @@ import {
   EmptyState,
   ErrorPanel,
   Fab,
+  IconAlert,
   IconAutoruns,
   IconClock,
   IconDownload,
@@ -50,6 +51,7 @@ import {
   toast,
 } from "@/ui/components"
 import { useNowTick, useSelection } from "@/ui/hooks"
+import { autorunIssue } from "@/api/domain/autorun-issue"
 import { Page } from "@/ui/views/shared/page"
 import { AccessButton, AccessBulkAction } from "@/ui/views/shared/resource-access-slot"
 import { AutorunActionsMenu } from "./autorun-actions"
@@ -128,6 +130,7 @@ function AutorunCard({
 }) {
   const countdown = countdownFor(autorun, now)
   const windowText = formatWindow(autorun.start_time, autorun.end_time)
+  const issue = autorunIssue(autorun)
   const owner = autorun.requester_user_token
   const resolver = resolveEntityName(autorun.resolver_name, names.resolvers, autorun.resolver_id)
   const engine = resolveEntityName(autorun.engine_name, names.engines, autorun.engine_id)
@@ -145,6 +148,7 @@ function AutorunCard({
     <article
       className="entity-card flex flex-col gap-3 p-4 border border-line rounded-md bg-surface-2 data-[selected=true]:bg-[var(--accent-dim)] data-[selected=true]:shadow-[inset_2px_0_0_var(--accent)]"
       data-selected={selected}
+      data-issue={issue?.code ?? undefined}
     >
       <div className="flex flex-col gap-1 min-w-0">
         <Link
@@ -163,6 +167,13 @@ function AutorunCard({
           </Tag>
         </div>
       </div>
+
+      {issue === null ? null : (
+        <p className="flex items-start gap-2 rounded-md border border-[rgba(227,179,65,0.35)] bg-warning-dim px-2.5 py-2 text-[13px] leading-snug font-medium text-warning">
+          <IconAlert size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
+          {issue.title}
+        </p>
+      )}
 
       <div className="rounded-md border border-line bg-surface-3 px-3 py-2.5 flex flex-col gap-0.5">
         {windowText === null ? (

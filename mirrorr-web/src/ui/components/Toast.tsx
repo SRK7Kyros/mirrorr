@@ -5,7 +5,7 @@ import { toastVariants } from "@/ui/lib/motion"
 import { buttonClass, iconButtonClass } from "./Button"
 import { IconAlert, IconCheck, IconInfo } from "./icons"
 
-export type ToastKind = "success" | "error" | "info"
+export type ToastKind = "success" | "error" | "info" | "warning"
 
 /** Optional inline affordance — the shell maps a realtime `EventToast` onto this. */
 export interface ToastAction {
@@ -63,6 +63,7 @@ export const toast = {
   success: (title: string, text?: string, action?: ToastAction) => push("success", title, text, action),
   error: (title: string, text?: string, action?: ToastAction) => push("error", title, text, action),
   info: (title: string, text?: string, action?: ToastAction) => push("info", title, text, action),
+  warning: (title: string, text?: string, action?: ToastAction) => push("warning", title, text, action),
 }
 
 function subscribe(listener: () => void): () => void {
@@ -80,18 +81,21 @@ const ICONS: Record<ToastKind, ReactNode> = {
   success: <IconCheck size={16} />,
   error: <IconAlert size={16} />,
   info: <IconInfo size={16} />,
+  warning: <IconAlert size={16} />,
 }
 
 const ICON_TONE: Record<ToastKind, string> = {
   success: "text-success",
   error: "text-danger",
   info: "text-info",
+  warning: "text-warning",
 }
 
 const EDGE_TONE: Record<ToastKind, string> = {
   success: "border-l-success",
   error: "border-l-danger",
   info: "border-l-info",
+  warning: "border-l-warning",
 }
 
 const REGION_CLASS = [

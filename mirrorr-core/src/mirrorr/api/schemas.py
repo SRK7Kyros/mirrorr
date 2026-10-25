@@ -250,6 +250,7 @@ class AutorunResponse(BaseModel):
     fallback_profile_ids: list[int] = Field(default_factory=list)
     fallback_profile_names: list[str] = Field(default_factory=list)
     fallback_sources: list[dict[str, Any]] = Field(default_factory=list)
+    issue: str | None = None
     requester_user_token: str = ""
     engine_name: str | None = None
     resolver_name: str | None = None
