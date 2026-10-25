@@ -19,6 +19,7 @@ import {
   type Session,
 } from "@/api/schemas"
 import { z } from "zod"
+import type { FallbackSource } from "@/api/domain/fallback-sources"
 
 /**
  * View-layer endpoint wrappers — exact paths per the Endpoint Coverage
@@ -162,6 +163,7 @@ export interface ProfileBody {
   readonly default_engine_id?: number
   readonly resolver_id?: number
   readonly resolver_config?: Record<string, unknown>
+  readonly fallback_sources?: readonly FallbackSource[]
   readonly retry_mode?: string
   readonly retry_config?: Record<string, unknown>
 }

@@ -334,6 +334,16 @@ async def ensure_db(engine: AsyncEngine) -> None:
                 ")"
             ))
 
+            # ── Backfill the chain columns a profile/autorun may predate ──
+            # Same reason as `capability` above: the default reaches ORM
+            # inserts only, so a row written before the column existed reads
+            # NULL where every reader (and the response model) wants a list.
+            for table_name in ("profiles", "autoruns"):
+                sync_conn.execute(text(
+                    f"UPDATE {table_name} SET fallback_sources = '[]' "
+                    "WHERE fallback_sources IS NULL"
+                ))
+
             # ── Seed the reserved `everyone` group ───────────────────────
             # Membership is never materialised (permissions.group_holds
             # resolves it), so this row is all the schema needs.

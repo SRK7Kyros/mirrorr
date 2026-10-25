@@ -18,7 +18,7 @@ import { test as base, expect, type Page, type Route } from "@playwright/test"
 
 /* ── payload builders ─────────────────────────────────────────────── */
 
-type Row = Record<string, unknown>
+export type Row = Record<string, unknown>
 
 export const USER = { id: 1, username: "kyros", role: "admin", display_name: "Kyros" }
 

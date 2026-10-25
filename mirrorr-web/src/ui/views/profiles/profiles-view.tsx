@@ -16,6 +16,7 @@ import { fetchProfilePage } from "@/api/endpoints"
 import { queryKeys, queryRoots, resolveEntityName } from "@/api/query-keys"
 import { rankBySearch } from "@/api/domain/search"
 import { flaggedNotice } from "@/api/domain/autorun-issue"
+import { fallbackSourceLabel } from "@/api/domain/fallback-sources"
 import type { Profile, ResolverSource } from "@/api/schemas"
 import { humanize, showingLabel } from "@/ui/lib/format"
 import { staggerContainer, staggerItem } from "@/ui/lib/motion"
@@ -71,7 +72,14 @@ interface ProfileRowProps {
   readonly onExport: (profile: Profile) => void
 }
 
+function profileFallbacks(profile: Profile, names: NameMaps): string[] {
+  return (profile.fallback_sources ?? []).map((source) =>
+    fallbackSourceLabel(source, (id) => resolveEntityName(undefined, names.resolvers, id)),
+  )
+}
+
 function ProfileRow({ profile, names, selected, onToggle, onEdit, onDelete, onExport }: ProfileRowProps) {
+  const fallbacks = profileFallbacks(profile, names)
   return (
     <tr data-id={profile.id} data-selected={selected}>
       <Td className="cell-check">
@@ -92,6 +100,12 @@ function ProfileRow({ profile, names, selected, onToggle, onEdit, onDelete, onEx
           {" → "}
         </span>
         {resolveEntityName(profile.engine_name, names.engines, profile.default_engine_id)}
+        {fallbacks.length > 0 ? (
+          <span className="text-dim" title={`Fallbacks: ${fallbacks.join(" → ")}`}>
+            {" · "}
+            {fallbacks.length} fallback{fallbacks.length === 1 ? "" : "s"}
+          </span>
+        ) : null}
       </Td>
       <Td>
         {profile.retry_mode !== undefined && profile.retry_mode !== "" ? (
@@ -128,6 +142,7 @@ function ProfileRow({ profile, names, selected, onToggle, onEdit, onDelete, onEx
 }
 
 function ProfileCard({ profile, names, selected, onToggle, onEdit, onDelete, onExport }: ProfileRowProps) {
+  const fallbacks = profileFallbacks(profile, names)
   return (
     <motion.article className="entity-card flex flex-col gap-3 p-4 border border-line rounded-md bg-surface-2" variants={staggerItem}>
       <div className="flex items-start justify-between gap-3">
@@ -183,6 +198,12 @@ function ProfileCard({ profile, names, selected, onToggle, onEdit, onDelete, onE
             )}
           </dd>
         </div>
+        {fallbacks.length > 0 ? (
+          <div className="entity-card-fact flex flex-col gap-[2px] text-sm [&_dt]:text-ink-dim [&_dd]:text-ink [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere]">
+            <dt>Fallbacks</dt>
+            <dd>{fallbacks.join(" → ")}</dd>
+          </div>
+        ) : null}
         <div className="entity-card-fact flex flex-col gap-[2px] text-sm [&_dt]:text-ink-dim [&_dd]:text-ink [&_dd]:min-w-0 [&_dd]:[overflow-wrap:anywhere]">
           <dt>Config</dt>
           <dd>

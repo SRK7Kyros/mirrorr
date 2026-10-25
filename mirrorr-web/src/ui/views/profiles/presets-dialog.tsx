@@ -37,11 +37,13 @@ import {
   panelTitleClass,
 } from "@/ui/components"
 import { DiscoveryDrawer, canBrowseResolver } from "@/ui/views/shared/discovery-drawer"
+import { FallbackSources } from "@/ui/views/shared/source-chain"
 import {
   AccessCreation,
   useCreationAccessApplier,
 } from "@/ui/views/shared/resource-access-slot"
 import type { AccessTarget } from "@/api/domain/access-plan"
+import type { FallbackSource } from "@/api/domain/fallback-sources"
 
 /**
  * The create/edit dialog for both things the Presets page holds.
@@ -169,6 +171,7 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
   const [resolverConfig, setResolverConfig] = useState<Record<string, unknown>>({})
   const [retryMode, setRetryMode] = useState("")
   const [retryConfig, setRetryConfig] = useState<Record<string, unknown>>({})
+  const [fallbackSources, setFallbackSources] = useState<FallbackSource[]>([])
   const [mode, setMode] = useState<ResolverMode>("resolver")
   const [pickedSourceId, setPickedSourceId] = useState("")
 
@@ -195,6 +198,12 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
     setResolverConfig(profile?.resolver_config ?? {})
     setRetryMode(profile?.retry_mode ?? "")
     setRetryConfig(profile?.retry_config ?? {})
+    setFallbackSources(
+      (profile?.fallback_sources ?? []).map((source) => ({
+        resolver_id: source.resolver_id,
+        resolver_config: source.resolver_config ?? {},
+      })),
+    )
     setMode("resolver")
     setPickedSourceId("")
     setSourceName(source?.name ?? "")
@@ -354,6 +363,7 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
       default_engine_id: Number(engineId),
       resolver_id: Number(resolverId),
       resolver_config: resolverConfig,
+      fallback_sources: fallbackSources,
       ...(retryMode === "" ? {} : { retry_mode: retryMode, retry_config: retryConfig }),
     })
   }
@@ -591,6 +601,17 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
                   </>
                 )}
               </TabPanel>
+
+              {/* The chain is tried after this profile's own capture, on the
+                  same engine — only once there is a source to fall back from. */}
+              {resolverId === "" ? null : (
+                <FallbackSources
+                  resolvers={resolvers}
+                  value={fallbackSources}
+                  onChange={setFallbackSources}
+                  primary={{ resolver_id: Number(resolverId), resolver_config: resolverConfig }}
+                />
+              )}
             </FormBlock>
 
             <FormBlock step="3" title="Engine & retry" hint="how it's recorded">

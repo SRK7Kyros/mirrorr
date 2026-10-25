@@ -332,6 +332,29 @@ def _source_key(resolver_id: int, config: dict[str, Any] | None) -> str:
     return f"{resolver_id}:{json.dumps(config or {}, sort_keys=True, default=str)}"
 
 
+def _usable_sources(
+    sources: list[Any] | None, resolver_id: int, resolver_config: dict[str, Any] | None
+) -> list[dict[str, Any]]:
+    """An inherited chain re-seated against the run's own source.
+
+    Inheriting must never refuse a run whose caller wrote none of the chain, so
+    a rung that would repeat the run's own source is dropped here instead of
+    raising the way a declared chain does.
+    """
+    seen = {_source_key(resolver_id, resolver_config)}
+    kept: list[dict[str, Any]] = []
+    for raw in sources or []:
+        key = _source_key(int(raw.get("resolver_id") or 0), raw.get("resolver_config"))
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append({
+            "resolver_id": int(raw["resolver_id"]),
+            "resolver_config": dict(raw.get("resolver_config") or {}),
+        })
+    return kept
+
+
 async def _load_fallback_sources(
     db: AsyncSession,
     sources: list[Any] | None,
@@ -681,6 +704,7 @@ async def _fallback_names(db: AsyncSession, rows: list[Autorun]) -> dict[int, st
 def _serialize_profile(p: Profile) -> dict:
     return {
         **p.model_dump(mode="json"),
+        "fallback_sources": list(p.fallback_sources or []),
         "engine_name": _name_of(getattr(p, "default_engine", None)),
         "resolver_name": _name_of(getattr(p, "resolver", None)),
     }
@@ -851,7 +875,16 @@ async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(
         db, item.fallback_profile_ids, auth, item.profile_id, subject="session"
     )
     sources = await _load_fallback_sources(
-        db, item.fallback_sources, resolver_id, resolver_config, subject="session"
+        db,
+        item.fallback_sources
+        or _usable_sources(
+            profile.fallback_sources if profile is not None else None,
+            resolver_id,
+            resolver_config,
+        ),
+        resolver_id,
+        resolver_config,
+        subject="session",
     )
     engine = await crud.get_by_id(db, Engine, engine_id)
     if not engine:
@@ -985,7 +1018,15 @@ async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(
             db, item.fallback_profile_ids, auth, item.profile_id
         ),
         fallback_sources=await _load_fallback_sources(
-            db, item.fallback_sources, resolver_id, resolver_config
+            db,
+            item.fallback_sources
+            or _usable_sources(
+                profile.fallback_sources if profile is not None else None,
+                resolver_id,
+                resolver_config,
+            ),
+            resolver_id,
+            resolver_config,
         ),
         requester_user_token=auth.user.username,
         next_run_at=start_time,
@@ -1008,6 +1049,7 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
     if not await has_capability(db, auth, existing, Capability.EDIT):
         raise HTTPException(status_code=403, detail="Not your autorun")
     payload_data = item.model_dump(exclude_unset=True)
+    profile: Profile | None = None
     if "profile_id" in payload_data:
         profile = await _load_visible_profile(db, payload_data["profile_id"], auth)
         payload_data = _merge_profile_capture(profile, payload_data)
@@ -1018,12 +1060,18 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
             auth,
             payload_data.get("profile_id", existing.profile_id),
         )
-    if "fallback_sources" in payload_data:
-        payload_data["fallback_sources"] = await _load_fallback_sources(
-            db,
-            payload_data["fallback_sources"],
-            payload_data.get("resolver_id", existing.resolver_id),
-            payload_data.get("resolver_config", existing.resolver_config),
+    if profile is not None or "fallback_sources" in payload_data:
+        declared = payload_data.get("fallback_sources") or []
+        target_resolver = payload_data.get("resolver_id", existing.resolver_id)
+        target_config = payload_data.get("resolver_config", existing.resolver_config)
+        payload_data["fallback_sources"] = (
+            await _load_fallback_sources(db, declared, target_resolver, target_config)
+            if declared
+            else _usable_sources(
+                profile.fallback_sources if profile is not None else None,
+                target_resolver,
+                target_config,
+            )
         )
     _enforce_autorun_update_guard(existing, payload_data)
     for field in ("start_time", "end_time"):
@@ -1074,6 +1122,7 @@ async def _create_profile_from_entity(
     resolver_config: dict,
     retry_mode: str,
     retry_config: dict,
+    fallback_sources: list[Any] | None = None,
 ) -> Profile:
     """Create a Profile from an existing entity's fields (session or autorun).
 
@@ -1089,6 +1138,7 @@ async def _create_profile_from_entity(
         default_engine_id=engine_id,
         resolver_id=resolver_id,
         resolver_config=resolver_config,
+        fallback_sources=_usable_sources(fallback_sources, resolver_id, resolver_config),
         retry_mode=retry_mode,
         retry_config=retry_config,
         requester_user_token=auth.user.username,
@@ -1115,6 +1165,7 @@ async def save_autorun_as_profile(autorun_id: int, req: SaveProfileRequest, db: 
         db, auth, req.name,
         autorun.engine_id, autorun.resolver_id, autorun.resolver_config,
         autorun.retry_mode, autorun.retry_config,
+        autorun.fallback_sources,
     )
 
 
@@ -1134,6 +1185,7 @@ async def save_session_as_profile(session_id: int, req: SaveProfileRequest, db: 
         db, auth, req.name,
         session.engine_id, session.resolver_id, session.resolver_config,
         session.retry_mode, session.retry_config,
+        [entry for entry in (session.capture_plan or []) if isinstance(entry, dict)],
     )
 
 
@@ -1250,7 +1302,11 @@ async def create_profile(item: CreateProfileRequest, db: AsyncSession = Depends(
     if not resolver:
         raise HTTPException(status_code=400, detail=f"Resolver {item.resolver_id} not found")
 
-    payload = Profile.model_validate(item.model_dump())
+    # The chain is set below; dumping it would validate ``None`` against a list column.
+    payload = Profile.model_validate(item.model_dump(exclude={"fallback_sources"}))
+    payload.fallback_sources = await _load_fallback_sources(
+        db, item.fallback_sources, item.resolver_id, item.resolver_config, subject="profile"
+    )
     if not auth.user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     payload.requester_user_token = auth.user.username
@@ -1272,7 +1328,14 @@ async def update_profile(id: int, item: UpdateProfileRequest, db: AsyncSession =
     if not await has_capability(db, auth, existing, Capability.EDIT):
         raise HTTPException(status_code=403, detail="Not your profile")
     payload_data = item.model_dump(exclude_unset=True)
-    payload = Profile.model_validate({**existing.model_dump(), **payload_data})
+    if payload_data.get("fallback_sources", []) is None:
+        payload_data.pop("fallback_sources")
+    current = existing.model_dump()
+    current["fallback_sources"] = existing.fallback_sources or []
+    payload = Profile.model_validate({**current, **payload_data})
+    payload.fallback_sources = await _load_fallback_sources(
+        db, payload.fallback_sources, payload.resolver_id, payload.resolver_config, subject="profile"
+    )
     if not auth.user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     # An EDIT-grantee must never take ownership — only fill a blank token.
