@@ -280,10 +280,21 @@ full-screen sheet on mobile. Scrollable body; header fixed.
 
 ### 6.4 Saved sources in the other dialogs
 
-`SourcePicker` (`src/ui/views/shared/source-picker.tsx`) is a **Source** `Select`
-filtered to the currently-chosen resolver; picking one sets `resolver_id` +
-`resolver_config` client-side (the create/update payloads are unchanged). It is
-mounted by `AutorunFormDialog` and the session create dialog.
+`SourceFields` (`src/ui/views/shared/source-chain.tsx`) fills one capture's source
+either way round: a resolver plus its `SchemaForm` config, or a **Saved source**
+that fills both. The two are the same thing to the server, so they are one control
+with two faces (`Resolver + config | Saved source`), and switching keeps whatever is
+already filled — never both controls at once. It is mounted by `AutorunFormDialog`'s
+engine + resolver branch, the session create dialog, and every rung of
+`FallbackSources` (each sent as `{resolver_id, resolver_config}`).
+
+**A face with nothing behind it is not offered (Oct 25 2026).** The switch is drawn
+only when a saved source is actually pickable — excluding the run's own source and
+any rung already in the chain. When none is, the panel says why in one line ("No
+saved source to load — fill a resolver and its config." / "Every saved source is
+already in this chain — …") and takes a resolver instead, because a `disabled`
+segment answers a tap with silence: the reported bug was exactly that (a phone user
+tapping **Saved source** and seeing nothing happen).
 
 ### 6.5 The Presets dialog (Oct 15 2026)
 
