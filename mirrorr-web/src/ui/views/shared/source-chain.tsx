@@ -85,20 +85,32 @@ export function SourceFields({
   const resolver = resolvers.find((item) => item.id === value.resolverId)
   const currentKey = draftKey(value)
   const picked = offered.find((source) => entryKey(source) === currentKey)
+  // A face with nothing behind it is not offered: a disabled tab answers a tap
+  // with silence, so the reason is said instead.
+  const canPick = offered.length > 0
+  const face: SourceKind = canPick ? kind : "resolver"
 
   return (
     <div className="flex flex-col gap-3">
-      <Segmented
-        ariaLabel={kindLabel}
-        active={kind}
-        onChange={setKind}
-        items={[
-          { id: "resolver", label: "Resolver + config" },
-          { id: "source", label: "Saved source", disabled: offered.length === 0 },
-        ]}
-      />
+      {canPick ? (
+        <Segmented
+          ariaLabel={kindLabel}
+          active={face}
+          onChange={setKind}
+          items={[
+            { id: "resolver", label: "Resolver + config", disabled },
+            { id: "source", label: "Saved source", disabled },
+          ]}
+        />
+      ) : (
+        <p className="text-sm text-ink-dim">
+          {sources.length === 0
+            ? "No saved source to load — fill a resolver and its config."
+            : "Every saved source is already in this chain — fill a resolver and its config."}
+        </p>
+      )}
 
-      {kind === "resolver" ? (
+      {face === "resolver" ? (
         <>
           <Field label={`${labelPrefix}Resolver`} htmlFor={`${idPrefix}-resolver`} required>
             <Select

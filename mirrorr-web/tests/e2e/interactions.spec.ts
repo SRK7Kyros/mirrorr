@@ -158,12 +158,13 @@ test.describe("new session dialog", () => {
     await expect(chain.getByRole("listitem")).toHaveCount(1)
     await expect(chain.getByRole("listitem").first()).toContainText("Sky Sports")
 
-    // The next rung opens only now, and a resolver + config is the other way in.
+    // The next rung opens only now. The only saved source is already a rung, so
+    // that face is not offered at all — the rung says why and takes a resolver.
     await expect(page.getByText("Fallback 2", { exact: true })).toBeVisible()
-    await page
-      .getByRole("tablist", { name: "Fallback 2 source" })
-      .getByRole("tab", { name: "Resolver + config" })
-      .click()
+    await expect(page.getByRole("tablist", { name: "Fallback 2 source" })).toHaveCount(0)
+    await expect(
+      page.getByText("Every saved source is already in this chain — fill a resolver and its config."),
+    ).toBeVisible()
     await page.getByRole("combobox", { name: "Fallback 2 · Resolver" }).selectOption("1")
     await page.locator("#fallback-source-2-channel").fill("premium77")
     await page.getByRole("button", { name: "Add fallback" }).click()
@@ -223,6 +224,35 @@ test.describe("new session dialog", () => {
       resolver_config: { channel: "premium9" },
       fallback_sources: [],
     })
+  })
+
+  test("no saved source means no switch, and the run's own source says why", async ({ page, api }) => {
+    api.data.engines = [engine({ id: 1, name: "Streamlink" })]
+    api.data.resolvers = [
+      resolver({
+        id: 1,
+        name: "Direct",
+        config_schema: {
+          type: "object",
+          properties: { channel: { type: "string", title: "Channel" } },
+        },
+      }),
+    ]
+    // Saved sources exist in the system — this account just cannot see one.
+    api.data.sources = []
+    api.data.sessions = [session({ id: 1 })]
+
+    await page.goto("/sessions")
+    await page.getByRole("button", { name: "New session" }).first().click()
+    await page.getByRole("tab", { name: "Engine + resolver" }).click()
+    await page.getByRole("combobox", { name: /^Engine/ }).selectOption("1")
+
+    await expect(page.getByRole("tablist", { name: "Primary source" })).toHaveCount(0)
+    await expect(
+      page.getByText("No saved source to load — fill a resolver and its config."),
+    ).toBeVisible()
+    await page.getByRole("combobox", { name: /^Resolver/ }).selectOption("1")
+    await expect(page.getByText("Fallback 1", { exact: true })).toBeVisible()
   })
 })
 
