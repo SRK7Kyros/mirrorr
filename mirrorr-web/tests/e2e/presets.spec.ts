@@ -127,6 +127,7 @@ test.describe("presets page", () => {
     await page.getByRole("combobox", { name: /^Engine/ }).selectOption("1")
     await page.getByRole("button", { name: "Create profile" }).click()
 
+    await expect.poll(() => api.callsTo("/profiles/").filter((call) => call.method === "POST").length).toBe(1)
     const created = api.callsTo("/profiles/").filter((call) => call.method === "POST")
     expect(created).toHaveLength(1)
     expect(created[0]?.body).toMatchObject({
@@ -157,6 +158,7 @@ test.describe("presets page", () => {
     await page.getByRole("combobox", { name: /^Engine/ }).selectOption("1")
     await page.getByRole("button", { name: "Create profile" }).click()
 
+    await expect.poll(() => api.callsTo("/profiles/").filter((call) => call.method === "POST").length).toBe(1)
     const created = api.callsTo("/profiles/").filter((call) => call.method === "POST")
     expect(created).toHaveLength(1)
     expect(created[0]?.body).toMatchObject({
@@ -313,6 +315,7 @@ test.describe("presets page", () => {
     await page.getByRole("combobox", { name: /^Engine/ }).selectOption("1")
     await page.getByRole("button", { name: "Create profile" }).click()
 
+    await expect.poll(() => api.callsTo("/profiles/").filter((call) => call.method === "POST").length).toBe(1)
     const created = api.callsTo("/profiles/").filter((call) => call.method === "POST")
     expect(created).toHaveLength(1)
     expect(created[0]?.body).toMatchObject({

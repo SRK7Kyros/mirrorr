@@ -1,4 +1,4 @@
-import { autorun, expect, profile, test } from "./fixtures"
+import { autorun, expect, profile, resolver, test } from "./fixtures"
 
 /**
  * `next_run_at` is deliberately out of id order so "soonest first" cannot pass
@@ -110,7 +110,58 @@ test.describe("scheduled recordings", () => {
       "/autoruns/3",
       "/autoruns/4",
     ])
-    for (const call of puts) expect(call.body).toEqual({ profile_id: 2 })
+    for (const call of puts) expect(call.body).toEqual({ profile_id: 2, fallback_sources: [] })
+  })
+
+  test("the bulk profile carries an editable chain of fallback sources", async ({ page, api }) => {
+    api.data.profiles = [
+      profile({ id: 1, name: "F1 Weekend" }),
+      profile({
+        id: 2,
+        name: "News Hour",
+        fallback_sources: [{ resolver_id: 2, resolver_config: {} }],
+      }),
+    ]
+    api.data.resolvers = [
+      resolver({ id: 1, name: "Direct" }),
+      resolver({ id: 2, name: "Wide IPTV" }),
+      resolver({ id: 3, name: "Backup" }),
+    ]
+    await page.goto("/autoruns")
+
+    await page.getByLabel("Select all scheduled recordings").check()
+    await page
+      .getByRole("region", { name: "Bulk actions" })
+      .getByRole("button", { name: "Set profile" })
+      .click()
+
+    const dialog = page.getByRole("dialog")
+    await dialog.getByLabel("Profile").selectOption("2")
+
+    // The profile's own chain is the starting point — setting a profile must not
+    // silently drop the sources it would fall back to.
+    const chain = dialog.getByRole("list", { name: "Fallback sources, in order" })
+    await expect(chain.getByRole("listitem")).toHaveCount(1)
+
+    // …and one action can extend it across the whole selection.
+    await dialog.getByRole("combobox", { name: "Fallback 2 · Resolver" }).selectOption("3")
+    await dialog.getByRole("button", { name: "Add fallback" }).click()
+    await expect(chain.getByRole("listitem")).toHaveCount(2)
+
+    await dialog.getByRole("button", { name: "Set profile" }).click()
+    await expect(page.getByText("Profile set")).toBeVisible()
+
+    const puts = api.callsTo("/autoruns/").filter((call) => call.method === "PUT")
+    expect(puts).toHaveLength(4)
+    for (const call of puts) {
+      expect(call.body).toEqual({
+        profile_id: 2,
+        fallback_sources: [
+          { resolver_id: 2, resolver_config: {} },
+          { resolver_id: 3, resolver_config: {} },
+        ],
+      })
+    }
   })
 
   test("a schedule whose profile was deleted says so instead of vanishing", async ({ page, api }) => {

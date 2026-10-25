@@ -21,6 +21,7 @@ from mirrorr.api.routers.crud import (
     create_profile,
     create_session,
     save_session_as_profile,
+    update_autorun,
     update_profile,
 )
 from mirrorr.api.schemas import (
@@ -28,6 +29,7 @@ from mirrorr.api.schemas import (
     CreateProfileRequest,
     CreateSessionRequest,
     SaveProfileRequest,
+    UpdateAutorunRequest,
     UpdateProfileRequest,
 )
 from mirrorr.storage.enums import UserRole
@@ -283,6 +285,104 @@ def test_an_autorun_bound_to_the_profile_inherits_its_chain():
             assert autorun["fallback_sources"] == [
                 {"resolver_id": 2, "resolver_config": {}}
             ]
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_an_update_that_names_no_chain_inherits_the_profiles():
+    async def scenario():
+        engine, maker = await _fresh_db()
+        await _seed(maker)
+        async with maker() as db:
+            profile = await create_profile(
+                _profile(fallback_sources=[{"resolver_id": 2}]), db, _auth()
+            )
+            autorun = await create_autorun(
+                CreateAutorunRequest(
+                    user_friendly_name="Race",
+                    snake_case_name="race",
+                    engine_id=1,
+                    resolver_id=1,
+                    start_time=_now(),
+                    end_time=_now() + timedelta(hours=2),
+                ),
+                db,
+                _auth(),
+            )
+            assert autorun["fallback_sources"] == []
+            out = await update_autorun(
+                autorun["id"], UpdateAutorunRequest(profile_id=profile["id"]), db, _auth()
+            )
+            assert out["fallback_sources"] == [{"resolver_id": 2, "resolver_config": {}}]
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_an_update_may_clear_the_chain_while_it_sets_the_profile():
+    """A declared empty chain is the chain, not a request to inherit one.
+
+    Setting a profile and clearing the chain in one save is how the console's
+    bulk action gives a whole selection one profile with no fallbacks; if the
+    empty list fell back to the profile's chain the operator could never say
+    "this source and nothing else".
+    """
+    async def scenario():
+        engine, maker = await _fresh_db()
+        await _seed(maker)
+        async with maker() as db:
+            profile = await create_profile(
+                _profile(fallback_sources=[{"resolver_id": 2}]), db, _auth()
+            )
+            autorun = await create_autorun(
+                CreateAutorunRequest(
+                    user_friendly_name="Race",
+                    snake_case_name="race",
+                    engine_id=1,
+                    resolver_id=1,
+                    fallback_sources=[{"resolver_id": 3}],
+                    start_time=_now(),
+                    end_time=_now() + timedelta(hours=2),
+                ),
+                db,
+                _auth(),
+            )
+            assert autorun["fallback_sources"] == [{"resolver_id": 3, "resolver_config": {}}]
+            out = await update_autorun(
+                autorun["id"],
+                UpdateAutorunRequest(profile_id=profile["id"], fallback_sources=[]),
+                db,
+                _auth(),
+            )
+            assert out["fallback_sources"] == []
+            assert out["profile_id"] == profile["id"]
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_a_created_run_may_clear_the_chain_of_the_profile_it_names():
+    async def scenario():
+        engine, maker = await _fresh_db()
+        await _seed(maker)
+        async with maker() as db:
+            profile = await create_profile(
+                _profile(fallback_sources=[{"resolver_id": 2}]), db, _auth()
+            )
+            autorun = await create_autorun(
+                CreateAutorunRequest(
+                    user_friendly_name="Race",
+                    snake_case_name="race",
+                    profile_id=profile["id"],
+                    fallback_sources=[],
+                    start_time=_now(),
+                    end_time=_now() + timedelta(hours=2),
+                ),
+                db,
+                _auth(),
+            )
+            assert autorun["fallback_sources"] == []
         await engine.dispose()
 
     asyncio.run(scenario())

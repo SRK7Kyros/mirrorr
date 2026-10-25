@@ -104,7 +104,7 @@ class CreateAutorunRequest(BaseModel):
     recording: bool = True
     orphan_policy: Literal["fail", "retry"] = "fail"
     fallback_profile_ids: list[int] = Field(default_factory=list)
-    fallback_sources: list[FallbackSource] = Field(default_factory=list)
+    fallback_sources: list[FallbackSource] | None = None
 
 
 class UpdateAutorunRequest(BaseModel):

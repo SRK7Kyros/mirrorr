@@ -252,7 +252,6 @@ export function AutorunFormDialog({
         ? {
             profile_id: Number(profileId),
             fallback_profile_ids: fallbackIds,
-            fallback_sources: [],
           }
         : {
             engine_id: Number(engineId),

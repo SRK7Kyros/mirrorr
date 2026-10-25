@@ -394,6 +394,29 @@ async def _load_fallback_sources(
     return chain
 
 
+async def _chain_for_run(
+    db: AsyncSession,
+    declared: list[Any] | None,
+    profile: Profile | None,
+    resolver_id: int,
+    resolver_config: dict[str, Any] | None,
+    subject: str = "autorun",
+) -> list[dict[str, Any]]:
+    """The chain a run starts with: the one it declared, else its profile's.
+
+    A declared list is the chain even when it is empty — clearing the chain in a
+    request that also names a profile must not be undone by that profile's own.
+    Only a request that says nothing about the chain inherits it.
+    """
+    if declared is None:
+        declared = _usable_sources(
+            profile.fallback_sources if profile is not None else None,
+            resolver_id,
+            resolver_config,
+        )
+    return await _load_fallback_sources(db, declared, resolver_id, resolver_config, subject=subject)
+
+
 def _capture_plan(
     profile_id: int | None,
     fallbacks: list[int],
@@ -874,17 +897,8 @@ async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(
     fallbacks = await _load_fallback_chain(
         db, item.fallback_profile_ids, auth, item.profile_id, subject="session"
     )
-    sources = await _load_fallback_sources(
-        db,
-        item.fallback_sources
-        or _usable_sources(
-            profile.fallback_sources if profile is not None else None,
-            resolver_id,
-            resolver_config,
-        ),
-        resolver_id,
-        resolver_config,
-        subject="session",
+    sources = await _chain_for_run(
+        db, item.fallback_sources, profile, resolver_id, resolver_config, subject="session"
     )
     engine = await crud.get_by_id(db, Engine, engine_id)
     if not engine:
@@ -1017,16 +1031,8 @@ async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(
         fallback_profile_ids=await _load_fallback_chain(
             db, item.fallback_profile_ids, auth, item.profile_id
         ),
-        fallback_sources=await _load_fallback_sources(
-            db,
-            item.fallback_sources
-            or _usable_sources(
-                profile.fallback_sources if profile is not None else None,
-                resolver_id,
-                resolver_config,
-            ),
-            resolver_id,
-            resolver_config,
+        fallback_sources=await _chain_for_run(
+            db, item.fallback_sources, profile, resolver_id, resolver_config
         ),
         requester_user_token=auth.user.username,
         next_run_at=start_time,
@@ -1060,18 +1066,14 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
             auth,
             payload_data.get("profile_id", existing.profile_id),
         )
-    if profile is not None or "fallback_sources" in payload_data:
-        declared = payload_data.get("fallback_sources") or []
-        target_resolver = payload_data.get("resolver_id", existing.resolver_id)
-        target_config = payload_data.get("resolver_config", existing.resolver_config)
-        payload_data["fallback_sources"] = (
-            await _load_fallback_sources(db, declared, target_resolver, target_config)
-            if declared
-            else _usable_sources(
-                profile.fallback_sources if profile is not None else None,
-                target_resolver,
-                target_config,
-            )
+    declared = payload_data.pop("fallback_sources", None)
+    if declared is not None or profile is not None:
+        payload_data["fallback_sources"] = await _chain_for_run(
+            db,
+            declared,
+            profile,
+            payload_data.get("resolver_id", existing.resolver_id),
+            payload_data.get("resolver_config", existing.resolver_config),
         )
     _enforce_autorun_update_guard(existing, payload_data)
     for field in ("start_time", "end_time"):
