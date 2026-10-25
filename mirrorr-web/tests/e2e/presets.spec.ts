@@ -100,9 +100,9 @@ test.describe("presets page", () => {
     await page.getByRole("combobox", { name: /^Resolver/ }).selectOption("1")
     await page.getByRole("button", { name: "Create source" }).click()
 
-    const created = api.callsTo("/sources/").filter((call) => call.method === "POST")
-    expect(created).toHaveLength(1)
-    expect(created[0]?.body).toMatchObject({ name: "Sky backup", resolver_id: 1 })
+    const created = () => api.callsTo("/sources/").filter((call) => call.method === "POST")
+    await expect.poll(() => created().length).toBe(1)
+    expect(created()[0]?.body).toMatchObject({ name: "Sky backup", resolver_id: 1 })
   })
 
   test("the profile form swaps between resolver and saved source, never both", async ({ page, api }) => {
@@ -188,9 +188,9 @@ test.describe("presets page", () => {
     await page.getByRole("button", { name: "Remove Wide IPTV" }).click()
     await page.getByRole("button", { name: "Save changes" }).click()
 
-    const saved = api.callsTo("/profiles/1").filter((call) => call.method === "PUT")
-    expect(saved).toHaveLength(1)
-    expect(saved[0]?.body).toMatchObject({ fallback_sources: [] })
+    const putCalls = () => api.callsTo("/profiles/1").filter((call) => call.method === "PUT")
+    await expect.poll(() => putCalls().length).toBe(1)
+    expect(putCalls()[0]?.body).toMatchObject({ fallback_sources: [] })
   })
 
   test("a section button opens only its own kind", async ({ page }) => {
