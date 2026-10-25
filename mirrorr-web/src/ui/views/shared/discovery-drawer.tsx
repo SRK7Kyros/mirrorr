@@ -14,8 +14,13 @@ import {
   asObject,
 } from "@/ui/components"
 
-/** Debounce window for the search box of a search-only resolver (design spec §6.3). */
+/** Debounce window for the search box, catalog or server-side alike (design spec §6.3). */
 const SEARCH_DEBOUNCE_MS = 250
+
+/** How many cards a filtered catalog reveals at a time, so one letter cannot lay out thousands. */
+const VISIBLE_STEP = 60
+
+const titleFields = (item: DiscoveryItem) => [item.title]
 
 /**
  * Whether a resolver is worth opening this panel for: it either declares a
@@ -60,25 +65,26 @@ export function DiscoveryDrawer({
   readonly onUse: (item: DiscoveryItem) => void
 }) {
   const [query, setQuery] = useState("")
-  const [debouncedQuery, setDebouncedQuery] = useState("")
+  // What the list and its readout are drawn for: typing only moves the field, so
+  // the panel is never showing a count for a filter its cards do not answer.
+  const [appliedQuery, setAppliedQuery] = useState("")
+  const [shown, setShown] = useState(VISIBLE_STEP)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
 
   const catalog = resolver?.has_catalog === true
-  const serverQuery = catalog ? "" : debouncedQuery
-  const typed = query.trim()
+  const serverQuery = catalog ? "" : appliedQuery
 
   // A fresh run each time the overlay opens or the resolver changes.
   useEffect(() => {
     if (!open) return
     setQuery("")
-    setDebouncedQuery("")
+    setAppliedQuery("")
   }, [open, resolver])
 
   useEffect(() => {
-    if (catalog) return
-    const timer = setTimeout(() => setDebouncedQuery(query.trim()), SEARCH_DEBOUNCE_MS)
+    const timer = setTimeout(() => setAppliedQuery(query.trim()), SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timer)
-  }, [catalog, query])
+  }, [query])
 
   const page = useInfiniteQuery({
     queryKey: ["discovery", resolver?.id ?? 0, catalog ? "catalog" : "search", serverQuery],
@@ -98,9 +104,17 @@ export function DiscoveryDrawer({
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = page
 
   const items = useMemo(
-    () => (catalog ? rankBySearch(loaded, query, (item) => [item.title]) : loaded),
-    [catalog, loaded, query],
+    () => (catalog ? rankBySearch(loaded, appliedQuery, titleFields) : loaded),
+    [catalog, loaded, appliedQuery],
   )
+
+  // The first screenfuls of a match arrive at once; the rest follows the scroll,
+  // and a different filter starts over.
+  useEffect(() => {
+    setShown(VISIBLE_STEP)
+  }, [catalog, appliedQuery, resolver, open])
+
+  const visible = items.length > shown ? items.slice(0, shown) : items
 
   // A catalog is read to its end, not to the fold: the filtering happens here,
   // so a match on page twenty cannot wait for a scroll that may never come.
@@ -109,22 +123,26 @@ export function DiscoveryDrawer({
     void fetchNextPage()
   }, [open, catalog, hasNextPage, isFetchingNextPage, fetchNextPage, loaded.length])
 
-  // Infinite scroll: the sentinel is only observed while another page exists
-  // and the pages are not already being pulled in the background.
+  // Infinite scroll: the sentinel pulls the next page of a server-side search,
+  // and reveals the next screenful of a filtered catalog.
   useEffect(() => {
     const node = sentinelRef.current
-    if (node === null || catalog || !hasNextPage || isFetchingNextPage) return
+    if (node === null) return
+    const moreCards = catalog && visible.length < items.length
+    if (!moreCards && (catalog || !hasNextPage || isFetchingNextPage)) return
     const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) void fetchNextPage()
+      if (!entries.some((entry) => entry.isIntersecting)) return
+      if (catalog) setShown((count) => count + VISIBLE_STEP)
+      else void fetchNextPage()
     })
     observer.observe(node)
     return () => observer.disconnect()
-  }, [catalog, hasNextPage, isFetchingNextPage, fetchNextPage, items.length])
+  }, [catalog, hasNextPage, isFetchingNextPage, fetchNextPage, items.length, visible.length])
 
   const readingCatalog = catalog && hasNextPage
   const matches =
-    catalog && typed !== "" && (items.length > 0 || readingCatalog)
-      ? `${items.length} of ${loaded.length} ${items.length === 1 ? "matches" : "match"} “${typed}”${
+    catalog && appliedQuery !== "" && (items.length > 0 || readingCatalog)
+      ? `${items.length} of ${loaded.length} ${items.length === 1 ? "matches" : "match"} “${appliedQuery}”${
           readingCatalog ? " — still loading the catalog…" : ""
         }`
       : null
@@ -170,13 +188,13 @@ export function DiscoveryDrawer({
           ) : (
             <EmptyState
               title="No results"
-              text={typed === "" ? "This catalog returned nothing." : `Nothing matches “${typed}”.`}
+              text={appliedQuery === "" ? "This catalog returned nothing." : `Nothing matches “${appliedQuery}”.`}
             />
           )
         ) : (
           <>
             <ul className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3 m-0 p-0 list-none">
-              {items.map((item) => (
+              {visible.map((item) => (
                 <li key={item.id} className="flex flex-col gap-3 p-3 border border-line rounded-md bg-surface-2">
                   {item.image !== null && item.image !== undefined && item.image !== "" ? (
                     <img className="w-full aspect-video object-cover rounded-sm bg-sunken" src={item.image} alt="" loading="lazy" />

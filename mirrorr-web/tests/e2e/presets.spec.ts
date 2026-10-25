@@ -184,6 +184,34 @@ test.describe("presets page", () => {
     expect(api.callsTo("/discover")).toHaveLength(2)
   })
 
+  test("a wide match fills one screenful at a time", async ({ page, api }) => {
+    // A few letters can match a whole catalog. Laying every match out at once is
+    // what made the drawer stop answering keys on a phone, so the cards arrive
+    // as the list is scrolled — while the readout still counts them all.
+    api.data.discovery = Array.from({ length: 130 }, (_, index) => ({
+      id: `bulk-${index}`,
+      title: `Bulk Channel ${String(index + 1).padStart(3, "0")}`,
+      config: { channel: `bulk${index}` },
+    }))
+    await page.goto("/profiles")
+    await page.getByRole("button", { name: "New profile" }).first().click()
+    await page.getByRole("combobox", { name: /^Resolver/ }).selectOption("1")
+    await page.getByRole("button", { name: "Browse Wide IPTV…" }).click()
+
+    const drawer = page.getByRole("dialog", { name: "Browse Wide IPTV" })
+    await drawer.getByLabel("Search the catalog").fill("bulk")
+
+    await expect(drawer.getByText("130 of 130 match")).toBeVisible()
+    await expect(drawer.locator("li")).toHaveCount(60)
+
+    await drawer.getByRole("list").evaluate((list) => {
+      let box: HTMLElement | null = list.parentElement
+      while (box !== null && box.scrollHeight <= box.clientHeight) box = box.parentElement
+      if (box !== null) box.scrollTop = box.scrollHeight
+    })
+    await expect(drawer.locator("li")).toHaveCount(120)
+  })
+
   test("the best match leads, even when the near-misses share more of its text", async ({ page, api }) => {
     // The behaviour the user went looking for: for "sky sport fl italy" the
     // near-exact "Sky Sport F1 Italy" must lead, not "Sky Sport 3 NZ" — which
