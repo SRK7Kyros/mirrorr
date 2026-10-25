@@ -24,6 +24,14 @@ export const AutorunSchema = z
     orphan_policy: z.string().optional(),
     fallback_profile_ids: z.array(z.number()).optional(),
     fallback_profile_names: z.array(z.string()).optional(),
+    fallback_sources: z
+      .array(
+        z.object({
+          resolver_id: z.number(),
+          resolver_config: z.record(z.string(), z.unknown()).nullable().optional(),
+        }),
+      )
+      .optional(),
     ...adminOnlyFields,
     engine_name: z.string().nullable().optional(),
     resolver_name: z.string().nullable().optional(),

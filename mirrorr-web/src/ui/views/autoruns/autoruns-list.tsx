@@ -15,6 +15,7 @@ import {
 } from "@/api"
 import { fetchAutorunPage } from "@/api/endpoints"
 import { queryKeys, queryRoots, resolveEntityName } from "@/api/query-keys"
+import { fallbackSourceLabel } from "@/api/domain/fallback-sources"
 import {
   DEFAULT_FILTER,
   FILTER_TOKENS,
@@ -131,9 +132,14 @@ function AutorunCard({
   const resolver = resolveEntityName(autorun.resolver_name, names.resolvers, autorun.resolver_id)
   const engine = resolveEntityName(autorun.engine_name, names.engines, autorun.engine_id)
   const profile = resolveEntityName(autorun.profile_name, names.profiles, autorun.profile_id)
-  const fallbacks = (autorun.fallback_profile_ids ?? []).map((id, index) =>
-    resolveEntityName(autorun.fallback_profile_names?.[index], names.profiles, id),
-  )
+  const fallbacks = [
+    ...(autorun.fallback_profile_ids ?? []).map((id, index) =>
+      resolveEntityName(autorun.fallback_profile_names?.[index], names.profiles, id),
+    ),
+    ...(autorun.fallback_sources ?? []).map((source) =>
+      fallbackSourceLabel(source, (id) => resolveEntityName(undefined, names.resolvers, id)),
+    ),
+  ]
 
   return (
     <article

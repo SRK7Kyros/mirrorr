@@ -13,7 +13,7 @@ from pathlib import Path
 from sqlmodel import select
 from sqlalchemy.orm import selectinload
 
-from mirrorr.storage.models import Session, Profile
+from mirrorr.storage.models import Session, Profile, Engine, Resolver
 from mirrorr.startup.config import MirrorrSettings
 
 
@@ -173,6 +173,56 @@ async def load_profile_capture(settings: MirrorrSettings, profile_id: int):
                 "resolver_config": profile.resolver_config,
                 "retry_mode": profile.retry_mode,
                 "retry_config": profile.retry_config,
+            }
+            return (
+                capture,
+                load_engine_jit(settings.engines_dir, engine_row.origin, engine_row.origin_hash),
+                load_resolver_jit(settings.resolvers_dir, resolver.origin, resolver.origin_hash),
+            )
+    finally:
+        await engine.dispose()
+
+
+async def load_source_capture(
+    settings: MirrorrSettings,
+    engine_id: int,
+    resolver_id: int,
+    resolver_config: dict,
+    retry_mode: str,
+    retry_config: dict,
+):
+    """Load one inline fallback source for a later capture of a session.
+
+    A *source* fallback keeps the run's own engine and retry policy and swaps
+    only where the stream comes from — a resolver plus its config — which is
+    what an engine + resolver run can name without inventing a profile for it.
+    Returns ``(capture, engine, resolver)``; ``capture`` carries the names and
+    config as JSON-ready values.
+    """
+    from mirrorr.storage.database import create_db_engine
+    from mirrorr.startup.ensure_engines import load_engine_jit
+    from mirrorr.startup.ensure_resolvers import load_resolver_jit
+
+    engine, db_factory = create_db_engine(settings)
+    try:
+        async with db_factory() as db:
+            engine_row = await db.get(Engine, engine_id)
+            resolver = await db.get(Resolver, resolver_id)
+            if engine_row is None:
+                raise ValueError(f"Engine {engine_id} not found")
+            if resolver is None:
+                raise ValueError(f"Resolver {resolver_id} not found")
+            capture = {
+                "profile_id": None,
+                "profile_name": "",
+                "source": "resolver",
+                "engine_name": engine_row.name,
+                "resolver_name": resolver.name,
+                "resolver_origin": resolver.origin,
+                "resolver_hash": resolver.origin_hash,
+                "resolver_config": resolver_config,
+                "retry_mode": retry_mode,
+                "retry_config": retry_config,
             }
             return (
                 capture,

@@ -26,7 +26,12 @@ from mirrorr.services.session_lifecycle import (
     delete_session,
     live_folder_holder,
 )
-from mirrorr.services.session_helpers import make_session_dirs, build_session_urls, load_profile_capture
+from mirrorr.services.session_helpers import (
+    make_session_dirs,
+    build_session_urls,
+    load_profile_capture,
+    load_source_capture,
+)
 from mirrorr.services.telemetry import (
     PUBLISH_INTERVAL_S as TELEMETRY_PUBLISH_INTERVAL_S,
     build_frame,
@@ -160,22 +165,23 @@ class SessionSupervisor:
     async def run(self) -> None:
         """Run the session's captures in order, merging what they record.
 
-        A capture is one profile's run at the stream: the session's own profile
-        first, then any fallback in order. It runs the whole attempt/retry loop,
-        and a capture that never becomes playable hands over to the next one
-        instead of failing the session. The first capture that completes, or the
-        user's stop, ends the run.
+        A capture is one source's run at the stream: the session's own first,
+        then any fallback in order — a profile run whole, or a resolver + config
+        on the session's own engine. It runs the whole attempt/retry loop, and a
+        capture that never becomes playable hands over to the next one instead
+        of failing the session. The first capture that completes, or the user's
+        stop, ends the run.
         """
         heartbeat = asyncio.create_task(self._heartbeat())
         plan = self.capture_plan()
         try:
-            for index, profile_id in enumerate(plan, start=1):
+            for index, entry in enumerate(plan, start=1):
                 if self._stop.is_set():
                     logger.info("stop requested — no further captures")
                     await self._finalize_stopped()
                     return
 
-                failure = await self._begin_capture(index, profile_id)
+                failure = await self._begin_capture(index, entry)
                 outcome, reason = (
                     ("failed", failure) if failure else await self._run_capture()
                 )
@@ -199,17 +205,17 @@ class SessionSupervisor:
             # Always disconnect NATS last, after all status updates
             await self._disconnect_nats()
 
-    def capture_plan(self) -> list[int | None]:
-        """The profiles this session tries in order, one capture each."""
+    def capture_plan(self) -> list[int | dict[str, Any] | None]:
+        """The sources this session tries in order, one capture each."""
         return list(self.session.capture_plan or []) or [self.session.profile_id]
 
-    async def _begin_capture(self, index: int, profile_id: int | None) -> str | None:
+    async def _begin_capture(self, index: int, entry: int | dict[str, Any] | None) -> str | None:
         """Point the supervisor at one capture's source and folder.
 
         Returns ``None`` when the capture can start, else why it cannot. The first
-        capture uses the profile the session was created with; a later one loads
-        its profile — a fallback is a *different source*, so it takes that
-        profile's engine, resolver, config and retry policy whole.
+        capture uses the engine + resolver the session was created with; a later
+        one is either a profile id, loaded whole, or a source — a resolver plus
+        its config run on the session's own engine and retry policy.
         """
         self._capture_index = index
         self._capture_attempts = 0
@@ -217,20 +223,42 @@ class SessionSupervisor:
         self._capture_started_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
         if index > 1:
-            if profile_id is None:
-                return "no profile to run the capture with"
-            try:
-                capture, self.engine, self.resolver = await load_profile_capture(
-                    self.settings, profile_id
+            if isinstance(entry, dict):
+                try:
+                    capture, self.engine, self.resolver = await load_source_capture(
+                        self.settings,
+                        engine_id=self.session.engine_id,
+                        resolver_id=int(entry.get("resolver_id") or 0),
+                        resolver_config=entry.get("resolver_config") or {},
+                        retry_mode=self.session.retry_mode,
+                        retry_config=self.session.retry_config,
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Session {self.session_id}: capture {index} cannot load "
+                        f"source {entry.get('resolver_id')}: {e}"
+                    )
+                    return f"source {entry.get('resolver_id')} could not be loaded: {e}"
+                self._capture_settings = capture
+                logger.opt(colors=True).info(
+                    f"capture <yellow>{index}</yellow>: running source "
+                    f"{capture['resolver_name']} on {capture['engine_name']}"
                 )
-            except Exception as e:
-                logger.error(f"Session {self.session_id}: capture {index} cannot load profile {profile_id}: {e}")
-                return f"profile {profile_id} could not be loaded: {e}"
-            self._capture_settings = capture
-            logger.opt(colors=True).info(
-                f"capture <yellow>{index}</yellow>: running profile "
-                f"{capture['profile_name']} ({capture['engine_name']} + {capture['resolver_name']})"
-            )
+            elif entry is None:
+                return "no profile or source to run the capture with"
+            else:
+                try:
+                    capture, self.engine, self.resolver = await load_profile_capture(
+                        self.settings, entry
+                    )
+                except Exception as e:
+                    logger.error(f"Session {self.session_id}: capture {index} cannot load profile {entry}: {e}")
+                    return f"profile {entry} could not be loaded: {e}"
+                self._capture_settings = capture
+                logger.opt(colors=True).info(
+                    f"capture <yellow>{index}</yellow>: running profile "
+                    f"{capture['profile_name']} ({capture['engine_name']} + {capture['resolver_name']})"
+                )
 
         folder = self._primary_folder
         if index > 1:

@@ -19,6 +19,7 @@ describe("toCaptureView", () => {
     expect(view).toEqual({
       index: 1,
       status: "failed",
+      kind: "profile",
       profile: "F1 UK",
       engine: "yt_dlp_piped",
       resolver: "tvnow247",
@@ -36,6 +37,27 @@ describe("toCaptureView", () => {
       profile: "#4",
       engine: "—",
       resolver: "—",
+    })
+  })
+
+  it("names a source capture by its resolver and marks it as one", () => {
+    expect(
+      toCaptureView(
+        {
+          status: "completed",
+          profile_id: null,
+          profile_name: "",
+          source: "resolver",
+          engine_name: "yt_dlp_piped",
+          resolver_name: "daddylive",
+        },
+        1,
+      ),
+    ).toMatchObject({
+      index: 2,
+      kind: "source",
+      profile: "daddylive",
+      resolver: "daddylive",
     })
   })
 })

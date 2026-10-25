@@ -5,6 +5,8 @@ import { cn } from "@/ui/lib/cn"
 export interface CaptureView {
   readonly index: number
   readonly status: string
+  /** What the capture ran: a profile whole, or a resolver on the run's own engine. */
+  readonly kind: "profile" | "source"
   readonly profile: string
   readonly engine: string
   readonly resolver: string
@@ -26,11 +28,15 @@ export function toCaptureView(raw: Record<string, unknown>, fallbackIndex: numbe
     return typeof value === "number" ? value : null
   }
   const index = num("index") ?? fallbackIndex + 1
+  const isSource = raw.source === "resolver"
   return {
     index,
     // A capture's own status: failed, completed, stopped — no inference needed.
     status: str("status") ?? "failed",
-    profile: str("profile_name") ?? (raw.profile_id == null ? "—" : `#${String(raw.profile_id)}`),
+    kind: isSource ? "source" : "profile",
+    profile: isSource
+      ? (str("resolver_name") ?? "Source")
+      : (str("profile_name") ?? (raw.profile_id == null ? "—" : `#${String(raw.profile_id)}`)),
     engine: str("engine_name") ?? "—",
     resolver: str("resolver_name") ?? "—",
     reason: str("reason"),
@@ -65,6 +71,7 @@ function CaptureRow({ capture }: { readonly capture: CaptureView }) {
         <span className="mono tnum text-xs text-dim">#{capture.index}</span>
         <StatusChip status={capture.status} />
         {fallback ? <Tag>Fallback</Tag> : null}
+        {capture.kind === "source" ? <Tag>Source</Tag> : null}
         <span className="text-[13px] font-semibold text-ink text-truncate">{capture.profile}</span>
         <span className="flex-1" />
         {capture.merged ? <Tag accent>In the recording</Tag> : null}

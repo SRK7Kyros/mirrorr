@@ -62,9 +62,23 @@ class ChangePasswordRequest(BaseModel):
 # ── Sessions ───────────────────────────────────────────────────────────
 
 
+class FallbackSource(BaseModel):
+    """A fallback that names its own source instead of borrowing a profile.
+
+    A profile fallback carries an engine, resolver, config and retry policy
+    whole. A *source* fallback keeps the run's own engine and retry policy and
+    swaps only where the stream comes from — a resolver plus its config — which
+    is what an engine+resolver run can name without inventing a profile.
+    """
+
+    resolver_id: int
+    resolver_config: dict[str, Any] | None = None
+
+
 class CreateSessionRequest(BaseModel):
     profile_id: int | None = None
     fallback_profile_ids: list[int] | None = None
+    fallback_sources: list[FallbackSource] | None = None
     engine_id: int | None = None
     resolver_id: int | None = None
     resolver_config: dict[str, Any] | None = None
@@ -90,6 +104,7 @@ class CreateAutorunRequest(BaseModel):
     recording: bool = True
     orphan_policy: Literal["fail", "retry"] = "fail"
     fallback_profile_ids: list[int] = Field(default_factory=list)
+    fallback_sources: list[FallbackSource] = Field(default_factory=list)
 
 
 class UpdateAutorunRequest(BaseModel):
@@ -97,6 +112,7 @@ class UpdateAutorunRequest(BaseModel):
     snake_case_name: str | None = Field(default=None, pattern=r'^[a-zA-Z0-9_-]+$')
     profile_id: int | None = None
     fallback_profile_ids: list[int] | None = None
+    fallback_sources: list[FallbackSource] | None = None
     engine_id: int | None = None
     resolver_id: int | None = None
     resolver_config: dict[str, Any] | None = None
@@ -208,7 +224,7 @@ class SessionResponse(BaseModel):
     session_urls: list[dict[str, str]] = Field(default_factory=list)
     attempts: list[dict[str, Any]] = Field(default_factory=list)
     captures: list[dict[str, Any]] = Field(default_factory=list)
-    capture_plan: list[int | None] = Field(default_factory=list)
+    capture_plan: list[int | dict[str, Any] | None] = Field(default_factory=list)
     engine_name: str | None = None
     resolver_name: str | None = None
     profile_name: str | None = None
@@ -233,6 +249,7 @@ class AutorunResponse(BaseModel):
     orphan_policy: str = "fail"
     fallback_profile_ids: list[int] = Field(default_factory=list)
     fallback_profile_names: list[str] = Field(default_factory=list)
+    fallback_sources: list[dict[str, Any]] = Field(default_factory=list)
     requester_user_token: str = ""
     engine_name: str | None = None
     resolver_name: str | None = None

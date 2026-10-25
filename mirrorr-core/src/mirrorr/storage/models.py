@@ -105,6 +105,10 @@ class Autorun(SQLModel, table=True):
     # its window was still open. Ids, not rows: each attempt copies its
     # profile's engine/resolver/config at spawn time (see ``autorun_scheduler``).
     fallback_profile_ids: list[int] = Field(default_factory=list, sa_column=Column(SAJSON))
+    # Fallbacks that swap only the source: ``{resolver_id, resolver_config}``
+    # run on this autorun's own engine and retry policy — what an engine +
+    # resolver run can name without inventing a profile for it.
+    fallback_sources: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(SAJSON))
 
     # One-shot schedule — the "next run" is simply start_time until it fires.
     # last_run_at is set when the autorun transitions out of SCHEDULED.
@@ -145,7 +149,9 @@ class Session(SQLModel, table=True):
     # The profiles this session tries, in order: its own profile first, then any
     # fallbacks. Each capture runs that profile's engine/resolver/config into its
     # own folder, and the captures merge into one recording when the session ends.
-    capture_plan: list[int | None] = Field(default_factory=list, sa_column=Column(SAJSON))
+    capture_plan: list[int | dict[str, Any] | None] = Field(
+        default_factory=list, sa_column=Column(SAJSON)
+    )
     # What each capture did: profile/engine/resolver names, status, reason, media.
     captures: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(SAJSON))
     # Absolute path to the session folder; lets API read logs/progress even

@@ -123,6 +123,55 @@ def test_an_autorun_without_a_profile_falls_back_from_nothing():
     assert fallback_chain(autorun) == [None, 2]
 
 
+def test_a_source_fallback_follows_the_profiles_it_is_chained_after():
+    autorun = Autorun(
+        user_friendly_name="x",
+        snake_case_name="x",
+        engine_id=1,
+        resolver_id=1,
+        fallback_profile_ids=[2],
+        fallback_sources=[
+            {"resolver_id": 3, "resolver_config": {"channel": "ch3"}},
+            {"resolver_id": 3, "resolver_config": {"channel": "ch4"}},
+        ],
+        start_time=_now(),
+        end_time=_now(),
+    )
+    assert fallback_chain(autorun) == [
+        None,
+        2,
+        {"resolver_id": 3, "resolver_config": {"channel": "ch3"}},
+        {"resolver_id": 3, "resolver_config": {"channel": "ch4"}},
+    ]
+    assert _serialize_autorun(autorun)["fallback_sources"] == [
+        {"resolver_id": 3, "resolver_config": {"channel": "ch3"}},
+        {"resolver_id": 3, "resolver_config": {"channel": "ch4"}},
+    ]
+
+
+def test_a_slot_carries_its_source_fallbacks_in_the_session_plan(monkeypatch, tmp_path):
+    async def scenario(settings):
+        engine, maker = await _fresh_db()
+        await _seed(maker, [2], prior=SessionStatus.FAILED)
+        async with maker() as db:
+            autorun = await crud.get_by_id(db, Autorun, 1)
+            autorun.fallback_sources = [{"resolver_id": 3, "resolver_config": {"channel": "ch3"}}]
+            await db.commit()
+
+        await _tick(maker, settings)
+
+        spawned = (await _sessions(maker))[-1]
+        assert spawned.capture_plan == [
+            1,
+            2,
+            {"resolver_id": 3, "resolver_config": {"channel": "ch3"}},
+        ]
+        assert (spawned.engine_id, spawned.resolver_id) == (1, 1)
+        await engine.dispose()
+
+    _run(scenario, monkeypatch, tmp_path)
+
+
 def test_a_slot_spawns_one_session_carrying_the_whole_chain(monkeypatch, tmp_path):
     """The fallbacks are a plan on the session, never sessions of their own."""
 
