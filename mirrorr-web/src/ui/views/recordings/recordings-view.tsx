@@ -22,12 +22,13 @@ import {
   IconRefresh,
   IconTrash,
   LoadMore,
+  SelectionHead,
   Skeleton,
   toast,
 } from "@/ui/components";
 import { useHighlightRef, useSelection } from "@/ui/hooks";
 import { Page } from "@/ui/views/shared/page";
-import { AccessBulkAction } from "@/ui/views/shared/resource-access-slot";
+import { useBulkAccessAction } from "@/ui/views/shared/resource-access-slot";
 import { RecordingCard } from "./recording-card";
 
 /**
@@ -110,6 +111,13 @@ export function RecordingsView({ highlight }: { readonly highlight?: number }) {
 
   const rows = list.items;
   const selectedRecordings = rows.filter((recording) => selection.has(recording.id));
+  const access = useBulkAccessAction(
+    "recording",
+    selectedRecordings.map((recording) => ({
+      id: recording.id,
+      label: recording.user_friendly_name,
+    })),
+  );
 
   return (
     <Page
@@ -153,6 +161,15 @@ export function RecordingsView({ highlight }: { readonly highlight?: number }) {
         />
       ) : (
         <>
+          <SelectionHead
+            label="Select all recordings"
+            checked={selection.allSelected(rows.map((recording) => recording.id))}
+            onChange={(checked) =>
+              selection.setMany(checked ? rows.map((recording) => recording.id) : [])
+            }
+            count={rows.length}
+            noun="recording"
+          />
           <div className="session-grid grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4 items-start">
             {rows.map((recording) => (
               <RecordingCard
@@ -167,25 +184,23 @@ export function RecordingsView({ highlight }: { readonly highlight?: number }) {
           </div>
 
           {selection.count > 0 ? (
-            <BulkBar count={selection.count} onClear={selection.clear}>
-              <AccessBulkAction
-                resourceType="recording"
-                items={selectedRecordings.map((recording) => ({
-                  id: recording.id,
-                  label: recording.user_friendly_name,
-                }))}
-              />
-              <Button
-                size="sm"
-                variant="danger-ghost"
-                icon={<IconTrash size={15} />}
-                loading={bulkRemove.isPending}
-                onClick={() => setBulkDeleteOpen(true)}
-              >
-                Delete selected
-              </Button>
-            </BulkBar>
+            <BulkBar
+              count={selection.count}
+              onClear={selection.clear}
+              actions={[
+                ...(access.action === null ? [] : [access.action]),
+                {
+                  key: "delete",
+                  label: "Delete selected",
+                  icon: <IconTrash size={15} />,
+                  danger: true,
+                  loading: bulkRemove.isPending,
+                  onClick: () => setBulkDeleteOpen(true),
+                },
+              ]}
+            />
           ) : null}
+          {access.dialog}
 
           <LoadMore
             hasMore={hasMore}

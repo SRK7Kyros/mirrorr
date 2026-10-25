@@ -15,7 +15,7 @@ import { rankBySearch } from "@/api/domain/search"
 import type { ResolverSource } from "@/api/schemas"
 import { showingLabel } from "@/ui/lib/format"
 import { staggerContainer, staggerItem } from "@/ui/lib/motion"
-import { AccessButton, AccessBulkAction } from "@/ui/views/shared/resource-access-slot"
+import { AccessButton, useBulkAccessAction } from "@/ui/views/shared/resource-access-slot"
 import {
   BulkBar,
   Button,
@@ -34,6 +34,7 @@ import {
   JsonView,
   LoadMore,
   Panel,
+  SelectionHead,
   PanelBody,
   SkeletonRows,
   Table,
@@ -161,6 +162,11 @@ export function SourcesPanel({ onCreate, onEdit }: SourcesPanelProps) {
   const { hasMore, isFetching, loadingAll, loadAll } = list
 
   const rows = useMemo(() => rankBySearch(list.items, search, sourceSearchFields), [list.items, search])
+  const selectedSources = list.items.filter((source) => selection.has(source.id))
+  const access = useBulkAccessAction(
+    "source",
+    selectedSources.map((source) => ({ id: source.id, label: source.name })),
+  )
 
   const rowIds = useMemo(() => rows.map((source) => source.id), [rows])
 
@@ -286,6 +292,15 @@ export function SourcesPanel({ onCreate, onEdit }: SourcesPanelProps) {
                 </Table>
               </div>
               <motion.div className="cards-mobile hidden max-sm:flex max-sm:flex-col max-sm:gap-3 max-sm:p-3" variants={staggerContainer} initial="hidden" animate="visible">
+                <SelectionHead
+                  label="Select all sources"
+                  checked={selection.allSelected(rows.map((source) => source.id))}
+                  onChange={(checked) =>
+                    selection.setMany(checked ? rows.map((source) => source.id) : [])
+                  }
+                  count={rows.length}
+                  noun="source"
+                />
                 {rows.map((source) => (
                   <SourceCard
                     key={source.id}
@@ -301,24 +316,24 @@ export function SourcesPanel({ onCreate, onEdit }: SourcesPanelProps) {
             </PanelBody>
           </Panel>
           {selection.count > 0 ? (
-            <BulkBar count={selection.count} onClear={selection.clear}>
-              <AccessBulkAction
-                resourceType="source"
-                items={list.items
-                  .filter((source) => selection.has(source.id))
-                  .map((source) => ({ id: source.id, label: source.name }))}
-              />
-              <Button
-                size="sm"
-                variant="danger-ghost"
-                icon={<IconTrash size={15} />}
-                loading={bulkRemove.isPending}
-                onClick={() => setBulkDeleteOpen(true)}
-              >
-                Delete selected
-              </Button>
-            </BulkBar>
+            <BulkBar
+              nextToFab
+              count={selection.count}
+              onClear={selection.clear}
+              actions={[
+                ...(access.action === null ? [] : [access.action]),
+                {
+                  key: "delete",
+                  label: "Delete selected",
+                  icon: <IconTrash size={15} />,
+                  danger: true,
+                  loading: bulkRemove.isPending,
+                  onClick: () => setBulkDeleteOpen(true),
+                },
+              ]}
+            />
           ) : null}
+          {access.dialog}
           <LoadMore
             hasMore={hasMore}
             isFetching={isFetching}

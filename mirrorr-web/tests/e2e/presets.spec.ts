@@ -313,4 +313,21 @@ test.describe("presets page", () => {
     await expect(bulk.getByRole("button", { name: "Delete selected" })).toBeInViewport()
     await expect(bulk.getByRole("button", { name: "Export selected" })).toBeInViewport()
   })
+
+  test("a phone takes a whole panel from its own head", async ({ page }) => {
+    await page.setViewportSize(MOBILE)
+    await page.goto("/profiles")
+
+    const bulk = page.getByRole("region", { name: "Bulk actions" })
+
+    await page.getByRole("checkbox", { name: "Select all profiles" }).check()
+    await expect(bulk).toContainText("1 selected item")
+
+    await page.getByRole("checkbox", { name: "Select all profiles" }).uncheck()
+    await expect(bulk).toBeHidden()
+
+    await page.getByRole("checkbox", { name: "Select all sources" }).check()
+    await expect(bulk).toContainText("1 selected item")
+    await expect(bulk.getByRole("button", { name: "Delete selected" })).toBeInViewport()
+  })
 })

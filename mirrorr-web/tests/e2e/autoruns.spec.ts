@@ -146,7 +146,9 @@ test.describe("scheduled recordings", () => {
     const barBox = await bar.boundingBox()
     const navBox = await nav.boundingBox()
     if (barBox === null || navBox === null) throw new Error("the bulk bar or the nav is not laid out")
-    expect(barBox.y + barBox.height).toBeLessThanOrEqual(navBox.y - 4)
+    // The bar floats level with the + button, so it clears the nav's own pill
+    // rather than the space the nav reserves below it.
+    expect(barBox.y + barBox.height).toBeLessThanOrEqual(navBox.y)
     expect(barBox.y + barBox.height).toBeLessThanOrEqual(874)
   })
 })

@@ -74,6 +74,20 @@ test.describe("recordings", () => {
     const barBox = await bar.boundingBox()
     const navBox = await nav.boundingBox()
     if (barBox === null || navBox === null) throw new Error("the bulk bar or the nav is not laid out")
-    expect(barBox.y + barBox.height).toBeLessThanOrEqual(navBox.y - 4)
+    expect(barBox.y + barBox.height).toBeLessThanOrEqual(navBox.y)
+  })
+
+  test("a phone takes every recording from the head above the grid", async ({ page }) => {
+    await page.setViewportSize({ width: 402, height: 874 })
+    await page.goto("/recordings")
+
+    const head = page.getByRole("checkbox", { name: "Select all recordings" })
+    await expect(head).toBeInViewport()
+
+    await head.check()
+    await expect(page.getByRole("region", { name: "Bulk actions" })).toContainText("3 selected items")
+
+    await head.uncheck()
+    await expect(page.getByRole("region", { name: "Bulk actions" })).toBeHidden()
   })
 })

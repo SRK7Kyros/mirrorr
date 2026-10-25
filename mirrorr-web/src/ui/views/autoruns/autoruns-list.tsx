@@ -53,7 +53,7 @@ import {
 import { useNowTick, useSelection } from "@/ui/hooks"
 import { autorunIssue } from "@/api/domain/autorun-issue"
 import { Page } from "@/ui/views/shared/page"
-import { AccessButton, AccessBulkAction } from "@/ui/views/shared/resource-access-slot"
+import { AccessButton, useBulkAccessAction } from "@/ui/views/shared/resource-access-slot"
 import { AutorunActionsMenu } from "./autorun-actions"
 import { AutorunBulkProfileDialog } from "./autorun-bulk-profile-dialog"
 import { AutorunFormDialog } from "./autorun-form-dialog"
@@ -304,6 +304,13 @@ export function AutorunsListView() {
   const rowIds = useMemo(() => rows.map((autorun) => autorun.id), [rows])
   const selectedAutoruns = rows.filter((autorun) => selection.has(autorun.id))
   const selectedIds = selectedAutoruns.map((autorun) => autorun.id)
+  const access = useBulkAccessAction(
+    "autorun",
+    selectedAutoruns.map((autorun) => ({
+      id: autorun.id,
+      label: autorun.user_friendly_name,
+    })),
+  )
 
   const bulkRemove = useMutation({
     mutationFn: async (ids: readonly number[]) => {
@@ -509,42 +516,37 @@ export function AutorunsListView() {
             ))}
           </div>
           {selection.count > 0 ? (
-            <BulkBar count={selectedIds.length} onClear={selection.clear}>
-              <Button
-                size="sm"
-                variant="outline"
-                icon={<IconProfiles size={15} />}
-                onClick={() => setBulkProfileOpen(true)}
-              >
-                Set profile
-              </Button>
-              <AccessBulkAction
-                resourceType="autorun"
-                items={selectedAutoruns.map((autorun) => ({
-                  id: autorun.id,
-                  label: autorun.user_friendly_name,
-                }))}
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                icon={<IconDownload size={15} />}
-                loading={bulkExport.isPending}
-                onClick={() => bulkExport.mutate(selectedAutoruns)}
-              >
-                Export selected
-              </Button>
-              <Button
-                size="sm"
-                variant="danger-ghost"
-                icon={<IconTrash size={15} />}
-                loading={bulkRemove.isPending}
-                onClick={() => setBulkDeleteOpen(true)}
-              >
-                Delete selected
-              </Button>
-            </BulkBar>
+            <BulkBar
+              nextToFab
+              count={selectedIds.length}
+              onClear={selection.clear}
+              actions={[
+                {
+                  key: "profile",
+                  label: "Set profile",
+                  icon: <IconProfiles size={15} />,
+                  onClick: () => setBulkProfileOpen(true),
+                },
+                ...(access.action === null ? [] : [access.action]),
+                {
+                  key: "export",
+                  label: "Export selected",
+                  icon: <IconDownload size={15} />,
+                  loading: bulkExport.isPending,
+                  onClick: () => bulkExport.mutate(selectedAutoruns),
+                },
+                {
+                  key: "delete",
+                  label: "Delete selected",
+                  icon: <IconTrash size={15} />,
+                  danger: true,
+                  loading: bulkRemove.isPending,
+                  onClick: () => setBulkDeleteOpen(true),
+                },
+              ]}
+            />
           ) : null}
+          {access.dialog}
           <LoadMore
             hasMore={hasMore}
             isFetching={isFetching}

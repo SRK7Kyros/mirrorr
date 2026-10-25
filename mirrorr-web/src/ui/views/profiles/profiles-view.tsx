@@ -19,7 +19,7 @@ import { flaggedNotice } from "@/api/domain/autorun-issue"
 import type { Profile, ResolverSource } from "@/api/schemas"
 import { humanize, showingLabel } from "@/ui/lib/format"
 import { staggerContainer, staggerItem } from "@/ui/lib/motion"
-import { AccessButton, AccessBulkAction } from "@/ui/views/shared/resource-access-slot"
+import { AccessButton, useBulkAccessAction } from "@/ui/views/shared/resource-access-slot"
 import {
   BulkBar,
   Button,
@@ -40,6 +40,7 @@ import {
   JsonView,
   LoadMore,
   Panel,
+  SelectionHead,
   PanelBody,
   SkeletonRows,
   Table,
@@ -333,6 +334,10 @@ function ProfilesPanel({
   })
 
   const selectedProfiles = list.items.filter((profile) => selection.has(profile.id))
+  const access = useBulkAccessAction(
+    "profile",
+    selectedProfiles.map((profile) => ({ id: profile.id, label: profile.name })),
+  )
 
   const columnCount = 6
 
@@ -431,6 +436,15 @@ function ProfilesPanel({
                 </Table>
               </div>
               <motion.div className="cards-mobile hidden max-sm:flex max-sm:flex-col max-sm:gap-3 max-sm:p-3" variants={staggerContainer} initial="hidden" animate="visible">
+                <SelectionHead
+                  label="Select all profiles"
+                  checked={selection.allSelected(rows.map((profile) => profile.id))}
+                  onChange={(checked) =>
+                    selection.setMany(checked ? rows.map((profile) => profile.id) : [])
+                  }
+                  count={rows.length}
+                  noun="profile"
+                />
                 {rows.map((profile) => (
                   <ProfileCard
                     key={profile.id}
@@ -447,31 +461,31 @@ function ProfilesPanel({
             </PanelBody>
           </Panel>
           {selection.count > 0 ? (
-            <BulkBar count={selection.count} onClear={selection.clear}>
-              <AccessBulkAction
-                resourceType="profile"
-                items={selectedProfiles.map((profile) => ({ id: profile.id, label: profile.name }))}
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                icon={<IconDownload size={15} />}
-                loading={bulkExport.isPending}
-                onClick={() => bulkExport.mutate(selectedProfiles)}
-              >
-                Export selected
-              </Button>
-              <Button
-                size="sm"
-                variant="danger-ghost"
-                icon={<IconTrash size={15} />}
-                loading={bulkRemove.isPending}
-                onClick={() => setBulkDeleteOpen(true)}
-              >
-                Delete selected
-              </Button>
-            </BulkBar>
+            <BulkBar
+              nextToFab
+              count={selection.count}
+              onClear={selection.clear}
+              actions={[
+                ...(access.action === null ? [] : [access.action]),
+                {
+                  key: "export",
+                  label: "Export selected",
+                  icon: <IconDownload size={15} />,
+                  loading: bulkExport.isPending,
+                  onClick: () => bulkExport.mutate(selectedProfiles),
+                },
+                {
+                  key: "delete",
+                  label: "Delete selected",
+                  icon: <IconTrash size={15} />,
+                  danger: true,
+                  loading: bulkRemove.isPending,
+                  onClick: () => setBulkDeleteOpen(true),
+                },
+              ]}
+            />
           ) : null}
+          {access.dialog}
           <LoadMore
             hasMore={hasMore}
             isFetching={isFetching}
