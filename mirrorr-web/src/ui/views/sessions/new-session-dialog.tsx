@@ -14,20 +14,16 @@ import {
   Button,
   Dialog,
   Field,
-  SchemaForm,
   Segmented,
   IconSearch,
   Select,
   Switch,
   TabPanel,
-  defaultsFromSchema,
   toast,
-  panelTitleClass,
 } from "@/ui/components"
 import { DiscoveryDrawer, canBrowseResolver } from "@/ui/views/shared/discovery-drawer"
-import { SourcePicker } from "@/ui/views/shared/source-picker"
 import { FallbackProfiles } from "@/ui/views/autoruns/fallback-profiles"
-import { FallbackSources } from "@/ui/views/shared/fallback-sources"
+import { FallbackSources, SourceFields } from "@/ui/views/shared/source-chain"
 import type { FallbackSource } from "@/api/domain/fallback-sources"
 import {
   AccessCreation,
@@ -106,13 +102,6 @@ export function NewSessionDialog({
   const resolver = resolvers.find((item) => String(item.id) === resolverId)
   const canBrowse = canBrowseResolver(resolver)
   const canSubmit = mode === "profile" ? profileId !== "" : engineId !== "" && resolverId !== ""
-
-  function changeResolver(nextId: string): void {
-    setResolverId(nextId)
-    setResolverConfig(
-      defaultsFromSchema(resolvers.find((item) => String(item.id) === nextId)?.config_schema),
-    )
-  }
 
   const submit = () => {
     setError(null)
@@ -222,58 +211,50 @@ export function NewSessionDialog({
                   ))}
                 </Select>
               </Field>
-              <Field label="Resolver" htmlFor="new-session-resolver" required>
-                <Select
-                  id="new-session-resolver"
-                  value={resolverId}
-                  onChange={(event) => changeResolver(event.target.value)}
-                >
-                  <option value="">Select a resolver…</option>
-                  {resolvers.map((item) => (
-                    <option key={item.id} value={String(item.id)}>
-                      {item.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              {canBrowse ? (
-                <div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    icon={<IconSearch size={15} />}
-                    onClick={() => setBrowseOpen(true)}
-                  >
-                    Browse {resolver.name}…
-                  </Button>
-                </div>
-              ) : null}
-              <SourcePicker
-                idPrefix="new-session"
-                resolverId={resolverId}
-                onPick={(source) => {
-                  setResolverId(String(source.resolver_id))
-                  setResolverConfig(source.resolver_config ?? {})
-                }}
-              />
-              {resolver === undefined ? null : (
-                <section className="flex flex-col gap-2">
-                  <h3 className={panelTitleClass}>Resolver config</h3>
-                  <SchemaForm
-                    schema={resolver.config_schema}
-                    value={resolverConfig}
-                    onChange={setResolverConfig}
-                    idPrefix="new-session-resolver-config"
-                  />
-                </section>
+              {engineId === "" ? null : (
+                <SourceFields
+                  idPrefix="new-session"
+                  kindLabel="Primary source"
+                  resolvers={resolvers}
+                  value={{
+                    resolverId: resolver?.id ?? null,
+                    resolverConfig,
+                  }}
+                  onChange={(next) => {
+                    setResolverId(next.resolverId === null ? "" : String(next.resolverId))
+                    setResolverConfig(next.resolverConfig)
+                  }}
+                  browse={
+                    canBrowse ? (
+                      <div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          icon={<IconSearch size={15} />}
+                          onClick={() => setBrowseOpen(true)}
+                        >
+                          Browse {resolver.name}…
+                        </Button>
+                      </div>
+                    ) : undefined
+                  }
+                  disabled={create.isPending}
+                />
               )}
-              <FallbackSources
-                resolvers={resolvers}
-                value={fallbackSources}
-                onChange={setFallbackSources}
-                disabled={create.isPending}
-              />
+              {engineId !== "" && resolverId !== "" ? (
+                <FallbackSources
+                  resolvers={resolvers}
+                  value={fallbackSources}
+                  onChange={setFallbackSources}
+                  primary={
+                    resolver === undefined
+                      ? null
+                      : { resolver_id: resolver.id, resolver_config: resolverConfig }
+                  }
+                  disabled={create.isPending}
+                />
+              ) : null}
             </>
           )}
         </TabPanel>

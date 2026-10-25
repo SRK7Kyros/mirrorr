@@ -21,20 +21,16 @@ import {
   Dialog,
   Field,
   Input,
-  SchemaForm,
   Segmented,
   IconSearch,
   Select,
   Switch,
   TabPanel,
-  defaultsFromSchema,
   toast,
-  panelTitleClass,
 } from "@/ui/components"
 import { DiscoveryDrawer, canBrowseResolver } from "@/ui/views/shared/discovery-drawer"
-import { SourcePicker } from "@/ui/views/shared/source-picker"
 import { FallbackProfiles } from "./fallback-profiles"
-import { FallbackSources } from "@/ui/views/shared/fallback-sources"
+import { FallbackSources, SourceFields } from "@/ui/views/shared/source-chain"
 import type { FallbackSource } from "@/api/domain/fallback-sources"
 import {
   AccessCreation,
@@ -195,13 +191,6 @@ export function AutorunFormDialog({
   const resolver = resolvers.find((item) => String(item.id) === resolverId)
   const canBrowse = canBrowseResolver(resolver)
   const canSubmit = mode === "profile" ? profileId !== "" : engineId !== "" && resolverId !== ""
-
-  function changeResolver(nextId: string): void {
-    setResolverId(nextId)
-    setResolverConfig(
-      defaultsFromSchema(resolvers.find((item) => String(item.id) === nextId)?.config_schema),
-    )
-  }
 
   const save = useMutation({
     mutationFn: async (body: AutorunBody) => {
@@ -455,7 +444,7 @@ export function AutorunFormDialog({
                 />
               </>
             ) : (
-              <div className="grid grid-cols-2 gap-5 max-sm:grid-cols-1">
+              <>
                 <Field label="Engine" htmlFor="autorun-engine" required>
                   <Select
                     id="autorun-engine"
@@ -471,69 +460,58 @@ export function AutorunFormDialog({
                     ))}
                   </Select>
                 </Field>
-                <Field label="Resolver" htmlFor="autorun-resolver" required>
-                  <Select
-                    id="autorun-resolver"
-                    value={resolverId}
-                    disabled={live}
-                    onChange={(event) => changeResolver(event.target.value)}
-                  >
-                    <option value="">Select a resolver…</option>
-                    {resolvers.map((item) => (
-                      <option key={item.id} value={String(item.id)}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-              </div>
+                {live ? (
+                  <Field label="Resolver" htmlFor="autorun-resolver">
+                    <Select id="autorun-resolver" value={resolverId} disabled>
+                      <option value="">Select a resolver…</option>
+                      {resolvers.map((item) => (
+                        <option key={item.id} value={String(item.id)}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                ) : engineId === "" ? null : (
+                  <SourceFields
+                    idPrefix="autorun"
+                    kindLabel="Primary source"
+                    resolvers={resolvers}
+                    value={{ resolverId: resolver?.id ?? null, resolverConfig }}
+                    onChange={(next) => {
+                      setResolverId(next.resolverId === null ? "" : String(next.resolverId))
+                      setResolverConfig(next.resolverConfig)
+                    }}
+                    browse={
+                      canBrowse ? (
+                        <div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            icon={<IconSearch size={15} />}
+                            onClick={() => setBrowseOpen(true)}
+                          >
+                            Browse {resolver.name}…
+                          </Button>
+                        </div>
+                      ) : undefined
+                    }
+                  />
+                )}
+              </>
             )}
 
-            {!live && mode === "custom" ? (
-              <>
-                {canBrowse ? (
-                  <div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      icon={<IconSearch size={15} />}
-                      onClick={() => setBrowseOpen(true)}
-                    >
-                      Browse {resolver.name}…
-                    </Button>
-                  </div>
-                ) : null}
-                <SourcePicker
-                  idPrefix="autorun"
-                  resolverId={resolverId}
-                  onPick={(source) => {
-                    setResolverId(String(source.resolver_id))
-                    setResolverConfig(source.resolver_config ?? {})
-                  }}
-                />
-                <section className="flex flex-col gap-2">
-                  <h3 className={panelTitleClass}>Resolver config</h3>
-                  {resolver === undefined ? (
-                    <p className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
-                      Pick a resolver to configure it.
-                    </p>
-                  ) : (
-                    <SchemaForm
-                      schema={resolver.config_schema}
-                      value={resolverConfig}
-                      onChange={setResolverConfig}
-                      idPrefix="autorun-resolver-config"
-                    />
-                  )}
-                </section>
-                <FallbackSources
-                  resolvers={resolvers}
-                  value={fallbackSources}
-                  onChange={setFallbackSources}
-                  disabled={live}
-                />
-              </>
+            {!live && mode === "custom" && engineId !== "" && resolverId !== "" ? (
+              <FallbackSources
+                resolvers={resolvers}
+                value={fallbackSources}
+                onChange={setFallbackSources}
+                primary={
+                  resolver === undefined
+                    ? null
+                    : { resolver_id: resolver.id, resolver_config: resolverConfig }
+                }
+              />
             ) : null}
           </TabPanel>
 
