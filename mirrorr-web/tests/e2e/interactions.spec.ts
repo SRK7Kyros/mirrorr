@@ -83,11 +83,13 @@ test.describe("new session dialog", () => {
   })
 
   test("the custom branch browses the resolver's catalog too", async ({ page, api }) => {
+    api.data.engines = [engine({ id: 1, name: "Streamlink" })]
     api.data.resolvers = [BROWSABLE]
     api.data.discovery = [{ id: "9", title: "Sky Sports F1", config: { channel: "premium9" } }]
     await page.goto("/sessions")
     await page.getByRole("button", { name: "New session" }).first().click()
     await page.getByRole("tab", { name: "Engine + resolver" }).click()
+    await page.getByRole("combobox", { name: /^Engine/ }).selectOption("1")
     await page.getByRole("combobox", { name: /^Resolver/ }).selectOption("1")
 
     await page.getByRole("button", { name: "Browse Wide IPTV…" }).click()
@@ -118,7 +120,7 @@ test.describe("new session dialog", () => {
     expect(post?.body).toMatchObject({ profile_id: 1, fallback_profile_ids: [2] })
   })
 
-  test("the custom branch chains fallback sources", async ({ page, api }) => {
+  test("the custom branch builds its chain one rung at a time", async ({ page, api }) => {
     api.data.engines = [engine({ id: 1, name: "Streamlink" })]
     api.data.resolvers = [
       resolver({
@@ -139,22 +141,31 @@ test.describe("new session dialog", () => {
     await page.getByRole("button", { name: "New session" }).first().click()
     await page.getByRole("tab", { name: "Engine + resolver" }).click()
     await page.getByRole("combobox", { name: /^Engine/ }).selectOption("1")
-    await page.getByRole("combobox", { name: /^Resolver/ }).selectOption("1")
 
-    const add = page.getByLabel("Add a fallback source")
-    await expect(add.locator("option")).toHaveText([
-      "Add a fallback source…",
-      "Sky Sports — Direct",
-      "Direct",
-    ])
-    await add.selectOption("source:1")
+    // No rung is offered until the run's own source is set.
+    await expect(page.getByText("Fallback 1", { exact: true })).toHaveCount(0)
+
+    await page.getByRole("combobox", { name: /^Resolver/ }).selectOption("1")
+    await expect(page.getByText("Fallback 1", { exact: true })).toBeVisible()
+
+    // One rung, filled by a saved source.
+    const first = page.getByRole("tablist", { name: "Fallback 1 source" })
+    await first.getByRole("tab", { name: "Saved source" }).click()
+    await page.getByRole("combobox", { name: "Fallback 1 · Saved source" }).selectOption("1")
+    await page.getByRole("button", { name: "Add fallback" }).click()
 
     const chain = page.getByRole("list", { name: "Fallback sources, in order" })
     await expect(chain.getByRole("listitem")).toHaveCount(1)
     await expect(chain.getByRole("listitem").first()).toContainText("Sky Sports")
 
-    await add.selectOption("resolver:1")
-    await page.locator("#fallback-source-1-channel").fill("premium77")
+    // The next rung opens only now, and a resolver + config is the other way in.
+    await expect(page.getByText("Fallback 2", { exact: true })).toBeVisible()
+    await page
+      .getByRole("tablist", { name: "Fallback 2 source" })
+      .getByRole("tab", { name: "Resolver + config" })
+      .click()
+    await page.getByRole("combobox", { name: "Fallback 2 · Resolver" }).selectOption("1")
+    await page.locator("#fallback-source-2-channel").fill("premium77")
     await page.getByRole("button", { name: "Add fallback" }).click()
     await expect(chain.getByRole("listitem")).toHaveCount(2)
 
@@ -169,6 +180,48 @@ test.describe("new session dialog", () => {
         { resolver_id: 1, resolver_config: { channel: "premium9" } },
         { resolver_id: 1, resolver_config: { channel: "premium77" } },
       ],
+    })
+  })
+
+  test("a saved source fills the run's own resolver and config, and the config form steps aside", async ({ page, api }) => {
+    api.data.engines = [engine({ id: 1, name: "Streamlink" })]
+    api.data.resolvers = [
+      resolver({
+        id: 1,
+        name: "Direct",
+        config_schema: {
+          type: "object",
+          properties: { channel: { type: "string", title: "Channel" } },
+        },
+      }),
+    ]
+    api.data.sources = [
+      source({ id: 1, name: "Sky Sports", resolver_id: 1, resolver_config: { channel: "premium9" } }),
+    ]
+    api.data.sessions = [session({ id: 1 })]
+
+    await page.goto("/sessions")
+    await page.getByRole("button", { name: "New session" }).first().click()
+    await page.getByRole("tab", { name: "Engine + resolver" }).click()
+    await page.getByRole("combobox", { name: /^Engine/ }).selectOption("1")
+
+    const kinds = page.getByRole("tablist", { name: "Primary source" })
+    await kinds.getByRole("tab", { name: "Saved source" }).click()
+    // One source, one way in — never both controls at once.
+    await expect(page.getByRole("combobox", { name: /^Resolver/ })).toHaveCount(0)
+
+    await page.getByRole("combobox", { name: "Saved source" }).selectOption("1")
+    await expect(page.getByText("Fallback 1", { exact: true })).toBeVisible()
+
+    await page.getByRole("button", { name: "Start session" }).click()
+
+    await expect(page.getByText("Session started")).toBeVisible()
+    const [post] = api.callsTo("/sessions/").filter((call) => call.method === "POST")
+    expect(post?.body).toMatchObject({
+      engine_id: 1,
+      resolver_id: 1,
+      resolver_config: { channel: "premium9" },
+      fallback_sources: [],
     })
   })
 })
