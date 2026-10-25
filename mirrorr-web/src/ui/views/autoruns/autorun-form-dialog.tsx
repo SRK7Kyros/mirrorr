@@ -232,6 +232,8 @@ export function AutorunFormDialog({
     setTimeError(null)
     const initialStart = autorun === undefined ? null : naiveUtcToDatetimeLocal(autorun.start_time)
     const initialEnd = autorun === undefined ? null : naiveUtcToDatetimeLocal(autorun.end_time)
+    // A chain stored before repeats were refused may name its own primary; saving heals it.
+    const chain = fallbackIds.filter((id) => String(id) !== profileId)
     save.mutate({
       user_friendly_name: friendly.trim(),
       snake_case_name: slug,
@@ -251,7 +253,7 @@ export function AutorunFormDialog({
       ...(mode === "profile"
         ? {
             profile_id: Number(profileId),
-            fallback_profile_ids: fallbackIds,
+            fallback_profile_ids: chain,
           }
         : {
             engine_id: Number(engineId),

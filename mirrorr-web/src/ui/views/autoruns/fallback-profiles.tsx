@@ -1,4 +1,5 @@
 import { useId } from "react"
+import { inheritedChainHint } from "@/api/domain/fallback-sources"
 import type { Profile } from "@/api/schemas"
 import { Field, IconArrowDown, IconArrowUp, IconButton, IconX, Select, Tag } from "@/ui/components"
 
@@ -41,16 +42,19 @@ export function FallbackProfiles({
   const available = profiles.filter(
     (profile) => String(profile.id) !== primaryId && !value.includes(profile.id),
   )
+  const inherited = inheritedChainHint(
+    profiles.find((profile) => String(profile.id) === primaryId)?.fallback_sources,
+  )
+  const base =
+    value.length === 0
+      ? "None — the session fails if its own capture does."
+      : "Tried in this order, after its own capture."
 
   return (
     <Field
       label="Fallbacks"
       htmlFor={selectId}
-      hint={
-        value.length === 0
-          ? "None — the session fails if its own capture does."
-          : "Tried in this order, after its own capture."
-      }
+      hint={inherited === null ? base : `${base} ${inherited}`}
     >
       <div className="flex flex-col gap-2">
         {value.length > 0 ? (

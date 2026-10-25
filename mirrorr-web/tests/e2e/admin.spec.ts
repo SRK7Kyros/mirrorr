@@ -300,6 +300,23 @@ test.describe("admin resource access", () => {
     await expect(
       page.getByRole("button", { name: "Access for Sky Sports" }).first(),
     ).toBeVisible();
+
+    // A card row is a stretch flex: a shorter access box rides the top.
+    const access = await page
+      .getByRole("button", { name: "Access for F1 Weekend" })
+      .first()
+      .boundingBox();
+    const exportButton = await page
+      .getByRole("button", { name: "Export profile F1 Weekend" })
+      .first()
+      .boundingBox();
+    expect(access).not.toBeNull();
+    expect(exportButton).not.toBeNull();
+    expect(access!.height).toBeCloseTo(exportButton!.height, 0);
+    expect(access!.y + access!.height / 2).toBeCloseTo(
+      exportButton!.y + exportButton!.height / 2,
+      0,
+    );
   });
 
   test("edits an item's access from its own button", async ({ page, api }) => {

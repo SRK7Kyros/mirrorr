@@ -196,8 +196,9 @@ export function ResourceAccessButton({ resourceType, id, label }: ResourceAccess
     <span className="contents" onClick={swallowClick}>
       <IconButton
         label={`Access for ${label}`}
-        icon={<IconUser size={16} />}
-        size="sm"
+        icon={<IconUser size={15} />}
+        // `md` matches the row's own actions; a shorter box rides the top of a stretch row.
+        size="md"
         onClick={(event) => {
           restoreRef.current = event.currentTarget
           setOpen(true)
