@@ -141,8 +141,9 @@ test.describe("fallback profiles", () => {
     await dialog.locator("#autorun-resolver").selectOption("1")
     await dialog.getByRole("button", { name: "Save changes" }).click()
 
-    const [put] = api.callsTo("/autoruns/").filter((call) => call.method === "PUT")
-    expect(put?.body).toMatchObject({ fallback_profile_ids: [] })
+    const putCalls = () => api.callsTo("/autoruns/").filter((call) => call.method === "PUT")
+    await expect.poll(() => putCalls().length).toBe(1)
+    expect(putCalls()[0]?.body).toMatchObject({ fallback_profile_ids: [] })
   })
 
   test("a phone width holds a whole chain without widening the dialog", async ({ page, api }) => {
