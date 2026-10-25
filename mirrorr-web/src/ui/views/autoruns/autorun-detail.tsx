@@ -32,6 +32,7 @@ import {
 } from "@/ui/components"
 import { useLiveDurationSeconds, useNowTick } from "@/ui/hooks"
 import { Page } from "@/ui/views/shared/page"
+import { fallbackSourceLabel } from "@/api/domain/fallback-sources"
 import { AutorunActionsMenu } from "./autorun-actions"
 
 function KeyValue({ label, children }: { readonly label: string; readonly children: ReactNode }) {
@@ -142,9 +143,14 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
   const engine = resolveEntityName(autorun.engine_name, names.engines, autorun.engine_id)
   const resolver = resolveEntityName(autorun.resolver_name, names.resolvers, autorun.resolver_id)
   const profile = resolveEntityName(autorun.profile_name, names.profiles, autorun.profile_id)
-  const fallbacks = (autorun.fallback_profile_ids ?? []).map((id, index) =>
-    resolveEntityName(autorun.fallback_profile_names?.[index], names.profiles, id),
-  )
+  const fallbacks = [
+    ...(autorun.fallback_profile_ids ?? []).map((id, index) =>
+      resolveEntityName(autorun.fallback_profile_names?.[index], names.profiles, id),
+    ),
+    ...(autorun.fallback_sources ?? []).map((source) =>
+      fallbackSourceLabel(source, (id) => resolveEntityName(undefined, names.resolvers, id)),
+    ),
+  ]
   const countdown = spent ? "retired" : formatCountdown(autorun.start_time, now)
   const startInPast =
     autorun.status === "scheduled" && parseNaiveUtc(autorun.start_time).getTime() < now.getTime()

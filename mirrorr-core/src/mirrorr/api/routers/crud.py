@@ -321,6 +321,67 @@ async def _load_fallback_chain(
     return chain
 
 
+def _source_key(resolver_id: int, config: dict[str, Any] | None) -> str:
+    """Identity of one source, so a chain cannot name the same one twice."""
+    return f"{resolver_id}:{json.dumps(config or {}, sort_keys=True, default=str)}"
+
+
+async def _load_fallback_sources(
+    db: AsyncSession,
+    sources: list[Any] | None,
+    primary_resolver_id: int,
+    primary_resolver_config: dict[str, Any] | None,
+    subject: str = "autorun",
+) -> list[dict[str, Any]]:
+    """Validate inline fallback sources: real resolvers, once each, never the primary.
+
+    A source is a resolver plus its config — the same shape the run's own
+    engine+resolver capture carries — so a fallback only moves *where* the
+    stream comes from, keeping the run's engine and retry policy. Only the
+    primary is refused besides repeats, because the chain advances by position
+    and a repeated source could never advance.
+    """
+    chain: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    primary = _source_key(primary_resolver_id, primary_resolver_config)
+    for raw in sources or []:
+        if isinstance(raw, dict):
+            resolver_id = int(raw.get("resolver_id") or 0)
+            config = dict(raw.get("resolver_config") or {})
+        else:
+            resolver_id = int(raw.resolver_id)
+            config = dict(raw.resolver_config or {})
+        key = _source_key(resolver_id, config)
+        if key == primary:
+            raise _guard_denied(
+                422, f"A fallback cannot be the {subject}'s own source", "fallback-source-is-primary"
+            )
+        if key in seen:
+            raise _guard_denied(422, "A fallback source is listed twice", "fallback-source-duplicate")
+        if not await crud.get_by_id(db, Resolver, resolver_id):
+            raise HTTPException(status_code=400, detail=f"Resolver {resolver_id} not found")
+        seen.add(key)
+        chain.append({"resolver_id": resolver_id, "resolver_config": config})
+    return chain
+
+
+def _capture_plan(
+    profile_id: int | None,
+    fallbacks: list[int],
+    sources: list[dict[str, Any]],
+) -> list[int | dict[str, Any] | None]:
+    """The ordered captures a run tries: its own source first, then the fallbacks.
+
+    ``None`` is the supervisor's "run the row's own engine + resolver" capture,
+    which a request naming no profile needs as its first entry.
+    """
+    if profile_id is not None:
+        return [profile_id, *fallbacks, *sources]
+    if not fallbacks and not sources:
+        return []
+    return [None, *fallbacks, *sources]
+
+
 async def _safe_emit(event: BaseEvent) -> None:
     """Emit a NATS event, logging but not raising on failure.
 
@@ -597,6 +658,7 @@ def _serialize_autorun(a: Autorun, fallback_names: dict[int, str] | None = None)
         **a.model_dump(mode="json"),
         "fallback_profile_ids": chain,
         "fallback_profile_names": [names.get(pid, "") for pid in chain],
+        "fallback_sources": a.fallback_sources or [],
         "engine_name": _name_of(getattr(a, "engine", None)),
         "resolver_name": _name_of(getattr(a, "resolver", None)),
         "profile_name": _name_of(getattr(a, "profile", None)),
@@ -776,11 +838,14 @@ def _merge_profile_capture(profile: Profile | None, payload_data: dict[str, Any]
 @sessions_router.post("/", response_model=SessionResponse)
 async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(_get_db), auth: AuthState = Depends(require_auth)):
     profile = await _load_visible_profile(db, item.profile_id, auth)
+    engine_id, resolver_id, resolver_config, retry_mode, retry_config = _resolve_capture_target(
+        profile, item.engine_id, item.resolver_id, item.resolver_config, item.retry_mode, item.retry_config
+    )
     fallbacks = await _load_fallback_chain(
         db, item.fallback_profile_ids, auth, item.profile_id, subject="session"
     )
-    engine_id, resolver_id, resolver_config, retry_mode, retry_config = _resolve_capture_target(
-        profile, item.engine_id, item.resolver_id, item.resolver_config, item.retry_mode, item.retry_config
+    sources = await _load_fallback_sources(
+        db, item.fallback_sources, resolver_id, resolver_config, subject="session"
     )
     engine = await crud.get_by_id(db, Engine, engine_id)
     if not engine:
@@ -799,9 +864,7 @@ async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(
         retry_mode=retry_mode,
         retry_config=retry_config,
         recording=item.recording,
-        capture_plan=(
-            [item.profile_id, *fallbacks] if item.profile_id is not None or fallbacks else []
-        ),
+        capture_plan=_capture_plan(item.profile_id, fallbacks, sources),
         requester_user_token=auth.user.username,
     )
     try:
@@ -915,6 +978,9 @@ async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(
         fallback_profile_ids=await _load_fallback_chain(
             db, item.fallback_profile_ids, auth, item.profile_id
         ),
+        fallback_sources=await _load_fallback_sources(
+            db, item.fallback_sources, resolver_id, resolver_config
+        ),
         requester_user_token=auth.user.username,
         next_run_at=start_time,
     )
@@ -945,6 +1011,13 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
             payload_data["fallback_profile_ids"],
             auth,
             payload_data.get("profile_id", existing.profile_id),
+        )
+    if "fallback_sources" in payload_data:
+        payload_data["fallback_sources"] = await _load_fallback_sources(
+            db,
+            payload_data["fallback_sources"],
+            payload_data.get("resolver_id", existing.resolver_id),
+            payload_data.get("resolver_config", existing.resolver_config),
         )
     _enforce_autorun_update_guard(existing, payload_data)
     for field in ("start_time", "end_time"):

@@ -25,7 +25,9 @@ export const SessionSchema = z
     session_urls: z.array(z.record(z.string(), z.string())).optional(),
     attempts: z.array(z.record(z.string(), z.unknown())).optional(),
     captures: z.array(z.record(z.string(), z.unknown())).optional(),
-    capture_plan: z.array(z.number().nullable()).optional(),
+    capture_plan: z
+      .array(z.union([z.number(), z.record(z.string(), z.unknown())]).nullable())
+      .optional(),
     engine_name: z.string().nullable().optional(),
     resolver_name: z.string().nullable().optional(),
     profile_name: z.string().nullable().optional(),

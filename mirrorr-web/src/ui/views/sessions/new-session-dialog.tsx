@@ -27,6 +27,8 @@ import {
 import { DiscoveryDrawer, canBrowseResolver } from "@/ui/views/shared/discovery-drawer"
 import { SourcePicker } from "@/ui/views/shared/source-picker"
 import { FallbackProfiles } from "@/ui/views/autoruns/fallback-profiles"
+import { FallbackSources } from "@/ui/views/shared/fallback-sources"
+import type { FallbackSource } from "@/api/domain/fallback-sources"
 import {
   AccessCreation,
   useCreationAccessApplier,
@@ -51,6 +53,7 @@ export function NewSessionDialog({
   const [resolverId, setResolverId] = useState("")
   const [resolverConfig, setResolverConfig] = useState<Record<string, unknown>>({})
   const [fallbackIds, setFallbackIds] = useState<number[]>([])
+  const [fallbackSources, setFallbackSources] = useState<FallbackSource[]>([])
   const [browseOpen, setBrowseOpen] = useState(false)
   const [recording, setRecording] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -73,6 +76,7 @@ export function NewSessionDialog({
     setResolverId("")
     setResolverConfig({})
     setFallbackIds([])
+    setFallbackSources([])
     setRecording(false)
     setAccess({})
   }, [open, profiles.length])
@@ -114,12 +118,16 @@ export function NewSessionDialog({
     setError(null)
     const body: SessionCreateBody =
       mode === "profile"
-        ? { profile_id: Number(profileId), recording }
+        ? {
+            profile_id: Number(profileId),
+            fallback_profile_ids: fallbackIds,
+            recording,
+          }
         : {
             engine_id: Number(engineId),
             resolver_id: Number(resolverId),
             resolver_config: resolverConfig,
-            fallback_profile_ids: fallbackIds,
+            fallback_sources: fallbackSources,
             recording,
           }
     create.mutate(body)
@@ -170,25 +178,34 @@ export function NewSessionDialog({
 
         <TabPanel panelId="new-session-mode" active={mode} className="flex flex-col gap-4">
           {mode === "profile" ? (
-            <Field
-              label="Profile"
-              htmlFor="new-session-profile"
-              required
-              hint={`${profiles.length} available`}
-            >
-              <Select
-                id="new-session-profile"
-                value={profileId}
-                onChange={(event) => setProfileId(event.target.value)}
+            <>
+              <Field
+                label="Profile"
+                htmlFor="new-session-profile"
+                required
+                hint={`${profiles.length} available`}
               >
-                <option value="">Select a profile…</option>
-                {profiles.map((profile) => (
-                  <option key={profile.id} value={String(profile.id)}>
-                    {profile.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
+                <Select
+                  id="new-session-profile"
+                  value={profileId}
+                  onChange={(event) => setProfileId(event.target.value)}
+                >
+                  <option value="">Select a profile…</option>
+                  {profiles.map((profile) => (
+                    <option key={profile.id} value={String(profile.id)}>
+                      {profile.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <FallbackProfiles
+                profiles={profiles}
+                primaryId={profileId}
+                value={fallbackIds}
+                onChange={setFallbackIds}
+                disabled={create.isPending}
+              />
+            </>
           ) : (
             <>
               <Field label="Engine" htmlFor="new-session-engine" required>
@@ -251,11 +268,10 @@ export function NewSessionDialog({
                   />
                 </section>
               )}
-              <FallbackProfiles
-                profiles={profiles}
-                primaryId=""
-                value={fallbackIds}
-                onChange={setFallbackIds}
+              <FallbackSources
+                resolvers={resolvers}
+                value={fallbackSources}
+                onChange={setFallbackSources}
                 disabled={create.isPending}
               />
             </>

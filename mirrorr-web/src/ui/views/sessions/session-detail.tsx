@@ -6,6 +6,7 @@ import { fetchSession } from "@/api/endpoints";
 import { queryKeys, resolveEntityName, staleTimes } from "@/api/query-keys";
 import { getStatusDescriptor, isStarting } from "@/api/status";
 import { isLive } from "@/api/domain/filter-grammar";
+import { planEntryLabel } from "@/api/domain/fallback-sources";
 import { formatDateTime, formatDuration } from "@/api/time";
 import {
   buttonClass,
@@ -143,7 +144,13 @@ export function SessionDetailView({
   const pending = isLive(session.status)
     ? plan
         .slice(Math.max(captures.length, 1))
-        .map((id) => resolveEntityName(undefined, names.profiles, id))
+        .map((entry) =>
+          planEntryLabel(
+            entry,
+            (id) => resolveEntityName(undefined, names.profiles, id),
+            (id) => resolveEntityName(undefined, names.resolvers, id),
+          ),
+        )
     : [];
   // A single-source session that never fell back has nothing to add here: its
   // profile, engine and resolver are already on the page.

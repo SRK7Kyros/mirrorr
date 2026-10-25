@@ -34,6 +34,8 @@ import {
 import { DiscoveryDrawer, canBrowseResolver } from "@/ui/views/shared/discovery-drawer"
 import { SourcePicker } from "@/ui/views/shared/source-picker"
 import { FallbackProfiles } from "./fallback-profiles"
+import { FallbackSources } from "@/ui/views/shared/fallback-sources"
+import type { FallbackSource } from "@/api/domain/fallback-sources"
 import {
   AccessCreation,
   useCreationAccessApplier,
@@ -113,6 +115,7 @@ export function AutorunFormDialog({
   const [mode, setMode] = useState<"profile" | "custom">("profile")
   const [profileId, setProfileId] = useState("")
   const [fallbackIds, setFallbackIds] = useState<number[]>([])
+  const [fallbackSources, setFallbackSources] = useState<FallbackSource[]>([])
   const [engineId, setEngineId] = useState("")
   const [resolverId, setResolverId] = useState("")
   const [resolverConfig, setResolverConfig] = useState<Record<string, unknown>>({})
@@ -148,6 +151,7 @@ export function AutorunFormDialog({
       setMode(profiles.length > 0 ? "profile" : "custom")
       setProfileId("")
       setFallbackIds([])
+      setFallbackSources([])
       setEngineId("")
       setResolverId("")
       setResolverConfig({})
@@ -165,6 +169,12 @@ export function AutorunFormDialog({
       existingProfile !== null && existingProfile !== undefined ? String(existingProfile) : "",
     )
     setFallbackIds(autorun.fallback_profile_ids ?? [])
+    setFallbackSources(
+      (autorun.fallback_sources ?? []).map((source) => ({
+        resolver_id: source.resolver_id,
+        resolver_config: source.resolver_config ?? {},
+      })),
+    )
     setEngineId(String(autorun.engine_id))
     setResolverId(String(autorun.resolver_id))
     setResolverConfig(autorun.resolver_config ?? {})
@@ -253,12 +263,14 @@ export function AutorunFormDialog({
         ? {
             profile_id: Number(profileId),
             fallback_profile_ids: fallbackIds,
+            fallback_sources: [],
           }
         : {
             engine_id: Number(engineId),
             resolver_id: Number(resolverId),
             resolver_config: resolverConfig,
             fallback_profile_ids: [],
+            fallback_sources: fallbackSources,
           }),
     })
   }
@@ -515,6 +527,12 @@ export function AutorunFormDialog({
                     />
                   )}
                 </section>
+                <FallbackSources
+                  resolvers={resolvers}
+                  value={fallbackSources}
+                  onChange={setFallbackSources}
+                  disabled={live}
+                />
               </>
             ) : null}
           </TabPanel>

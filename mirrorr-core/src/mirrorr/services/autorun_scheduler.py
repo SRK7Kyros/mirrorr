@@ -1,6 +1,7 @@
 import asyncio
 import json
 from datetime import datetime, timezone
+from typing import Any
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -48,12 +49,24 @@ def slot_key(autorun: Autorun, tag: str = "slot") -> str:
     return f"autorun:{autorun.id}:{tag}:{autorun.start_time.isoformat(timespec='seconds')}"
 
 
-def fallback_chain(autorun: Autorun) -> list[int | None]:
-    """The profiles this autorun tries, in order: its own, then the fallbacks."""
-    chain: list[int | None] = [autorun.profile_id]
+def fallback_chain(autorun: Autorun) -> list[int | dict[str, Any] | None]:
+    """The sources this autorun tries, in order: its own, then the fallbacks.
+
+    A profile fallback is a profile id, run whole; a source fallback is the
+    resolver + config it names, run on this autorun's own engine and retry
+    policy. ``None`` stands for the row's own engine + resolver capture.
+    """
+    chain: list[int | dict[str, Any] | None] = [autorun.profile_id]
     for pid in autorun.fallback_profile_ids or []:
-        if pid not in chain:
+        if pid is not None and pid not in chain:
             chain.append(pid)
+    for src in autorun.fallback_sources or []:
+        entry = {
+            "resolver_id": src.get("resolver_id"),
+            "resolver_config": src.get("resolver_config") or {},
+        }
+        if entry not in chain:
+            chain.append(entry)
     return chain
 
 

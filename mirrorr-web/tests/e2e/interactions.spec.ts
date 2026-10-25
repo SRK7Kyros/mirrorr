@@ -1,4 +1,4 @@
-import { engine, expect, profile, resolver, session, test } from "./fixtures"
+import { engine, expect, profile, resolver, session, source, test } from "./fixtures"
 
 /**
  * Overlay + keyboard interactions: Escape closes the dialog and hands focus
@@ -95,9 +95,44 @@ test.describe("new session dialog", () => {
 
     await expect(page.getByLabel("Channel")).toHaveValue("premium9")
   })
-  test("the custom branch chains fallback profiles", async ({ page, api }) => {
+  test("a session started from a profile chains fallback profiles", async ({ page, api }) => {
     api.data.engines = [engine({ id: 1, name: "Streamlink" })]
     api.data.resolvers = [resolver({ id: 1, name: "Direct" })]
+    api.data.sessions = [session({ id: 1 })]
+
+    await page.goto("/sessions")
+    await page.getByRole("button", { name: "New session" }).first().click()
+    await page.getByRole("combobox", { name: /^Profile/ }).selectOption("1")
+
+    const add = page.getByLabel("Add a fallback profile")
+    await expect(add.locator("option")).toHaveText(["Add a fallback profile…", "News Hour"])
+    await add.selectOption("2")
+    await expect(
+      page.getByRole("list", { name: "Fallback profiles, in order" }).getByRole("listitem"),
+    ).toHaveCount(1)
+
+    await page.getByRole("button", { name: "Start session" }).click()
+
+    await expect(page.getByText("Session started")).toBeVisible()
+    const [post] = api.callsTo("/sessions/").filter((call) => call.method === "POST")
+    expect(post?.body).toMatchObject({ profile_id: 1, fallback_profile_ids: [2] })
+  })
+
+  test("the custom branch chains fallback sources", async ({ page, api }) => {
+    api.data.engines = [engine({ id: 1, name: "Streamlink" })]
+    api.data.resolvers = [
+      resolver({
+        id: 1,
+        name: "Direct",
+        config_schema: {
+          type: "object",
+          properties: { channel: { type: "string", title: "Channel" } },
+        },
+      }),
+    ]
+    api.data.sources = [
+      source({ id: 1, name: "Sky Sports", resolver_id: 1, resolver_config: { channel: "premium9" } }),
+    ]
     api.data.sessions = [session({ id: 1 })]
 
     await page.goto("/sessions")
@@ -106,17 +141,22 @@ test.describe("new session dialog", () => {
     await page.getByRole("combobox", { name: /^Engine/ }).selectOption("1")
     await page.getByRole("combobox", { name: /^Resolver/ }).selectOption("1")
 
-    const add = page.getByLabel("Add a fallback profile")
+    const add = page.getByLabel("Add a fallback source")
     await expect(add.locator("option")).toHaveText([
-      "Add a fallback profile…",
-      "F1 Weekend",
-      "News Hour",
+      "Add a fallback source…",
+      "Sky Sports — Direct",
+      "Direct",
     ])
-    await add.selectOption("2")
-    await add.selectOption("1")
-    await expect(
-      page.getByRole("list", { name: "Fallback profiles, in order" }).getByRole("listitem"),
-    ).toHaveCount(2)
+    await add.selectOption("source:1")
+
+    const chain = page.getByRole("list", { name: "Fallback sources, in order" })
+    await expect(chain.getByRole("listitem")).toHaveCount(1)
+    await expect(chain.getByRole("listitem").first()).toContainText("Sky Sports")
+
+    await add.selectOption("resolver:1")
+    await page.locator("#fallback-source-1-channel").fill("premium77")
+    await page.getByRole("button", { name: "Add fallback" }).click()
+    await expect(chain.getByRole("listitem")).toHaveCount(2)
 
     await page.getByRole("button", { name: "Start session" }).click()
 
@@ -125,7 +165,10 @@ test.describe("new session dialog", () => {
     expect(post?.body).toMatchObject({
       engine_id: 1,
       resolver_id: 1,
-      fallback_profile_ids: [2, 1],
+      fallback_sources: [
+        { resolver_id: 1, resolver_config: { channel: "premium9" } },
+        { resolver_id: 1, resolver_config: { channel: "premium77" } },
+      ],
     })
   })
 })

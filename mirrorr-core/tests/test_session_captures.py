@@ -1,8 +1,9 @@
 """One session, several captures: the plan, the handover, and the single recording.
 
-A session's ``capture_plan`` lists the profiles it tries in turn. A capture that
-never becomes playable hands over to the next source instead of failing the
-session, and whatever the captures recorded merges into one recording.
+A session's ``capture_plan`` lists the sources it tries in turn — a profile run
+whole, or a resolver + config on the session's own engine. A capture that never
+becomes playable hands over to the next source instead of failing the session,
+and whatever the captures recorded merges into one recording.
 """
 from __future__ import annotations
 
@@ -29,8 +30,16 @@ FALLBACK_CAPTURE = {
     "retry_config": {},
 }
 
+SOURCE_CAPTURE = {
+    **FALLBACK_CAPTURE,
+    "profile_id": None,
+    "profile_name": "",
+    "source": "resolver",
+    "resolver_config": {"channel": "ch3"},
+}
 
-def _session(plan: list[int], *, recording: bool = True) -> SimpleNamespace:
+
+def _session(plan: list, *, recording: bool = True) -> SimpleNamespace:
     return SimpleNamespace(
         id=1,
         is_autorun=True,
@@ -39,6 +48,7 @@ def _session(plan: list[int], *, recording: bool = True) -> SimpleNamespace:
         profile=SimpleNamespace(id=1, name="F1"),
         profile_id=1,
         engine=SimpleNamespace(name="yt-dlp piped"),
+        engine_id=1,
         recording=recording,
         resolver=SimpleNamespace(name="tvnow247", origin="tvnow247", origin_hash="h1"),
         resolver_config={"channel": "577"},
@@ -96,7 +106,7 @@ def _sup(tmp_path, *, plan, engine, resolver=None, recording=True) -> SessionSup
     return sup
 
 
-def _drive(sup, *, load_capture=None):
+def _drive(sup, *, load_capture=None, load_source=None):
     """Run the session with the seams patched; return (calls, finalize, load_capture)."""
     calls: list[dict] = []
 
@@ -116,6 +126,9 @@ def _drive(sup, *, load_capture=None):
     load_capture = load_capture or AsyncMock(
         return_value=(FALLBACK_CAPTURE, _engine(ends="done"), _resolver())
     )
+    load_source = load_source or AsyncMock(
+        return_value=(SOURCE_CAPTURE, _engine(ends="done"), _resolver())
+    )
 
     async def scenario():
         ctx = [
@@ -124,6 +137,7 @@ def _drive(sup, *, load_capture=None):
             patch.object(session_supervisor, "delete_session", AsyncMock()),
             patch.object(session_supervisor, "live_folder_holder", AsyncMock(return_value=None)),
             patch.object(session_supervisor, "load_profile_capture", load_capture),
+            patch.object(session_supervisor, "load_source_capture", load_source),
             patch("mirrorr.startup.ensure_resolvers.get_validated_config", lambda **k: {}),
             patch.object(session_supervisor.RecordingManager, "start_stash", Mock()),
             patch.object(session_supervisor.RecordingManager, "stop_stash", AsyncMock()),
@@ -174,6 +188,32 @@ def test_a_failed_capture_hands_over_and_both_artifacts_merge_into_one_recording
     statuses = _statuses(calls)
     assert statuses[-1] is SessionStatus.COMPLETED
     assert SessionStatus.FAILED not in statuses
+
+
+def test_a_source_fallback_keeps_the_runs_own_engine(tmp_path):
+    source = {"resolver_id": 3, "resolver_config": {"channel": "ch3"}}
+    sup = _sup(tmp_path, plan=[1, source], engine=_engine(ends="crash"))
+    load_source = AsyncMock(return_value=(SOURCE_CAPTURE, _engine(ends="done"), _resolver()))
+
+    calls, finalize, load_capture = _drive(sup, load_source=load_source)
+
+    load_capture.assert_not_awaited()
+    load_source.assert_awaited_once_with(
+        sup.settings,
+        engine_id=sup.session.engine_id,
+        resolver_id=3,
+        resolver_config={"channel": "ch3"},
+        retry_mode="none",
+        retry_config={},
+    )
+    captures = _captures(calls)
+    assert [(s["index"], s["status"]) for s in captures] == [(1, "failed"), (2, "completed")]
+    assert captures[1]["source"] == "resolver"
+
+    artifacts, producer = finalize.call_args.args
+    assert len(artifacts) == 2
+    assert producer["profile_id"] is None
+    assert _statuses(calls)[-1] is SessionStatus.COMPLETED
 
 
 def test_every_capture_failing_keeps_the_row_failed_with_what_they_recorded(tmp_path):
