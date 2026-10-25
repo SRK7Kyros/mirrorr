@@ -172,6 +172,33 @@ export function scoreMatch(text: string, words: readonly string[]): number {
 }
 
 /**
+ * Tokenized text per item, remembered per `fields` function: a live catalog is
+ * ranked again on every keystroke, and re-normalizing twelve thousand rows each
+ * time is what a phone cannot afford.
+ */
+const TOKENS = new WeakMap<object, WeakMap<object, { text: string; tokens: readonly string[] }>>()
+
+function tokenized<T>(
+  item: T,
+  fields: (item: T) => readonly string[],
+): { text: string; tokens: readonly string[] } {
+  const text = normalize(fields(item).join(" "))
+  if (typeof item !== "object" || item === null) {
+    return { text, tokens: text.split(WORD_BOUNDARY).filter((token) => token !== "") }
+  }
+  let known = TOKENS.get(fields)
+  if (known === undefined) {
+    known = new WeakMap()
+    TOKENS.set(fields, known)
+  }
+  const hit = known.get(item)
+  if (hit !== undefined) return hit
+  const made = { text, tokens: text.split(WORD_BOUNDARY).filter((token) => token !== "") }
+  known.set(item, made)
+  return made
+}
+
+/**
  * The `items` the query says something about, best match first. Admission is by
  * weight — a title must answer words carrying the majority of the query's
  * informativeness, so a near-miss that lacks one word (or answers only the rare
@@ -189,8 +216,7 @@ export function rankBySearch<T>(
   if (words.length === 0) return items
   const frequency = new Array<number>(words.length).fill(0)
   const held = items.map((item, order) => {
-    const text = normalize(fields(item).join(" "))
-    const tokens = text.split(WORD_BOUNDARY).filter((token) => token !== "")
+    const { text, tokens } = tokenized(item, fields)
     const bests = words.map((word) => bestRelation(word, tokens))
     bests.forEach((best, index) => {
       if (best > 0) frequency[index] = (frequency[index] ?? 0) + 1
