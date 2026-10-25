@@ -8,6 +8,7 @@ import {
   IconArrowDown,
   IconArrowUp,
   IconButton,
+  IconSearch,
   IconX,
   SchemaForm,
   Segmented,
@@ -16,6 +17,7 @@ import {
   defaultsFromSchema,
   panelTitleClass,
 } from "@/ui/components"
+import { DiscoveryDrawer, canBrowseResolver } from "./discovery-drawer"
 
 /** How one capture's source is filled: a resolver and its config, or a saved source. */
 export type SourceKind = "resolver" | "source"
@@ -216,6 +218,9 @@ export function FallbackSources({
 }: FallbackSourcesProps) {
   const sources = useSources()
   const [draft, setDraft] = useState<SourceDraft>(EMPTY_DRAFT)
+  const [browseOpen, setBrowseOpen] = useState(false)
+  const draftResolver = resolvers.find((item) => item.id === draft.resolverId) ?? null
+  const browser = canBrowseResolver(draftResolver) ? draftResolver : null
 
   const taken = new Set(value.map(entryKey))
   const key = draftKey(draft)
@@ -289,6 +294,22 @@ export function FallbackSources({
           onChange={setDraft}
           exclude={excluded}
           disabled={disabled}
+          browse={
+            browser !== null ? (
+              <div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  icon={<IconSearch size={15} />}
+                  disabled={disabled}
+                  onClick={() => setBrowseOpen(true)}
+                >
+                  Browse {browser.name}…
+                </Button>
+              </div>
+            ) : undefined
+          }
         />
         <div className="flex items-center gap-2">
           <Button
@@ -307,6 +328,18 @@ export function FallbackSources({
           ) : null}
         </div>
       </div>
+
+      {browser !== null ? (
+        <DiscoveryDrawer
+          open={browseOpen}
+          onClose={() => setBrowseOpen(false)}
+          resolver={browser}
+          onUse={(item) => {
+            setDraft({ resolverId: browser.id, resolverConfig: item.config ?? {} })
+            setBrowseOpen(false)
+          }}
+        />
+      ) : null}
     </section>
   )
 }

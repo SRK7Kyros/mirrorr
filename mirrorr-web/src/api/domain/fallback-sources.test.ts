@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   fallbackSourceLabel,
+  inheritedChainHint,
   planEntryLabel,
   sourceKey,
 } from "./fallback-sources"
@@ -76,5 +77,25 @@ describe("planEntryLabel", () => {
 
   it("refuses a record it cannot name", () => {
     expect(planEntryLabel({ nope: true }, asProfile, asResolver)).toBe("—")
+  })
+})
+
+describe("inheritedChainHint", () => {
+  it("says nothing when the profile brings no sources", () => {
+    expect(inheritedChainHint([])).toBeNull()
+    expect(inheritedChainHint(undefined)).toBeNull()
+    expect(inheritedChainHint(null)).toBeNull()
+  })
+
+  it("counts one source in the singular", () => {
+    expect(inheritedChainHint([{ resolver_id: 1 }])).toBe(
+      "Also inherits 1 source fallback from the profile.",
+    )
+  })
+
+  it("counts a chain in the plural", () => {
+    expect(inheritedChainHint([{ resolver_id: 1 }, { resolver_id: 2 }])).toBe(
+      "Also inherits 2 source fallbacks from the profile.",
+    )
   })
 })

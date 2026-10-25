@@ -158,7 +158,7 @@ function ProfileCard({ profile, names, selected, onToggle, onEdit, onDelete, onE
             {profile.name}
           </div>
         </div>
-        <div className="flex gap-1 shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           <AccessButton resourceType="profile" id={profile.id} label={profile.name} />
           <IconButton
             label={`Export profile ${profile.name}`}

@@ -73,3 +73,15 @@ export function planEntryLabel(
     resolveResolver,
   )
 }
+
+/**
+ * The chain a run inherits when it names a profile: that profile's own sources
+ * run after the capture, and the picker shows none of them.
+ */
+export function inheritedChainHint(
+  sources: readonly FallbackSource[] | null | undefined,
+): string | null {
+  const count = sources?.length ?? 0
+  if (count === 0) return null
+  return `Also inherits ${count} source ${count === 1 ? "fallback" : "fallbacks"} from the profile.`
+}

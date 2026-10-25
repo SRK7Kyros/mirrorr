@@ -106,7 +106,7 @@ function SourceCard({ source, names, selected, onToggle, onEdit, onDelete }: Sou
             {source.name}
           </div>
         </div>
-        <div className="flex gap-1 shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           <AccessButton resourceType="source" id={source.id} label={source.name} />
           <IconButton
             label={`Edit source ${source.name}`}

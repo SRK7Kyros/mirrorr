@@ -105,11 +105,12 @@ export function NewSessionDialog({
 
   const submit = () => {
     setError(null)
+    const chain = fallbackIds.filter((id) => String(id) !== profileId)
     const body: SessionCreateBody =
       mode === "profile"
         ? {
             profile_id: Number(profileId),
-            fallback_profile_ids: fallbackIds,
+            fallback_profile_ids: chain,
             recording,
           }
         : {
@@ -177,7 +178,13 @@ export function NewSessionDialog({
                 <Select
                   id="new-session-profile"
                   value={profileId}
-                  onChange={(event) => setProfileId(event.target.value)}
+                  onChange={(event) => {
+                    const next = event.target.value
+                    setProfileId(next)
+                    setFallbackIds((previous) =>
+                      previous.filter((id) => String(id) !== next),
+                    )
+                  }}
                 >
                   <option value="">Select a profile…</option>
                   {profiles.map((profile) => (

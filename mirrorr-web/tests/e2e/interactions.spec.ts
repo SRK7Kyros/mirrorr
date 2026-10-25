@@ -97,6 +97,43 @@ test.describe("new session dialog", () => {
 
     await expect(page.getByLabel("Channel")).toHaveValue("premium9")
   })
+
+  test("a fallback rung browses the resolver's catalog too", async ({ page, api }) => {
+    api.data.engines = [engine({ id: 1, name: "Streamlink" })]
+    api.data.resolvers = [BROWSABLE]
+    api.data.discovery = [{ id: "9", title: "Sky Sports F1", config: { channel: "premium9" } }]
+    api.data.sessions = [session({ id: 1 })]
+
+    await page.goto("/sessions")
+    await page.getByRole("button", { name: "New session" }).first().click()
+    await page.getByRole("tab", { name: "Engine + resolver" }).click()
+    await page.getByRole("combobox", { name: /^Engine/ }).selectOption("1")
+    await page.getByRole("combobox", { name: /^Resolver/ }).selectOption("1")
+
+    // Only the run's own source can be browsed until the rung names a resolver.
+    const browse = page.getByRole("button", { name: "Browse Wide IPTV…" })
+    await expect(browse).toHaveCount(1)
+    await page.getByRole("combobox", { name: "Fallback 1 · Resolver" }).selectOption("1")
+    await expect(browse).toHaveCount(2)
+
+    await browse.nth(1).click()
+    await page
+      .getByRole("dialog", { name: "Browse Wide IPTV" })
+      .getByRole("button", { name: "Use" })
+      .first()
+      .click()
+
+    await expect(page.locator("#fallback-source-1-channel")).toHaveValue("premium9")
+    await page.getByRole("button", { name: "Add fallback" }).click()
+    await page.getByRole("button", { name: "Start session" }).click()
+
+    await expect(page.getByText("Session started")).toBeVisible()
+    const [post] = api.callsTo("/sessions/").filter((call) => call.method === "POST")
+    expect(post?.body).toMatchObject({
+      fallback_sources: [{ resolver_id: 1, resolver_config: { channel: "premium9" } }],
+    })
+  })
+
   test("a session started from a profile chains fallback profiles", async ({ page, api }) => {
     api.data.engines = [engine({ id: 1, name: "Streamlink" })]
     api.data.resolvers = [resolver({ id: 1, name: "Direct" })]
@@ -118,6 +155,47 @@ test.describe("new session dialog", () => {
     await expect(page.getByText("Session started")).toBeVisible()
     const [post] = api.callsTo("/sessions/").filter((call) => call.method === "POST")
     expect(post?.body).toMatchObject({ profile_id: 1, fallback_profile_ids: [2] })
+  })
+
+  test("picking a chained profile as the primary drops that rung", async ({ page, api }) => {    api.data.engines = [engine({ id: 1, name: "Streamlink" })]
+    api.data.resolvers = [resolver({ id: 1, name: "Direct" })]
+    api.data.sessions = [session({ id: 1 })]
+
+    await page.goto("/sessions")
+    await page.getByRole("button", { name: "New session" }).first().click()
+    const primary = page.getByRole("combobox", { name: /^Profile/ })
+    await primary.selectOption("1")
+    await page.getByLabel("Add a fallback profile").selectOption("2")
+    const chain = page.getByRole("list", { name: "Fallback profiles, in order" })
+    await expect(chain.getByRole("listitem")).toHaveCount(1)
+
+    // The chain advances by position, so one profile cannot be both halves.
+    await primary.selectOption("2")
+    await expect(chain.getByRole("listitem")).toHaveCount(0)
+
+    await page.getByRole("button", { name: "Start session" }).click()
+
+    await expect(page.getByText("Session started")).toBeVisible()
+    const [post] = api.callsTo("/sessions/").filter((call) => call.method === "POST")
+    expect(post?.body).toMatchObject({ profile_id: 2, fallback_profile_ids: [] })
+  })
+
+  test("a profile's own source chain is named before the run starts", async ({ page, api }) => {
+    api.data.profiles = [
+      profile({ id: 1, fallback_sources: [{ resolver_id: 1, resolver_config: { channel: "b" } }] }),
+      profile({ id: 2, name: "News Hour" }),
+    ]
+    api.data.sessions = [session({ id: 1 })]
+
+    await page.goto("/sessions")
+    await page.getByRole("button", { name: "New session" }).first().click()
+    const hint = page.getByText("Also inherits 1 source fallback from the profile.")
+
+    await expect(hint).toHaveCount(0)
+    await page.getByRole("combobox", { name: /^Profile/ }).selectOption("1")
+    await expect(hint).toBeVisible()
+    await page.getByRole("combobox", { name: /^Profile/ }).selectOption("2")
+    await expect(hint).toHaveCount(0)
   })
 
   test("the custom branch builds its chain one rung at a time", async ({ page, api }) => {
