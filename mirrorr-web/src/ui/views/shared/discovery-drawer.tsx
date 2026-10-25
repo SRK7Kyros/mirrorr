@@ -114,7 +114,7 @@ export function DiscoveryDrawer({
     setShown(VISIBLE_STEP)
   }, [catalog, appliedQuery, resolver, open])
 
-  const visible = items.length > shown ? items.slice(0, shown) : items
+  const visible = items.slice(0, shown)
 
   // A catalog is read to its end, not to the fold: the filtering happens here,
   // so a match on page twenty cannot wait for a scroll that may never come.
@@ -123,21 +123,22 @@ export function DiscoveryDrawer({
     void fetchNextPage()
   }, [open, catalog, hasNextPage, isFetchingNextPage, fetchNextPage, loaded.length])
 
-  // Infinite scroll: the sentinel pulls the next page of a server-side search,
-  // and reveals the next screenful of a filtered catalog.
+  // Infinite scroll: the sentinel reveals the next screenful of cards, and asks
+  // for the next page once the last card of the held list is on screen.
   useEffect(() => {
     const node = sentinelRef.current
     if (node === null) return
-    const moreCards = catalog && visible.length < items.length
-    if (!moreCards && (catalog || !hasNextPage || isFetchingNextPage)) return
+    const moreCards = visible.length < items.length
+    const morePages = hasNextPage && !isFetchingNextPage
+    if (!moreCards && !morePages) return
     const observer = new IntersectionObserver((entries) => {
       if (!entries.some((entry) => entry.isIntersecting)) return
-      if (catalog) setShown((count) => count + VISIBLE_STEP)
+      if (visible.length < items.length) setShown((count) => count + VISIBLE_STEP)
       else void fetchNextPage()
     })
     observer.observe(node)
     return () => observer.disconnect()
-  }, [catalog, hasNextPage, isFetchingNextPage, fetchNextPage, items.length, visible.length])
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, items.length, visible.length])
 
   const readingCatalog = catalog && hasNextPage
   const matches =
