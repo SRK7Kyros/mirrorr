@@ -1106,6 +1106,48 @@ test.describe("admin resource access", () => {
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
   });
+
+  test("a phone keeps the bulk actions beside the + button, the rest in a menu", async ({
+    page,
+    api,
+  }) => {
+    api.data.users = USERS;
+    api.data.autoruns = [
+      autorun({ id: 1, user_friendly_name: "F1 Race" }),
+      autorun({ id: 2, user_friendly_name: "F1 Qualifying" }),
+    ];
+
+    await openAdmin(page);
+    await page.setViewportSize({ width: 402, height: 874 });
+    await openNav(page, "Autoruns");
+    await page.getByRole("checkbox", { name: "Select all scheduled recordings" }).check();
+
+    const bar = page.getByRole("region", { name: "Bulk actions" });
+    const fab = page.getByRole("button", { name: "New scheduled recording" });
+
+    // The bulk permission editor was unreachable on a phone while it was one of
+    // four labelled buttons in a row that could not fit; it is an icon now.
+    await expect(bar.getByRole("button", { name: "Access", exact: true })).toBeInViewport();
+
+    const barBox = await bar.boundingBox();
+    const fabBox = await fab.boundingBox();
+    if (barBox === null || fabBox === null) throw new Error("the pill or the + is not laid out");
+    expect(barBox.x + barBox.width).toBeLessThanOrEqual(fabBox.x - 4);
+
+    // The + springs in, so its box is only settled once the animation ends.
+    await expect
+      .poll(async () => {
+        const pill = await bar.boundingBox();
+        const plus = await fab.boundingBox();
+        if (pill === null || plus === null) return Number.NaN;
+        return Math.abs(pill.y + pill.height / 2 - (plus.y + plus.height / 2));
+      })
+      .toBeLessThanOrEqual(1.5);
+
+    await expect(bar.getByRole("button", { name: "Delete selected" })).toHaveCount(0);
+    await bar.getByRole("button", { name: "More bulk actions" }).click();
+    await expect(page.getByRole("menuitem", { name: "Delete selected" })).toBeVisible();
+  });
 });
 
 test.describe("admin creation access", () => {

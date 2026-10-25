@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import {
-  BulkAccessAction,
+  BulkAccessDialog,
   CreationAccess,
   ResourceAccessButton,
   applyCreationAccess,
@@ -108,16 +108,14 @@ describe("access affordances keep their clicks off the card", () => {
 
   it("swallows a click on the bulk panel", async () => {
     const openCard = renderInCard(
-      <BulkAccessAction
+      <BulkAccessDialog
         resourceType="autorun"
         items={[{ id: 5, label: "F1 Race" }]}
+        onClose={() => undefined}
       />,
     );
 
     fireEvent.click(screen.getByTestId("card"));
-    expect(openCard).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(screen.getByRole("button", { name: "Access" }));
     expect(openCard).toHaveBeenCalledTimes(1);
 
     fireEvent.click(await screen.findByText("Access on 1 item(s)"));

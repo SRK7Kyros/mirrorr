@@ -43,7 +43,7 @@ import {
   usernameLabel,
 } from "@/ui/views/shared/resource-access"
 import type {
-  ResourceAccessBulkActionProps,
+  ResourceAccessBulkDialogProps,
   ResourceAccessButtonProps,
   ResourceAccessCreationProps,
   ResourceAccessSlot,
@@ -218,13 +218,15 @@ export function ResourceAccessButton({ resourceType, id, label }: ResourceAccess
   )
 }
 
-interface BulkAccessDialogProps {
-  readonly resourceType: ResourceType
-  readonly items: ResourceAccessBulkActionProps["items"]
-  readonly onClose: () => void
+export function BulkAccessDialog({ resourceType, items, onClose }: ResourceAccessBulkDialogProps) {
+  return (
+    <span className="contents" onClick={swallowClick}>
+      <BulkAccessDialogBody resourceType={resourceType} items={items} onClose={onClose} />
+    </span>
+  )
 }
 
-function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProps) {
+function BulkAccessDialogBody({ resourceType, items, onClose }: ResourceAccessBulkDialogProps) {
   const queryClient = useQueryClient()
   const users = useUsers()
   const groups = useGroups()
@@ -413,27 +415,6 @@ function BulkAccessDialog({ resourceType, items, onClose }: BulkAccessDialogProp
   )
 }
 
-export function BulkAccessAction({ resourceType, items }: ResourceAccessBulkActionProps) {
-  const [open, setOpen] = useState(false)
-
-  return (
-    <span className="contents" onClick={swallowClick}>
-      <Button
-        size="sm"
-        variant="secondary"
-        icon={<IconUser size={15} />}
-        disabled={items.length === 0}
-        onClick={() => setOpen(true)}
-      >
-        Access
-      </Button>
-      {open ? (
-        <BulkAccessDialog resourceType={resourceType} items={items} onClose={() => setOpen(false)} />
-      ) : null}
-    </span>
-  )
-}
-
 /**
  * The creation panels' access section. It owns its draft and reports the target
  * upward on mount and after every edit, so the form can apply it once the core
@@ -531,7 +512,7 @@ export async function applyCreationAccess(
 
 export const ADMIN_ACCESS_SLOT: ResourceAccessSlot = {
   Button: ResourceAccessButton,
-  BulkAction: BulkAccessAction,
+  BulkDialog: BulkAccessDialog,
   Creation: CreationAccess,
   applyCreation: applyCreationAccess,
 }

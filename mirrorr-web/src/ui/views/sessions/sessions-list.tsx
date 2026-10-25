@@ -19,7 +19,7 @@ import {
   type FilterToken,
 } from "@/api/domain/filter-grammar";
 import { rankBySearch } from "@/api/domain/search";
-import { AccessBulkAction } from "@/ui/views/shared/resource-access-slot";
+import { useBulkAccessAction } from "@/ui/views/shared/resource-access-slot";
 import { sessionTitle } from "./session-title";
 import type { Session } from "@/api/schemas";
 import {
@@ -134,9 +134,12 @@ export function SessionsListView() {
   );
 
   const cardIds = useMemo(() => cards.map((session) => session.id), [cards]);
-  const selectedIds = cards
-    .filter((session) => selection.has(session.id))
-    .map((session) => session.id);
+  const selected = cards.filter((session) => selection.has(session.id));
+  const selectedIds = selected.map((session) => session.id);
+  const access = useBulkAccessAction(
+    "session",
+    selected.map((session) => ({ id: session.id, label: sessionTitle(session, names) })),
+  );
 
   const bulkRemove = useMutation({
     mutationFn: async (ids: readonly number[]) => {
@@ -352,24 +355,24 @@ export function SessionsListView() {
           </div>
 
           {selection.count > 0 ? (
-            <BulkBar count={selectedIds.length} onClear={selection.clear}>
-              <AccessBulkAction
-                resourceType="session"
-                items={cards
-                  .filter((session) => selection.has(session.id))
-                  .map((session) => ({ id: session.id, label: sessionTitle(session, names) }))}
-              />
-              <Button
-                size="sm"
-                variant="danger-ghost"
-                icon={<IconTrash size={15} />}
-                loading={bulkRemove.isPending}
-                onClick={() => setBulkDeleteOpen(true)}
-              >
-                Delete selected
-              </Button>
-            </BulkBar>
+            <BulkBar
+              nextToFab
+              count={selectedIds.length}
+              onClear={selection.clear}
+              actions={[
+                ...(access.action === null ? [] : [access.action]),
+                {
+                  key: "delete",
+                  label: "Delete selected",
+                  icon: <IconTrash size={15} />,
+                  danger: true,
+                  loading: bulkRemove.isPending,
+                  onClick: () => setBulkDeleteOpen(true),
+                },
+              ]}
+            />
           ) : null}
+          {access.dialog}
           <LoadMore
             hasMore={hasMore}
             isFetching={isFetching}

@@ -107,6 +107,8 @@ export interface DropdownMenuProps {
   readonly children: ReactNode
   readonly label?: string
   readonly align?: "left" | "right"
+  /** `up` matters at the bottom of a screen — a bar's menu must not fall off it. */
+  readonly placement?: "down" | "up"
   readonly className?: string
 }
 
@@ -167,7 +169,13 @@ export function useMenuDismiss() {
  * click, Escape, or item selection (each `MenuItem` calls its own `onClick`;
  * the wrapper closes on any click inside).
  */
-export function DropdownMenu({ children, label = "More actions", align = "right", className }: DropdownMenuProps) {
+export function DropdownMenu({
+  children,
+  label = "More actions",
+  align = "right",
+  placement = "down",
+  className,
+}: DropdownMenuProps) {
   const { open, setOpen, wrapRef } = useMenuDismiss()
 
   return (
@@ -179,7 +187,7 @@ export function DropdownMenu({ children, label = "More actions", align = "right"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       />
-      <MenuPopover open={open} align={align} onClick={() => setOpen(false)}>
+      <MenuPopover open={open} align={align} placement={placement} onClick={() => setOpen(false)}>
         {children}
       </MenuPopover>
     </div>
