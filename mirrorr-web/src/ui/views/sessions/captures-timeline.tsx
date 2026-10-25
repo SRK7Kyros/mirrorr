@@ -1,4 +1,5 @@
 import { formatBytes, formatDuration } from "@/api/time"
+import { summariseConfig } from "@/api/domain/fallback-sources"
 import { StatusChip, Tag } from "@/ui/components"
 import { cn } from "@/ui/lib/cn"
 
@@ -10,6 +11,8 @@ export interface CaptureView {
   readonly profile: string
   readonly engine: string
   readonly resolver: string
+  /** A source capture's own config, summarised — two rungs on one resolver differ here. */
+  readonly config: string | null
   readonly reason: string | null
   readonly attempts: number | null
   readonly seconds: number | null
@@ -29,6 +32,11 @@ export function toCaptureView(raw: Record<string, unknown>, fallbackIndex: numbe
   }
   const index = num("index") ?? fallbackIndex + 1
   const isSource = raw.source === "resolver"
+  const rawConfig = raw.resolver_config
+  const config =
+    isSource && typeof rawConfig === "object" && rawConfig !== null
+      ? summariseConfig(rawConfig as Record<string, unknown>)
+      : ""
   return {
     index,
     // A capture's own status: failed, completed, stopped — no inference needed.
@@ -39,6 +47,7 @@ export function toCaptureView(raw: Record<string, unknown>, fallbackIndex: numbe
       : (str("profile_name") ?? (raw.profile_id == null ? "—" : `#${String(raw.profile_id)}`)),
     engine: str("engine_name") ?? "—",
     resolver: str("resolver_name") ?? "—",
+    config: config === "" ? null : config,
     reason: str("reason"),
     attempts: num("attempts"),
     seconds: num("seconds"),
@@ -73,6 +82,9 @@ function CaptureRow({ capture }: { readonly capture: CaptureView }) {
         {fallback ? <Tag>Fallback</Tag> : null}
         {capture.kind === "source" ? <Tag>Source</Tag> : null}
         <span className="text-[13px] font-semibold text-ink text-truncate">{capture.profile}</span>
+        {capture.config === null ? null : (
+          <span className="mono text-xs text-dim text-truncate">{capture.config}</span>
+        )}
         <span className="flex-1" />
         {capture.merged ? <Tag accent>In the recording</Tag> : null}
       </div>

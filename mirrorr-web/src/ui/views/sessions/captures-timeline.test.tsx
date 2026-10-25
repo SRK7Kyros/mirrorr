@@ -23,6 +23,7 @@ describe("toCaptureView", () => {
       profile: "F1 UK",
       engine: "yt_dlp_piped",
       resolver: "tvnow247",
+      config: null,
       reason: "stream never became playable",
       attempts: 2,
       seconds: null,
@@ -58,7 +59,38 @@ describe("toCaptureView", () => {
       kind: "source",
       profile: "daddylive",
       resolver: "daddylive",
+      config: null,
     })
+  })
+
+  it("keeps two rungs of one resolver apart by their config", () => {
+    const rung = (channel: string) =>
+      toCaptureView(
+        {
+          status: "failed",
+          source: "resolver",
+          engine_name: "yt_dlp_piped",
+          resolver_name: "daddylive",
+          resolver_config: { channel },
+        },
+        1,
+      )
+
+    expect(rung("60").config).toBe("channel=60")
+    expect(rung("577").config).toBe("channel=577")
+  })
+
+  it("summarises a source's whole config, trimmed like a chain chip", () => {
+    expect(
+      toCaptureView(
+        {
+          source: "resolver",
+          resolver_name: "daddylive",
+          resolver_config: { channel: "60", quality: "", region: null },
+        },
+        1,
+      ).config,
+    ).toBe("channel=60")
   })
 })
 

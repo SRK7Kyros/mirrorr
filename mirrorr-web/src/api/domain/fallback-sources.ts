@@ -18,7 +18,7 @@ export function sourceKey(entry: FallbackSource): string {
   return `${entry.resolver_id}:${JSON.stringify(entry.resolver_config ?? {})}`
 }
 
-function summariseConfig(config: Record<string, unknown>): string {
+export function summariseConfig(config: Record<string, unknown>): string {
   return Object.entries(config)
     .filter(([, value]) => value !== undefined && value !== null && value !== "")
     .map(([key, value]) => {
