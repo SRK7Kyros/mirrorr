@@ -15,7 +15,7 @@ import {
 } from "@/api"
 import { fetchAutorunPage } from "@/api/endpoints"
 import { queryKeys, queryRoots, resolveEntityName } from "@/api/query-keys"
-import { fallbackSourceLabel } from "@/api/domain/fallback-sources"
+import { fallbackSourceLabel, type FallbackSource } from "@/api/domain/fallback-sources"
 import {
   DEFAULT_FILTER,
   FILTER_TOKENS,
@@ -364,13 +364,21 @@ export function AutorunsListView() {
   })
 
   const bulkSetProfile = useMutation({
-    mutationFn: async ({ ids, profileId }: { ids: readonly number[]; profileId: number }) => {
+    mutationFn: async ({
+      ids,
+      profileId,
+      fallbackSources,
+    }: {
+      ids: readonly number[]
+      profileId: number
+      fallbackSources: readonly FallbackSource[]
+    }) => {
       // Sequential so a large selection cannot stampede the single-writer DB;
       // a per-id failure (a spent or live autorun) is counted, not fatal.
       const failed: number[] = []
       for (const id of ids) {
         try {
-          await updateAutorun(id, { profile_id: profileId })
+          await updateAutorun(id, { profile_id: profileId, fallback_sources: fallbackSources })
         } catch {
           failed.push(id)
         }
@@ -579,7 +587,9 @@ export function AutorunsListView() {
         onClose={() => setBulkProfileOpen(false)}
         count={selectedIds.length}
         busy={bulkSetProfile.isPending}
-        onApply={(profileId) => bulkSetProfile.mutate({ ids: selectedIds, profileId })}
+        onApply={(profileId, fallbackSources) =>
+          bulkSetProfile.mutate({ ids: selectedIds, profileId, fallbackSources })
+        }
       />
 
       <AutorunFormDialog open={createOpen} onClose={() => setCreateOpen(false)} />
