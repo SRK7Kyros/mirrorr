@@ -595,3 +595,81 @@ def test_a_profile_that_predates_the_chain_reads_an_empty_list(tmp_path):
         await engine.dispose()
 
     asyncio.run(scenario())
+
+
+def test_a_legacy_save_is_refused_rather_than_dropping_a_rung_it_cannot_see():
+    """The old two-list pair cannot spell a mixed rung, so it must not erase one.
+
+    A pre-rung client reads a chain through ``fallback_profile_ids`` +
+    ``fallback_sources`` and writes back the pair it read. An engine change or a
+    profile at a different stream is absent from that pair, so such a save would
+    delete the rung without the caller ever seeing it existed.
+    """
+
+    async def scenario():
+        engine, maker = await _fresh_db()
+        await _seed(maker)
+        async with maker() as db:
+            made = await create_profile(
+                _profile(fallback_chain=[{"engine_id": 2, "resolver_id": 3}]),
+                db,
+                _auth(),
+            )
+            assert made["fallback_chain"] == [{"engine_id": 2, "resolver_id": 3}]
+            assert made["fallback_sources"] == []
+
+            with pytest.raises(HTTPException) as erased:
+                await update_profile(
+                    made["id"], UpdateProfileRequest(fallback_sources=[]), db, _auth()
+                )
+            assert erased.value.status_code == 422
+            assert erased.value.detail["rule"] == "fallback-chain-unseen"
+            stored = await db.get(Profile, made["id"])
+            assert stored is not None
+            assert stored.fallback_chain == [{"engine_id": 2, "resolver_id": 3}]
+
+            cleared = await update_profile(
+                made["id"], UpdateProfileRequest(fallback_chain=[]), db, _auth()
+            )
+            assert cleared["fallback_chain"] == []
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_the_bulk_set_profile_action_cannot_wipe_a_mixed_chain():
+    """`Set profile` sends the legacy pair from every selected row — mixed rungs included."""
+
+    async def scenario():
+        engine, maker = await _fresh_db()
+        await _seed(maker)
+        async with maker() as db:
+            autorun = await create_autorun(
+                CreateAutorunRequest(
+                    user_friendly_name="Race",
+                    snake_case_name="race",
+                    engine_id=1,
+                    resolver_id=1,
+                    resolver_config={"channel": "60"},
+                    fallback_chain=[{"engine_id": 2, "resolver_id": 3}],
+                    start_time=_now(),
+                    end_time=_now() + timedelta(hours=2),
+                ),
+                db,
+                _auth(),
+            )
+            assert autorun["fallback_chain"] == [{"engine_id": 2, "resolver_id": 3}]
+
+            with pytest.raises(HTTPException) as erased:
+                await update_autorun(
+                    autorun["id"], UpdateAutorunRequest(fallback_profile_ids=[]), db, _auth()
+                )
+            assert erased.value.detail["rule"] == "fallback-chain-unseen"
+
+            cleared = await update_autorun(
+                autorun["id"], UpdateAutorunRequest(fallback_chain=[]), db, _auth()
+            )
+            assert cleared["fallback_chain"] == []
+        await engine.dispose()
+
+    asyncio.run(scenario())

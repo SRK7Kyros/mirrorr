@@ -248,6 +248,23 @@ def test_the_old_client_sees_only_the_rungs_that_were_one_kind():
 
 def test_the_same_stream_through_another_engine_is_another_source():
     assert fc.source_key(1, 1, {"a": 1, "b": 2}) == fc.source_key(1, 1, {"b": 2, "a": 1})
+
+
+def test_a_rung_the_old_pair_cannot_spell_is_counted_so_a_save_cannot_drop_it():
+    assert (
+        fc.hidden_from_legacy(
+            [
+                {"profile_id": 3},
+                {"resolver_id": 9},
+                {"profile_id": 2, "engine_id": 4},
+                {"profile_id": 2, "resolver_id": 9},
+                {"engine_id": 4},
+            ]
+        )
+        == 3
+    )
+    assert fc.hidden_from_legacy([{"profile_id": 3}, {"resolver_id": 9}]) == 0
+    assert fc.hidden_from_legacy([]) == 0
     assert fc.source_key(1, 1, {}) != fc.source_key(2, 1, {})
 
 
