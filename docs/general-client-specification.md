@@ -129,7 +129,7 @@ A Profile is a **named, reusable recording configuration**: a saved snapshot of 
 | `PUT /profiles/{id}` | auth | Partial update (exclude-unset). Same validation. |
 | `DELETE /profiles/{id}` | auth+owner | 200 `DeleteResultResponse` — cascades/detaches/flags (§14); never a 400 for a referenced profile. |
 
-**Fallback chain (Oct 26 2026):** a run's chain is `fallback_chain` — an ordered list of **rungs**, and a rung is a *patch* over the capture before it:
+**Fallback chain (Oct 26 2026):** a run's chain is `fallback_chain` — an ordered list of **rungs**, and a rung is a *patch* over the run's own capture:
 
 | Rung | Means |
 |---|---|
@@ -138,9 +138,9 @@ A Profile is a **named, reusable recording configuration**: a saved snapshot of 
 | `{"profile_id": 2, "engine_id": 4}` | that profile at a different engine — expressible only as a rung |
 | `{"resolver_id": 9, "resolver_config": {...}}` | a different stream with its own config |
 
-Whatever a rung leaves out is **inherited**: from the profile when it names one, otherwise from the rung above it (the run's own capture for the first). A config is carried forward only while the resolver is unchanged, since a config belongs to the resolver it configures. Order is therefore part of the meaning — `[{"profile_id": 2}, {"resolver_id": 9}]` runs that profile's engine at a different stream.
+Whatever a rung leaves out is **inherited from its own base** — the profile when the rung names one, otherwise the run's own capture — and never from the rung before it. A config is carried over only while the resolver is still the run's own, since a config belongs to the resolver it configures. Every rung is therefore read against that same base, so no rung can quietly pick up a neighbour's engine or config, and order is only the order they are tried: `[{"profile_id": 2}, {"resolver_id": 9}]` runs that profile whole and then the **run's own** engine at a different stream.
 
-A **declared** chain is validated strictly: every rung must be buildable, no rung may repeat an earlier capture (compared on engine + resolver + sorted config), and none may be the run's own — `422` with `rule` set to `fallback-is-primary`, `fallback-duplicate`, `fallback-empty`, `fallback-profile-missing`, `fallback-engine-missing`, `fallback-resolver-missing` or `fallback-unusable`. An **inherited or stored** chain is resolved non-strictly: a rung that can no longer be built, or that now repeats the capture before it, is dropped instead of failing a run whose caller declared none of it.
+A **declared** chain is validated strictly: every rung must be buildable, no rung may repeat an earlier capture (compared on engine + resolver + sorted config), and none may be the run's own — `422` with `rule` set to `fallback-is-primary`, `fallback-duplicate`, `fallback-empty`, `fallback-profile-missing`, `fallback-engine-missing`, `fallback-resolver-missing` or `fallback-unusable`. An **inherited or stored** chain is resolved non-strictly: a rung that can no longer be built, or that now repeats an earlier capture, is dropped instead of failing a run whose caller declared none of it.
 
 The legacy `fallback_profile_ids` + `fallback_sources` pair is a **lossy projection** of a chain: only rungs that *are* a profile or *are* a source appear in it, so a mixed rung (`{"profile_id": 2, "engine_id": 4}`, `{"engine_id": 2, "resolver_id": 3}`) has no place there. A `PUT` that declares its chain through that pair — both lists absent means "inherit", either present means "this is the chain" — is therefore refused with `422` and `rule` `fallback-chain-unseen` when the item already holds a rung the pair cannot express, instead of quietly deleting it. Send `fallback_chain` to edit such an item.
 

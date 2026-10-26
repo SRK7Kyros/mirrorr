@@ -1,14 +1,16 @@
 """The fallback chain: what a run tries after its own source fails.
 
-A rung is a *patch* over the capture before it, not a kind of thing. Naming a
-profile takes that profile whole; naming a resolver swaps where the stream comes
-from; naming an engine changes what runs it. A rung may name any combination,
-and whatever it leaves out is inherited — from the profile when the rung names
-one, otherwise from the rung above it (the run's own capture for the first).
+A rung is a *patch* over the run's own capture, not a kind of thing and not a
+change to the rung before it. Naming a profile takes that profile whole; naming
+a resolver swaps where the stream comes from; naming an engine changes what runs
+it. A rung may name any combination, and whatever it leaves out is inherited
+from its base — the profile when the rung names one, otherwise the run's own
+capture.
 
-So the order is part of the meaning: ``[{"profile_id": 2}, {"resolver_id": 9}]``
-runs that profile's engine at a different stream, which is what a source rung
-after a profile means.
+Every rung is read against that same base, so no rung can quietly inherit a
+neighbour's engine or config, and the order is only the order they are tried:
+``[{"profile_id": 2}, {"resolver_id": 9}]`` runs that profile whole and then the
+**run's own** engine at a different stream.
 
 That is the whole model: ``{"profile_id": 2}`` is the old profile fallback,
 ``{"resolver_id": 9}`` is the old source fallback, and
@@ -320,13 +322,13 @@ async def open_loaders(settings: Any) -> AsyncIterator[Loaders]:
 
 
 async def _spec_for(
-    loaders: Loaders, previous: dict[str, Any], rung: dict[str, Any], index: int
+    loaders: Loaders, own: dict[str, Any], rung: dict[str, Any], index: int
 ) -> dict[str, Any]:
     """One rung as a concrete capture, inheriting what it does not name.
 
-    ``previous`` is the capture just before this rung — the run's own for the
-    first rung, else the rung above — so a chain reads as a sequence of changes
-    rather than every rung restating the run's engine.
+    ``own`` is the run's own capture, and every rung is patched over it rather
+    than over the rung before, so a rung means exactly the capture it describes
+    however many rungs precede it.
     """
     profile = None
     profile_id = rung.get("profile_id")
@@ -342,29 +344,29 @@ async def _spec_for(
     if engine_id is None:
         engine_id = getattr(profile, "default_engine_id", None) if profile is not None else None
     if engine_id is None:
-        engine_id = previous["engine_id"]
+        engine_id = own["engine_id"]
 
     resolver_id = rung.get("resolver_id")
     if resolver_id is None:
         resolver_id = getattr(profile, "resolver_id", None) if profile is not None else None
     if resolver_id is None:
-        resolver_id = previous["resolver_id"]
+        resolver_id = own["resolver_id"]
 
     # A config belongs to the resolver it configures, so it is only carried
-    # forward while the resolver is still the same one.
+    # over while the resolver is still the run's own.
     if "resolver_config" in rung:
         resolver_config = dict(rung["resolver_config"] or {})
     elif profile is not None:
         resolver_config = dict(getattr(profile, "resolver_config", None) or {})
-    elif int(resolver_id) != int(previous["resolver_id"]):
+    elif int(resolver_id) != int(own["resolver_id"]):
         resolver_config = {}
     else:
-        resolver_config = dict(previous["resolver_config"] or {})
+        resolver_config = dict(own["resolver_config"] or {})
 
     # A profile rung is also that profile's retry policy; a rung that names no
-    # profile keeps the policy in force, which is what makes it a *source* swap.
-    retry_mode = previous["retry_mode"]
-    retry_config = dict(previous["retry_config"] or {})
+    # profile keeps the run's own, which is what makes it a *source* swap.
+    retry_mode = own["retry_mode"]
+    retry_config = dict(own["retry_config"] or {})
     if profile is not None:
         retry_mode = str(getattr(profile, "retry_mode", None) or "none")
         retry_config = dict(getattr(profile, "retry_config", None) or {})
@@ -418,14 +420,14 @@ async def resolve(
     something runnable, and a repeat is refused because a chain that cannot
     advance is a mistake. A chain being inherited (from a profile, or a plan
     stored by an older build) is resolved non-strict: a rung that can no longer
-    be built, or that now repeats the capture before it, is dropped instead of
+    be built, or that now repeats an earlier capture, is dropped instead of
     failing a run whose caller wrote none of it.
     """
     kept: list[dict[str, Any]] = []
     specs: list[dict[str, Any]] = []
-    own = source_key(base.engine_id, base.resolver_id, base.resolver_config)
-    seen = {own}
-    current = base_spec(base)
+    own = base_spec(base)
+    own_key = source_key(own["engine_id"], own["resolver_id"], own["resolver_config"])
+    seen = {own_key}
     for index, raw in enumerate(rungs, start=1):
         rung = normalise(raw)
         if not rung:
@@ -435,7 +437,7 @@ async def resolve(
                 )
             continue
         try:
-            spec = await _spec_for(loaders, current, rung, index)
+            spec = await _spec_for(loaders, own, rung, index)
         except ChainError:
             if strict:
                 raise
@@ -451,7 +453,7 @@ async def resolve(
         key = source_key(spec["engine_id"], spec["resolver_id"], spec["resolver_config"])
         if key in seen:
             if strict:
-                if key == own:
+                if key == own_key:
                     raise ChainError(
                         422,
                         f"Fallback {index} is the {subject}'s own source",
@@ -467,7 +469,6 @@ async def resolve(
         seen.add(key)
         kept.append(rung)
         specs.append(spec)
-        current = spec
     return Chain(rungs=kept, captures=specs)
 
 
@@ -521,10 +522,11 @@ async def rungs_from_plan(
     The first entry is the run's own capture and is skipped. A capture naming a
     profile is reduced against that profile — a profile rung takes it whole, so
     only an engine, resolver or config that differs from the profile's own is
-    kept — and one naming none is reduced against the capture above it.
+    kept — and one naming none is reduced against the run's own capture, which
+    is what every rung patches.
     """
     rungs: list[dict[str, Any]] = []
-    previous = base_spec(base)
+    own = base_spec(base)
     for entry in list(plan)[1:]:
         spec = entry_patch(base, entry)
         profile = None
@@ -537,7 +539,7 @@ async def rungs_from_plan(
             }
             rung: dict[str, Any] = {"profile_id": int(spec["profile_id"])}
         else:
-            reference = previous
+            reference = own
             rung = {}
         if spec.get("engine_id") is not None and int(spec["engine_id"]) != int(
             reference.get("engine_id") or 0
@@ -554,5 +556,4 @@ async def rungs_from_plan(
             rung["resolver_config"] = config
         if rung:
             rungs.append(rung)
-            previous = spec
     return rungs

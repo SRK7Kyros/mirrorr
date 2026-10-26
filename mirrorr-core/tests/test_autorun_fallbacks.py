@@ -143,7 +143,7 @@ def test_a_slot_carries_a_source_rung_on_the_runs_own_engine(monkeypatch, tmp_pa
         await _tick(maker, settings)
 
         spawned = (await _sessions(maker))[-1]
-        assert _plan(spawned) == [(1, 1, 1), (2, 2, 2), (None, 2, 3)]
+        assert _plan(spawned) == [(1, 1, 1), (2, 2, 2), (None, 1, 3)]
         assert spawned.capture_plan[-1]["resolver_config"] == {"channel": "ch9"}
         await engine.dispose()
 

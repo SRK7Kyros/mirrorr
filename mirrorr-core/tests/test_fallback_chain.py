@@ -1,4 +1,4 @@
-"""The fallback chain is a list of patches, one change per rung.
+"""The fallback chain is a list of patches, each read against the run's own capture.
 
 Pure model tests: the loaders are fakes, so nothing here opens a database.
 """
@@ -114,16 +114,20 @@ def test_a_rung_on_the_same_resolver_keeps_the_config():
     asyncio.run(scenario())
 
 
-def test_a_rung_after_a_profile_inherits_from_that_profile():
+def test_every_rung_patches_the_runs_own_capture():
     async def scenario():
         chain = await fc.resolve(
             _loaders(), _base(), [{"profile_id": 2}, {"resolver_id": 9}], strict=True
         )
+        # The profile rung takes that profile whole…
+        assert (chain.captures[0]["engine_id"], chain.captures[0]["retry_mode"]) == (7, "always")
+        # …and the source rung after it takes the run's own, never the profile's.
         spec = chain.captures[1]
-        assert (spec["engine_id"], spec["resolver_id"]) == (7, 9)
+        assert (spec["engine_id"], spec["resolver_id"]) == (1, 9)
         assert spec["resolver_config"] == {}
         assert spec["profile_id"] is None
-        assert spec["retry_mode"] == "always"
+        assert spec["retry_mode"] == "none"
+        assert spec["retry_config"] == {}
 
     asyncio.run(scenario())
 
@@ -161,7 +165,7 @@ def test_a_rung_that_is_the_runs_own_source_is_named_apart():
     asyncio.run(scenario())
 
 
-def test_a_rung_that_repeats_the_rung_above_is_refused():
+def test_a_rung_that_repeats_an_earlier_one_is_refused():
     async def scenario():
         rungs = [{"resolver_id": 9}, {"resolver_id": 9}]
         with pytest.raises(ChainError) as caught:
