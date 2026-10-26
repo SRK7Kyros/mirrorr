@@ -190,6 +190,136 @@ def test_an_untouched_update_keeps_the_chain():
     asyncio.run(scenario())
 
 
+def test_a_profiles_own_source_moving_drops_the_rung_it_now_repeats():
+    """Editing a profile's resolver or config must not fail on its own chain.
+
+    The chain itself was not touched, so refusing the save would leave a profile
+    whose source can never be changed while a rung names the old one; the rung
+    that now repeats the profile is dropped and the rest of the chain is kept.
+    """
+    async def scenario():
+        engine, maker = await _fresh_db()
+        await _seed(maker)
+        async with maker() as db:
+            created = await create_profile(
+                _profile(
+                    resolver_config={"channel": "other"},
+                    fallback_sources=[
+                        {"resolver_id": 1, "resolver_config": {"channel": "60"}},
+                        {"resolver_id": 2},
+                    ],
+                ),
+                db,
+                _auth(),
+            )
+            out = await update_profile(
+                created["id"],
+                UpdateProfileRequest(resolver_config={"channel": "60"}),
+                db,
+                _auth(),
+            )
+            assert out["fallback_sources"] == [{"resolver_id": 2, "resolver_config": {}}]
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_a_chain_the_update_declares_is_still_refused_when_it_repeats_the_new_source():
+    async def scenario():
+        engine, maker = await _fresh_db()
+        await _seed(maker)
+        async with maker() as db:
+            created = await create_profile(
+                _profile(
+                    resolver_config={"channel": "other"},
+                    fallback_sources=[{"resolver_id": 2}],
+                ),
+                db,
+                _auth(),
+            )
+            with pytest.raises(HTTPException) as denied:
+                await update_profile(
+                    created["id"],
+                    UpdateProfileRequest(
+                        resolver_config={"channel": "60"},
+                        fallback_sources=[
+                            {"resolver_id": 1, "resolver_config": {"channel": "60"}}
+                        ],
+                    ),
+                    db,
+                    _auth(),
+                )
+            assert denied.value.status_code == 422
+            assert denied.value.detail["rule"] == "fallback-source-is-primary"
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_an_autoruns_own_source_moving_drops_the_rung_it_now_repeats():
+    async def scenario():
+        engine, maker = await _fresh_db()
+        await _seed(maker)
+        async with maker() as db:
+            autorun = await create_autorun(
+                CreateAutorunRequest(
+                    user_friendly_name="Race",
+                    snake_case_name="race",
+                    engine_id=1,
+                    resolver_id=1,
+                    resolver_config={"channel": "other"},
+                    fallback_sources=[
+                        {"resolver_id": 1, "resolver_config": {"channel": "60"}},
+                        {"resolver_id": 2},
+                    ],
+                    start_time=_now(),
+                    end_time=_now() + timedelta(hours=2),
+                ),
+                db,
+                _auth(),
+            )
+            out = await update_autorun(
+                autorun["id"],
+                UpdateAutorunRequest(resolver_config={"channel": "60"}),
+                db,
+                _auth(),
+            )
+            assert out["fallback_sources"] == [{"resolver_id": 2, "resolver_config": {}}]
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_an_update_that_touches_only_the_window_leaves_the_chain_in_place():
+    async def scenario():
+        engine, maker = await _fresh_db()
+        await _seed(maker)
+        async with maker() as db:
+            autorun = await create_autorun(
+                CreateAutorunRequest(
+                    user_friendly_name="Race",
+                    snake_case_name="race",
+                    engine_id=1,
+                    resolver_id=1,
+                    fallback_sources=[{"resolver_id": 2}],
+                    start_time=_now(),
+                    end_time=_now() + timedelta(hours=2),
+                ),
+                db,
+                _auth(),
+            )
+            out = await update_autorun(
+                autorun["id"],
+                UpdateAutorunRequest(end_time=_now() + timedelta(hours=3)),
+                db,
+                _auth(),
+            )
+            assert out["fallback_sources"] == [{"resolver_id": 2, "resolver_config": {}}]
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
 def test_a_session_started_from_the_profile_inherits_its_chain():
     async def scenario():
         engine, maker = await _fresh_db()
