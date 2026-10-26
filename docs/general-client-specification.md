@@ -119,17 +119,32 @@ Public: `POST /auth/status`? No — **`GET /auth/status`** is public. Everything
 
 A Profile is a **named, reusable recording configuration**: a saved snapshot of `engine + resolver + resolver_config + retry_mode + retry_config`. Sessions/Autoruns may reference a profile or be fully self-contained.
 
-**`ProfileResponse`:** `{id, name, default_engine_id, resolver_id, resolver_config, fallback_sources, retry_mode, retry_config, requester_user_token}`
+**`ProfileResponse`:** `{id, name, default_engine_id, resolver_id, resolver_config, fallback_chain, fallback_sources (legacy view), retry_mode, retry_config, requester_user_token}`
 
 | Endpoint | Auth | Behavior |
 |---|---|---|
 | `GET /profiles/` | auth | Paginated |
-| `POST /profiles/ {name, default_engine_id, resolver_id, resolver_config?, fallback_sources?, retry_mode?, retry_config?}` | auth | Validates engine/resolver exist. `resolver_config` validated against resolver's `config_schema` (server rejects invalid → 422 with loc). 400 on duplicate name. Sets `requester_user_token=current user`. Emits `profile.created`. |
+| `POST /profiles/ {name, default_engine_id, resolver_id, resolver_config?, fallback_chain?, fallback_sources?, retry_mode?, retry_config?}` | auth | Validates engine/resolver exist. `resolver_config` validated against resolver's `config_schema` (server rejects invalid → 422 with loc). 400 on duplicate name. Sets `requester_user_token=current user`. Emits `profile.created`. |
 | `GET /profiles/{id}` | auth | Enriched ProfileResponse. |
 | `PUT /profiles/{id}` | auth | Partial update (exclude-unset). Same validation. |
 | `DELETE /profiles/{id}` | auth+owner | 200 `DeleteResultResponse` — cascades/detaches/flags (§14); never a 400 for a referenced profile. |
 
-**Fallback chain (Oct 25 2026):** a profile may carry its own ordered `fallback_sources` — the same `{resolver_id, resolver_config}` shape a session/autorun declares — so one preset can say "this channel, then that one". It is validated like every other chain: each entry a real resolver, no repeats (compared on resolver **+** config), and never the profile's own source (422 `rule: fallback-source-is-primary` / `fallback-source-duplicate`). A session or autorun created from the profile **inherits** the chain when its request names none — a null/absent field — while a **declared empty list is the chain** and clears it (this is what lets one `PUT` name a profile and still say "this source and nothing else"); anything else in the request wins, and an inherited rung that would repeat the run's own source is dropped rather than refused (the caller declared nothing, so there is nothing to tell them about). Naming a profile in a `PUT /autoruns/{id}` re-seats the chain from that profile exactly as it re-seats the engine, resolver, config and retry policy, so a save that wants a different chain sends it. `save-as-profile` snapshots the source's chain into the new profile (§13.6).
+**Fallback chain (Oct 26 2026):** a run's chain is `fallback_chain` — an ordered list of **rungs**, and a rung is a *patch* over the capture before it:
+
+| Rung | Means |
+|---|---|
+| `{"profile_id": 2}` | that profile whole (its engine, resolver, config and retry policy) — the old *profile* fallback |
+| `{"resolver_id": 9}` | the same engine and retry policy, a different stream — the old *source* fallback |
+| `{"profile_id": 2, "engine_id": 4}` | that profile at a different engine — expressible only as a rung |
+| `{"resolver_id": 9, "resolver_config": {...}}` | a different stream with its own config |
+
+Whatever a rung leaves out is **inherited**: from the profile when it names one, otherwise from the rung above it (the run's own capture for the first). A config is carried forward only while the resolver is unchanged, since a config belongs to the resolver it configures. Order is therefore part of the meaning — `[{"profile_id": 2}, {"resolver_id": 9}]` runs that profile's engine at a different stream.
+
+A **declared** chain is validated strictly: every rung must be buildable, no rung may repeat an earlier capture (compared on engine + resolver + sorted config), and none may be the run's own — `422` with `rule` set to `fallback-is-primary`, `fallback-duplicate`, `fallback-empty`, `fallback-profile-missing`, `fallback-engine-missing`, `fallback-resolver-missing` or `fallback-unusable`. An **inherited or stored** chain is resolved non-strictly: a rung that can no longer be built, or that now repeats the capture before it, is dropped instead of failing a run whose caller declared none of it.
+
+`fallback_profile_ids` and `fallback_sources` still exist on the wire for clients that predate rungs: a request that sends them is folded into one chain (profile rungs first, the order they always ran in), and the responses answer both as **legacy views** — only rungs that *are* a profile or *are* a source appear there, so a mixed rung is invisible to a pre-rung client. `fallback_chain` is the source of truth; `NULL` means "a row that predates it, fold the legacy pair", and `[]` means no fallbacks.
+
+A profile carries a chain of its own, so one preset can say "this channel, then that one". A session or autorun created from the profile **inherits** it when its request names no chain (null/absent), while a **declared empty list is the chain** and clears it — which is what lets one `PUT` name a profile and still say "this source and nothing else". Naming a profile in a `PUT /autoruns/{id}` re-seats the chain from that profile exactly as it re-seats the engine, resolver, config and retry policy, so a save that wants a different chain sends it. `save-as-profile` snapshots the run's chain into the new profile, reduced to what each capture actually *changed* (§13.6).
 
 ### 3.1 Client requirements — Profiles
 - **List** with pagination, search/filter by name.
@@ -153,7 +168,7 @@ A **Session** = one live recording attempt (usually one-shot; may be tied to an 
 | Endpoint | Auth | Behavior |
 |---|---|---|
 | `GET /sessions/` | auth | Paginated |
-| `POST /sessions/ {profile_id? | engine_id, resolver_id, resolver_config?, retry_mode?, retry_config?, fallback_profile_ids?, fallback_sources?, recording?}` | auth | Create **immediately starts** supervision. The row is born `initializing` (resolver smoke check, then engine start — §13.2.1); `recording` defaults false. Emits `session.created`. `requester_user_token` = current user. |
+| `POST /sessions/ {profile_id? | engine_id, resolver_id, resolver_config?, retry_mode?, retry_config?, fallback_chain?, recording?}` | auth | Create **immediately starts** supervision. The row is born `initializing` (resolver smoke check, then engine start — §13.2.1); `recording` defaults false. Emits `session.created`. `requester_user_token` = current user. |
 | `GET /sessions/{id}` | auth | Enriched. |
 | `DELETE /sessions/{id}` | auth | **204.** 409 if status==`remuxing` (forbidden — remux can't be interrupted). If `active`/`recording` → sends stop control (`session.stop_requested`) then deletes after cleanup; a **pre-playable** session (`initializing`/`stream_pending`) is hard-killed (its supervisor is killed directly, no graceful finalize). |
 | `POST /sessions/{id}/stop` | auth+owner | Sends `stop` control; supervisor finalizes (completed) instead of failed. Valid in every live state, including `initializing`/`stream_pending` (aborts the gate; no `active` row is produced). |
@@ -163,7 +178,7 @@ A **Session** = one live recording attempt (usually one-shot; may be tied to an 
 
 **Attempts:** `session.attempts` is a list; each element reflects one resolver-join/engine-start cycle. `retry_attempts` counts retries.
 
-**Captures:** `capture_plan` is the ordered list of sources the session will try — its own capture first (`profile_id`, or `null` for the engine + resolver the request named), then any fallbacks (a manual session's own `fallback_profile_ids` + `fallback_sources`, or the autorun's chain). An entry is either a **profile id**, run whole (that profile's engine, resolver, config and retry policy), or a **source object** `{resolver_id, resolver_config}` — a resolver + config run on the session's own engine and retry policy, which is what an engine + resolver run can name without inventing a profile for it (Oct 25 2026). Each entry runs as a *capture* into its own folder. A profile fallback must be visible to the caller (`VIEW`, so a profile shared with `everyone` can back up a session), may appear once, and is never the primary (`422 fallback-is-primary`). A source fallback names a real resolver, may appear once as the same resolver + config (the same resolver with a different config is a different source), and is refused when identical to the run's own source (`422 fallback-source-is-primary` / `422 fallback-source-duplicate`). A capture that never becomes playable hands over to the next instead of failing the row, so **one session is one session even when it falls back**. `session.captures` records what each capture did: `{index, status, reason, profile_id, profile_name, source?, engine_name, resolver_name, started_at, ended_at, attempts, seconds, bytes}` — a source capture carries `source: "resolver"`, a `null` `profile_id` and an empty `profile_name`, and, once the session ends, `merged: true` on every capture whose media is in the recording. A session that never fell back carries a single-entry `capture_plan` and an empty-or-one `captures`.
+**Captures:** `capture_plan` is the ordered list of captures the session will try — its own first, then one entry per `fallback_chain` rung, each **fully resolved** (Oct 26 2026): `{source, profile_id, profile_name, engine_id, resolver_id, resolver_config, retry_mode, retry_config}`, where `source` is `"profile"` or `"resolver"` and the own entry is `"profile"` when the request named one. Because the plan is a snapshot, editing a profile afterwards cannot change a scheduled run. Each entry runs as a *capture* into its own folder. A rung naming a profile must be visible to the caller (`VIEW`, so a profile shared with `everyone` can back up a session); every rung and every entry names a real engine and resolver. A capture that never becomes playable hands over to the next instead of failing the row, so **one session is one session even when it falls back**. `session.captures` records what each capture did: `{index, status, reason, profile_id, profile_name, source?, engine_name, resolver_name, started_at, ended_at, attempts, seconds, bytes}` — a source capture carries `source: "resolver"`, a `null` `profile_id` and an empty `profile_name`, and, once the session ends, `merged: true` on every capture whose media is in the recording. A session that never fell back carries a single-entry `capture_plan` and an empty-or-one `captures`. Plans written before rungs existed hold bare profile ids, `null` placeholders and `{resolver_id, resolver_config}` objects; the supervisor still reads those (§3).
 
 ### 4.1 Client requirements — Sessions
 - **Start session** form: pick Profile (prefill) or set engine+resolver+config directly; recording toggle; retry policy. Date/time NOT needed (immediate).
@@ -185,9 +200,9 @@ Scheduled sessions; the client schedules these at fixed local times, server exec
 | Endpoint | Auth | Behavior |
 |---|---|---|
 | `GET /autoruns/` | auth | Paginated |
-| `POST /autoruns/ {user_friendly_name, snake_case_name, profile_id? | engine_id, resolver_id, ..., start_time, end_time, recording?, fallback_profile_ids?, fallback_sources?}` | auth | `snake_case_name` must match `^[a-zA-Z0-9_-]+$`. `start_time`/`end_time` naive-UTC ISO (no tz — client must send UTC, strip tz). 400 duplicate snake name. `fallback_profile_ids` is an ordered list of profile ids; `fallback_sources` is an ordered list of `{resolver_id, resolver_config}` run on this autorun's own engine and retry policy (Oct 25 2026) — both are validated the same way a session's are and copied into each spawned session's `capture_plan`; omitted it inherits the named profile's chain, while `[]` declares none — Emits `autorun.created`. |
+| `POST /autoruns/ {user_friendly_name, snake_case_name, profile_id? | engine_id, resolver_id, ..., start_time, end_time, recording?, fallback_chain?}` | auth | `snake_case_name` must match `^[a-zA-Z0-9_-]+$`. `start_time`/`end_time` naive-UTC ISO (no tz — client must send UTC, strip tz). 400 duplicate snake name. `fallback_chain` is the ordered rung list (§3) — validated the same way a session's is and resolved into each spawned session's `capture_plan`; omitted it inherits the named profile's chain, while `[]` declares none. The pre-rung `fallback_profile_ids` + `fallback_sources` pair is still accepted and folded into one chain — Emits `autorun.created`. |
 | `GET /autoruns/{id}` | auth | |
-| `PUT /autoruns/{id}` | auth+owner | Partial update (name, times, config...). `exclude_unset` — and `fallback_sources` is **tri-state** here: absent leaves the chain alone, `[]` clears it, a list sets it (a request that also names a `profile_id` and omits the chain inherits that profile's, like the engine/resolver/config it re-seats). |
+| `PUT /autoruns/{id}` | auth+owner | Partial update (name, times, config...). `exclude_unset` — and `fallback_chain` is **tri-state** here: absent leaves the chain alone, `[]` clears it, a list sets it (a request that also names a `profile_id` and omits the chain inherits that profile's, like the engine/resolver/config it re-seats). A chain the request does not declare is re-resolved against the new own source, so editing a run's config never invalidates a chain it already had. |
 | `DELETE /autoruns/{id}` | auth+owner | 204. Stops currently-running associated session and deletes it. |
 | `POST /autoruns/{autorun_id}/save-as-profile {name}` | auth+owner | New Profile from autorun's config. |
 
@@ -495,7 +510,7 @@ Never loop step 2 more than once per boot, and never re-attempt refresh after a 
 **Create (immediate start):**
 | Event | Detail |
 |---|---|
-| Client sends | `POST /sessions/ {profile_id? \| engine_id, resolver_id, resolver_config?, retry_mode?, retry_config?, fallback_profile_ids?, fallback_sources?, recording?}` |
+| Client sends | `POST /sessions/ {profile_id? \| engine_id, resolver_id, resolver_config?, retry_mode?, retry_config?, fallback_chain?, recording?}` |
 | Server does | Validates FK + config; inserts row (`status=initializing`, `requester_user_token=you`); `subscribe_requester` (so notifications have a target); emits `session.created` on NATS → your `/ws/events` gets `session.created` + enriched entity because you are the row's owner (the stream's audience is the VIEW set, §11.1) |
 | 200 body | Full `SessionResponse` (status `initializing`, `retry_attempts:0`, `attempts:[]`, `session_urls:[]`, `started_at:null`) |
 | Errors | 400 duplicate name/IntegrityError; 409 conflict; 422 validation (incl. invalid engine/resolver IDs) |
@@ -679,7 +694,7 @@ The per-process subjects (`session.{id}.telemetry.<proc>`) are the raw samples a
 | List profiles | `GET /profiles/` | Paginated; `requester_user_token` per row (owner label) |
 | Create | `POST /profiles/` | 200 `ProfileResponse`; **400** duplicate name; **422** invalid engine/resolver or bad `resolver_config` vs `config_schema` |
 | Update | `PUT /profiles/{id}` | 200; excludes unset — client should send whole form or patch? **`exclude_unset` = partial OK**; same validations |
-| Profile chain | `fallback_sources` on `POST|PUT /profiles/` | Ordered `{resolver_id, resolver_config}` list; 422 `fallback-source-is-primary` / `-duplicate` / `-not-found`. A session or autorun made from the profile inherits it when it names none (§3) |
+| Fallback chain | `fallback_chain` on `POST|PUT /profiles/`, `/sessions/`, `/autoruns/` | Ordered rung list; 422 with `rule` = `fallback-is-primary` / `-duplicate` / `-empty` / `-profile-missing` / `-engine-missing` / `-resolver-missing` / `-unusable`. A session or autorun made from the profile inherits it when it names none (§3) |
 | Save as profile | `POST /sessions/{id}\|/autoruns/{id}/save-as-profile` | The snapshot carries the source's chain into the new profile, re-seated against its own source (a rung repeating it is dropped) |
 | Delete | `DELETE /profiles/{id}` | **200** `DeleteResultResponse`; schedules built from it are **flagged**, not deleted (`deleted.flagged`) — say so in the toast and re-read the autorun list |
 | Engines | `GET /engines/` | Paginated `EngineResponse[]{id,name,description,origin,origin_hash,capabilities:{can_record,can_stream},retry_modes_schema}` — pure introspection; **no writes ever** |

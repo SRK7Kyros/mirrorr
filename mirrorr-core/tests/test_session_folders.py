@@ -70,10 +70,15 @@ def test_each_capture_writes_into_its_own_folder(tmp_path):
     }
     with patch.object(
         session_supervisor,
-        "load_profile_capture",
+        "load_capture",
         AsyncMock(return_value=(capture_settings, SimpleNamespace(), SimpleNamespace())),
-    ):
+    ) as loader:
         assert asyncio.run(sup._begin_capture(2, 2)) is None
+
+    # A plan entry stored before rungs existed is completed from the profile it
+    # names; the loader only ever sees a concrete spec.
+    spec = loader.await_args.args[1]
+    assert (spec["source"], spec["profile_id"]) == ("profile", 2)
 
     assert sup.session_folder == primary.parent / f"{primary.name}_capture2"
     assert sup.segments_folder.parent == sup.session_folder

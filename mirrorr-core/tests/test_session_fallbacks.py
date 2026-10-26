@@ -57,13 +57,20 @@ async def _create(db, **body):
     return await create_session(CreateSessionRequest(**body), db, _auth())
 
 
+def _plan(out: dict) -> list[tuple]:
+    return [
+        (c["profile_id"], c["engine_id"], c["resolver_id"], c["resolver_config"])
+        for c in out["capture_plan"]
+    ]
+
+
 def test_a_custom_session_tries_its_own_capture_then_each_fallback():
     async def scenario():
         engine, maker = await _fresh_db()
         await _seed(maker)
         async with maker() as db:
             out = await _create(db, engine_id=1, resolver_id=1, fallback_profile_ids=[2])
-            assert out["capture_plan"] == [None, 2]
+            assert _plan(out) == [(None, 1, 1, {}), (2, 2, 2, {})]
             assert out["profile_id"] is None
         await engine.dispose()
 
@@ -76,28 +83,54 @@ def test_a_profile_session_keeps_its_profile_first():
         await _seed(maker)
         async with maker() as db:
             out = await _create(db, profile_id=1, fallback_profile_ids=[2])
-            assert out["capture_plan"] == [1, 2]
+            assert _plan(out) == [(1, 1, 1, {}), (2, 2, 2, {})]
         async with maker() as db:
             alone = await _create(db, profile_id=1)
-            assert alone["capture_plan"] == [1]
+            assert _plan(alone) == [(1, 1, 1, {})]
         await engine.dispose()
 
     asyncio.run(scenario())
 
 
-def test_a_custom_session_without_fallbacks_plans_nothing():
+def test_a_custom_session_without_fallbacks_plans_only_its_own_capture():
     async def scenario():
         engine, maker = await _fresh_db()
         await _seed(maker)
         async with maker() as db:
             out = await _create(db, engine_id=1, resolver_id=1)
-            assert out["capture_plan"] == []
+            assert _plan(out) == [(None, 1, 1, {})]
         await engine.dispose()
 
     asyncio.run(scenario())
 
 
-def test_a_session_refuses_its_own_profile_and_a_profile_it_cannot_see():
+def test_a_rung_is_a_patch_over_the_capture_before_it():
+    async def scenario():
+        engine, maker = await _fresh_db()
+        await _seed(maker)
+        async with maker() as db:
+            out = await _create(
+                db,
+                engine_id=1,
+                resolver_id=1,
+                fallback_chain=[
+                    {"profile_id": 2},
+                    {"engine_id": 1},
+                    {"resolver_id": 1, "resolver_config": {"channel": "one"}},
+                ],
+            )
+            assert _plan(out) == [
+                (None, 1, 1, {}),
+                (2, 2, 2, {}),
+                (None, 1, 2, {}),
+                (None, 1, 1, {"channel": "one"}),
+            ]
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_a_session_refuses_its_own_source_and_a_profile_it_cannot_see():
     async def scenario():
         engine, maker = await _fresh_db()
         await _seed(maker)
@@ -105,10 +138,12 @@ def test_a_session_refuses_its_own_profile_and_a_profile_it_cannot_see():
             with pytest.raises(HTTPException) as own:
                 await _create(db, profile_id=1, fallback_profile_ids=[1])
             assert own.value.status_code == 422
-            assert "session's own profile" in own.value.detail["detail"]
+            assert own.value.detail["rule"] == "fallback-is-primary"
+            assert "the session's own source" in own.value.detail["detail"]
             with pytest.raises(HTTPException) as twice:
                 await _create(db, engine_id=1, resolver_id=1, fallback_profile_ids=[2, 2])
             assert twice.value.status_code == 422
+            assert twice.value.detail["rule"] == "fallback-duplicate"
             with pytest.raises(HTTPException) as private:
                 await _create(db, engine_id=1, resolver_id=1, fallback_profile_ids=[3])
             assert private.value.status_code == 403
@@ -132,10 +167,10 @@ def test_a_custom_session_falls_back_to_sources_after_its_own():
                     {"resolver_id": 2},
                 ],
             )
-            assert out["capture_plan"] == [
-                None,
-                {"resolver_id": 2, "resolver_config": {"channel": "two"}},
-                {"resolver_id": 2, "resolver_config": {}},
+            assert _plan(out) == [
+                (None, 1, 1, {"channel": "one"}),
+                (None, 1, 2, {"channel": "two"}),
+                (None, 1, 2, {}),
             ]
             assert out["resolver_id"] == 1
         await engine.dispose()
@@ -155,9 +190,9 @@ def test_a_source_chain_keeps_the_runs_own_engine():
                 fallback_sources=[{"resolver_id": 2, "resolver_config": {"x": 1}}],
             )
             assert out["engine_id"] == 2
-            assert out["capture_plan"] == [
-                None,
-                {"resolver_id": 2, "resolver_config": {"x": 1}},
+            assert _plan(out) == [
+                (None, 2, 1, {}),
+                (None, 2, 2, {"x": 1}),
             ]
         await engine.dispose()
 
@@ -174,7 +209,7 @@ def test_a_session_refuses_its_own_source_twice_and_an_unknown_resolver():
                     db, engine_id=1, resolver_id=1, fallback_sources=[{"resolver_id": 1}]
                 )
             assert own.value.status_code == 422
-            assert own.value.detail["rule"] == "fallback-source-is-primary"
+            assert own.value.detail["rule"] == "fallback-is-primary"
             with pytest.raises(HTTPException) as twice:
                 await _create(
                     db,
@@ -183,10 +218,11 @@ def test_a_session_refuses_its_own_source_twice_and_an_unknown_resolver():
                     fallback_sources=[{"resolver_id": 2}, {"resolver_id": 2}],
                 )
             assert twice.value.status_code == 422
-            assert twice.value.detail["rule"] == "fallback-source-duplicate"
+            assert twice.value.detail["rule"] == "fallback-duplicate"
             with pytest.raises(HTTPException) as unknown:
                 await _create(db, engine_id=1, resolver_id=1, fallback_sources=[{"resolver_id": 9}])
-            assert unknown.value.status_code == 400
+            assert unknown.value.status_code == 422
+            assert unknown.value.detail["rule"] == "fallback-resolver-missing"
         await engine.dispose()
 
     asyncio.run(scenario())
@@ -206,10 +242,10 @@ def test_a_source_is_its_config_too_so_the_same_resolver_twice_is_allowed():
                     {"resolver_id": 2, "resolver_config": {"ref": "b"}},
                 ],
             )
-            assert out["capture_plan"] == [
-                None,
-                {"resolver_id": 2, "resolver_config": {"ref": "a"}},
-                {"resolver_id": 2, "resolver_config": {"ref": "b"}},
+            assert _plan(out) == [
+                (None, 1, 1, {}),
+                (None, 1, 2, {"ref": "a"}),
+                (None, 1, 2, {"ref": "b"}),
             ]
         await engine.dispose()
 

@@ -42,6 +42,13 @@ def _auth() -> AuthState:
     )
 
 
+def _plan(out: dict) -> list[tuple]:
+    return [
+        (c["profile_id"], c["engine_id"], c["resolver_id"], c["resolver_config"])
+        for c in out["capture_plan"]
+    ]
+
+
 async def _fresh_db():
     engine = create_async_engine("sqlite+aiosqlite://")
     async with engine.begin() as conn:
@@ -116,7 +123,7 @@ def test_a_profiles_chain_refuses_its_own_source_and_a_repeat():
                     _auth(),
                 )
             assert own.value.status_code == 422
-            assert own.value.detail["rule"] == "fallback-source-is-primary"
+            assert own.value.detail["rule"] == "fallback-is-primary"
             assert "profile's own source" in own.value.detail["detail"]
             with pytest.raises(HTTPException) as twice:
                 await create_profile(
@@ -127,7 +134,7 @@ def test_a_profiles_chain_refuses_its_own_source_and_a_repeat():
                     _auth(),
                 )
             assert twice.value.status_code == 422
-            assert twice.value.detail["rule"] == "fallback-source-duplicate"
+            assert twice.value.detail["rule"] == "fallback-duplicate"
         await engine.dispose()
 
     asyncio.run(scenario())
@@ -250,7 +257,7 @@ def test_a_chain_the_update_declares_is_still_refused_when_it_repeats_the_new_so
                     _auth(),
                 )
             assert denied.value.status_code == 422
-            assert denied.value.detail["rule"] == "fallback-source-is-primary"
+            assert denied.value.detail["rule"] == "fallback-is-primary"
         await engine.dispose()
 
     asyncio.run(scenario())
@@ -329,10 +336,7 @@ def test_a_session_started_from_the_profile_inherits_its_chain():
                 _profile(fallback_sources=[{"resolver_id": 2}]), db, _auth()
             )
             session = await create_session(CreateSessionRequest(profile_id=profile["id"]), db, _auth())
-            assert session["capture_plan"] == [
-                profile["id"],
-                {"resolver_id": 2, "resolver_config": {}},
-            ]
+            assert _plan(session) == [(1, 1, 1, {}), (None, 1, 2, {})]
         await engine.dispose()
 
     asyncio.run(scenario())
@@ -353,10 +357,7 @@ def test_a_session_may_name_its_own_chain_instead():
                 db,
                 _auth(),
             )
-            assert session["capture_plan"] == [
-                profile["id"],
-                {"resolver_id": 3, "resolver_config": {}},
-            ]
+            assert _plan(session) == [(1, 1, 1, {}), (None, 1, 3, {})]
         await engine.dispose()
 
     asyncio.run(scenario())
@@ -384,10 +385,7 @@ def test_inheriting_drops_a_rung_repeating_the_runs_own_source():
                 db,
                 _auth(),
             )
-            assert session["capture_plan"] == [
-                profile["id"],
-                {"resolver_id": 2, "resolver_config": {}},
-            ]
+            assert _plan(session) == [(1, 1, 1, {"channel": "60"}), (None, 1, 2, {})]
         await engine.dispose()
 
     asyncio.run(scenario())
@@ -538,7 +536,7 @@ def test_saving_a_session_as_a_profile_keeps_the_sources_it_tried():
             saved = await save_session_as_profile(
                 session["id"], SaveProfileRequest(name="From a session"), db, _auth()
             )
-            assert saved.fallback_sources == [
+            assert saved["fallback_sources"] == [
                 {"resolver_id": 2, "resolver_config": {"channel": "577"}}
             ]
         await engine.dispose()

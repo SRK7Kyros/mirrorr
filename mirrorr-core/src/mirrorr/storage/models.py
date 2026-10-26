@@ -102,13 +102,20 @@ class Autorun(SQLModel, table=True):
     # "fail" (leave it failed) or "retry" (fail it, then start a fresh one).
     orphan_policy: str = Field(default="fail")
     # Profiles to try, in order, after this autorun's own capture failed while
-    # its window was still open. Ids, not rows: each attempt copies its
-    # profile's engine/resolver/config at spawn time (see ``autorun_scheduler``).
+    # its window was still open. LEGACY: read only, and folded into
+    # ``fallback_chain`` when that is NULL (see ``services/fallback_chain``).
     fallback_profile_ids: list[int] = Field(default_factory=list, sa_column=Column(SAJSON))
-    # Fallbacks that swap only the source: ``{resolver_id, resolver_config}``
-    # run on this autorun's own engine and retry policy — what an engine +
-    # resolver run can name without inventing a profile for it.
+    # Fallbacks that swap only the source. LEGACY, as above.
     fallback_sources: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(SAJSON))
+    # The fallback chain, in order. A rung is a *patch* over this autorun's own
+    # capture: ``{"profile_id": 2}`` runs that profile whole, ``{"resolver_id":
+    # 9}`` swaps where the stream comes from, and a rung may name both. Each rung
+    # is resolved into a concrete capture when the slot fires, so a later edit to
+    # a profile cannot change a run that already started. NULL means the row
+    # predates this column — the legacy pair above is the chain instead.
+    fallback_chain: list[dict[str, Any]] | None = Field(
+        default=None, sa_column=Column(SAJSON, nullable=True)
+    )
     # Why this schedule cannot run until somebody looks at it ("profile-deleted").
     # A row with an issue is skipped by the scheduler; saving it again through
     # ``PUT /autoruns/{id}`` is the acknowledgement that clears it.
@@ -150,12 +157,13 @@ class Session(SQLModel, table=True):
     requester_group_id: int | None = Field(default=None, index=True)
     session_urls: list[dict[str, str]] = Field(default_factory=list, sa_column=Column(SAJSON))
     attempts: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(SAJSON))
-    # The profiles this session tries, in order: its own profile first, then any
-    # fallbacks. Each capture runs that profile's engine/resolver/config into its
-    # own folder, and the captures merge into one recording when the session ends.
-    capture_plan: list[int | dict[str, Any] | None] = Field(
-        default_factory=list, sa_column=Column(SAJSON)
-    )
+    # The captures this session tries, in order and *resolved*: its own first,
+    # then each fallback rung as the concrete engine/resolver/config/policy it
+    # stands for. A snapshot, so editing a profile afterwards cannot change a run
+    # that is already scheduled. Each capture writes into its own folder, and the
+    # captures merge into one recording when the session ends. A list written by
+    # an older build (profile ids, ``None``, bare source dicts) is still read.
+    capture_plan: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(SAJSON))
     # What each capture did: profile/engine/resolver names, status, reason, media.
     captures: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(SAJSON))
     # Absolute path to the session folder; lets API read logs/progress even
@@ -186,7 +194,15 @@ class Profile(SQLModel, table=True):
     default_engine_id: int = Field(foreign_key="engines.id")
     resolver_id: int = Field(foreign_key="resolvers.id")
     resolver_config: dict[str, Any] = Field(default_factory=dict, sa_type=JSON)
+    # Fallbacks that swap only the source. LEGACY: read only, and folded into
+    # ``fallback_chain`` when that is NULL (see ``services/fallback_chain``).
     fallback_sources: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(SAJSON))
+    # The chain every run bound to this profile inherits: a rung is a patch over
+    # a profile's own capture (see ``Autorun.fallback_chain``). NULL means the
+    # row predates this column, and the legacy list above is the chain.
+    fallback_chain: list[dict[str, Any]] | None = Field(
+        default=None, sa_column=Column(SAJSON, nullable=True)
+    )
     retry_mode: str = Field(default="none")
     retry_config: dict[str, Any] = Field(default_factory=dict, sa_column=Column(SAJSON))
     requester_user_token: str = Field(default="")
