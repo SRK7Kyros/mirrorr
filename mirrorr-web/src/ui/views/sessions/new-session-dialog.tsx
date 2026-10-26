@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   createSession,
@@ -22,9 +22,19 @@ import {
   toast,
 } from "@/ui/components"
 import { DiscoveryDrawer, canBrowseResolver } from "@/ui/views/shared/discovery-drawer"
-import { FallbackProfiles } from "@/ui/views/autoruns/fallback-profiles"
-import { FallbackSources, SourceFields } from "@/ui/views/shared/source-chain"
-import { chainProblem, type FallbackSource } from "@/api/domain/fallback-sources"
+import { SourceFields } from "@/ui/views/shared/source-chain"
+import { ChainEditor } from "@/ui/views/shared/chain-editor"
+import {
+  chainOf,
+  normaliseRung,
+  pruneChain,
+  profileBase,
+  resolveChain,
+  sameChain,
+  type ChainBase,
+  type ChainCatalog,
+  type FallbackRung,
+} from "@/api/domain/fallback-chain"
 import {
   AccessCreation,
   useCreationAccessApplier,
@@ -48,8 +58,7 @@ export function NewSessionDialog({
   const [engineId, setEngineId] = useState("")
   const [resolverId, setResolverId] = useState("")
   const [resolverConfig, setResolverConfig] = useState<Record<string, unknown>>({})
-  const [fallbackIds, setFallbackIds] = useState<number[]>([])
-  const [fallbackSources, setFallbackSources] = useState<FallbackSource[]>([])
+  const [chain, setChain] = useState<FallbackRung[]>([])
   const [browseOpen, setBrowseOpen] = useState(false)
   const [recording, setRecording] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -57,6 +66,11 @@ export function NewSessionDialog({
   const applyCreation = useCreationAccessApplier()
 
   const openedRef = useRef(false)
+
+  const catalog = useMemo<ChainCatalog>(
+    () => ({ profiles, engines, resolvers }),
+    [profiles, engines, resolvers],
+  )
 
   useEffect(() => {
     if (!open) {
@@ -71,8 +85,7 @@ export function NewSessionDialog({
     setEngineId("")
     setResolverId("")
     setResolverConfig({})
-    setFallbackIds([])
-    setFallbackSources([])
+    setChain([])
     setRecording(false)
     setAccess({})
   }, [open, profiles.length])
@@ -100,29 +113,48 @@ export function NewSessionDialog({
   })
 
   const resolver = resolvers.find((item) => String(item.id) === resolverId)
+  const chosenProfile = profiles.find((item) => String(item.id) === profileId) ?? null
   const canBrowse = canBrowseResolver(resolver)
-  const primarySource =
-    resolver === undefined ? null : { resolver_id: resolver.id, resolver_config: resolverConfig }
-  const chainTrouble = mode === "custom" ? chainProblem(fallbackSources, primarySource) : null
-  const canSubmit =
-    (mode === "profile" ? profileId !== "" : engineId !== "" && resolverId !== "") &&
-    chainTrouble === null
+
+  const base = useMemo<ChainBase | null>(() => {
+    if (mode === "profile") return chosenProfile === null ? null : profileBase(chosenProfile)
+    if (engineId === "" || resolverId === "") return null
+    return {
+      engine_id: Number(engineId),
+      resolver_id: Number(resolverId),
+      resolver_config: resolverConfig,
+    }
+  }, [mode, chosenProfile, engineId, resolverId, resolverConfig])
+
+  // A rung that becomes a repeat when the capture before the chain moves — a
+  // different profile, a different own source — is dropped rather than left to
+  // block the save with a rung that can never advance.
+  useEffect(() => {
+    if (base === null) return
+    setChain((previous) => {
+      const next = pruneChain(previous, base, catalog)
+      return sameChain(next, previous) ? previous : next
+    })
+  }, [base, catalog])
+
+  const chainState = base === null ? null : resolveChain(chain, base, catalog)
+  const canSubmit = chainState !== null && chainState.problem === null
 
   const submit = () => {
     setError(null)
-    const chain = fallbackIds.filter((id) => String(id) !== profileId)
+    const rungs = chain.map(normaliseRung)
     const body: SessionCreateBody =
       mode === "profile"
         ? {
             profile_id: Number(profileId),
-            fallback_profile_ids: chain,
+            fallback_chain: rungs,
             recording,
           }
         : {
             engine_id: Number(engineId),
             resolver_id: Number(resolverId),
             resolver_config: resolverConfig,
-            fallback_sources: fallbackSources,
+            fallback_chain: rungs,
             recording,
           }
     create.mutate(body)
@@ -186,9 +218,10 @@ export function NewSessionDialog({
                   onChange={(event) => {
                     const next = event.target.value
                     setProfileId(next)
-                    setFallbackIds((previous) =>
-                      previous.filter((id) => String(id) !== next),
-                    )
+                    const profile = profiles.find((item) => String(item.id) === next)
+                    // The chain goes with the profile it was written for — its
+                    // own rungs are what runs unless the user changes them.
+                    setChain(profile === undefined ? [] : chainOf(profile))
                   }}
                 >
                   <option value="">Select a profile…</option>
@@ -199,13 +232,6 @@ export function NewSessionDialog({
                   ))}
                 </Select>
               </Field>
-              <FallbackProfiles
-                profiles={profiles}
-                primaryId={profileId}
-                value={fallbackIds}
-                onChange={setFallbackIds}
-                disabled={create.isPending}
-              />
             </>
           ) : (
             <>
@@ -254,18 +280,20 @@ export function NewSessionDialog({
                   disabled={create.isPending}
                 />
               )}
-              {engineId !== "" && resolverId !== "" ? (
-                <FallbackSources
-                  resolvers={resolvers}
-                  value={fallbackSources}
-                  onChange={setFallbackSources}
-                  primary={primarySource}
-                  disabled={create.isPending}
-                />
-              ) : null}
             </>
           )}
         </TabPanel>
+
+        {base === null ? null : (
+          <ChainEditor
+            idPrefix="new-session"
+            catalog={catalog}
+            base={base}
+            value={chain}
+            onChange={setChain}
+            disabled={create.isPending}
+          />
+        )}
 
         <Switch
           label="Record this session"

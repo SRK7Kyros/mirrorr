@@ -7,8 +7,6 @@ import { engine, expect, profile, resolver, session, source, test } from "./fixt
  * inline form owns Tab until Escape hands focus back out, and the shell is not
  * text-selectable while its fields are.
  */
-const PROFILES = [profile({ id: 1, name: "F1 Weekend" }), profile({ id: 2, name: "News Hour" })]
-
 const BROWSABLE = resolver({
   id: 1,
   name: "Wide IPTV",
@@ -17,9 +15,20 @@ const BROWSABLE = resolver({
   config_schema: { type: "object", properties: { channel: { type: "string", title: "Channel" } } },
 })
 
+/**
+ * Two profiles on two sources: profiles that share one source are one capture,
+ * which a chain refuses as a repeat.
+ */
+const PROFILES = [
+  profile({ id: 1, name: "F1 Weekend", resolver_id: 1, resolver_name: "Wide IPTV" }),
+  profile({ id: 2, name: "News Hour", resolver_id: 2, resolver_name: "News" }),
+]
+
 test.describe("new session dialog", () => {
   test.beforeEach(async ({ api }) => {
     api.data.profiles = PROFILES
+    api.data.engines = [engine({ id: 1, name: "Streamlink" })]
+    api.data.resolvers = [BROWSABLE, resolver({ id: 2, name: "News" })]
   })
 
   test("Escape closes it and hands focus back to the trigger", async ({ page }) => {
@@ -99,21 +108,19 @@ test.describe("new session dialog", () => {
   })
 
   test("a fallback rung browses the resolver's catalog too", async ({ page, api }) => {
-    api.data.engines = [engine({ id: 1, name: "Streamlink" })]
-    api.data.resolvers = [BROWSABLE]
     api.data.discovery = [{ id: "9", title: "Sky Sports F1", config: { channel: "premium9" } }]
     api.data.sessions = [session({ id: 1 })]
 
     await page.goto("/sessions")
     await page.getByRole("button", { name: "New session" }).first().click()
     await page.getByRole("tab", { name: "Engine + resolver" }).click()
-    await page.getByRole("combobox", { name: /^Engine/ }).selectOption("1")
-    await page.getByRole("combobox", { name: /^Resolver/ }).selectOption("1")
+    await page.locator("#new-session-engine").selectOption("1")
+    await page.locator("#new-session-resolver").selectOption("1")
 
     // Only the run's own source can be browsed until the rung names a resolver.
     const browse = page.getByRole("button", { name: "Browse Wide IPTV…" })
     await expect(browse).toHaveCount(1)
-    await page.getByRole("combobox", { name: "Fallback 1 · Resolver" }).selectOption("1")
+    await page.locator("#new-session-fallback-resolver").selectOption("1")
     await expect(browse).toHaveCount(2)
 
     await browse.nth(1).click()
@@ -123,53 +130,50 @@ test.describe("new session dialog", () => {
       .first()
       .click()
 
-    await expect(page.locator("#fallback-source-1-channel")).toHaveValue("premium9")
+    await expect(page.locator("#new-session-fallback-1-channel")).toHaveValue("premium9")
     await page.getByRole("button", { name: "Add fallback" }).click()
     await page.getByRole("button", { name: "Start session" }).click()
 
     await expect(page.getByText("Session started")).toBeVisible()
     const [post] = api.callsTo("/sessions/").filter((call) => call.method === "POST")
     expect(post?.body).toMatchObject({
-      fallback_sources: [{ resolver_id: 1, resolver_config: { channel: "premium9" } }],
+      fallback_chain: [{ resolver_id: 1, resolver_config: { channel: "premium9" } }],
     })
   })
 
   test("a session started from a profile chains fallback profiles", async ({ page, api }) => {
-    api.data.engines = [engine({ id: 1, name: "Streamlink" })]
-    api.data.resolvers = [resolver({ id: 1, name: "Direct" })]
     api.data.sessions = [session({ id: 1 })]
 
     await page.goto("/sessions")
     await page.getByRole("button", { name: "New session" }).first().click()
-    await page.getByRole("combobox", { name: /^Profile/ }).selectOption("1")
+    await page.locator("#new-session-profile").selectOption("1")
 
-    const add = page.getByLabel("Add a fallback profile")
-    await expect(add.locator("option")).toHaveText(["Add a fallback profile…", "News Hour"])
-    await add.selectOption("2")
+    await page.locator("#new-session-fallback-profile").selectOption("2")
+    await page.getByRole("button", { name: "Add fallback" }).click()
     await expect(
-      page.getByRole("list", { name: "Fallback profiles, in order" }).getByRole("listitem"),
+      page.getByRole("list", { name: "Fallback chain, in order" }).getByRole("listitem"),
     ).toHaveCount(1)
 
     await page.getByRole("button", { name: "Start session" }).click()
 
     await expect(page.getByText("Session started")).toBeVisible()
     const [post] = api.callsTo("/sessions/").filter((call) => call.method === "POST")
-    expect(post?.body).toMatchObject({ profile_id: 1, fallback_profile_ids: [2] })
+    expect(post?.body).toMatchObject({ profile_id: 1, fallback_chain: [{ profile_id: 2 }] })
   })
 
-  test("picking a chained profile as the primary drops that rung", async ({ page, api }) => {    api.data.engines = [engine({ id: 1, name: "Streamlink" })]
-    api.data.resolvers = [resolver({ id: 1, name: "Direct" })]
+  test("picking a chained profile as the primary drops that rung", async ({ page, api }) => {
     api.data.sessions = [session({ id: 1 })]
 
     await page.goto("/sessions")
     await page.getByRole("button", { name: "New session" }).first().click()
-    const primary = page.getByRole("combobox", { name: /^Profile/ })
+    const primary = page.locator("#new-session-profile")
     await primary.selectOption("1")
-    await page.getByLabel("Add a fallback profile").selectOption("2")
-    const chain = page.getByRole("list", { name: "Fallback profiles, in order" })
+    await page.locator("#new-session-fallback-profile").selectOption("2")
+    await page.getByRole("button", { name: "Add fallback" }).click()
+    const chain = page.getByRole("list", { name: "Fallback chain, in order" })
     await expect(chain.getByRole("listitem")).toHaveCount(1)
 
-    // The chain advances by position, so one profile cannot be both halves.
+    // The chain advances by position, so one capture cannot be both halves.
     await primary.selectOption("2")
     await expect(chain.getByRole("listitem")).toHaveCount(0)
 
@@ -177,39 +181,33 @@ test.describe("new session dialog", () => {
 
     await expect(page.getByText("Session started")).toBeVisible()
     const [post] = api.callsTo("/sessions/").filter((call) => call.method === "POST")
-    expect(post?.body).toMatchObject({ profile_id: 2, fallback_profile_ids: [] })
+    expect(post?.body).toMatchObject({ profile_id: 2, fallback_chain: [] })
   })
 
-  test("a profile's own source chain is named before the run starts", async ({ page, api }) => {
+  test("a profile's own chain arrives in the editor", async ({ page, api }) => {
     api.data.profiles = [
-      profile({ id: 1, fallback_sources: [{ resolver_id: 1, resolver_config: { channel: "b" } }] }),
-      profile({ id: 2, name: "News Hour" }),
+      profile({
+        id: 1,
+        fallback_sources: [{ resolver_id: 2, resolver_config: { channel: "b" } }],
+      }),
+      profile({ id: 2, name: "News Hour", resolver_id: 2, resolver_name: "News" }),
     ]
     api.data.sessions = [session({ id: 1 })]
 
     await page.goto("/sessions")
     await page.getByRole("button", { name: "New session" }).first().click()
-    const hint = page.getByText("Also inherits 1 source fallback from the profile.")
+    const chain = page.getByRole("list", { name: "Fallback chain, in order" })
+    await expect(chain.getByRole("listitem")).toHaveCount(0)
 
-    await expect(hint).toHaveCount(0)
-    await page.getByRole("combobox", { name: /^Profile/ }).selectOption("1")
-    await expect(hint).toBeVisible()
-    await page.getByRole("combobox", { name: /^Profile/ }).selectOption("2")
-    await expect(hint).toHaveCount(0)
+    await page.locator("#new-session-profile").selectOption("1")
+    await expect(chain.getByRole("listitem")).toHaveCount(1)
+    await expect(chain.getByRole("listitem").first()).toContainText("b")
+
+    await page.locator("#new-session-profile").selectOption("2")
+    await expect(chain.getByRole("listitem")).toHaveCount(0)
   })
 
   test("the custom branch builds its chain one rung at a time", async ({ page, api }) => {
-    api.data.engines = [engine({ id: 1, name: "Streamlink" })]
-    api.data.resolvers = [
-      resolver({
-        id: 1,
-        name: "Direct",
-        config_schema: {
-          type: "object",
-          properties: { channel: { type: "string", title: "Channel" } },
-        },
-      }),
-    ]
     api.data.sources = [
       source({ id: 1, name: "Sky Sports", resolver_id: 1, resolver_config: { channel: "premium9" } }),
     ]
@@ -218,33 +216,27 @@ test.describe("new session dialog", () => {
     await page.goto("/sessions")
     await page.getByRole("button", { name: "New session" }).first().click()
     await page.getByRole("tab", { name: "Engine + resolver" }).click()
-    await page.getByRole("combobox", { name: /^Engine/ }).selectOption("1")
+    await page.locator("#new-session-engine").selectOption("1")
 
-    // No rung is offered until the run's own source is set.
+    // No rung is offered until the run's own capture is set.
     await expect(page.getByText("Fallback 1", { exact: true })).toHaveCount(0)
 
-    await page.getByRole("combobox", { name: /^Resolver/ }).selectOption("1")
+    await page.locator("#new-session-resolver").selectOption("1")
     await expect(page.getByText("Fallback 1", { exact: true })).toBeVisible()
 
     // One rung, filled by a saved source.
-    const first = page.getByRole("tablist", { name: "Fallback 1 source" })
-    await first.getByRole("tab", { name: "Saved source" }).click()
-    await page.getByRole("combobox", { name: "Fallback 1 · Saved source" }).selectOption("1")
+    await page.locator("#new-session-fallback-source").selectOption("1")
     await page.getByRole("button", { name: "Add fallback" }).click()
 
-    const chain = page.getByRole("list", { name: "Fallback sources, in order" })
+    const chain = page.getByRole("list", { name: "Fallback chain, in order" })
     await expect(chain.getByRole("listitem")).toHaveCount(1)
     await expect(chain.getByRole("listitem").first()).toContainText("Sky Sports")
 
-    // The next rung opens only now. The only saved source is already a rung, so
-    // that face is not offered at all — the rung says why and takes a resolver.
+    // The next rung is a fresh one; naming the same resolver again with a
+    // different config is a different capture, which is what makes it advance.
     await expect(page.getByText("Fallback 2", { exact: true })).toBeVisible()
-    await expect(page.getByRole("tablist", { name: "Fallback 2 source" })).toHaveCount(0)
-    await expect(
-      page.getByText("Every saved source is already in this chain — fill a resolver and its config."),
-    ).toBeVisible()
-    await page.getByRole("combobox", { name: "Fallback 2 · Resolver" }).selectOption("1")
-    await page.locator("#fallback-source-2-channel").fill("premium77")
+    await page.locator("#new-session-fallback-resolver").selectOption("1")
+    await page.locator("#new-session-fallback-2-channel").fill("premium77")
     await page.getByRole("button", { name: "Add fallback" }).click()
     await expect(chain.getByRole("listitem")).toHaveCount(2)
 
@@ -255,7 +247,7 @@ test.describe("new session dialog", () => {
     expect(post?.body).toMatchObject({
       engine_id: 1,
       resolver_id: 1,
-      fallback_sources: [
+      fallback_chain: [
         { resolver_id: 1, resolver_config: { channel: "premium9" } },
         { resolver_id: 1, resolver_config: { channel: "premium77" } },
       ],
@@ -263,17 +255,6 @@ test.describe("new session dialog", () => {
   })
 
   test("a saved source fills the run's own resolver and config, and the config form steps aside", async ({ page, api }) => {
-    api.data.engines = [engine({ id: 1, name: "Streamlink" })]
-    api.data.resolvers = [
-      resolver({
-        id: 1,
-        name: "Direct",
-        config_schema: {
-          type: "object",
-          properties: { channel: { type: "string", title: "Channel" } },
-        },
-      }),
-    ]
     api.data.sources = [
       source({ id: 1, name: "Sky Sports", resolver_id: 1, resolver_config: { channel: "premium9" } }),
     ]
@@ -282,14 +263,14 @@ test.describe("new session dialog", () => {
     await page.goto("/sessions")
     await page.getByRole("button", { name: "New session" }).first().click()
     await page.getByRole("tab", { name: "Engine + resolver" }).click()
-    await page.getByRole("combobox", { name: /^Engine/ }).selectOption("1")
+    await page.locator("#new-session-engine").selectOption("1")
 
     const kinds = page.getByRole("tablist", { name: "Primary source" })
     await kinds.getByRole("tab", { name: "Saved source" }).click()
     // One source, one way in — never both controls at once.
-    await expect(page.getByRole("combobox", { name: /^Resolver/ })).toHaveCount(0)
+    await expect(page.locator("#new-session-resolver")).toHaveCount(0)
 
-    await page.getByRole("combobox", { name: "Saved source" }).selectOption("1")
+    await page.locator("#new-session-source").selectOption("1")
     await expect(page.getByText("Fallback 1", { exact: true })).toBeVisible()
 
     await page.getByRole("button", { name: "Start session" }).click()
@@ -300,22 +281,11 @@ test.describe("new session dialog", () => {
       engine_id: 1,
       resolver_id: 1,
       resolver_config: { channel: "premium9" },
-      fallback_sources: [],
+      fallback_chain: [],
     })
   })
 
   test("no saved source means no switch, and the run's own source says why", async ({ page, api }) => {
-    api.data.engines = [engine({ id: 1, name: "Streamlink" })]
-    api.data.resolvers = [
-      resolver({
-        id: 1,
-        name: "Direct",
-        config_schema: {
-          type: "object",
-          properties: { channel: { type: "string", title: "Channel" } },
-        },
-      }),
-    ]
     // Saved sources exist in the system — this account just cannot see one.
     api.data.sources = []
     api.data.sessions = [session({ id: 1 })]
@@ -323,13 +293,13 @@ test.describe("new session dialog", () => {
     await page.goto("/sessions")
     await page.getByRole("button", { name: "New session" }).first().click()
     await page.getByRole("tab", { name: "Engine + resolver" }).click()
-    await page.getByRole("combobox", { name: /^Engine/ }).selectOption("1")
+    await page.locator("#new-session-engine").selectOption("1")
 
     await expect(page.getByRole("tablist", { name: "Primary source" })).toHaveCount(0)
     await expect(
       page.getByText("No saved source to load — fill a resolver and its config."),
     ).toBeVisible()
-    await page.getByRole("combobox", { name: /^Resolver/ }).selectOption("1")
+    await page.locator("#new-session-resolver").selectOption("1")
     await expect(page.getByText("Fallback 1", { exact: true })).toBeVisible()
   })
 })

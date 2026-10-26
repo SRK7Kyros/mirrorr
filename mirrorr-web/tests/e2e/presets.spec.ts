@@ -144,18 +144,18 @@ test.describe("presets page", () => {
 
     await expect(page.getByRole("heading", { name: "Fallbacks" })).toHaveCount(0)
 
+    await page.getByRole("combobox", { name: /^Engine/ }).selectOption("1")
     await page.getByRole("combobox", { name: /^Resolver/ }).selectOption("2")
     await expect(page.getByRole("heading", { name: "Fallbacks" })).toBeVisible()
 
-    await page.getByRole("combobox", { name: "Fallback 1 · Resolver" }).selectOption("1")
+    await page.getByRole("combobox", { name: "Fallback 1 · Source" }).selectOption("1")
     await page.getByRole("button", { name: "Add fallback" }).click()
 
-    const chain = page.getByRole("list", { name: "Fallback sources, in order" })
+    const chain = page.getByRole("list", { name: "Fallback chain, in order" })
     await expect(chain.getByText("Wide IPTV")).toBeVisible()
-    await expect(page.getByRole("combobox", { name: "Fallback 2 · Resolver" })).toBeVisible()
+    await expect(page.getByRole("combobox", { name: "Fallback 2 · Source" })).toBeVisible()
 
     await page.getByLabel("Name").fill("Two sources")
-    await page.getByRole("combobox", { name: /^Engine/ }).selectOption("1")
     await page.getByRole("button", { name: "Create profile" }).click()
 
     await expect.poll(() => api.callsTo("/profiles/").filter((call) => call.method === "POST").length).toBe(1)
@@ -164,7 +164,7 @@ test.describe("presets page", () => {
     expect(created[0]?.body).toMatchObject({
       name: "Two sources",
       resolver_id: 2,
-      fallback_sources: [{ resolver_id: 1, resolver_config: {} }],
+      fallback_chain: [{ resolver_id: 1, resolver_config: {} }],
     })
   })
 
@@ -182,15 +182,15 @@ test.describe("presets page", () => {
     await expect(page.getByTitle("Fallbacks: Wide IPTV").first()).toBeVisible()
 
     await page.getByRole("button", { name: "Edit profile F1 Weekend" }).first().click()
-    const chain = page.getByRole("list", { name: "Fallback sources, in order" })
+    const chain = page.getByRole("list", { name: "Fallback chain, in order" })
     await expect(chain.getByText("Wide IPTV")).toBeVisible()
 
-    await page.getByRole("button", { name: "Remove Wide IPTV" }).click()
+    await page.getByRole("button", { name: "Remove fallback 1" }).click()
     await page.getByRole("button", { name: "Save changes" }).click()
 
     const putCalls = () => api.callsTo("/profiles/1").filter((call) => call.method === "PUT")
     await expect.poll(() => putCalls().length).toBe(1)
-    expect(putCalls()[0]?.body).toMatchObject({ fallback_sources: [] })
+    expect(putCalls()[0]?.body).toMatchObject({ fallback_chain: [] })
   })
 
   test("a section button opens only its own kind", async ({ page }) => {

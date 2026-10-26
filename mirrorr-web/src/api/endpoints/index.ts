@@ -19,7 +19,7 @@ import {
   type Session,
 } from "@/api/schemas"
 import { z } from "zod"
-import type { FallbackSource } from "@/api/domain/fallback-sources"
+import type { FallbackRung } from "@/api/domain/fallback-chain"
 
 /**
  * View-layer endpoint wrappers — exact paths per the Endpoint Coverage
@@ -72,15 +72,9 @@ export function fetchSessionPage(
 export function fetchSession(id: number | string): Promise<Session> {
   return apiFetch<unknown>(`/sessions/${id}`).then((raw) => parseOrWarn(SessionSchema.parse, raw))
 }
-/** A fallback that swaps only the source — a resolver plus its config. */
-export interface FallbackSourceBody {
-  readonly resolver_id: number
-  readonly resolver_config?: Record<string, unknown> | null
-}
 export interface SessionCreateBody {
   readonly profile_id?: number
-  readonly fallback_profile_ids?: readonly number[]
-  readonly fallback_sources?: readonly FallbackSourceBody[]
+  readonly fallback_chain?: readonly FallbackRung[]
   readonly engine_id?: number
   readonly resolver_id?: number
   readonly resolver_config?: Record<string, unknown>
@@ -126,8 +120,7 @@ export interface AutorunBody {
   readonly end_time?: string
   readonly recording?: boolean
   readonly orphan_policy?: string
-  readonly fallback_profile_ids?: readonly number[]
-  readonly fallback_sources?: readonly FallbackSourceBody[]
+  readonly fallback_chain?: readonly FallbackRung[]
 }
 export function createAutorun(body: AutorunBody): Promise<Autorun> {
   return apiFetch<unknown>("/autoruns/", { body }).then((raw) => parseOrWarn(AutorunSchema.parse, raw))
@@ -163,7 +156,7 @@ export interface ProfileBody {
   readonly default_engine_id?: number
   readonly resolver_id?: number
   readonly resolver_config?: Record<string, unknown>
-  readonly fallback_sources?: readonly FallbackSource[]
+  readonly fallback_chain?: readonly FallbackRung[]
   readonly retry_mode?: string
   readonly retry_config?: Record<string, unknown>
 }

@@ -1,4 +1,4 @@
-import { autorun, expect, profile, resolver, test } from "./fixtures"
+import { autorun, engine, expect, profile, resolver, test } from "./fixtures"
 
 /**
  * `next_run_at` is deliberately out of id order so "soonest first" cannot pass
@@ -110,44 +110,68 @@ test.describe("scheduled recordings", () => {
       "/autoruns/3",
       "/autoruns/4",
     ])
-    for (const call of puts) expect(call.body).toEqual({ profile_id: 2, fallback_sources: [] })
+    for (const call of puts) expect(call.body).toEqual({ profile_id: 2, fallback_chain: [] })
   })
 
-  test("moving a run to a profile drops that profile from its own chain", async ({ page, api }) => {
-    // The server refuses a chain in which a rung repeats the run's own source,
-    // so the client must prune before sending — the picked profile cannot stay
-    // listed as one of its own fallbacks.
+  test("each row takes the picked profile's chain, not the one it carried", async ({
+    page,
+    api,
+  }) => {
+    api.data.profiles = [
+      profile({ id: 1, name: "F1 Weekend", resolver_id: 1, resolver_name: "Direct" }),
+      profile({
+        id: 2,
+        name: "News Hour",
+        resolver_id: 2,
+        resolver_name: "Wide IPTV",
+        fallback_chain: [{ resolver_id: 3, resolver_config: {} }],
+      }),
+    ]
+    api.data.resolvers = [
+      resolver({ id: 1, name: "Direct" }),
+      resolver({ id: 2, name: "Wide IPTV" }),
+      resolver({ id: 3, name: "Backup" }),
+    ]
+    api.data.engines = [engine({ id: 1, name: "Streamlink" })]
     api.data.autoruns = [
-      autorun({ id: 1, user_friendly_name: "Zulu", snake_case_name: "zulu", fallback_profile_ids: [2] }),
-      autorun({ id: 2, user_friendly_name: "Alpha", snake_case_name: "alpha", fallback_profile_ids: [1, 2] }),
-      autorun({ id: 3, user_friendly_name: "Mike", snake_case_name: "mike", fallback_profile_ids: [1] }),
+      autorun({
+        id: 1,
+        user_friendly_name: "Zulu",
+        snake_case_name: "zulu",
+        fallback_chain: [{ profile_id: 1 }],
+      }),
+      autorun({
+        id: 2,
+        user_friendly_name: "Alpha",
+        snake_case_name: "alpha",
+        fallback_chain: [{ resolver_id: 1, resolver_config: {} }],
+      }),
+      autorun({ id: 3, user_friendly_name: "Mike", snake_case_name: "mike" }),
     ]
     await page.goto("/autoruns")
 
     await page.getByLabel("Select all scheduled recordings").check()
-    await page.getByRole("region", { name: "Bulk actions" }).getByRole("button", { name: "Set profile" }).click()
+    await page
+      .getByRole("region", { name: "Bulk actions" })
+      .getByRole("button", { name: "Set profile" })
+      .click()
     const dialog = page.getByRole("dialog")
     await dialog.getByLabel("Profile").selectOption("2")
+
+    const chain = dialog.getByRole("list", { name: "Fallback chain, in order" })
+    await expect(chain.getByRole("listitem")).toHaveCount(1)
+
     await dialog.getByRole("button", { name: "Set profile" }).click()
     await expect(page.getByText("Profile set")).toBeVisible()
 
-    const bodies = Object.fromEntries(
-      api
-        .callsTo("/autoruns/")
-        .filter((call) => call.method === "PUT")
-        .map((call) => [call.path, call.body]),
-    )
-    expect(bodies["/autoruns/1"]).toEqual({
-      profile_id: 2,
-      fallback_sources: [],
-      fallback_profile_ids: [],
-    })
-    expect(bodies["/autoruns/2"]).toEqual({
-      profile_id: 2,
-      fallback_sources: [],
-      fallback_profile_ids: [1],
-    })
-    expect(bodies["/autoruns/3"]).toEqual({ profile_id: 2, fallback_sources: [] })
+    const puts = api.callsTo("/autoruns/").filter((call) => call.method === "PUT")
+    expect(puts).toHaveLength(3)
+    for (const call of puts) {
+      expect(call.body).toEqual({
+        profile_id: 2,
+        fallback_chain: [{ resolver_id: 3, resolver_config: {} }],
+      })
+    }
   })
 
   test("the bulk profile carries an editable chain of fallback sources", async ({ page, api }) => {
@@ -164,6 +188,7 @@ test.describe("scheduled recordings", () => {
       resolver({ id: 2, name: "Wide IPTV" }),
       resolver({ id: 3, name: "Backup" }),
     ]
+    api.data.engines = [engine({ id: 1, name: "Streamlink" })]
     await page.goto("/autoruns")
 
     await page.getByLabel("Select all scheduled recordings").check()
@@ -177,11 +202,11 @@ test.describe("scheduled recordings", () => {
 
     // The profile's own chain is the starting point — setting a profile must not
     // silently drop the sources it would fall back to.
-    const chain = dialog.getByRole("list", { name: "Fallback sources, in order" })
+    const chain = dialog.getByRole("list", { name: "Fallback chain, in order" })
     await expect(chain.getByRole("listitem")).toHaveCount(1)
 
     // …and one action can extend it across the whole selection.
-    await dialog.getByRole("combobox", { name: "Fallback 2 · Resolver" }).selectOption("3")
+    await dialog.getByRole("combobox", { name: "Fallback 2 · Source" }).selectOption("3")
     await dialog.getByRole("button", { name: "Add fallback" }).click()
     await expect(chain.getByRole("listitem")).toHaveCount(2)
 
@@ -193,7 +218,7 @@ test.describe("scheduled recordings", () => {
     for (const call of puts) {
       expect(call.body).toEqual({
         profile_id: 2,
-        fallback_sources: [
+        fallback_chain: [
           { resolver_id: 2, resolver_config: {} },
           { resolver_id: 3, resolver_config: {} },
         ],

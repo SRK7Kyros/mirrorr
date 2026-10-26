@@ -15,7 +15,12 @@ import {
 } from "@/api"
 import { fetchAutorunPage } from "@/api/endpoints"
 import { queryKeys, queryRoots, resolveEntityName } from "@/api/query-keys"
-import { fallbackSourceLabel, type FallbackSource } from "@/api/domain/fallback-sources"
+import {
+  chainOf,
+  mapNaming,
+  rungLabel,
+  type FallbackRung,
+} from "@/api/domain/fallback-chain"
 import {
   DEFAULT_FILTER,
   FILTER_TOKENS,
@@ -135,14 +140,12 @@ function AutorunCard({
   const resolver = resolveEntityName(autorun.resolver_name, names.resolvers, autorun.resolver_id)
   const engine = resolveEntityName(autorun.engine_name, names.engines, autorun.engine_id)
   const profile = resolveEntityName(autorun.profile_name, names.profiles, autorun.profile_id)
-  const fallbacks = [
-    ...(autorun.fallback_profile_ids ?? []).map((id, index) =>
-      resolveEntityName(autorun.fallback_profile_names?.[index], names.profiles, id),
-    ),
-    ...(autorun.fallback_sources ?? []).map((source) =>
-      fallbackSourceLabel(source, (id) => resolveEntityName(undefined, names.resolvers, id)),
-    ),
-  ]
+  const naming = mapNaming({
+    engines: names.engines ?? new Map<number, string>(),
+    resolvers: names.resolvers ?? new Map<number, string>(),
+    profiles: names.profiles ?? new Map<number, string>(),
+  })
+  const fallbacks = chainOf(autorun).map((rung) => rungLabel(rung, naming))
 
   return (
     <article
@@ -367,25 +370,18 @@ export function AutorunsListView() {
     mutationFn: async ({
       rows,
       profileId,
-      fallbackSources,
+      chain,
     }: {
       rows: readonly Autorun[]
       profileId: number
-      fallbackSources: readonly FallbackSource[]
+      chain: readonly FallbackRung[]
     }) => {
-      // Sequential so a large selection cannot stampede the single-writer DB;
-      // a per-id failure (a spent or live autorun) is counted, not fatal.
       const failed: { id: number; reason: string }[] = []
       for (const row of rows) {
-        // The new profile cannot also sit in the row's own profile chain — the
-        // server refuses that chain — so the rung is dropped with the move.
-        const declared = row.fallback_profile_ids ?? []
-        const kept = declared.filter((id) => id !== profileId)
         try {
           await updateAutorun(row.id, {
             profile_id: profileId,
-            fallback_sources: fallbackSources,
-            ...(kept.length === declared.length ? {} : { fallback_profile_ids: kept }),
+            fallback_chain: chain,
           })
         } catch (error) {
           failed.push({ id: row.id, reason: getErrorMessage(error, "Request failed") })
@@ -598,8 +594,8 @@ export function AutorunsListView() {
         onClose={() => setBulkProfileOpen(false)}
         count={selectedIds.length}
         busy={bulkSetProfile.isPending}
-        onApply={(profileId, fallbackSources) =>
-          bulkSetProfile.mutate({ rows: selectedAutoruns, profileId, fallbackSources })
+        onApply={(profileId, chain) =>
+          bulkSetProfile.mutate({ rows: selectedAutoruns, profileId, chain })
         }
       />
 

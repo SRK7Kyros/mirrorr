@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react"
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ApiError,
@@ -37,14 +37,23 @@ import {
   panelTitleClass,
 } from "@/ui/components"
 import { DiscoveryDrawer, canBrowseResolver } from "@/ui/views/shared/discovery-drawer"
-import { FallbackSources } from "@/ui/views/shared/source-chain"
+import { ChainEditor } from "@/ui/views/shared/chain-editor"
 import {
   AccessCreation,
   useCreationAccessApplier,
 } from "@/ui/views/shared/resource-access-slot"
 import type { AccessTarget } from "@/api/domain/access-plan"
-import { chainProblem, chainProblemSentence } from "@/api/domain/fallback-sources"
-import type { FallbackSource } from "@/api/domain/fallback-sources"
+import {
+  chainOf,
+  chainProblemSentence,
+  normaliseRung,
+  pruneChain,
+  resolveChain,
+  sameChain,
+  type ChainBase,
+  type ChainCatalog,
+  type FallbackRung,
+} from "@/api/domain/fallback-chain"
 
 /**
  * The create/edit dialog for both things the Presets page holds.
@@ -172,7 +181,7 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
   const [resolverConfig, setResolverConfig] = useState<Record<string, unknown>>({})
   const [retryMode, setRetryMode] = useState("")
   const [retryConfig, setRetryConfig] = useState<Record<string, unknown>>({})
-  const [fallbackSources, setFallbackSources] = useState<FallbackSource[]>([])
+  const [chain, setChain] = useState<FallbackRung[]>([])
   const [mode, setMode] = useState<ResolverMode>("resolver")
   const [pickedSourceId, setPickedSourceId] = useState("")
 
@@ -188,6 +197,36 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
   const [access, setAccess] = useState<AccessTarget>({})
   const applyCreation = useCreationAccessApplier()
 
+  const catalog = useMemo<ChainCatalog>(
+    () => ({ profiles, engines, resolvers }),
+    [profiles, engines, resolvers],
+  )
+
+  const base = useMemo<ChainBase | null>(() => {
+    if (engineId === "" || resolverId === "") return null
+    return {
+      engine_id: Number(engineId),
+      resolver_id: Number(resolverId),
+      resolver_config: resolverConfig,
+      retry_mode: retryMode === "" ? "none" : retryMode,
+      retry_config: retryConfig,
+      ...(profile === null ? {} : { profile_id: profile.id, profile_name: profile.name }),
+    }
+  }, [engineId, resolverId, resolverConfig, retryMode, retryConfig, profile])
+
+  // Editing the profile's own capture can turn a rung into a repeat of it; the
+  // chain travels with the source it was written against.
+  useEffect(() => {
+    if (base === null) return
+    setChain((previous) => {
+      const next = pruneChain(previous, base, catalog)
+      return sameChain(next, previous) ? previous : next
+    })
+  }, [base, catalog])
+
+  const chainState = base === null ? null : resolveChain(chain, base, catalog)
+  const chainTrouble = chainState === null ? null : chainState.problem
+
   // Reset the whole dialog each time it opens — create after create, or a
   // different row. `profile`/`source` identity is stable while it is open.
   useEffect(() => {
@@ -199,12 +238,7 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
     setResolverConfig(profile?.resolver_config ?? {})
     setRetryMode(profile?.retry_mode ?? "")
     setRetryConfig(profile?.retry_config ?? {})
-    setFallbackSources(
-      (profile?.fallback_sources ?? []).map((source) => ({
-        resolver_id: source.resolver_id,
-        resolver_config: source.resolver_config ?? {},
-      })),
-    )
+    setChain(chainOf(profile ?? {}))
     setMode("resolver")
     setPickedSourceId("")
     setSourceName(source?.name ?? "")
@@ -369,7 +403,7 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
       default_engine_id: Number(engineId),
       resolver_id: Number(resolverId),
       resolver_config: resolverConfig,
-      fallback_sources: fallbackSources,
+      fallback_chain: chain.map(normaliseRung),
       ...(retryMode === "" ? {} : { retry_mode: retryMode, retry_config: retryConfig }),
     })
   }
@@ -391,13 +425,6 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
   }
 
   const pending = tab === "profile" ? saveProfile.isPending : saveSource.isPending
-  const chainTrouble =
-    resolverId === ""
-      ? null
-      : chainProblem(fallbackSources, {
-          resolver_id: Number(resolverId),
-          resolver_config: resolverConfig,
-        })
   const submitDisabled =
     tab === "profile"
       ? duplicateName || name.trim() === "" || chainTrouble !== null
@@ -483,11 +510,28 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
               </Field>
             </FormBlock>
 
-            <FormBlock
-              step="2"
-              title="Resolver"
-              hint="how the stream is found"
-            >
+            <FormBlock step="2" title="Source & engine" hint="where the stream comes from">
+              <Field
+                label="Engine"
+                htmlFor="preset-profile-engine"
+                required
+                error={fieldErrors.default_engine_id ?? fieldErrors.engine_id ?? null}
+                hint={engine === undefined ? "Engines come from the installed plugins." : undefined}
+              >
+                <Select
+                  id="preset-profile-engine"
+                  value={engineId}
+                  onChange={(event) => changeEngine(event.target.value)}
+                >
+                  <option value="">Select an engine…</option>
+                  {engines.map((item) => (
+                    <option key={item.id} value={String(item.id)}>
+                      {item.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+
               <Field label="Config source">
                 <Segmented
                   className="self-start"
@@ -617,48 +661,24 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
                 )}
               </TabPanel>
 
-              {/* The chain is tried after this profile's own capture, on the
-                  same engine — only once there is a source to fall back from. */}
-              {resolverId === "" ? null : (
-                <FallbackSources
-                  resolvers={resolvers}
-                  value={fallbackSources}
-                  onChange={setFallbackSources}
-                  primary={{ resolver_id: Number(resolverId), resolver_config: resolverConfig }}
+              {base === null ? null : (
+                <ChainEditor
+                  idPrefix="preset-profile"
+                  catalog={catalog}
+                  base={base}
+                  value={chain}
+                  onChange={setChain}
+                  disabled={pending}
                   subject="profile"
                 />
               )}
             </FormBlock>
 
-            <FormBlock step="3" title="Engine & retry" hint="how it's recorded">
-              <Field
-                label="Engine"
-                htmlFor="preset-profile-engine"
-                required
-                error={fieldErrors.default_engine_id ?? fieldErrors.engine_id ?? null}
-                hint={engine === undefined ? "Engines come from the installed plugins." : undefined}
-              >
-                <Select
-                  id="preset-profile-engine"
-                  value={engineId}
-                  onChange={(event) => changeEngine(event.target.value)}
-                >
-                  <option value="">Select an engine…</option>
-                  {engines.map((item) => (
-                    <option key={item.id} value={String(item.id)}>
-                      {item.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-
+            <FormBlock step="3" title="Retry" hint="when it needs another go">
               {/* Inert until an engine is chosen: the modes belong to the engine,
                   so there is nothing to pick before then. */}
               <section
-                className={cn(
-                  "flex flex-col gap-3 border-t border-line-subtle pt-4",
-                  engine === undefined && "opacity-45",
-                )}
+                className={cn("flex flex-col gap-3", engine === undefined && "opacity-45")}
               >
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                   <h4 className={panelTitleClass}>Retry</h4>
