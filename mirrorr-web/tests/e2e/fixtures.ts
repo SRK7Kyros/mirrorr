@@ -1,4 +1,4 @@
-import { test as base, expect, type Page, type Route } from "@playwright/test"
+import { test as base, expect, type Locator, type Page, type Route } from "@playwright/test"
 
 /**
  * Route-mocked API for the browser suite.
