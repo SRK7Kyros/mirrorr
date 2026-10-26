@@ -173,10 +173,10 @@ describe("baseCapture and profileBase", () => {
 })
 
 describe("resolveRung", () => {
-  const previous = baseCapture(base)
+  const own = baseCapture(base)
 
   it("takes a named profile whole", () => {
-    const step = resolveRung({ profile_id: 2 }, previous, catalog)
+    const step = resolveRung({ profile_id: 2 }, own, catalog)
     expect(step.ok).toBe(true)
     if (!step.ok) return
     expect(step.capture).toMatchObject({
@@ -190,7 +190,7 @@ describe("resolveRung", () => {
   })
 
   it("inherits the engine when it only swaps the source", () => {
-    const step = resolveRung({ resolver_id: 3 }, previous, catalog)
+    const step = resolveRung({ resolver_id: 3 }, own, catalog)
     expect(step.ok).toBe(true)
     if (!step.ok) return
     expect(step.capture.engine_id).toBe(10)
@@ -199,31 +199,31 @@ describe("resolveRung", () => {
   })
 
   it("drops a config when the resolver changes, because a config belongs to its resolver", () => {
-    const step = resolveRung({ resolver_id: 3 }, previous, catalog)
+    const step = resolveRung({ resolver_id: 3 }, own, catalog)
     expect(step.ok && step.capture.resolver_config).toEqual({})
   })
 
   it("keeps the config when the rung names the resolver already running", () => {
-    const step = resolveRung({ resolver_id: 2, engine_id: 11 }, previous, catalog)
+    const step = resolveRung({ resolver_id: 2, engine_id: 11 }, own, catalog)
     expect(step.ok && step.capture.resolver_config).toEqual({ kind: "channel", ref: "60" })
   })
 
   it("keeps the retry policy in force for a rung that names no profile", () => {
-    const step = resolveRung({ resolver_id: 3 }, previous, catalog)
+    const step = resolveRung({ resolver_id: 3 }, own, catalog)
     expect(step.ok && step.capture.retry_mode).toBe("always")
     expect(step.ok && step.capture.retry_config).toEqual({ delay: 5 })
   })
 
   it("refuses a profile, engine or resolver that is no longer here", () => {
-    expect(resolveRung({ profile_id: 99 }, previous, catalog)).toEqual({
+    expect(resolveRung({ profile_id: 99 }, own, catalog)).toEqual({
       ok: false,
       kind: "profile-missing",
     })
-    expect(resolveRung({ engine_id: 99 }, previous, catalog)).toEqual({
+    expect(resolveRung({ engine_id: 99 }, own, catalog)).toEqual({
       ok: false,
       kind: "engine-missing",
     })
-    expect(resolveRung({ resolver_id: 99 }, previous, catalog)).toEqual({
+    expect(resolveRung({ resolver_id: 99 }, own, catalog)).toEqual({
       ok: false,
       kind: "resolver-missing",
     })
@@ -238,11 +238,17 @@ describe("resolveChain", () => {
     expect(chain.steps.map((step) => step.problem)).toEqual([null, null])
   })
 
-  it("starts from the run's own capture", () => {
-    const chain = resolveChain([], base, catalog)
-    expect(chain.captures).toEqual([])
-    expect(chain.last.resolver_id).toBe(2)
-    expect(chain.problem).toBeNull()
+  it("patches every rung over the run's own capture, never over the one before it", () => {
+    const chain = resolveChain([{ profile_id: 2 }, { resolver_id: 3 }], base, catalog)
+    expect(chain.captures).toHaveLength(2)
+    // The profile rung brings its own retry policy…
+    expect(chain.captures[0].retry_mode).toBe("always")
+    expect(chain.captures[0].retry_config).toEqual({ count: 3 })
+    // …and the source rung after it takes the run's, not the profile's.
+    expect(chain.captures[1].engine_id).toBe(10)
+    expect(chain.captures[1].retry_mode).toBe("always")
+    expect(chain.captures[1].retry_config).toEqual({ delay: 5 })
+    expect(chain.captures[1].resolver_config).toEqual({})
   })
 
   it("marks a rung that repeats the run's own source as primary", () => {
@@ -295,7 +301,7 @@ describe("resolveChain", () => {
 })
 
 describe("pruneChain", () => {
-  it("drops a rung that became a repeat of the capture before it", () => {
+  it("drops a rung that became a repeat of the run's own capture", () => {
     expect(pruneChain([{ profile_id: 1 }], profileBase(uk), catalog)).toEqual([])
   })
 

@@ -170,7 +170,7 @@ test.describe("fallback chain", () => {
     })
   })
 
-  test("a rung may change only the source, and the next one inherits it", async ({ page }) => {
+  test("a rung patches the run's own capture, never the rung above it", async ({ page }) => {
     await openCreate(page)
     const dialog = page.getByRole("dialog")
     await dialog.getByRole("tab", { name: "Engine + resolver" }).click()
@@ -188,9 +188,11 @@ test.describe("fallback chain", () => {
     await expect(chips).toHaveCount(1)
     await expect(chips.nth(0)).toContainText("premium9")
 
-    // The engine inherits the stream the rung above runs, not the run's own.
+    // A second rung starts from the run's own capture again, so naming only the
+    // engine it already runs is that same capture — not the stream above it.
     await dialog.locator("#autorun-fallback-engine").selectOption("1")
-    await expect(dialog.locator('[data-chain-preview="runs"]')).toContainText("premium9")
+    await expect(dialog.locator('[data-chain-preview="runs"]')).not.toContainText("premium9")
+    await expect(dialog.getByText(/is the run’s own source/)).toBeVisible()
   })
 
   test("a phone width holds a whole chain without widening the dialog", async ({ page }) => {

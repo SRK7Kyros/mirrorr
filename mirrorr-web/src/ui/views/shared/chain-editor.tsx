@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react"
 import { useSources } from "@/api"
 import {
+  baseCapture,
   captureLabel,
   catalogNaming,
   chainProblemSentence,
@@ -71,15 +72,15 @@ function draftRung(draft: RungDraft): FallbackRung | null {
   return rungNames(rung) ? rung : null
 }
 
-/** What a rung inherits when it names nothing — the profile's, else the rung above's. */
+/** What a rung inherits when it names nothing — the profile's, else the run's own capture's. */
 function inherited(
   profileId: string,
-  previous: ChainCapture,
+  own: ChainCapture,
   catalog: ChainCatalog,
 ): { capture: ChainCapture; profile: ChainCatalog["profiles"][number] | null } {
   const profile =
     profileId === "" ? null : (catalog.profiles.find((item) => item.id === Number(profileId)) ?? null)
-  if (profile === null) return { capture: previous, profile }
+  if (profile === null) return { capture: own, profile }
   return {
     profile,
     capture: {
@@ -88,7 +89,7 @@ function inherited(
       resolver_config: profile.resolver_config ?? {},
       profile_id: profile.id,
       profile_name: profile.name,
-      retry_mode: profile.retry_mode ?? previous.retry_mode,
+      retry_mode: profile.retry_mode ?? own.retry_mode,
       retry_config: profile.retry_config ?? {},
     },
   }
@@ -112,8 +113,9 @@ export interface ChainEditorProps {
  *
  * A rung is a *patch*, not a kind of thing: it may name a profile, a different
  * engine, a different source, or any combination, and whatever it leaves blank
- * is inherited from the rung above. The bottom editor is always the rung being
- * written, and it shows what that rung will actually run before it is added.
+ * is inherited from its base — the profile when it names one, else the run's own
+ * capture. The bottom editor is always the rung being written, and it shows what
+ * that rung will actually run before it is added.
  */
 export function ChainEditor({
   idPrefix,
@@ -129,8 +131,9 @@ export function ChainEditor({
   const [browseOpen, setBrowseOpen] = useState(false)
   const naming = useMemo(() => catalogNaming({ ...catalog, sources }), [catalog, sources])
   const resolved = useMemo(() => resolveChain(value, base, catalog), [value, base, catalog])
+  const own = useMemo(() => baseCapture(base), [base])
   const rung = draftRung(draft)
-  const preview = rung === null ? null : resolveRung(rung, resolved.last, catalog)
+  const preview = rung === null ? null : resolveRung(rung, own, catalog)
   const candidate = useMemo(
     () => (rung === null ? null : resolveChain([...value, rung], base, catalog)),
     [rung, value, base, catalog],
@@ -139,7 +142,7 @@ export function ChainEditor({
     candidate !== null && candidate.problem !== null && candidate.problem.index === value.length
       ? candidate.problem
       : null
-  const inheritedNow = inherited(draft.profileId, resolved.last, catalog)
+  const inheritedNow = inherited(draft.profileId, own, catalog)
   const chosenResolver =
     draft.resolverId === "" ? null : (catalog.resolvers.find((item) => String(item.id) === draft.resolverId) ?? null)
   const canBrowse = canBrowseResolver(chosenResolver)
@@ -161,7 +164,7 @@ export function ChainEditor({
       <h3 className={panelTitleClass}>Fallbacks</h3>
       <p className="text-sm text-ink-dim">
         Tried in this order after its own capture. A rung changes only what it names — anything left
-        blank is inherited from the rung above.
+        blank comes from that first capture, never from the rung above it.
       </p>
 
       {value.length > 0 ? (
