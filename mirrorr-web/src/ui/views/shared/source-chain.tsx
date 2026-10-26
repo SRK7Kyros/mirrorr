@@ -48,6 +48,16 @@ export interface SourceFieldsProps {
   readonly labelPrefix?: string
   /** Extra control beside the resolver select (a resolver's own catalog browser). */
   readonly browse?: ReactNode
+  /**
+   * What a blank resolver means, when it means anything. A fallback rung leaves
+   * its base's source alone; a run's own capture has nothing to leave alone, so
+   * omitting this makes the resolver required.
+   */
+  readonly inherit?: string
+  /** Ids for the config form when they must not follow the control ids (per-rung). */
+  readonly formIdPrefix?: string
+  /** Field labels when a caller numbers its rows — `Fallback 2 · Source`. */
+  readonly labels?: { readonly resolver?: string; readonly saved?: string }
   readonly disabled?: boolean
 }
 
@@ -65,6 +75,9 @@ export function SourceFields({
   kindLabel,
   labelPrefix = "",
   browse,
+  inherit,
+  formIdPrefix,
+  labels,
   disabled = false,
 }: SourceFieldsProps) {
   const [kind, setKind] = useState<SourceKind>("resolver")
@@ -76,6 +89,7 @@ export function SourceFields({
   // with silence, so the reason is said instead.
   const canPick = sources.length > 0
   const face: SourceKind = canPick ? kind : "resolver"
+  const inherited = inherit !== undefined
 
   return (
     <div className="flex flex-col gap-3">
@@ -97,7 +111,11 @@ export function SourceFields({
 
       {face === "resolver" ? (
         <>
-          <Field label={`${labelPrefix}Resolver`} htmlFor={`${idPrefix}-resolver`} required>
+          <Field
+            label={labels?.resolver ?? `${labelPrefix}Resolver`}
+            htmlFor={`${idPrefix}-resolver`}
+            required={!inherited}
+          >
             <Select
               id={`${idPrefix}-resolver`}
               value={value.resolverId === null ? "" : String(value.resolverId)}
@@ -110,7 +128,9 @@ export function SourceFields({
                 })
               }}
             >
-              <option value="">Select a resolver…</option>
+              <option value="">
+                {inherited ? `Inherit — ${inherit}` : "Select a resolver…"}
+              </option>
               {resolvers.map((item) => (
                 <option key={item.id} value={String(item.id)}>
                   {item.name}
@@ -124,20 +144,24 @@ export function SourceFields({
           <section className="flex flex-col gap-2">
             <h3 className={panelTitleClass}>Resolver config</h3>
             {resolver === undefined ? (
-              <p className="text-sm text-ink-dim">Pick a resolver to configure it.</p>
+              <p className="text-sm text-ink-dim">
+                {inherited
+                  ? `Leaves the source as it is — ${inherit}.`
+                  : "Pick a resolver to configure it."}
+              </p>
             ) : (
               <SchemaForm
                 schema={resolver.config_schema}
                 value={value.resolverConfig}
                 onChange={(next) => onChange({ resolverId: resolver.id, resolverConfig: next })}
-                idPrefix={idPrefix}
+                idPrefix={formIdPrefix ?? idPrefix}
               />
             )}
           </section>
         </>
       ) : (
         <Field
-          label={`${labelPrefix}Saved source`}
+          label={labels?.saved ?? `${labelPrefix}Saved source`}
           htmlFor={`${idPrefix}-source`}
           hint={canPick ? "Fills the resolver and its config." : "No saved sources to pick."}
         >

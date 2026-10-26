@@ -97,6 +97,26 @@ export function rungNames(raw: FallbackRung): boolean {
   return Object.keys(normaliseRung(raw)).length > 0
 }
 
+/**
+ * The chain with one rung moved to another position — the order they are tried.
+ *
+ * Out of range is a no-op rather than an error: a drop can land past the last
+ * row while the rows are being reordered under it.
+ */
+export function moveRung(
+  rungs: readonly FallbackRung[],
+  from: number,
+  to: number,
+): FallbackRung[] {
+  if (from === to || from < 0 || to < 0 || from >= rungs.length || to >= rungs.length) {
+    return [...rungs]
+  }
+  const next = [...rungs]
+  const [moved] = next.splice(from, 1)
+  next.splice(to, 0, moved)
+  return next
+}
+
 /** The two old lists folded into one chain: profile rungs first, the order they ran in. */
 export function foldLegacy(
   profileIds: readonly number[] | null | undefined,

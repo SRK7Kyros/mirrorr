@@ -1,4 +1,4 @@
-import { engine, expect, profile, resolver, session, source, test } from "./fixtures"
+import { engine, expect, openFallbacks, profile, resolver, session, source, test } from "./fixtures"
 
 /**
  * Overlay + keyboard interactions: Escape closes the dialog and hands focus
@@ -117,6 +117,8 @@ test.describe("new session dialog", () => {
     await page.locator("#new-session-engine").selectOption("1")
     await page.locator("#new-session-resolver").selectOption("1")
 
+    await openFallbacks(page)
+
     // Only the run's own source can be browsed until the rung names a resolver.
     const browse = page.getByRole("button", { name: "Browse Wide IPTV…" })
     await expect(browse).toHaveCount(1)
@@ -148,6 +150,7 @@ test.describe("new session dialog", () => {
     await page.getByRole("button", { name: "New session" }).first().click()
     await page.locator("#new-session-profile").selectOption("1")
 
+    await openFallbacks(page)
     await page.locator("#new-session-fallback-profile").selectOption("2")
     await page.getByRole("button", { name: "Add fallback" }).click()
     await expect(
@@ -168,6 +171,7 @@ test.describe("new session dialog", () => {
     await page.getByRole("button", { name: "New session" }).first().click()
     const primary = page.locator("#new-session-profile")
     await primary.selectOption("1")
+    await openFallbacks(page)
     await page.locator("#new-session-fallback-profile").selectOption("2")
     await page.getByRole("button", { name: "Add fallback" }).click()
     const chain = page.getByRole("list", { name: "Fallback chain, in order" })
@@ -219,12 +223,17 @@ test.describe("new session dialog", () => {
     await page.locator("#new-session-engine").selectOption("1")
 
     // No rung is offered until the run's own capture is set.
-    await expect(page.getByText("Fallback 1", { exact: true })).toHaveCount(0)
+    await expect(page.getByRole("button", { name: "Fallbacks" })).toHaveCount(0)
 
     await page.locator("#new-session-resolver").selectOption("1")
+    await expect(page.getByRole("button", { name: "Fallbacks" })).toBeVisible()
+
+    await openFallbacks(page)
     await expect(page.getByText("Fallback 1", { exact: true })).toBeVisible()
 
     // One rung, filled by a saved source.
+    const rungKinds = page.getByRole("tablist", { name: "How fallback 1 takes its source" })
+    await rungKinds.getByRole("tab", { name: "Saved source" }).click()
     await page.locator("#new-session-fallback-source").selectOption("1")
     await page.getByRole("button", { name: "Add fallback" }).click()
 
@@ -271,6 +280,7 @@ test.describe("new session dialog", () => {
     await expect(page.locator("#new-session-resolver")).toHaveCount(0)
 
     await page.locator("#new-session-source").selectOption("1")
+    await openFallbacks(page)
     await expect(page.getByText("Fallback 1", { exact: true })).toBeVisible()
 
     await page.getByRole("button", { name: "Start session" }).click()
@@ -300,6 +310,7 @@ test.describe("new session dialog", () => {
       page.getByText("No saved source to load — fill a resolver and its config."),
     ).toBeVisible()
     await page.locator("#new-session-resolver").selectOption("1")
+    await openFallbacks(page)
     await expect(page.getByText("Fallback 1", { exact: true })).toBeVisible()
   })
 })

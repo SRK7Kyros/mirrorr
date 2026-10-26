@@ -1,4 +1,4 @@
-import { engine, expect, profile, resolver, source, test } from "./fixtures"
+import { engine, expect, openFallbacks, profile, resolver, source, test } from "./fixtures"
 
 /**
  * The Presets page (`/profiles`) — one "+" and one dialog for both things the
@@ -148,6 +148,7 @@ test.describe("presets page", () => {
     await page.getByRole("combobox", { name: /^Resolver/ }).selectOption("2")
     await expect(page.getByRole("heading", { name: "Fallbacks" })).toBeVisible()
 
+    await openFallbacks(page)
     await page.getByRole("combobox", { name: "Fallback 1 · Source" }).selectOption("1")
     await page.getByRole("button", { name: "Add fallback" }).click()
 
