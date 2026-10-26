@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { FallbackChainSchema } from "./fallback"
 
 /** `ProfileResponse` — `engine_name`/`resolver_name` are non-guaranteed. */
 export const ProfileSchema = z
@@ -8,6 +9,8 @@ export const ProfileSchema = z
     default_engine_id: z.number(),
     resolver_id: z.number(),
     resolver_config: z.record(z.string(), z.unknown()).optional(),
+    /** The chain after this profile's own capture, as rungs (newest shape). */
+    fallback_chain: FallbackChainSchema.optional(),
     fallback_sources: z
       .array(
         z.object({

@@ -16,7 +16,7 @@ import { fetchProfilePage } from "@/api/endpoints"
 import { queryKeys, queryRoots, resolveEntityName } from "@/api/query-keys"
 import { rankBySearch } from "@/api/domain/search"
 import { flaggedNotice } from "@/api/domain/autorun-issue"
-import { fallbackSourceLabel } from "@/api/domain/fallback-sources"
+import { chainOf, mapNaming, rungLabel } from "@/api/domain/fallback-chain"
 import type { Profile, ResolverSource } from "@/api/schemas"
 import { humanize, showingLabel } from "@/ui/lib/format"
 import { staggerContainer, staggerItem } from "@/ui/lib/motion"
@@ -73,9 +73,12 @@ interface ProfileRowProps {
 }
 
 function profileFallbacks(profile: Profile, names: NameMaps): string[] {
-  return (profile.fallback_sources ?? []).map((source) =>
-    fallbackSourceLabel(source, (id) => resolveEntityName(undefined, names.resolvers, id)),
-  )
+  const naming = mapNaming({
+    engines: names.engines ?? new Map<number, string>(),
+    resolvers: names.resolvers ?? new Map<number, string>(),
+    profiles: names.profiles ?? new Map<number, string>(),
+  })
+  return chainOf(profile).map((rung) => rungLabel(rung, naming))
 }
 
 function ProfileRow({ profile, names, selected, onToggle, onEdit, onDelete, onExport }: ProfileRowProps) {

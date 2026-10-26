@@ -1,23 +1,36 @@
 import { autorun, engine, expect, profile, resolver, test } from "./fixtures"
 
 /**
- * The fallback chain is an ordered list on the create/edit form: the primary
- * profile is never offered as a rung, each rung can be moved and removed, and
- * the order the user builds is the order the server tries.
+ * The fallback chain is an ordered list of rungs on the create/edit form. A rung
+ * is a patch — a profile, a different engine, a different source, or any
+ * combination — and the order the user builds is the order the server tries.
+ */
+/**
+ * Each profile runs a stream of its own: two profiles on one source are one
+ * capture, which the chain refuses as a repeat.
  */
 const PROFILES = [
-  profile({ id: 1, name: "F1 Weekend" }),
-  profile({ id: 2, name: "News Hour" }),
-  profile({ id: 3, name: "GB edge" }),
+  profile({ id: 1, name: "F1 Weekend", resolver_id: 1, resolver_name: "Sky" }),
+  profile({ id: 2, name: "News Hour", resolver_id: 2, resolver_name: "Eurosport" }),
+  profile({ id: 3, name: "GB edge", resolver_id: 3, resolver_name: "Direct" }),
 ]
+
+const ENGINES = [engine({ id: 1, name: "Streamlink" })]
 
 /** The widest rung to lay out: a config form and a Browse button. */
 const WIDE = resolver({
-  id: 1,
+  id: 4,
   name: "Wide IPTV",
   has_catalog: true,
   config_schema: { type: "object", properties: { channel: { type: "string", title: "Channel" } } },
 })
+
+const RESOLVERS = [
+  resolver({ id: 1, name: "Sky" }),
+  resolver({ id: 2, name: "Eurosport" }),
+  resolver({ id: 3, name: "Direct" }),
+  WIDE,
+]
 
 async function openCreate(page: import("@playwright/test").Page) {
   await page.goto("/autoruns")
@@ -38,58 +51,64 @@ async function expectNoOverflow(dialog: import("@playwright/test").Locator): Pro
   expect(box!.x + box!.width, "the dialog runs off the screen").toBeLessThanOrEqual(376)
 }
 
-test.describe("fallback profiles", () => {
+function chainList(dialog: import("@playwright/test").Locator) {
+  return dialog.getByRole("list", { name: "Fallback chain, in order" }).getByRole("listitem")
+}
+
+test.describe("fallback chain", () => {
   test.beforeEach(async ({ api }) => {
     api.data.autoruns = [autorun({ id: 1, user_friendly_name: "Zulu", snake_case_name: "zulu" })]
     api.data.profiles = PROFILES
+    api.data.engines = ENGINES
+    api.data.resolvers = RESOLVERS
   })
 
-  test("builds an ordered chain that never repeats the primary", async ({ page }) => {
+  test("builds an ordered chain of profile rungs", async ({ page }) => {
     await openCreate(page)
     const dialog = page.getByRole("dialog")
-    const add = dialog.getByLabel("Add a fallback profile")
-
     await dialog.locator("#autorun-profile").selectOption("1")
-    await expect(add.locator("option")).toHaveText([
-      "Add a fallback profile…",
-      "News Hour",
-      "GB edge",
-    ])
 
-    await add.selectOption("2")
-    await add.selectOption("3")
-    const chips = dialog.getByRole("list", { name: "Fallback profiles, in order" }).getByRole("listitem")
+    await dialog.locator("#autorun-fallback-profile").selectOption("2")
+    await dialog.getByRole("button", { name: "Add fallback" }).click()
+    await dialog.locator("#autorun-fallback-profile").selectOption("3")
+    await dialog.getByRole("button", { name: "Add fallback" }).click()
+
+    const chips = chainList(dialog)
     await expect(chips).toHaveCount(2)
     await expect(chips.nth(0)).toContainText("News Hour")
     await expect(chips.nth(1)).toContainText("GB edge")
-    await expect(add.locator("option")).toHaveCount(1)
 
-    await dialog.getByRole("button", { name: "Move GB edge up" }).click()
+    await dialog.getByRole("button", { name: "Move fallback 2 up" }).click()
     await expect(chips.nth(0)).toContainText("GB edge")
     await expect(chips.nth(1)).toContainText("News Hour")
-    await expect(dialog.getByRole("button", { name: "Move GB edge up" })).toBeDisabled()
+    await expect(dialog.getByRole("button", { name: "Move fallback 1 up" })).toBeDisabled()
 
-    await dialog.getByRole("button", { name: "Remove News Hour" }).click()
+    await dialog.getByRole("button", { name: "Remove fallback 2" }).click()
     await expect(chips).toHaveCount(1)
     await expect(chips.nth(0)).toContainText("GB edge")
   })
 
-  test("picking a fallback as the primary drops it from the chain", async ({ page }) => {
+  test("refuses a rung that changes nothing, then drops it once it becomes one", async ({
+    page,
+  }) => {
     await openCreate(page)
     const dialog = page.getByRole("dialog")
-
     await dialog.locator("#autorun-profile").selectOption("1")
-    await dialog.getByLabel("Add a fallback profile").selectOption("2")
-    const chips = dialog.getByRole("list", { name: "Fallback profiles, in order" }).getByRole("listitem")
-    await expect(chips).toHaveCount(1)
 
+    // News Hour is a real change; F1 Weekend is the capture before the chain.
+    await dialog.locator("#autorun-fallback-profile").selectOption("1")
+    const add = dialog.getByRole("button", { name: "Add fallback" })
+    await expect(add).toBeDisabled()
+    await expect(dialog.getByText(/Fallback 1 is the run.s own source/)).toBeVisible()
+
+    await dialog.locator("#autorun-fallback-profile").selectOption("2")
+    await expect(add).toBeEnabled()
+    await add.click()
+    await expect(chainList(dialog)).toHaveCount(1)
+
+    // The run's own profile moves onto that rung, so the rung can no longer run.
     await dialog.locator("#autorun-profile").selectOption("2")
-    await expect(chips).toHaveCount(0)
-    await expect(dialog.getByLabel("Add a fallback profile").locator("option")).toHaveText([
-      "Add a fallback profile…",
-      "F1 Weekend",
-      "GB edge",
-    ])
+    await expect(chainList(dialog)).toHaveCount(0)
   })
 
   test("sends the chain in the order it was built", async ({ page, api }) => {
@@ -98,8 +117,10 @@ test.describe("fallback profiles", () => {
 
     await dialog.locator("#autorun-friendly").fill("Race")
     await dialog.locator("#autorun-profile").selectOption("1")
-    await dialog.getByLabel("Add a fallback profile").selectOption("3")
-    await dialog.getByLabel("Add a fallback profile").selectOption("2")
+    await dialog.locator("#autorun-fallback-profile").selectOption("3")
+    await dialog.getByRole("button", { name: "Add fallback" }).click()
+    await dialog.locator("#autorun-fallback-profile").selectOption("2")
+    await dialog.getByRole("button", { name: "Add fallback" }).click()
     await dialog.locator("#autorun-start").fill("2026-11-01T10:00")
     await dialog.locator("#autorun-end").fill("2026-11-01T12:00")
 
@@ -110,21 +131,21 @@ test.describe("fallback profiles", () => {
     expect(post?.body).toMatchObject({
       user_friendly_name: "Race",
       profile_id: 1,
-      fallback_profile_ids: [3, 2],
+      fallback_chain: [{ profile_id: 3 }, { profile_id: 2 }],
     })
   })
 
-  test("an engine + resolver run clears the chain", async ({ page, api }) => {
-    api.data.engines = [engine({ id: 1, name: "Streamlink" })]
-    api.data.resolvers = [resolver({ id: 1, name: "Direct" })]
+  test("a chain of profiles survives the switch to an engine + resolver run", async ({
+    page,
+    api,
+  }) => {
     api.data.autoruns = [
       autorun({
         id: 2,
         user_friendly_name: "Mixed",
         snake_case_name: "mixed",
         profile_id: 1,
-        fallback_profile_ids: [2, 3],
-        fallback_profile_names: ["News Hour", "GB edge"],
+        fallback_chain: [{ profile_id: 2 }, { profile_id: 3 }],
       }),
     ]
 
@@ -132,83 +153,98 @@ test.describe("fallback profiles", () => {
     await page.getByRole("button", { name: "Actions for Mixed" }).click()
     await page.getByRole("menuitem", { name: "Edit" }).click()
     const dialog = page.getByRole("dialog")
-    await expect(
-      dialog.getByRole("list", { name: "Fallback profiles, in order" }).getByRole("listitem"),
-    ).toHaveCount(2)
+    await expect(chainList(dialog)).toHaveCount(2)
 
+    // A profile rung does not care what the run's own capture is — the chain runs
+    // exactly as it was written, so switching the run must not throw it away.
     await dialog.getByRole("tab", { name: "Engine + resolver" }).click()
     await dialog.locator("#autorun-engine").selectOption("1")
-    await dialog.locator("#autorun-resolver").selectOption("1")
+    await dialog.locator("#autorun-resolver").selectOption("4")
+    await expect(chainList(dialog)).toHaveCount(2)
     await dialog.getByRole("button", { name: "Save changes" }).click()
 
     const putCalls = () => api.callsTo("/autoruns/").filter((call) => call.method === "PUT")
     await expect.poll(() => putCalls().length).toBe(1)
-    expect(putCalls()[0]?.body).toMatchObject({ fallback_profile_ids: [] })
+    expect(putCalls()[0]?.body).toMatchObject({
+      fallback_chain: [{ profile_id: 2 }, { profile_id: 3 }],
+    })
   })
 
-  test("a phone width holds a whole chain without widening the dialog", async ({ page, api }) => {
-    await page.setViewportSize({ width: 375, height: 800 })
-    api.data.engines = [engine({ id: 1, name: "Streamlink" })]
-    api.data.resolvers = [WIDE]
+  test("a rung may change only the source, and the next one inherits it", async ({ page }) => {
+    await openCreate(page)
+    const dialog = page.getByRole("dialog")
+    await dialog.getByRole("tab", { name: "Engine + resolver" }).click()
+    await dialog.locator("#autorun-engine").selectOption("1")
+    await dialog.locator("#autorun-resolver").selectOption("4")
 
+    // The rung's preview says what it will actually run before it is added.
+    await expect(dialog.locator('[data-chain-preview="empty"]')).toBeVisible()
+    await dialog.locator("#autorun-fallback-resolver").selectOption("4")
+    await dialog.locator("#autorun-fallback-1-channel").fill("premium9")
+    await expect(dialog.locator('[data-chain-preview="runs"]')).toContainText("premium9")
+
+    await dialog.getByRole("button", { name: "Add fallback" }).click()
+    const chips = chainList(dialog)
+    await expect(chips).toHaveCount(1)
+    await expect(chips.nth(0)).toContainText("premium9")
+
+    // The engine inherits the stream the rung above runs, not the run's own.
+    await dialog.locator("#autorun-fallback-engine").selectOption("1")
+    await expect(dialog.locator('[data-chain-preview="runs"]')).toContainText("premium9")
+  })
+
+  test("a phone width holds a whole chain without widening the dialog", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 800 })
     await openCreate(page)
     const dialog = page.getByRole("dialog")
 
     await dialog.locator("#autorun-profile").selectOption("1")
-    const add = dialog.getByLabel("Add a fallback profile")
-    await add.selectOption("2")
-    await add.selectOption("3")
-    await expect(
-      dialog.getByRole("list", { name: "Fallback profiles, in order" }).getByRole("listitem"),
-    ).toHaveCount(2)
+    await dialog.locator("#autorun-fallback-profile").selectOption("2")
+    await dialog.getByRole("button", { name: "Add fallback" }).click()
+    await dialog.locator("#autorun-fallback-profile").selectOption("3")
+    await dialog.getByRole("button", { name: "Add fallback" }).click()
+    await expect(chainList(dialog)).toHaveCount(2)
     await expectNoOverflow(dialog)
 
     await dialog.getByRole("tab", { name: "Engine + resolver" }).click()
     await dialog.locator("#autorun-engine").selectOption("1")
-    await dialog.locator("#autorun-resolver").selectOption("1")
-    await dialog.getByRole("combobox", { name: "Fallback 1 · Resolver" }).selectOption("1")
+    await dialog.locator("#autorun-resolver").selectOption("4")
+    await dialog.locator("#autorun-fallback-resolver").selectOption("4")
 
+    // A rung equal to the run's own source is refused by name, not by silence.
     const addRung = dialog.getByRole("button", { name: "Add fallback" })
     await expect(addRung).toBeDisabled()
-    await expect(dialog.getByText(/same as the run.s own source/i)).toBeVisible()
+    await expect(dialog.getByText(/Fallback 3 is the run.s own source/)).toBeVisible()
     await expectNoOverflow(dialog)
 
-    await dialog.locator("#fallback-source-1-channel").fill("premium9")
+    await dialog.locator("#autorun-fallback-3-channel").fill("premium9")
     await addRung.click()
-    await expect(
-      dialog.getByRole("list", { name: "Fallback sources, in order" }).getByRole("listitem"),
-    ).toHaveCount(1)
+    await expect(chainList(dialog)).toHaveCount(3)
     await expectNoOverflow(dialog)
   })
 
-  test("names a rung that becomes the run's own source and refuses to save it", async ({
-    page,
-    api,
-  }) => {
-    api.data.engines = [engine({ id: 1, name: "Streamlink" })]
-    api.data.resolvers = [WIDE]
+  test("a rung browses its own resolver's catalog", async ({ page, api }) => {
+    api.data.discovery = [{ id: "9", title: "Sky Sports F1", config: { channel: "premium9" } }]
 
     await openCreate(page)
     const dialog = page.getByRole("dialog")
     await dialog.getByRole("tab", { name: "Engine + resolver" }).click()
     await dialog.locator("#autorun-engine").selectOption("1")
-    await dialog.locator("#autorun-resolver").selectOption("1")
+    await dialog.locator("#autorun-resolver").selectOption("4")
 
-    await dialog.getByRole("combobox", { name: "Fallback 1 · Resolver" }).selectOption("1")
-    await dialog.locator("#fallback-source-1-channel").fill("premium9")
-    await dialog.getByRole("button", { name: "Add fallback" }).click()
-    const chips = dialog.getByRole("list", { name: "Fallback sources, in order" }).getByRole("listitem")
-    await expect(chips).toHaveCount(1)
+    // Only the run's own source is browsable until the rung names a resolver.
+    const browse = dialog.getByRole("button", { name: "Browse Wide IPTV…" })
+    await expect(browse).toHaveCount(1)
+    await dialog.locator("#autorun-fallback-resolver").selectOption("4")
+    await expect(browse).toHaveCount(2)
 
-    await dialog.locator("#autorun-channel").fill("premium9")
+    await browse.nth(1).click()
+    await page
+      .getByRole("dialog", { name: "Browse Wide IPTV" })
+      .getByRole("button", { name: "Use" })
+      .first()
+      .click()
 
-    const problem = dialog.locator('[data-chain-problem="primary"]')
-    await expect(problem).toHaveText(/Fallback 1 is the run.s own source/)
-    await expect(chips.first()).toHaveAttribute("data-problem", "primary")
-    await expect(dialog.getByRole("button", { name: "Create scheduled recording" })).toBeDisabled()
-
-    await dialog.getByRole("button", { name: /^Remove / }).click()
-    await expect(problem).toHaveCount(0)
-    await expect(dialog.getByRole("button", { name: "Create scheduled recording" })).toBeEnabled()
+    await expect(dialog.locator("#autorun-fallback-1-channel")).toHaveValue("premium9")
   })
 })

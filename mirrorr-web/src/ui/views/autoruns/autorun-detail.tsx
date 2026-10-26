@@ -13,6 +13,7 @@ import {
   formatDuration,
   parseNaiveUtc,
 } from "@/api/time"
+import { chainOf, mapNaming, rungLabel } from "@/api/domain/fallback-chain"
 import type { Session } from "@/api/schemas"
 import {
   Banner,
@@ -33,7 +34,6 @@ import {
 } from "@/ui/components"
 import { useLiveDurationSeconds, useNowTick } from "@/ui/hooks"
 import { Page } from "@/ui/views/shared/page"
-import { fallbackSourceLabel } from "@/api/domain/fallback-sources"
 import { autorunIssue } from "@/api/domain/autorun-issue"
 import { AutorunActionsMenu } from "./autorun-actions"
 import { AutorunFormDialog } from "./autorun-form-dialog"
@@ -147,14 +147,16 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
   const engine = resolveEntityName(autorun.engine_name, names.engines, autorun.engine_id)
   const resolver = resolveEntityName(autorun.resolver_name, names.resolvers, autorun.resolver_id)
   const profile = resolveEntityName(autorun.profile_name, names.profiles, autorun.profile_id)
-  const fallbacks = [
-    ...(autorun.fallback_profile_ids ?? []).map((id, index) =>
-      resolveEntityName(autorun.fallback_profile_names?.[index], names.profiles, id),
+  const fallbacks = chainOf(autorun).map((rung) =>
+    rungLabel(
+      rung,
+      mapNaming({
+        engines: names.engines ?? new Map<number, string>(),
+        resolvers: names.resolvers ?? new Map<number, string>(),
+        profiles: names.profiles ?? new Map<number, string>(),
+      }),
     ),
-    ...(autorun.fallback_sources ?? []).map((source) =>
-      fallbackSourceLabel(source, (id) => resolveEntityName(undefined, names.resolvers, id)),
-    ),
-  ]
+  )
   const countdown = spent ? "retired" : formatCountdown(autorun.start_time, now)
   const issue = autorunIssue(autorun)
   const startInPast =

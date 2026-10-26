@@ -29,58 +29,12 @@ function canonical(value: unknown): unknown {
   return value
 }
 
-function canonicalJson(value: unknown): string {
+export function canonicalJson(value: unknown): string {
   return JSON.stringify(canonical(value ?? {}))
 }
 
 function sameConfig(a: unknown, b: unknown): boolean {
   return canonicalJson(a) === canonicalJson(b)
-}
-
-/** Identity of a rung — the same resolver with a different config is a different source. */
-export function sourceKey(entry: FallbackSource): string {
-  return `${entry.resolver_id}:${canonicalJson(entry.resolver_config)}`
-}
-
-/** A chain the server would refuse: it repeats the run's own source, or a rung of itself. */
-export interface ChainProblem {
-  /** Position of the offending rung, zero-based. */
-  readonly index: number
-  readonly kind: "primary" | "duplicate"
-  /** For a duplicate, the earlier rung it repeats. */
-  readonly first?: number
-}
-
-/**
- * Why a chain cannot be saved, if it cannot: the server refuses a rung that
- * repeats the run's own source (it could never advance) or an earlier rung.
- */
-export function chainProblem(
-  chain: readonly FallbackSource[],
-  primary?: FallbackSource | null,
-): ChainProblem | null {
-  const primaryKey = primary === null || primary === undefined ? null : sourceKey(primary)
-  const seen = new Map<string, number>()
-  for (let index = 0; index < chain.length; index += 1) {
-    const key = sourceKey(chain[index])
-    if (key === primaryKey) return { index, kind: "primary" }
-    const first = seen.get(key)
-    if (first !== undefined) return { index, kind: "duplicate", first }
-    seen.set(key, index)
-  }
-  return null
-}
-
-/** The same problem, said to a reader, naming the rung they have to change. */
-export function chainProblemSentence(
-  problem: ChainProblem,
-  subject: "run" | "profile" = "run",
-): string {
-  const rung = `Fallback ${problem.index + 1}`
-  if (problem.kind === "primary") {
-    return `${rung} is the ${subject}’s own source — remove it or change that source.`
-  }
-  return `${rung} repeats fallback ${(problem.first ?? 0) + 1} — remove one of them.`
 }
 
 export function summariseConfig(config: Record<string, unknown>): string {
@@ -111,42 +65,4 @@ export function fallbackSourceLabel(
   const config = summariseConfig(entry.resolver_config ?? {})
   const resolver = resolverName(entry.resolver_id)
   return config === "" ? resolver : `${resolver} · ${config}`
-}
-
-/**
- * A rung of a session's plan, named for a reader: a profile by its name, a
- * source by its resolver, and the run's own capture as a dash.
- */
-export function planEntryLabel(
-  entry: CapturePlanEntry,
-  resolveProfile: (id: number) => string,
-  resolveResolver: (id: number) => string,
-): string {
-  if (entry === null) return "—"
-  if (typeof entry === "number") return resolveProfile(entry)
-  const resolverId = entry.resolver_id
-  if (typeof resolverId !== "number") return "—"
-  const config = entry.resolver_config
-  return fallbackSourceLabel(
-    {
-      resolver_id: resolverId,
-      resolver_config:
-        typeof config === "object" && config !== null
-          ? (config as Record<string, unknown>)
-          : {},
-    },
-    resolveResolver,
-  )
-}
-
-/**
- * The chain a run inherits when it names a profile: that profile's own sources
- * run after the capture, and the picker shows none of them.
- */
-export function inheritedChainHint(
-  sources: readonly FallbackSource[] | null | undefined,
-): string | null {
-  const count = sources?.length ?? 0
-  if (count === 0) return null
-  return `Also inherits ${count} source ${count === 1 ? "fallback" : "fallbacks"} from the profile.`
 }

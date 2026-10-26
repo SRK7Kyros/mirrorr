@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { FallbackChainSchema } from "./fallback"
 import { adminOnlyFields } from "./privileged"
 
 /**
@@ -24,6 +25,8 @@ export const AutorunSchema = z
     orphan_policy: z.string().optional(),
     /** Why this schedule is blocked (`"profile-deleted"`); saving the form clears it. */
     issue: z.string().nullable().optional(),
+    /** The chain after this run's own capture, as rungs (newest shape). */
+    fallback_chain: FallbackChainSchema.optional(),
     fallback_profile_ids: z.array(z.number()).optional(),
     fallback_profile_names: z.array(z.string()).optional(),
     fallback_sources: z

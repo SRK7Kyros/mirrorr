@@ -6,7 +6,7 @@ import { fetchSession } from "@/api/endpoints";
 import { queryKeys, resolveEntityName, staleTimes } from "@/api/query-keys";
 import { getStatusDescriptor, isStarting } from "@/api/status";
 import { isLive } from "@/api/domain/filter-grammar";
-import { planEntryLabel } from "@/api/domain/fallback-sources";
+import { planLabel, mapNaming } from "@/api/domain/fallback-chain";
 import { formatDateTime, formatDuration } from "@/api/time";
 import {
   buttonClass,
@@ -141,16 +141,22 @@ export function SessionDetailView({
   // The plan's own first entry is the source running now, not a fallback —
   // only what follows it is still owed.
   const plan = session.capture_plan ?? [];
+  const planBase = {
+    engine_id: session.engine_id,
+    resolver_id: session.resolver_id,
+    resolver_config: session.resolver_config ?? {},
+    profile_id: session.profile_id ?? null,
+    profile_name: session.profile_name ?? "",
+  };
+  const planNaming = mapNaming({
+    engines: names.engines ?? new Map<number, string>(),
+    resolvers: names.resolvers ?? new Map<number, string>(),
+    profiles: names.profiles ?? new Map<number, string>(),
+  });
   const pending = isLive(session.status)
     ? plan
         .slice(Math.max(captures.length, 1))
-        .map((entry) =>
-          planEntryLabel(
-            entry,
-            (id) => resolveEntityName(undefined, names.profiles, id),
-            (id) => resolveEntityName(undefined, names.resolvers, id),
-          ),
-        )
+        .map((entry) => planLabel(entry, planBase, planNaming))
     : [];
   // A single-source session that never fell back has nothing to add here: its
   // profile, engine and resolver are already on the page.

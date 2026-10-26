@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   ApiError,
@@ -29,9 +29,20 @@ import {
   toast,
 } from "@/ui/components"
 import { DiscoveryDrawer, canBrowseResolver } from "@/ui/views/shared/discovery-drawer"
-import { FallbackProfiles } from "./fallback-profiles"
-import { FallbackSources, SourceFields } from "@/ui/views/shared/source-chain"
-import { chainProblem, chainProblemSentence, type FallbackSource } from "@/api/domain/fallback-sources"
+import { SourceFields } from "@/ui/views/shared/source-chain"
+import { ChainEditor } from "@/ui/views/shared/chain-editor"
+import {
+  chainOf,
+  chainProblemSentence,
+  normaliseRung,
+  profileBase,
+  pruneChain,
+  resolveChain,
+  sameChain,
+  type ChainBase,
+  type ChainCatalog,
+  type FallbackRung,
+} from "@/api/domain/fallback-chain"
 import {
   AccessCreation,
   useCreationAccessApplier,
@@ -110,8 +121,7 @@ export function AutorunFormDialog({
   const [endLocal, setEndLocal] = useState("")
   const [mode, setMode] = useState<"profile" | "custom">("profile")
   const [profileId, setProfileId] = useState("")
-  const [fallbackIds, setFallbackIds] = useState<number[]>([])
-  const [fallbackSources, setFallbackSources] = useState<FallbackSource[]>([])
+  const [chain, setChain] = useState<FallbackRung[]>([])
   const [engineId, setEngineId] = useState("")
   const [resolverId, setResolverId] = useState("")
   const [resolverConfig, setResolverConfig] = useState<Record<string, unknown>>({})
@@ -146,8 +156,7 @@ export function AutorunFormDialog({
       setEndLocal("")
       setMode(profiles.length > 0 ? "profile" : "custom")
       setProfileId("")
-      setFallbackIds([])
-      setFallbackSources([])
+      setChain([])
       setEngineId("")
       setResolverId("")
       setResolverConfig({})
@@ -164,13 +173,7 @@ export function AutorunFormDialog({
     setProfileId(
       existingProfile !== null && existingProfile !== undefined ? String(existingProfile) : "",
     )
-    setFallbackIds(autorun.fallback_profile_ids ?? [])
-    setFallbackSources(
-      (autorun.fallback_sources ?? []).map((source) => ({
-        resolver_id: source.resolver_id,
-        resolver_config: source.resolver_config ?? {},
-      })),
-    )
+    setChain(chainOf(autorun))
     setEngineId(String(autorun.engine_id))
     setResolverId(String(autorun.resolver_id))
     setResolverConfig(autorun.resolver_config ?? {})
@@ -190,12 +193,34 @@ export function AutorunFormDialog({
     new Date(endLocal).getTime() < parseNaiveUtc(autorun.end_time).getTime()
   const resolver = resolvers.find((item) => String(item.id) === resolverId)
   const canBrowse = canBrowseResolver(resolver)
-  const primarySource =
-    resolver === undefined ? null : { resolver_id: resolver.id, resolver_config: resolverConfig }
-  const chainTrouble = mode === "custom" ? chainProblem(fallbackSources, primarySource) : null
-  const canSubmit =
-    (mode === "profile" ? profileId !== "" : engineId !== "" && resolverId !== "") &&
-    chainTrouble === null
+  const chosenProfile = profiles.find((item) => String(item.id) === profileId) ?? null
+
+  const catalog = useMemo<ChainCatalog>(
+    () => ({ profiles, engines, resolvers }),
+    [profiles, engines, resolvers],
+  )
+
+  const base = useMemo<ChainBase | null>(() => {
+    if (mode === "profile") return chosenProfile === null ? null : profileBase(chosenProfile)
+    if (engineId === "" || resolverId === "") return null
+    return {
+      engine_id: Number(engineId),
+      resolver_id: Number(resolverId),
+      resolver_config: resolverConfig,
+    }
+  }, [mode, chosenProfile, engineId, resolverId, resolverConfig])
+
+  useEffect(() => {
+    if (base === null) return
+    setChain((previous) => {
+      const next = pruneChain(previous, base, catalog)
+      return sameChain(next, previous) ? previous : next
+    })
+  }, [base, catalog])
+
+  const chainState = base === null ? null : resolveChain(chain, base, catalog)
+  const chainTrouble = chainState === null ? null : chainState.problem
+  const canSubmit = chainState !== null && chainTrouble === null
 
   const save = useMutation({
     mutationFn: async (body: AutorunBody) => {
@@ -237,8 +262,7 @@ export function AutorunFormDialog({
     setTimeError(null)
     const initialStart = autorun === undefined ? null : naiveUtcToDatetimeLocal(autorun.start_time)
     const initialEnd = autorun === undefined ? null : naiveUtcToDatetimeLocal(autorun.end_time)
-    // A chain stored before repeats were refused may name its own primary; saving heals it.
-    const chain = fallbackIds.filter((id) => String(id) !== profileId)
+    const rungs = chain.map(normaliseRung)
     save.mutate({
       user_friendly_name: friendly.trim(),
       snake_case_name: slug,
@@ -258,14 +282,13 @@ export function AutorunFormDialog({
       ...(mode === "profile"
         ? {
             profile_id: Number(profileId),
-            fallback_profile_ids: chain,
+            fallback_chain: rungs,
           }
         : {
             engine_id: Number(engineId),
             resolver_id: Number(resolverId),
             resolver_config: resolverConfig,
-            fallback_profile_ids: [],
-            fallback_sources: fallbackSources,
+            fallback_chain: rungs,
           }),
     })
   }
@@ -432,9 +455,9 @@ export function AutorunFormDialog({
                     onChange={(event) => {
                       const next = event.target.value
                       setProfileId(next)
-                      setFallbackIds((previous) =>
-                        previous.filter((id) => String(id) !== next),
-                      )
+                      const profile = profiles.find((item) => String(item.id) === next)
+                      // The chain travels with the profile it was written for.
+                      setChain(profile === undefined ? [] : chainOf(profile))
                     }}
                   >
                     <option value="">Select a profile…</option>
@@ -445,13 +468,6 @@ export function AutorunFormDialog({
                     ))}
                   </Select>
                 </Field>
-                <FallbackProfiles
-                  profiles={profiles}
-                  primaryId={profileId}
-                  value={fallbackIds}
-                  onChange={setFallbackIds}
-                  disabled={live}
-                />
               </>
             ) : (
               <>
@@ -511,14 +527,16 @@ export function AutorunFormDialog({
               </>
             )}
 
-            {!live && mode === "custom" && engineId !== "" && resolverId !== "" ? (
-              <FallbackSources
-                resolvers={resolvers}
-                value={fallbackSources}
-                onChange={setFallbackSources}
-                primary={primarySource}
+            {base === null ? null : (
+              <ChainEditor
+                idPrefix="autorun"
+                catalog={catalog}
+                base={base}
+                value={chain}
+                onChange={setChain}
+                disabled={live}
               />
-            ) : null}
+            )}
           </TabPanel>
 
           <Switch

@@ -218,6 +218,6 @@ describe("SessionDetailView sources", () => {
     expect(screen.getByText("Captures")).not.toBeNull()
     expect(screen.getByText("F1")).not.toBeNull()
     expect(screen.getByText("stream never became playable")).not.toBeNull()
-    expect(screen.getByText(/Falls back to #2/)).not.toBeNull()
+    expect(screen.getByText(/Falls back to Profile 2/)).not.toBeNull()
   })
 })
