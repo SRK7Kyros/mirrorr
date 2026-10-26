@@ -1,10 +1,11 @@
 import { z } from "zod"
 
 /**
- * One rung of a fallback chain — a patch over the capture before it.
+ * One rung of a fallback chain — a patch over the run's own capture.
  *
  * Every field is optional and nullable: a rung names only what it changes, and
- * the server fills the rest in (from the profile it names, else the rung above).
+ * the server fills the rest in from the profile it names, else the run's own
+ * capture — never from the rung before it.
  */
 export const FallbackRungSchema = z
   .object({

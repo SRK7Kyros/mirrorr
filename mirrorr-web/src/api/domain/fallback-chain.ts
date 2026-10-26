@@ -2,13 +2,14 @@ import type { Resolver, ResolverSource } from "@/api/schemas"
 import { canonicalJson, fallbackSourceLabel, summariseConfig, type FallbackSource } from "./fallback-sources"
 
 /**
- * One rung of a chain: a *patch* over the capture before it, not a kind of thing.
+ * One rung of a chain: a *patch* over the run's own capture, not a kind of thing
+ * and not a change to the rung before it.
  *
  * Naming a profile takes that profile whole; naming a resolver swaps where the
  * stream comes from; naming an engine changes what runs it. A rung may name any
- * combination, and whatever it leaves out is inherited — from the profile when
- * the rung names one, otherwise from the rung above (the run's own capture for
- * the first). Order is meaning, so the list is tried exactly as it is written.
+ * combination, and whatever it leaves out is inherited from its base — the
+ * profile when the rung names one, otherwise the run's own capture. Every rung
+ * is read against that same base, so order is only the order they are tried.
  */
 export interface FallbackRung {
   readonly profile_id?: number | null
@@ -171,17 +172,12 @@ export type RungStep =
 /**
  * One rung as the capture it stands for, inheriting what it does not name.
  *
- * `previous` is the capture just before this rung — the run's own for the first
- * rung, else the rung above — so a chain reads as a sequence of changes rather
- * than every rung restating the run's engine. A config is carried forward only
- * while the resolver stays the same, because a config belongs to the resolver
- * it configures.
+ * `own` is the run's own capture, and every rung is patched over it rather than
+ * over the rung before, so a rung means exactly the capture it describes however
+ * many rungs precede it. A config is carried over only while the resolver is
+ * still the run's own, because a config belongs to the resolver it configures.
  */
-export function resolveRung(
-  raw: FallbackRung,
-  previous: ChainCapture,
-  catalog: ChainCatalog,
-): RungStep {
+export function resolveRung(raw: FallbackRung, own: ChainCapture, catalog: ChainCatalog): RungStep {
   const rung = normaliseRung(raw)
   const profile =
     rung.profile_id === undefined
@@ -191,18 +187,18 @@ export function resolveRung(
     return { ok: false, kind: "profile-missing" }
   }
 
-  const engine_id = rung.engine_id ?? profile?.default_engine_id ?? previous.engine_id
-  const resolver_id = rung.resolver_id ?? profile?.resolver_id ?? previous.resolver_id
+  const engine_id = rung.engine_id ?? profile?.default_engine_id ?? own.engine_id
+  const resolver_id = rung.resolver_id ?? profile?.resolver_id ?? own.resolver_id
 
   let resolver_config: Record<string, unknown>
   if (rung.resolver_config !== undefined) {
     resolver_config = { ...rung.resolver_config }
   } else if (profile !== null) {
     resolver_config = { ...(profile.resolver_config ?? {}) }
-  } else if (resolver_id !== previous.resolver_id) {
+  } else if (resolver_id !== own.resolver_id) {
     resolver_config = {}
   } else {
-    resolver_config = { ...previous.resolver_config }
+    resolver_config = { ...own.resolver_config }
   }
 
   if (!catalog.engines.some((entry) => entry.id === engine_id)) {
@@ -213,7 +209,7 @@ export function resolveRung(
   }
 
   // A profile rung is also that profile's retry policy; a rung that names no
-  // profile keeps the policy in force, which is what makes it a *source* swap.
+  // profile keeps the run's own, which is what makes it a *source* swap.
   return {
     ok: true,
     capture: {
@@ -222,9 +218,8 @@ export function resolveRung(
       resolver_config,
       profile_id: rung.profile_id ?? null,
       profile_name: profile?.name ?? "",
-      retry_mode: profile?.retry_mode ?? previous.retry_mode,
-      retry_config:
-        profile === null ? { ...previous.retry_config } : { ...(profile.retry_config ?? {}) },
+      retry_mode: profile?.retry_mode ?? own.retry_mode,
+      retry_config: profile === null ? { ...own.retry_config } : { ...(profile.retry_config ?? {}) },
     },
   }
 }
@@ -254,8 +249,6 @@ export interface ResolvedChain {
   readonly captures: readonly ChainCapture[]
   /** The first problem, as a sentence-free description; `null` when the chain runs. */
   readonly problem: ChainProblem | null
-  /** The capture a new rung would patch: the last one that stood. */
-  readonly last: ChainCapture
 }
 
 /**
@@ -274,7 +267,6 @@ export function resolveChain(
   const seen = new Map<string, number>([[captureKey(own), -1]])
   const steps: ChainStep[] = []
   const captures: ChainCapture[] = []
-  let last = own
   let first: ChainProblem | null = null
 
   rungs.forEach((raw, index) => {
@@ -285,7 +277,7 @@ export function resolveChain(
       first ??= problem
       return
     }
-    const step = resolveRung(rung, last, catalog)
+    const step = resolveRung(rung, own, catalog)
     if (!step.ok) {
       const problem: ChainProblem = { index, kind: step.kind }
       steps.push({ rung, capture: null, problem })
@@ -298,17 +290,14 @@ export function resolveChain(
         seenAt < 0 ? { index, kind: "primary" } : { index, kind: "duplicate", first: seenAt }
       steps.push({ rung, capture: step.capture, problem })
       first ??= problem
-      // A dropped rung is not what the next one patches — the server keeps
-      // patching the last capture that stood.
       return
     }
     seen.set(captureKey(step.capture), index)
     captures.push(step.capture)
     steps.push({ rung, capture: step.capture, problem: null })
-    last = step.capture
   })
 
-  return { steps, captures, problem: first, last }
+  return { steps, captures, problem: first }
 }
 
 /**
