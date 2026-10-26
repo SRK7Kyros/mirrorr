@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Awaitable, Callable, Sequence
+from typing import Any, AsyncGenerator, Awaitable, Callable, Sequence
 
 from loguru import logger
 from sqlalchemy import inspect as sa_inspect
@@ -305,7 +305,7 @@ def loaders_for(db: Any) -> Loaders:
 
 
 @asynccontextmanager
-async def open_loaders(settings: Any) -> AsyncIterator[Loaders]:
+async def open_loaders(settings: Any) -> AsyncGenerator[Loaders]:
     """Loaders for a caller with no request context (the scheduler, a supervisor).
 
     They apply no access rule — a scheduled run was authorised when it was
