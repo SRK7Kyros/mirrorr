@@ -1066,14 +1066,19 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
             auth,
             payload_data.get("profile_id", existing.profile_id),
         )
+    resolver_id = payload_data.get("resolver_id", existing.resolver_id)
+    resolver_config = payload_data.get("resolver_config", existing.resolver_config)
     declared = payload_data.pop("fallback_sources", None)
     if declared is not None or profile is not None:
         payload_data["fallback_sources"] = await _chain_for_run(
-            db,
-            declared,
-            profile,
-            payload_data.get("resolver_id", existing.resolver_id),
-            payload_data.get("resolver_config", existing.resolver_config),
+            db, declared, profile, resolver_id, resolver_config
+        )
+    else:
+        # Kept chain, moved source: a rung that now repeats the run's own source
+        # could never advance, so it is dropped rather than stored (a declared
+        # chain is still refused, because that caller named the rung itself).
+        payload_data["fallback_sources"] = _usable_sources(
+            existing.fallback_sources, resolver_id, resolver_config
         )
     _enforce_autorun_update_guard(existing, payload_data)
     for field in ("start_time", "end_time"):
@@ -1335,8 +1340,11 @@ async def update_profile(id: int, item: UpdateProfileRequest, db: AsyncSession =
     current = existing.model_dump()
     current["fallback_sources"] = existing.fallback_sources or []
     payload = Profile.model_validate({**current, **payload_data})
+    chain = payload.fallback_sources
+    if "fallback_sources" not in payload_data:
+        chain = _usable_sources(chain, payload.resolver_id, payload.resolver_config)
     payload.fallback_sources = await _load_fallback_sources(
-        db, payload.fallback_sources, payload.resolver_id, payload.resolver_config, subject="profile"
+        db, chain, payload.resolver_id, payload.resolver_config, subject="profile"
     )
     if not auth.user:
         raise HTTPException(status_code=401, detail="Not authenticated")
