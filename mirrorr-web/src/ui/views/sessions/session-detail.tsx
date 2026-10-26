@@ -24,8 +24,7 @@ import {
 } from "@/ui/components";
 import { useLiveDurationSeconds } from "@/ui/hooks";
 import { Page } from "@/ui/views/shared/page";
-import { AttemptsTimeline, toAttemptView } from "./attempts-timeline";
-import { CapturesTimeline, toCaptureView } from "./captures-timeline";
+import { SessionTimeline, toAttemptView, toCaptureView } from "./session-timeline";
 import { RemuxProgressBar } from "./remux-progress";
 import { SessionSaveProfileButton } from "./session-save-profile-button";
 import { SessionStopDeleteButton } from "./session-stop-delete-button";
@@ -158,9 +157,6 @@ export function SessionDetailView({
         .slice(Math.max(captures.length, 1))
         .map((entry) => planLabel(entry, planBase, planNaming))
     : [];
-  // A single-source session that never fell back has nothing to add here: its
-  // profile, engine and resolver are already on the page.
-  const showCaptures = plan.length > 1 || captures.length > 1;
   const remuxing =
     session.status === "remuxing" || session.status === "finalizing";
   // Telemetry covers the attempt's own processes — remux/finalize sample nothing.
@@ -250,20 +246,6 @@ export function SessionDetailView({
         </PanelBody>
       </Panel>
 
-      {showCaptures ? (
-        <Panel>
-          <PanelHead
-            title="Captures"
-            actions={
-              plan.length > 1 ? <Tag>{plan.length} in the plan</Tag> : null
-            }
-          />
-          <PanelBody>
-            <CapturesTimeline captures={captures} pending={pending} />
-          </PanelBody>
-        </Panel>
-      ) : null}
-
       <Panel>
         <PanelHead title="Live sources" />
         <PanelBody>
@@ -290,47 +272,51 @@ export function SessionDetailView({
         </PanelBody>
       </Panel>
 
-      <div className="grid grid-cols-2 gap-5 max-sm:grid-cols-1">
-        <Panel>
-          <PanelHead
-            title="Attempts"
-            actions={getStatusDescriptor(session.status).label}
+      <Panel>
+        {/* The status chip above already names the state; what only this panel
+            knows is how many sources the run has to fall back to. */}
+        <PanelHead
+          title="Timeline"
+          actions={plan.length > 1 ? <Tag>{plan.length} in the plan</Tag> : null}
+        />
+        <PanelBody>
+          <SessionTimeline
+            captures={captures}
+            attempts={attempts}
+            pending={pending}
           />
-          <PanelBody>
-            <AttemptsTimeline attempts={attempts} />
-          </PanelBody>
-        </Panel>
+        </PanelBody>
+      </Panel>
 
-        <Panel>
-          <PanelHead title="Config snapshot" />
-            <PanelBody>
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-2">
-                  <KeyValue label="Engine">{engine}</KeyValue>
-                  <KeyValue label="Resolver">{resolver}</KeyValue>
-                  <KeyValue label="Profile">{profile}</KeyValue>
-                  <KeyValue label="Retry mode">
-                    {session.retry_mode ?? "—"}
-                  </KeyValue>
-                </div>
-                {hasResolverConfig && session.resolver_config !== undefined ? (
-                  <JsonView
-                    label="Resolver config"
-                    value={session.resolver_config}
-                    defaultOpen
-                  />
-                ) : null}
-                {hasRetryConfig && session.retry_config !== undefined ? (
-                  <JsonView
-                    label="Retry config"
-                    value={session.retry_config}
-                    defaultOpen
-                  />
-                ) : null}
-              </div>
-            </PanelBody>
-          </Panel>
-      </div>
+      <Panel>
+        <PanelHead title="Config snapshot" />
+        <PanelBody>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <KeyValue label="Engine">{engine}</KeyValue>
+              <KeyValue label="Resolver">{resolver}</KeyValue>
+              <KeyValue label="Profile">{profile}</KeyValue>
+              <KeyValue label="Retry mode">
+                {session.retry_mode ?? "—"}
+              </KeyValue>
+            </div>
+            {hasResolverConfig && session.resolver_config !== undefined ? (
+              <JsonView
+                label="Resolver config"
+                value={session.resolver_config}
+                defaultOpen
+              />
+            ) : null}
+            {hasRetryConfig && session.retry_config !== undefined ? (
+              <JsonView
+                label="Retry config"
+                value={session.retry_config}
+                defaultOpen
+              />
+            ) : null}
+          </div>
+        </PanelBody>
+      </Panel>
     </Page>
   );
 }

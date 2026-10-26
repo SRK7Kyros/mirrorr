@@ -168,34 +168,40 @@ describe("SessionDetailView live sources", () => {
   })
 })
 
-describe("SessionDetailView sources", () => {
-  it("hides the panel for a session with one source and no fallback", async () => {
+describe("SessionDetailView timeline", () => {
+  it("says the session has not started yet rather than showing an empty panel", async () => {
     endpoints.fetchSession.mockResolvedValue(
-      session({ status: "active", capture_plan: [1], captures: [] }),
+      session({ status: "active", capture_plan: [1], captures: [], attempts: [] }),
     )
 
     renderDetail()
 
     await screen.findByRole("button", { name: /stop session #7/i })
-    expect(screen.queryByText("Captures")).toBeNull()
+    expect(screen.getByText("Timeline")).not.toBeNull()
+    expect(screen.queryByText(/Waiting for the supervisor/)).not.toBeNull()
   })
 
-  it("hides the panel for a completed session that never fell back", async () => {
+  it("nests a single source's attempt under its own capture, with nothing to fall back to", async () => {
     endpoints.fetchSession.mockResolvedValue(
       session({
         status: "completed",
         capture_plan: [1],
         captures: [{ index: 1, status: "completed", profile_id: 1, profile_name: "F1" }],
+        attempts: [{ index: 1, capture: 1, started_at: "2026-10-13T21:09:00", ended_at: "2026-10-13T22:04:00" }],
       }),
     )
 
     renderDetail()
 
     await screen.findByText("Live sources")
-    expect(screen.queryByText("Captures")).toBeNull()
+    expect(screen.getByText("Timeline")).not.toBeNull()
+    const group = screen.getByRole("list", { name: "Attempts in capture 1" })
+    expect(group).not.toBeNull()
+    expect(screen.queryByText("Fallback")).toBeNull()
+    expect(screen.queryByText(/Falls back to/)).toBeNull()
   })
 
-  it("lists the capture that failed and the profile still owed", async () => {
+  it("lists the capture that failed, its attempt, and the profile still owed", async () => {
     endpoints.fetchSession.mockResolvedValue(
       session({
         status: "active",
@@ -209,15 +215,48 @@ describe("SessionDetailView sources", () => {
             reason: "stream never became playable",
           },
         ],
+        attempts: [
+          { index: 1, capture: 1, started_at: "2026-10-13T21:09:00", ended_at: "2026-10-13T21:12:00", reason: "engine died" },
+        ],
       }),
     )
 
     renderDetail()
 
     await screen.findByRole("button", { name: /stop session #7/i })
-    expect(screen.getByText("Captures")).not.toBeNull()
+    expect(screen.getByText("Timeline")).not.toBeNull()
     expect(screen.getByText("F1")).not.toBeNull()
     expect(screen.getByText("stream never became playable")).not.toBeNull()
+    expect(screen.getByText("engine died")).not.toBeNull()
     expect(screen.getByText(/Falls back to Profile 2/)).not.toBeNull()
+  })
+
+  it("shows a handover: the capture that dropped and the one that recorded", async () => {
+    endpoints.fetchSession.mockResolvedValue(
+      session({
+        status: "active",
+        capture_plan: [1, 2],
+        captures: [
+          { index: 1, status: "failed", profile_id: 1, profile_name: "F1", reason: "stream never became playable" },
+          { index: 2, status: "active", profile_id: 2, profile_name: "F1 UK", merged: true },
+        ],
+        attempts: [
+          { index: 1, capture: 1, started_at: "2026-10-13T21:09:00", ended_at: "2026-10-13T21:12:00" },
+          { index: 2, capture: 2, started_at: "2026-10-13T21:13:00", ended_at: null },
+        ],
+      }),
+    )
+
+    renderDetail()
+
+    await screen.findByRole("button", { name: /stop session #7/i })
+    expect(screen.getByText("F1")).not.toBeNull()
+    expect(screen.getByText("F1 UK")).not.toBeNull()
+    expect(screen.getByText("Fallback")).not.toBeNull()
+    expect(screen.getByText("In the recording")).not.toBeNull()
+    expect(screen.getByRole("list", { name: "Attempts in capture 1" })).not.toBeNull()
+    expect(screen.getByRole("list", { name: "Attempts in capture 2" })).not.toBeNull()
+    expect(screen.getByText("superseded by #2")).not.toBeNull()
+    expect(screen.queryByText(/Falls back to/)).toBeNull()
   })
 })
