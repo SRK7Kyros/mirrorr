@@ -21,6 +21,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from mirrorr.api.dependencies import _get_db, require_auth, AuthState
 from mirrorr.api.privileged import PrivilegedRoute
 from mirrorr.api.auth import subscribe_requester
+from mirrorr.services import fallback_chain
 from mirrorr.api.schemas import (
     CreateSessionRequest,
     CreateAutorunRequest,
@@ -300,138 +301,109 @@ async def _load_visible_profile(
     return profile
 
 
-async def _load_fallback_chain(
+def _chain_loaders(db: AsyncSession, auth: AuthState) -> fallback_chain.Loaders:
+    """Loaders that apply the caller's rule to a rung: a profile must be visible.
+
+    Using a profile copies out of it, which is a read of it, so a rung obeys the
+    same rule as the run's own profile.
+    """
+    base = fallback_chain.loaders_for(db)
+
+    async def profile(profile_id: int):
+        # Keep the refusal's own status (400 gone, 403 not visible): left to
+        # raise, it reached the caller as a generic 422 "could not be loaded".
+        try:
+            return await _load_visible_profile(db, profile_id, auth)
+        except HTTPException as e:
+            raise fallback_chain.ChainError(
+                e.status_code,
+                e.detail,
+                "fallback-profile-denied" if e.status_code == 403 else "fallback-profile-missing",
+            ) from e
+
+    return fallback_chain.Loaders(profile=profile, engine=base.engine, resolver=base.resolver)
+
+
+def _declared_chain(item: Any) -> list[dict[str, Any]] | None:
+    """The chain a request declares, or ``None`` when it says nothing about it.
+
+    ``fallback_chain`` is the chain itself; the older ``fallback_profile_ids``
+    plus ``fallback_sources`` pair is folded into one, which is the order those
+    always ran in. An empty list is a declaration too — "no fallbacks" — and
+    must not be read as "inherit mine".
+    """
+    chain = getattr(item, "fallback_chain", None)
+    if chain is not None:
+        return fallback_chain.declared_chain(chain)
+    ids = getattr(item, "fallback_profile_ids", None)
+    sources = getattr(item, "fallback_sources", None)
+    if ids is None and sources is None:
+        return None
+    return fallback_chain.declared_chain(fallback_chain.fold_legacy(ids, sources))
+
+
+async def _base_for(
+    db: AsyncSession, payload: dict[str, Any], existing: Any, profile: Profile | None
+) -> fallback_chain.Base:
+    """The capture a row makes once this request's changes are applied."""
+    current = fallback_chain.base_of(existing)
+    profile_id = payload.get("profile_id", current.profile_id)
+    if profile is not None:
+        profile_name = profile.name
+    elif profile_id is None or current.profile_name:
+        profile_name = current.profile_name
+    else:
+        named = await crud.get_by_id(db, Profile, profile_id)
+        profile_name = named.name if named is not None else ""
+    return fallback_chain.Base(
+        engine_id=int(payload.get("engine_id", current.engine_id) or 0),
+        resolver_id=int(payload.get("resolver_id", current.resolver_id) or 0),
+        resolver_config=dict(payload.get("resolver_config", current.resolver_config) or {}),
+        retry_mode=str(payload.get("retry_mode", current.retry_mode) or "none"),
+        retry_config=dict(payload.get("retry_config", current.retry_config) or {}),
+        profile_id=profile_id,
+        profile_name=profile_name,
+    )
+
+
+async def _resolve_chain(
     db: AsyncSession,
-    ids: list[int] | None,
     auth: AuthState,
-    primary_profile_id: int | None,
-    subject: str = "autorun",
-) -> list[int]:
-    """Validate a fallback chain: all visible, once each, never the primary.
-
-    Each profile is loaded through ``_load_visible_profile`` so a fallback obeys
-    the same rule as the primary: using a profile copies out of it, which is a
-    read of it. Only reuse of the primary is refused, because the chain advances
-    by position and a repeated profile could never advance.
-    """
-    chain: list[int] = []
-    for pid in ids or []:
-        if pid == primary_profile_id:
-            raise _guard_denied(
-                422, f"A fallback cannot be the {subject}'s own profile", "fallback-is-primary"
-            )
-        if pid in chain:
-            raise _guard_denied(422, "A fallback profile is listed twice", "fallback-duplicate")
-        await _load_visible_profile(db, pid, auth)
-        chain.append(pid)
-    return chain
-
-
-def _source_key(resolver_id: int, config: dict[str, Any] | None) -> str:
-    """Identity of one source, so a chain cannot name the same one twice."""
-    return f"{resolver_id}:{json.dumps(config or {}, sort_keys=True, default=str)}"
-
-
-def _usable_sources(
-    sources: list[Any] | None, resolver_id: int, resolver_config: dict[str, Any] | None
-) -> list[dict[str, Any]]:
-    """An inherited chain re-seated against the run's own source.
-
-    Inheriting must never refuse a run whose caller wrote none of the chain, so
-    a rung that would repeat the run's own source is dropped here instead of
-    raising the way a declared chain does.
-    """
-    seen = {_source_key(resolver_id, resolver_config)}
-    kept: list[dict[str, Any]] = []
-    for raw in sources or []:
-        key = _source_key(int(raw.get("resolver_id") or 0), raw.get("resolver_config"))
-        if key in seen:
-            continue
-        seen.add(key)
-        kept.append({
-            "resolver_id": int(raw["resolver_id"]),
-            "resolver_config": dict(raw.get("resolver_config") or {}),
-        })
-    return kept
-
-
-async def _load_fallback_sources(
-    db: AsyncSession,
-    sources: list[Any] | None,
-    primary_resolver_id: int,
-    primary_resolver_config: dict[str, Any] | None,
-    subject: str = "autorun",
-) -> list[dict[str, Any]]:
-    """Validate inline fallback sources: real resolvers, once each, never the primary.
-
-    A source is a resolver plus its config — the same shape the run's own
-    engine+resolver capture carries — so a fallback only moves *where* the
-    stream comes from, keeping the run's engine and retry policy. Only the
-    primary is refused besides repeats, because the chain advances by position
-    and a repeated source could never advance.
-    """
-    chain: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    primary = _source_key(primary_resolver_id, primary_resolver_config)
-    for raw in sources or []:
-        if isinstance(raw, dict):
-            resolver_id = int(raw.get("resolver_id") or 0)
-            config = dict(raw.get("resolver_config") or {})
-        else:
-            resolver_id = int(raw.resolver_id)
-            config = dict(raw.resolver_config or {})
-        key = _source_key(resolver_id, config)
-        if key == primary:
-            raise _guard_denied(
-                422, f"A fallback cannot be the {subject}'s own source", "fallback-source-is-primary"
-            )
-        if key in seen:
-            raise _guard_denied(422, "A fallback source is listed twice", "fallback-source-duplicate")
-        if not await crud.get_by_id(db, Resolver, resolver_id):
-            raise HTTPException(status_code=400, detail=f"Resolver {resolver_id} not found")
-        seen.add(key)
-        chain.append({"resolver_id": resolver_id, "resolver_config": config})
-    return chain
-
-
-async def _chain_for_run(
-    db: AsyncSession,
-    declared: list[Any] | None,
-    profile: Profile | None,
-    resolver_id: int,
-    resolver_config: dict[str, Any] | None,
-    subject: str = "autorun",
-) -> list[dict[str, Any]]:
-    """The chain a run starts with: the one it declared, else its profile's.
-
-    A declared list is the chain even when it is empty — clearing the chain in a
-    request that also names a profile must not be undone by that profile's own.
-    Only a request that says nothing about the chain inherits it.
-    """
-    if declared is None:
-        declared = _usable_sources(
-            profile.fallback_sources if profile is not None else None,
-            resolver_id,
-            resolver_config,
+    rungs: list[Any],
+    base: fallback_chain.Base,
+    *,
+    strict: bool,
+    subject: str,
+) -> fallback_chain.Chain:
+    """Resolve rungs against a run's own capture, as the caller may use them."""
+    try:
+        return await fallback_chain.resolve(
+            _chain_loaders(db, auth), base, rungs, strict=strict, subject=subject
         )
-    return await _load_fallback_sources(db, declared, resolver_id, resolver_config, subject=subject)
+    except fallback_chain.ChainError as e:
+        raise _guard_denied(e.status_code, e.detail, e.rule) from e
 
 
-def _capture_plan(
-    profile_id: int | None,
-    fallbacks: list[int],
-    sources: list[dict[str, Any]],
-) -> list[int | dict[str, Any] | None]:
-    """The ordered captures a run tries: its own source first, then the fallbacks.
+async def _run_chain(
+    db: AsyncSession,
+    auth: AuthState,
+    declared: list[dict[str, Any]] | None,
+    inherited_from: Any,
+    base: fallback_chain.Base,
+    subject: str = "autorun",
+) -> fallback_chain.Chain:
+    """A run's chain as the rungs to store and the captures they stand for.
 
-    ``None`` is the supervisor's "run the row's own engine + resolver" capture,
-    which a request naming no profile needs as its first entry.
+    A declared chain is the chain even when it is empty — clearing it in a
+    request that also names a profile must not be undone by that profile's own.
+    Only a request that says nothing about the chain inherits one, from the
+    profile it names or else from what the row already carries, and inheriting
+    is never refused: a rung that no longer stands is dropped.
     """
-    if profile_id is not None:
-        return [profile_id, *fallbacks, *sources]
-    if not fallbacks and not sources:
-        return []
-    return [None, *fallbacks, *sources]
+    if declared is not None:
+        return await _resolve_chain(db, auth, declared, base, strict=True, subject=subject)
+    rungs = fallback_chain.rungs_of(inherited_from) if inherited_from is not None else []
+    return await _resolve_chain(db, auth, rungs, base, strict=False, subject=subject)
 
 
 async def _safe_emit(event: BaseEvent) -> None:
@@ -704,13 +676,15 @@ def _serialize_session(s: Session) -> dict:
 
 
 def _serialize_autorun(a: Autorun, fallback_names: dict[int, str] | None = None) -> dict:
-    chain = a.fallback_profile_ids or []
+    rungs = fallback_chain.rungs_of(a)
+    profile_ids, sources = fallback_chain.legacy_views(rungs)
     names = fallback_names or {}
     return {
         **a.model_dump(mode="json"),
-        "fallback_profile_ids": chain,
-        "fallback_profile_names": [names.get(pid, "") for pid in chain],
-        "fallback_sources": a.fallback_sources or [],
+        "fallback_chain": rungs,
+        "fallback_profile_ids": profile_ids,
+        "fallback_profile_names": [names.get(pid, "") for pid in profile_ids],
+        "fallback_sources": sources,
         "engine_name": _name_of(getattr(a, "engine", None)),
         "resolver_name": _name_of(getattr(a, "resolver", None)),
         "profile_name": _name_of(getattr(a, "profile", None)),
@@ -718,16 +692,23 @@ def _serialize_autorun(a: Autorun, fallback_names: dict[int, str] | None = None)
 
 
 async def _fallback_names(db: AsyncSession, rows: list[Autorun]) -> dict[int, str]:
-    ids = {pid for row in rows for pid in (row.fallback_profile_ids or [])}
+    ids = {
+        rung["profile_id"]
+        for row in rows
+        for rung in fallback_chain.rungs_of(row)
+        if rung.get("profile_id") is not None
+    }
     if not ids:
         return {}
     return dict((await db.exec(select(Profile.id, Profile.name).where(Profile.id.in_(ids)))).all())
 
 
 def _serialize_profile(p: Profile) -> dict:
+    rungs = fallback_chain.rungs_of(p)
     return {
         **p.model_dump(mode="json"),
-        "fallback_sources": list(p.fallback_sources or []),
+        "fallback_chain": rungs,
+        "fallback_sources": fallback_chain.legacy_views(rungs)[1],
         "engine_name": _name_of(getattr(p, "default_engine", None)),
         "resolver_name": _name_of(getattr(p, "resolver", None)),
     }
@@ -894,11 +875,17 @@ async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(
     engine_id, resolver_id, resolver_config, retry_mode, retry_config = _resolve_capture_target(
         profile, item.engine_id, item.resolver_id, item.resolver_config, item.retry_mode, item.retry_config
     )
-    fallbacks = await _load_fallback_chain(
-        db, item.fallback_profile_ids, auth, item.profile_id, subject="session"
+    base = fallback_chain.Base(
+        engine_id=engine_id,
+        resolver_id=resolver_id,
+        resolver_config=dict(resolver_config or {}),
+        retry_mode=retry_mode,
+        retry_config=dict(retry_config or {}),
+        profile_id=item.profile_id,
+        profile_name=profile.name if profile is not None else "",
     )
-    sources = await _chain_for_run(
-        db, item.fallback_sources, profile, resolver_id, resolver_config, subject="session"
+    chain = await _run_chain(
+        db, auth, _declared_chain(item), profile, base, subject="session"
     )
     engine = await crud.get_by_id(db, Engine, engine_id)
     if not engine:
@@ -917,7 +904,7 @@ async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(
         retry_mode=retry_mode,
         retry_config=retry_config,
         recording=item.recording,
-        capture_plan=_capture_plan(item.profile_id, fallbacks, sources),
+        capture_plan=fallback_chain.plan_with(base, chain.captures),
         requester_user_token=auth.user.username,
     )
     try:
@@ -1015,6 +1002,16 @@ async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(
     end_time = _naive_utc(item.end_time)
     if end_time <= start_time:
         raise _guard_denied(422, "End must be after start", "end-before-start")
+    base = fallback_chain.Base(
+        engine_id=engine_id,
+        resolver_id=resolver_id,
+        resolver_config=dict(resolver_config or {}),
+        retry_mode=retry_mode,
+        retry_config=dict(retry_config or {}),
+        profile_id=item.profile_id,
+        profile_name=profile.name if profile is not None else "",
+    )
+    chain = await _run_chain(db, auth, _declared_chain(item), profile, base)
     payload = Autorun(
         user_friendly_name=item.user_friendly_name,
         snake_case_name=item.snake_case_name,
@@ -1028,12 +1025,7 @@ async def create_autorun(item: CreateAutorunRequest, db: AsyncSession = Depends(
         end_time=end_time,
         recording=item.recording,
         orphan_policy=item.orphan_policy,
-        fallback_profile_ids=await _load_fallback_chain(
-            db, item.fallback_profile_ids, auth, item.profile_id
-        ),
-        fallback_sources=await _chain_for_run(
-            db, item.fallback_sources, profile, resolver_id, resolver_config
-        ),
+        fallback_chain=chain.rungs,
         requester_user_token=auth.user.username,
         next_run_at=start_time,
     )
@@ -1060,26 +1052,12 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
         profile = await _load_visible_profile(db, payload_data["profile_id"], auth)
         payload_data = _merge_profile_capture(profile, payload_data)
     if "fallback_profile_ids" in payload_data:
-        payload_data["fallback_profile_ids"] = await _load_fallback_chain(
-            db,
-            payload_data["fallback_profile_ids"],
-            auth,
-            payload_data.get("profile_id", existing.profile_id),
-        )
-    resolver_id = payload_data.get("resolver_id", existing.resolver_id)
-    resolver_config = payload_data.get("resolver_config", existing.resolver_config)
-    declared = payload_data.pop("fallback_sources", None)
-    if declared is not None or profile is not None:
-        payload_data["fallback_sources"] = await _chain_for_run(
-            db, declared, profile, resolver_id, resolver_config
-        )
-    else:
-        # Kept chain, moved source: a rung that now repeats the run's own source
-        # could never advance, so it is dropped rather than stored (a declared
-        # chain is still refused, because that caller named the rung itself).
-        payload_data["fallback_sources"] = _usable_sources(
-            existing.fallback_sources, resolver_id, resolver_config
-        )
+        payload_data.pop("fallback_profile_ids")
+    declared = _declared_chain(item)
+    payload_data.pop("fallback_sources", None)
+    base = await _base_for(db, payload_data, existing, profile)
+    chain = await _run_chain(db, auth, declared, profile or existing, base)
+    payload_data["fallback_chain"] = chain.rungs
     _enforce_autorun_update_guard(existing, payload_data)
     for field in ("start_time", "end_time"):
         if payload_data.get(field) is not None:
@@ -1129,8 +1107,8 @@ async def _create_profile_from_entity(
     resolver_config: dict,
     retry_mode: str,
     retry_config: dict,
-    fallback_sources: list[Any] | None = None,
-) -> Profile:
+    fallback_rungs: list[Any] | None = None,
+) -> dict:
     """Create a Profile from an existing entity's fields (session or autorun).
 
     Regression note (API-key gotcha): all create paths require JWT
@@ -1140,12 +1118,24 @@ async def _create_profile_from_entity(
     """
     if not auth.user:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    base = fallback_chain.Base(
+        engine_id=engine_id,
+        resolver_id=resolver_id,
+        resolver_config=dict(resolver_config or {}),
+        retry_mode=retry_mode,
+        retry_config=dict(retry_config or {}),
+    )
+    # Saving keeps the chain the run actually tried; a rung that repeats the new
+    # profile's own capture is dropped rather than refusing the save.
+    chain = await _resolve_chain(
+        db, auth, fallback_rungs or [], base, strict=False, subject="profile"
+    )
     profile = Profile(
         name=name,
         default_engine_id=engine_id,
         resolver_id=resolver_id,
         resolver_config=resolver_config,
-        fallback_sources=_usable_sources(fallback_sources, resolver_id, resolver_config),
+        fallback_chain=chain.rungs,
         retry_mode=retry_mode,
         retry_config=retry_config,
         requester_user_token=auth.user.username,
@@ -1155,7 +1145,8 @@ async def _create_profile_from_entity(
     await db.refresh(profile)
     await subscribe_requester(db, profile.requester_user_token, ResourceType.PROFILE, profile.id)
     await _safe_emit(MirrorrEvent.PROFILE_CREATED(id=profile.id))
-    return profile
+    created = await crud.get_by_id(db, Profile, profile.id, options=_PROFILE_OPTIONS)
+    return _serialize_profile(created or profile)
 
 
 # ── Save Autorun as Profile ────────────────────────────────────────────
@@ -1172,7 +1163,7 @@ async def save_autorun_as_profile(autorun_id: int, req: SaveProfileRequest, db: 
         db, auth, req.name,
         autorun.engine_id, autorun.resolver_id, autorun.resolver_config,
         autorun.retry_mode, autorun.retry_config,
-        autorun.fallback_sources,
+        fallback_chain.rungs_of(autorun),
     )
 
 
@@ -1188,11 +1179,17 @@ async def save_session_as_profile(session_id: int, req: SaveProfileRequest, db: 
         raise HTTPException(status_code=404, detail="Session not found")
     if not await has_capability(db, auth, session, Capability.VIEW):
         raise HTTPException(status_code=403, detail="Not your session")
+    # A plan holds resolved captures; a profile keeps only what each changed.
+    rungs = await fallback_chain.rungs_from_plan(
+        _chain_loaders(db, auth),
+        fallback_chain.base_of(session),
+        session.capture_plan or [],
+    )
     return await _create_profile_from_entity(
         db, auth, req.name,
         session.engine_id, session.resolver_id, session.resolver_config,
         session.retry_mode, session.retry_config,
-        [entry for entry in (session.capture_plan or []) if isinstance(entry, dict)],
+        rungs,
     )
 
 
@@ -1310,10 +1307,18 @@ async def create_profile(item: CreateProfileRequest, db: AsyncSession = Depends(
         raise HTTPException(status_code=400, detail=f"Resolver {item.resolver_id} not found")
 
     # The chain is set below; dumping it would validate ``None`` against a list column.
-    payload = Profile.model_validate(item.model_dump(exclude={"fallback_sources"}))
-    payload.fallback_sources = await _load_fallback_sources(
-        db, item.fallback_sources, item.resolver_id, item.resolver_config, subject="profile"
+    payload = Profile.model_validate(
+        item.model_dump(exclude={"fallback_sources", "fallback_chain"})
     )
+    base = fallback_chain.Base(
+        engine_id=item.default_engine_id,
+        resolver_id=item.resolver_id,
+        resolver_config=dict(item.resolver_config or {}),
+        retry_mode=payload.retry_mode,
+        retry_config=dict(payload.retry_config or {}),
+    )
+    chain = await _run_chain(db, auth, _declared_chain(item), None, base, subject="profile")
+    payload.fallback_chain = chain.rungs
     if not auth.user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     payload.requester_user_token = auth.user.username
@@ -1335,17 +1340,14 @@ async def update_profile(id: int, item: UpdateProfileRequest, db: AsyncSession =
     if not await has_capability(db, auth, existing, Capability.EDIT):
         raise HTTPException(status_code=403, detail="Not your profile")
     payload_data = item.model_dump(exclude_unset=True)
-    if payload_data.get("fallback_sources", []) is None:
-        payload_data.pop("fallback_sources")
+    payload_data.pop("fallback_sources", None)
+    payload_data.pop("fallback_profile_ids", None)
     current = existing.model_dump()
-    current["fallback_sources"] = existing.fallback_sources or []
+    current["fallback_chain"] = existing.fallback_chain
     payload = Profile.model_validate({**current, **payload_data})
-    chain = payload.fallback_sources
-    if "fallback_sources" not in payload_data:
-        chain = _usable_sources(chain, payload.resolver_id, payload.resolver_config)
-    payload.fallback_sources = await _load_fallback_sources(
-        db, chain, payload.resolver_id, payload.resolver_config, subject="profile"
-    )
+    base = await _base_for(db, payload_data, existing, None)
+    chain = await _run_chain(db, auth, _declared_chain(item), existing, base, subject="profile")
+    payload.fallback_chain = chain.rungs
     if not auth.user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     # An EDIT-grantee must never take ownership — only fill a blank token.

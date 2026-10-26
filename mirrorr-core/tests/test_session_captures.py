@@ -1,9 +1,10 @@
 """One session, several captures: the plan, the handover, and the single recording.
 
-A session's ``capture_plan`` lists the sources it tries in turn — a profile run
-whole, or a resolver + config on the session's own engine. A capture that never
-becomes playable hands over to the next source instead of failing the session,
-and whatever the captures recorded merges into one recording.
+A session's ``capture_plan`` lists the captures it tries in turn, resolved: its
+own first, then each rung of its chain as the concrete engine, resolver, config
+and retry policy it stands for. A capture that never becomes playable hands over
+to the next instead of failing the session, and whatever the captures recorded
+merges into one recording.
 """
 from __future__ import annotations
 
@@ -38,6 +39,31 @@ SOURCE_CAPTURE = {
     "resolver_config": {"channel": "ch3"},
 }
 
+# What a resolved plan actually holds: the session's own capture, then a profile
+# rung run whole. Production writes these (``fallback_chain.plan_with``), so the
+# supervisor is handed a spec, not a profile id.
+OWN_SPEC = {
+    "source": "profile",
+    "profile_id": 1,
+    "profile_name": "F1",
+    "engine_id": 1,
+    "resolver_id": 2,
+    "resolver_config": {"channel": "577"},
+    "retry_mode": "none",
+    "retry_config": {},
+}
+
+PROFILE_SPEC = {
+    "source": "profile",
+    "profile_id": 2,
+    "profile_name": "F1 UK",
+    "engine_id": 2,
+    "resolver_id": 2,
+    "resolver_config": {"channel": "60"},
+    "retry_mode": "none",
+    "retry_config": {},
+}
+
 
 def _session(plan: list, *, recording: bool = True) -> SimpleNamespace:
     return SimpleNamespace(
@@ -51,6 +77,7 @@ def _session(plan: list, *, recording: bool = True) -> SimpleNamespace:
         engine_id=1,
         recording=recording,
         resolver=SimpleNamespace(name="tvnow247", origin="tvnow247", origin_hash="h1"),
+        resolver_id=2,
         resolver_config={"channel": "577"},
         retry_mode="none",
         retry_config={},
@@ -106,7 +133,7 @@ def _sup(tmp_path, *, plan, engine, resolver=None, recording=True) -> SessionSup
     return sup
 
 
-def _drive(sup, *, load_capture=None, load_source=None):
+def _drive(sup, *, load_capture=None):
     """Run the session with the seams patched; return (calls, finalize, load_capture)."""
     calls: list[dict] = []
 
@@ -126,9 +153,6 @@ def _drive(sup, *, load_capture=None, load_source=None):
     load_capture = load_capture or AsyncMock(
         return_value=(FALLBACK_CAPTURE, _engine(ends="done"), _resolver())
     )
-    load_source = load_source or AsyncMock(
-        return_value=(SOURCE_CAPTURE, _engine(ends="done"), _resolver())
-    )
 
     async def scenario():
         ctx = [
@@ -136,8 +160,7 @@ def _drive(sup, *, load_capture=None, load_source=None):
             patch.object(session_supervisor, "update_session", _update),
             patch.object(session_supervisor, "delete_session", AsyncMock()),
             patch.object(session_supervisor, "live_folder_holder", AsyncMock(return_value=None)),
-            patch.object(session_supervisor, "load_profile_capture", load_capture),
-            patch.object(session_supervisor, "load_source_capture", load_source),
+            patch.object(session_supervisor, "load_capture", load_capture),
             patch("mirrorr.startup.ensure_resolvers.get_validated_config", lambda **k: {}),
             patch.object(session_supervisor.RecordingManager, "start_stash", Mock()),
             patch.object(session_supervisor.RecordingManager, "stop_stash", AsyncMock()),
@@ -167,11 +190,11 @@ def _captures(calls: list[dict]) -> list[dict]:
 
 def test_a_failed_capture_hands_over_and_both_artifacts_merge_into_one_recording(tmp_path):
     primary = _engine(ends="crash")
-    sup = _sup(tmp_path, plan=[1, 2], engine=primary)
+    sup = _sup(tmp_path, plan=[OWN_SPEC, PROFILE_SPEC], engine=primary)
 
     calls, finalize, load_capture = _drive(sup)
 
-    load_capture.assert_awaited_once_with(sup.settings, 2)
+    load_capture.assert_awaited_once_with(sup.settings, PROFILE_SPEC)
     assert primary.start.await_count == 1
 
     captures = _captures(calls)
@@ -190,22 +213,24 @@ def test_a_failed_capture_hands_over_and_both_artifacts_merge_into_one_recording
     assert SessionStatus.FAILED not in statuses
 
 
-def test_a_source_fallback_keeps_the_runs_own_engine(tmp_path):
-    source = {"resolver_id": 3, "resolver_config": {"channel": "ch3"}}
-    sup = _sup(tmp_path, plan=[1, source], engine=_engine(ends="crash"))
-    load_source = AsyncMock(return_value=(SOURCE_CAPTURE, _engine(ends="done"), _resolver()))
+def test_a_resolved_plan_entry_is_run_exactly_as_it_was_resolved(tmp_path):
+    source = {
+        **OWN_SPEC,
+        "source": "resolver",
+        "profile_id": None,
+        "profile_name": "",
+        "resolver_id": 3,
+        "resolver_config": {"channel": "ch3"},
+    }
+    sup = _sup(tmp_path, plan=[OWN_SPEC, source], engine=_engine(ends="crash"))
 
-    calls, finalize, load_capture = _drive(sup, load_source=load_source)
-
-    load_capture.assert_not_awaited()
-    load_source.assert_awaited_once_with(
-        sup.settings,
-        engine_id=sup.session.engine_id,
-        resolver_id=3,
-        resolver_config={"channel": "ch3"},
-        retry_mode="none",
-        retry_config={},
+    calls, finalize, load_capture = _drive(
+        sup, load_capture=AsyncMock(
+            return_value=(SOURCE_CAPTURE, _engine(ends="done"), _resolver())
+        )
     )
+
+    load_capture.assert_awaited_once_with(sup.settings, source)
     captures = _captures(calls)
     assert [(s["index"], s["status"]) for s in captures] == [(1, "failed"), (2, "completed")]
     assert captures[1]["source"] == "resolver"
@@ -216,8 +241,29 @@ def test_a_source_fallback_keeps_the_runs_own_engine(tmp_path):
     assert _statuses(calls)[-1] is SessionStatus.COMPLETED
 
 
-def test_every_capture_failing_keeps_the_row_failed_with_what_they_recorded(tmp_path):
+def test_a_plan_written_before_rungs_still_runs(tmp_path):
     sup = _sup(tmp_path, plan=[1, 2], engine=_engine(ends="crash"))
+
+    calls, _finalize, load_capture = _drive(sup)
+
+    load_capture.assert_awaited_once_with(
+        sup.settings,
+        {
+            "source": "profile",
+            "profile_id": 2,
+            "profile_name": "",
+            "engine_id": None,
+            "resolver_id": None,
+            "resolver_config": None,
+            "retry_mode": None,
+            "retry_config": None,
+        },
+    )
+    assert [s["index"] for s in _captures(calls)] == [1, 2]
+
+
+def test_every_capture_failing_keeps_the_row_failed_with_what_they_recorded(tmp_path):
+    sup = _sup(tmp_path, plan=[OWN_SPEC, PROFILE_SPEC], engine=_engine(ends="crash"))
     crash_again = AsyncMock(
         return_value=(FALLBACK_CAPTURE, _engine(ends="crash"), _resolver())
     )
@@ -246,7 +292,7 @@ def _drive_with_stop(sup, *, after=0.05):
             patch.object(session_supervisor, "update_session", _update),
             patch.object(session_supervisor, "delete_session", AsyncMock()),
             patch.object(session_supervisor, "live_folder_holder", AsyncMock(return_value=None)),
-            patch.object(session_supervisor, "load_profile_capture", load_capture),
+            patch.object(session_supervisor, "load_capture", load_capture),
             patch("mirrorr.startup.ensure_resolvers.get_validated_config", lambda **k: {}),
         ]
         for p in ctx:

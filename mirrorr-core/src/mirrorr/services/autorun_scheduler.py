@@ -13,6 +13,7 @@ from mirrorr.event_bus.event import MirrorrEvent
 from mirrorr.storage.models import Autorun, Session, Profile
 from mirrorr.storage.enums import AutorunStatus, SessionStatus
 from mirrorr.storage import crud
+from mirrorr.services import fallback_chain
 from mirrorr.startup.config import MirrorrSettings
 
 
@@ -49,25 +50,23 @@ def slot_key(autorun: Autorun, tag: str = "slot") -> str:
     return f"autorun:{autorun.id}:{tag}:{autorun.start_time.isoformat(timespec='seconds')}"
 
 
-def fallback_chain(autorun: Autorun) -> list[int | dict[str, Any] | None]:
-    """The sources this autorun tries, in order: its own, then the fallbacks.
+async def plan_for(db: Any, autorun: Autorun) -> list[dict[str, Any]]:
+    """The captures this autorun tries, resolved: its own, then each rung.
 
-    A profile fallback is a profile id, run whole; a source fallback is the
-    resolver + config it names, run on this autorun's own engine and retry
-    policy. ``None`` stands for the row's own engine + resolver capture.
+    Resolved at spawn time, so the session carries a snapshot: editing a profile
+    afterwards cannot change a run that was already scheduled. A rung that can no
+    longer be built is dropped rather than failing a run whose caller wrote none
+    of it — the chain was authorised when the schedule was saved.
     """
-    chain: list[int | dict[str, Any] | None] = [autorun.profile_id]
-    for pid in autorun.fallback_profile_ids or []:
-        if pid is not None and pid not in chain:
-            chain.append(pid)
-    for src in autorun.fallback_sources or []:
-        entry = {
-            "resolver_id": src.get("resolver_id"),
-            "resolver_config": src.get("resolver_config") or {},
-        }
-        if entry not in chain:
-            chain.append(entry)
-    return chain
+    base = fallback_chain.base_of(autorun)
+    chain = await fallback_chain.resolve(
+        fallback_chain.loaders_for(db),
+        base,
+        fallback_chain.rungs_of(autorun),
+        strict=False,
+        subject=f"autorun {autorun.id}",
+    )
+    return fallback_chain.plan_with(base, chain.captures)
 
 
 async def _spawn_session(db, autorun: Autorun, now: datetime, key: str) -> int | None:
@@ -101,7 +100,7 @@ async def _spawn_session(db, autorun: Autorun, now: datetime, key: str) -> int |
         resolver_config=autorun.resolver_config,
         retry_mode=autorun.retry_mode,
         retry_config=autorun.retry_config,
-        capture_plan=fallback_chain(autorun),
+        capture_plan=await plan_for(db, autorun),
     )
     db.add(session)
     await db.flush()

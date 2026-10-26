@@ -62,6 +62,21 @@ class ChangePasswordRequest(BaseModel):
 # ── Sessions ───────────────────────────────────────────────────────────
 
 
+class FallbackRung(BaseModel):
+    """One step of a chain: a patch over the capture before it.
+
+    Whatever a rung leaves out is inherited — from the profile when it names one,
+    otherwise from the rung above (the run's own capture for the first). Naming
+    only a profile is the old profile fallback, only a resolver the old source
+    fallback, and naming both is something neither of those could express.
+    """
+
+    profile_id: int | None = None
+    engine_id: int | None = None
+    resolver_id: int | None = None
+    resolver_config: dict[str, Any] | None = None
+
+
 class FallbackSource(BaseModel):
     """A fallback that names its own source instead of borrowing a profile.
 
@@ -72,11 +87,13 @@ class FallbackSource(BaseModel):
     """
 
     resolver_id: int
-    resolver_config: dict[str, Any] | None = None
+    # Self-contained: no config names this resolver's empty one, never the rung above's.
+    resolver_config: dict[str, Any] = Field(default_factory=dict)
 
 
 class CreateSessionRequest(BaseModel):
     profile_id: int | None = None
+    fallback_chain: list[FallbackRung] | None = None
     fallback_profile_ids: list[int] | None = None
     fallback_sources: list[FallbackSource] | None = None
     engine_id: int | None = None
@@ -103,7 +120,8 @@ class CreateAutorunRequest(BaseModel):
     end_time: datetime
     recording: bool = True
     orphan_policy: Literal["fail", "retry"] = "fail"
-    fallback_profile_ids: list[int] = Field(default_factory=list)
+    fallback_chain: list[FallbackRung] | None = None
+    fallback_profile_ids: list[int] | None = None
     fallback_sources: list[FallbackSource] | None = None
 
 
@@ -111,6 +129,7 @@ class UpdateAutorunRequest(BaseModel):
     user_friendly_name: str | None = None
     snake_case_name: str | None = Field(default=None, pattern=r'^[a-zA-Z0-9_-]+$')
     profile_id: int | None = None
+    fallback_chain: list[FallbackRung] | None = None
     fallback_profile_ids: list[int] | None = None
     fallback_sources: list[FallbackSource] | None = None
     engine_id: int | None = None
@@ -132,6 +151,7 @@ class CreateProfileRequest(BaseModel):
     default_engine_id: int
     resolver_id: int
     resolver_config: dict[str, Any] = Field(default_factory=dict)
+    fallback_chain: list[FallbackRung] | None = None
     fallback_sources: list[FallbackSource] | None = None
     retry_mode: str = "none"
     retry_config: dict[str, Any] = Field(default_factory=dict)
@@ -142,6 +162,7 @@ class UpdateProfileRequest(BaseModel):
     default_engine_id: int | None = None
     resolver_id: int | None = None
     resolver_config: dict[str, Any] | None = None
+    fallback_chain: list[FallbackRung] | None = None
     fallback_sources: list[FallbackSource] | None = None
     retry_mode: str | None = None
     retry_config: dict[str, Any] | None = None
@@ -249,6 +270,7 @@ class AutorunResponse(BaseModel):
     end_time: datetime
     recording: bool = True
     orphan_policy: str = "fail"
+    fallback_chain: list[dict[str, Any]] = Field(default_factory=list)
     fallback_profile_ids: list[int] = Field(default_factory=list)
     fallback_profile_names: list[str] = Field(default_factory=list)
     fallback_sources: list[dict[str, Any]] = Field(default_factory=list)
@@ -285,6 +307,7 @@ class ProfileResponse(BaseModel):
     default_engine_id: int
     resolver_id: int
     resolver_config: dict[str, Any] = Field(default_factory=dict)
+    fallback_chain: list[dict[str, Any]] = Field(default_factory=list)
     fallback_sources: list[FallbackSource] = Field(default_factory=list)
     retry_mode: str = "none"
     retry_config: dict[str, Any] = Field(default_factory=dict)

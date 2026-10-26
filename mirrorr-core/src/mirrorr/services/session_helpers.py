@@ -136,93 +136,75 @@ async def load_session_from_db(
         await engine.dispose()
 
 
-async def load_profile_capture(settings: MirrorrSettings, profile_id: int):
-    """Load one profile's capture for a later capture of a session.
+async def load_capture(settings: MirrorrSettings, spec: dict):
+    """Load one capture's engine, resolver and the settings it runs with.
 
-    A fallback runs a *different source*, so it takes that profile's engine,
-    resolver, config and retry policy whole rather than the session's snapshot.
-    Returns ``(capture, engine, resolver)``; ``capture`` carries the names and
-    config as JSON-ready values.
+    ``spec`` is one capture of a run's plan — a profile taken whole, a resolver
+    plus its config on an engine, or a rung of both. Any field it leaves as
+    ``None`` is completed here: from the profile it names (a profile rung *is*
+    that profile unless the rung overrides it), and otherwise from what the plan
+    already carries. Returns ``(capture, engine, resolver)``; ``capture`` holds
+    the names and config as JSON-ready values.
     """
     from mirrorr.storage.database import create_db_engine
     from mirrorr.startup.ensure_engines import load_engine_jit
     from mirrorr.startup.ensure_resolvers import load_resolver_jit
 
+    profile_id = spec.get("profile_id")
     engine, db_factory = create_db_engine(settings)
     try:
         async with db_factory() as db:
-            stmt = (
-                select(Profile)
-                .where(Profile.id == profile_id)
-                .options(selectinload(Profile.resolver), selectinload(Profile.default_engine))
-            )
-            profile: Profile | None = (await db.exec(stmt)).one_or_none()
-            if profile is None:
-                raise ValueError(f"Profile {profile_id} not found")
-            resolver = profile.resolver
-            engine_row = profile.default_engine
-            if resolver is None or engine_row is None:
-                raise ValueError(f"Profile {profile_id} has no resolver or engine")
-            capture = {
-                "profile_id": profile.id,
-                "profile_name": profile.name,
-                "engine_name": engine_row.name,
-                "resolver_name": resolver.name,
-                "resolver_origin": resolver.origin,
-                "resolver_hash": resolver.origin_hash,
-                "resolver_config": profile.resolver_config,
-                "retry_mode": profile.retry_mode,
-                "retry_config": profile.retry_config,
-            }
-            return (
-                capture,
-                load_engine_jit(settings.engines_dir, engine_row.origin, engine_row.origin_hash),
-                load_resolver_jit(settings.resolvers_dir, resolver.origin, resolver.origin_hash),
-            )
-    finally:
-        await engine.dispose()
+            profile: Profile | None = None
+            if profile_id is not None:
+                stmt = (
+                    select(Profile)
+                    .where(Profile.id == profile_id)
+                    .options(selectinload(Profile.resolver), selectinload(Profile.default_engine))
+                )
+                profile = (await db.exec(stmt)).one_or_none()
+                if profile is None:
+                    raise ValueError(f"Profile {profile_id} not found")
 
+            engine_id = spec.get("engine_id")
+            if engine_id is None and profile is not None:
+                engine_id = profile.default_engine_id
+            resolver_id = spec.get("resolver_id")
+            if resolver_id is None and profile is not None:
+                resolver_id = profile.resolver_id
+            if engine_id is None or resolver_id is None:
+                raise ValueError("This capture names neither a profile nor an engine + resolver")
 
-async def load_source_capture(
-    settings: MirrorrSettings,
-    engine_id: int,
-    resolver_id: int,
-    resolver_config: dict,
-    retry_mode: str,
-    retry_config: dict,
-):
-    """Load one inline fallback source for a later capture of a session.
-
-    A *source* fallback keeps the run's own engine and retry policy and swaps
-    only where the stream comes from — a resolver plus its config — which is
-    what an engine + resolver run can name without inventing a profile for it.
-    Returns ``(capture, engine, resolver)``; ``capture`` carries the names and
-    config as JSON-ready values.
-    """
-    from mirrorr.storage.database import create_db_engine
-    from mirrorr.startup.ensure_engines import load_engine_jit
-    from mirrorr.startup.ensure_resolvers import load_resolver_jit
-
-    engine, db_factory = create_db_engine(settings)
-    try:
-        async with db_factory() as db:
-            engine_row = await db.get(Engine, engine_id)
-            resolver = await db.get(Resolver, resolver_id)
+            engine_row = await db.get(Engine, int(engine_id))
             if engine_row is None:
                 raise ValueError(f"Engine {engine_id} not found")
+            resolver = await db.get(Resolver, int(resolver_id))
             if resolver is None:
                 raise ValueError(f"Resolver {resolver_id} not found")
+
+            if spec.get("resolver_config") is not None:
+                resolver_config = dict(spec["resolver_config"])
+            elif profile is not None:
+                resolver_config = dict(profile.resolver_config or {})
+            else:
+                resolver_config = {}
+            retry_mode = spec.get("retry_mode")
+            if retry_mode is None:
+                retry_mode = profile.retry_mode if profile is not None else "none"
+            retry_config = spec.get("retry_config")
+            if retry_config is None:
+                retry_config = dict(profile.retry_config or {}) if profile is not None else {}
+
             capture = {
-                "profile_id": None,
-                "profile_name": "",
-                "source": "resolver",
+                "profile_id": profile.id if profile is not None else None,
+                "profile_name": profile.name if profile is not None else "",
+                "source": "profile" if profile is not None else "resolver",
                 "engine_name": engine_row.name,
                 "resolver_name": resolver.name,
                 "resolver_origin": resolver.origin,
                 "resolver_hash": resolver.origin_hash,
                 "resolver_config": resolver_config,
                 "retry_mode": retry_mode,
-                "retry_config": retry_config,
+                "retry_config": dict(retry_config or {}),
             }
             return (
                 capture,
