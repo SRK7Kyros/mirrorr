@@ -342,6 +342,32 @@ def _declared_chain(item: Any) -> list[dict[str, Any]] | None:
     return fallback_chain.declared_chain(fallback_chain.fold_legacy(ids, sources))
 
 
+def _refuse_a_chain_the_client_cannot_see(existing: Any, item: Any) -> None:
+    """A legacy-only save must not quietly delete a rung it cannot represent.
+
+    A client that predates rungs reads `fallback_profile_ids` + `fallback_sources`
+    and writes back the pair it read; a mixed rung (`{profile_id, resolver_id}`,
+    an engine change, …) is absent from that pair, so saving would drop it without
+    the caller ever seeing it existed. Such a client has to send `fallback_chain`.
+    """
+    if getattr(item, "fallback_chain", None) is not None:
+        return
+    if (
+        getattr(item, "fallback_profile_ids", None) is None
+        and getattr(item, "fallback_sources", None) is None
+    ):
+        return
+    hidden = fallback_chain.hidden_from_legacy(fallback_chain.rungs_of(existing))
+    if hidden:
+        raise _guard_denied(
+            422,
+            f"{hidden} fallback rung(s) here name an engine or a config, which the "
+            "fallback_profile_ids/fallback_sources pair cannot express — send "
+            "fallback_chain, because saving those two lists would drop them",
+            "fallback-chain-unseen",
+        )
+
+
 async def _base_for(
     db: AsyncSession, payload: dict[str, Any], existing: Any, profile: Profile | None
 ) -> fallback_chain.Base:
@@ -1054,6 +1080,7 @@ async def update_autorun(id: int, item: UpdateAutorunRequest, db: AsyncSession =
     if "fallback_profile_ids" in payload_data:
         payload_data.pop("fallback_profile_ids")
     declared = _declared_chain(item)
+    _refuse_a_chain_the_client_cannot_see(existing, item)
     payload_data.pop("fallback_sources", None)
     base = await _base_for(db, payload_data, existing, profile)
     chain = await _run_chain(db, auth, declared, profile or existing, base)
@@ -1340,6 +1367,7 @@ async def update_profile(id: int, item: UpdateProfileRequest, db: AsyncSession =
     if not await has_capability(db, auth, existing, Capability.EDIT):
         raise HTTPException(status_code=403, detail="Not your profile")
     payload_data = item.model_dump(exclude_unset=True)
+    _refuse_a_chain_the_client_cannot_see(existing, item)
     payload_data.pop("fallback_sources", None)
     payload_data.pop("fallback_profile_ids", None)
     current = existing.model_dump()

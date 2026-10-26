@@ -134,17 +134,48 @@ def legacy_views(rungs: Sequence[dict[str, Any]]) -> tuple[list[int], list[dict[
     ids: list[int] = []
     sources: list[dict[str, Any]] = []
     for rung in rungs:
-        keys = set(rung)
-        if keys == {"profile_id"}:
-            ids.append(int(rung["profile_id"]))
-        elif keys in ({"resolver_id"}, {"resolver_id", "resolver_config"}):
+        legacy = _legacy_shape(rung)
+        if legacy is None:
+            continue
+        kind, value = legacy
+        if kind == "profile":
+            ids.append(int(value))
+        else:
             sources.append(
                 {
-                    "resolver_id": int(rung["resolver_id"]),
-                    "resolver_config": dict(rung.get("resolver_config") or {}),
+                    "resolver_id": int(value["resolver_id"]),
+                    "resolver_config": dict(value.get("resolver_config") or {}),
                 }
             )
     return ids, sources
+
+
+def _legacy_shape(rung: dict[str, Any]) -> tuple[str, Any] | None:
+    """This rung as the old pair spells it, or ``None`` when they cannot.
+
+    A rung that names only a profile is the old *profile* fallback and one that
+    names only a resolver is the old *source* fallback. Any other combination —
+    an engine, a profile with its own engine, a config beside a profile — has
+    no old-name equivalent.
+    """
+    keys = set(rung)
+    if keys == {"profile_id"}:
+        return ("profile", rung["profile_id"])
+    if keys in ({"resolver_id"}, {"resolver_id", "resolver_config"}):
+        return ("source", rung)
+    return None
+
+
+def hidden_from_legacy(rungs: Sequence[dict[str, Any]]) -> int:
+    """How many rungs a pre-rung client cannot see — and so would delete.
+
+    Such a client reads a chain through :func:`legacy_views` and writes back the
+    pair it read. A mixed rung is absent from that list, so that round trip would
+    drop it without the caller ever seeing it existed. Counting them lets a write
+    path refuse such a save **by name** instead of destroying a chain the caller
+    never saw.
+    """
+    return sum(1 for rung in rungs if _legacy_shape(rung) is None)
 
 
 # ── the run's own capture ──────────────────────────────────────────────
