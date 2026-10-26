@@ -43,6 +43,7 @@ import {
   useCreationAccessApplier,
 } from "@/ui/views/shared/resource-access-slot"
 import type { AccessTarget } from "@/api/domain/access-plan"
+import { chainProblem, chainProblemSentence } from "@/api/domain/fallback-sources"
 import type { FallbackSource } from "@/api/domain/fallback-sources"
 
 /**
@@ -358,6 +359,11 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
     }
     setFieldErrors(invalid)
     if (Object.keys(invalid).length > 0) return
+    if (chainTrouble !== null) {
+      // The disabled button does not stop Enter in a text field.
+      setError(chainProblemSentence(chainTrouble, "profile"))
+      return
+    }
     saveProfile.mutate({
       name: name.trim(),
       default_engine_id: Number(engineId),
@@ -385,8 +391,17 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
   }
 
   const pending = tab === "profile" ? saveProfile.isPending : saveSource.isPending
+  const chainTrouble =
+    resolverId === ""
+      ? null
+      : chainProblem(fallbackSources, {
+          resolver_id: Number(resolverId),
+          resolver_config: resolverConfig,
+        })
   const submitDisabled =
-    tab === "profile" ? duplicateName || name.trim() === "" : duplicateSourceName || sourceName.trim() === ""
+    tab === "profile"
+      ? duplicateName || name.trim() === "" || chainTrouble !== null
+      : duplicateSourceName || sourceName.trim() === ""
 
   return (
     <Dialog
@@ -610,6 +625,7 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
                   value={fallbackSources}
                   onChange={setFallbackSources}
                   primary={{ resolver_id: Number(resolverId), resolver_config: resolverConfig }}
+                  subject="profile"
                 />
               )}
             </FormBlock>

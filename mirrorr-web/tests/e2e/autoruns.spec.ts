@@ -113,6 +113,43 @@ test.describe("scheduled recordings", () => {
     for (const call of puts) expect(call.body).toEqual({ profile_id: 2, fallback_sources: [] })
   })
 
+  test("moving a run to a profile drops that profile from its own chain", async ({ page, api }) => {
+    // The server refuses a chain in which a rung repeats the run's own source,
+    // so the client must prune before sending — the picked profile cannot stay
+    // listed as one of its own fallbacks.
+    api.data.autoruns = [
+      autorun({ id: 1, user_friendly_name: "Zulu", snake_case_name: "zulu", fallback_profile_ids: [2] }),
+      autorun({ id: 2, user_friendly_name: "Alpha", snake_case_name: "alpha", fallback_profile_ids: [1, 2] }),
+      autorun({ id: 3, user_friendly_name: "Mike", snake_case_name: "mike", fallback_profile_ids: [1] }),
+    ]
+    await page.goto("/autoruns")
+
+    await page.getByLabel("Select all scheduled recordings").check()
+    await page.getByRole("region", { name: "Bulk actions" }).getByRole("button", { name: "Set profile" }).click()
+    const dialog = page.getByRole("dialog")
+    await dialog.getByLabel("Profile").selectOption("2")
+    await dialog.getByRole("button", { name: "Set profile" }).click()
+    await expect(page.getByText("Profile set")).toBeVisible()
+
+    const bodies = Object.fromEntries(
+      api
+        .callsTo("/autoruns/")
+        .filter((call) => call.method === "PUT")
+        .map((call) => [call.path, call.body]),
+    )
+    expect(bodies["/autoruns/1"]).toEqual({
+      profile_id: 2,
+      fallback_sources: [],
+      fallback_profile_ids: [],
+    })
+    expect(bodies["/autoruns/2"]).toEqual({
+      profile_id: 2,
+      fallback_sources: [],
+      fallback_profile_ids: [1],
+    })
+    expect(bodies["/autoruns/3"]).toEqual({ profile_id: 2, fallback_sources: [] })
+  })
+
   test("the bulk profile carries an editable chain of fallback sources", async ({ page, api }) => {
     api.data.profiles = [
       profile({ id: 1, name: "F1 Weekend" }),

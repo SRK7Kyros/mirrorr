@@ -180,4 +180,35 @@ test.describe("fallback profiles", () => {
     ).toHaveCount(1)
     await expectNoOverflow(dialog)
   })
+
+  test("names a rung that becomes the run's own source and refuses to save it", async ({
+    page,
+    api,
+  }) => {
+    api.data.engines = [engine({ id: 1, name: "Streamlink" })]
+    api.data.resolvers = [WIDE]
+
+    await openCreate(page)
+    const dialog = page.getByRole("dialog")
+    await dialog.getByRole("tab", { name: "Engine + resolver" }).click()
+    await dialog.locator("#autorun-engine").selectOption("1")
+    await dialog.locator("#autorun-resolver").selectOption("1")
+
+    await dialog.getByRole("combobox", { name: "Fallback 1 · Resolver" }).selectOption("1")
+    await dialog.locator("#fallback-source-1-channel").fill("premium9")
+    await dialog.getByRole("button", { name: "Add fallback" }).click()
+    const chips = dialog.getByRole("list", { name: "Fallback sources, in order" }).getByRole("listitem")
+    await expect(chips).toHaveCount(1)
+
+    await dialog.locator("#autorun-channel").fill("premium9")
+
+    const problem = dialog.locator('[data-chain-problem="primary"]')
+    await expect(problem).toHaveText(/Fallback 1 is the run.s own source/)
+    await expect(chips.first()).toHaveAttribute("data-problem", "primary")
+    await expect(dialog.getByRole("button", { name: "Create scheduled recording" })).toBeDisabled()
+
+    await dialog.getByRole("button", { name: /^Remove / }).click()
+    await expect(problem).toHaveCount(0)
+    await expect(dialog.getByRole("button", { name: "Create scheduled recording" })).toBeEnabled()
+  })
 })

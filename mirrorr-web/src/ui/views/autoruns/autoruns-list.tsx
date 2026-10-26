@@ -365,34 +365,45 @@ export function AutorunsListView() {
 
   const bulkSetProfile = useMutation({
     mutationFn: async ({
-      ids,
+      rows,
       profileId,
       fallbackSources,
     }: {
-      ids: readonly number[]
+      rows: readonly Autorun[]
       profileId: number
       fallbackSources: readonly FallbackSource[]
     }) => {
       // Sequential so a large selection cannot stampede the single-writer DB;
       // a per-id failure (a spent or live autorun) is counted, not fatal.
-      const failed: number[] = []
-      for (const id of ids) {
+      const failed: { id: number; reason: string }[] = []
+      for (const row of rows) {
+        // The new profile cannot also sit in the row's own profile chain — the
+        // server refuses that chain — so the rung is dropped with the move.
+        const declared = row.fallback_profile_ids ?? []
+        const kept = declared.filter((id) => id !== profileId)
         try {
-          await updateAutorun(id, { profile_id: profileId, fallback_sources: fallbackSources })
-        } catch {
-          failed.push(id)
+          await updateAutorun(row.id, {
+            profile_id: profileId,
+            fallback_sources: fallbackSources,
+            ...(kept.length === declared.length ? {} : { fallback_profile_ids: kept }),
+          })
+        } catch (error) {
+          failed.push({ id: row.id, reason: getErrorMessage(error, "Request failed") })
         }
       }
-      return { updated: ids.length - failed.length, skipped: failed.length }
+      return { updated: rows.length - failed.length, failed }
     },
-    onSuccess: ({ updated, skipped }) => {
+    onSuccess: ({ updated, failed }) => {
       void queryClient.invalidateQueries({ queryKey: queryRoots.autoruns })
-      if (skipped === 0) {
+      if (failed.length === 0) {
         toast.success("Profile set", `${updated} scheduled recording${updated === 1 ? "" : "s"} updated`)
       } else if (updated === 0) {
-        toast.error("Profile not set", `${skipped} skipped — they have already run or are live`)
+        toast.error("Profile not set", `${failed.length} could not be updated — ${failed[0].reason}`)
       } else {
-        toast.success("Profile partly set", `${updated} updated, ${skipped} skipped`)
+        toast.success(
+          "Profile partly set",
+          `${updated} updated, ${failed.length} not — ${failed[0].reason}`,
+        )
       }
       selection.clear()
       setBulkProfileOpen(false)
@@ -588,7 +599,7 @@ export function AutorunsListView() {
         count={selectedIds.length}
         busy={bulkSetProfile.isPending}
         onApply={(profileId, fallbackSources) =>
-          bulkSetProfile.mutate({ ids: selectedIds, profileId, fallbackSources })
+          bulkSetProfile.mutate({ rows: selectedAutoruns, profileId, fallbackSources })
         }
       />
 

@@ -9,13 +9,78 @@ export interface FallbackSource {
 /** A session's attempt order: a profile id, an inline source, or the run's own capture. */
 export type CapturePlanEntry = number | Record<string, unknown> | null
 
+/**
+ * A config written the way the server writes it (`sort_keys=True`).
+ *
+ * Two forms of the same config are the same source, and the server decides that
+ * with sorted keys — so a rung read back from the API and one built from a form
+ * field must compare equal even when their keys were filled in a different order.
+ */
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical)
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, item]) => item !== undefined)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([key, item]) => [key, canonical(item)]),
+    )
+  }
+  return value
+}
+
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(canonical(value ?? {}))
+}
+
 function sameConfig(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a ?? {}) === JSON.stringify(b ?? {})
+  return canonicalJson(a) === canonicalJson(b)
 }
 
 /** Identity of a rung — the same resolver with a different config is a different source. */
 export function sourceKey(entry: FallbackSource): string {
-  return `${entry.resolver_id}:${JSON.stringify(entry.resolver_config ?? {})}`
+  return `${entry.resolver_id}:${canonicalJson(entry.resolver_config)}`
+}
+
+/** A chain the server would refuse: it repeats the run's own source, or a rung of itself. */
+export interface ChainProblem {
+  /** Position of the offending rung, zero-based. */
+  readonly index: number
+  readonly kind: "primary" | "duplicate"
+  /** For a duplicate, the earlier rung it repeats. */
+  readonly first?: number
+}
+
+/**
+ * Why a chain cannot be saved, if it cannot: the server refuses a rung that
+ * repeats the run's own source (it could never advance) or an earlier rung.
+ */
+export function chainProblem(
+  chain: readonly FallbackSource[],
+  primary?: FallbackSource | null,
+): ChainProblem | null {
+  const primaryKey = primary === null || primary === undefined ? null : sourceKey(primary)
+  const seen = new Map<string, number>()
+  for (let index = 0; index < chain.length; index += 1) {
+    const key = sourceKey(chain[index])
+    if (key === primaryKey) return { index, kind: "primary" }
+    const first = seen.get(key)
+    if (first !== undefined) return { index, kind: "duplicate", first }
+    seen.set(key, index)
+  }
+  return null
+}
+
+/** The same problem, said to a reader, naming the rung they have to change. */
+export function chainProblemSentence(
+  problem: ChainProblem,
+  subject: "run" | "profile" = "run",
+): string {
+  const rung = `Fallback ${problem.index + 1}`
+  if (problem.kind === "primary") {
+    return `${rung} is the ${subject}’s own source — remove it or change that source.`
+  }
+  return `${rung} repeats fallback ${(problem.first ?? 0) + 1} — remove one of them.`
 }
 
 export function summariseConfig(config: Record<string, unknown>): string {
