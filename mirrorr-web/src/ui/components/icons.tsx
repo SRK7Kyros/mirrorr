@@ -126,6 +126,18 @@ export const IconMinus = makeIcon(<path d="M5 12h14" />)
 export const IconX = makeIcon(<path d="M18 6 6 18M6 6l12 12" />)
 export const IconCheck = makeIcon(<path d="M20 6 9 17l-5-5" />)
 export const IconChevronRight = makeIcon(<path d="m9 18 6-6-6-6" />)
+
+/** Grab handle — six dots, the sign a row can be picked up and dropped. */
+export const IconGrip = makeIcon(
+  <>
+    <circle cx="9" cy="6" r="1" fill="currentColor" stroke="none" />
+    <circle cx="15" cy="6" r="1" fill="currentColor" stroke="none" />
+    <circle cx="9" cy="12" r="1" fill="currentColor" stroke="none" />
+    <circle cx="15" cy="12" r="1" fill="currentColor" stroke="none" />
+    <circle cx="9" cy="18" r="1" fill="currentColor" stroke="none" />
+    <circle cx="15" cy="18" r="1" fill="currentColor" stroke="none" />
+  </>,
+)
 export const IconArrowUp = makeIcon(<path d="M12 19V5M5 12l7-7 7 7" />)
 export const IconArrowDown = makeIcon(<path d="M12 5v14M19 12l-7 7-7-7" />)
 export const IconMenu = makeIcon(<path d="M4 6h16M4 12h16M4 18h16" />)

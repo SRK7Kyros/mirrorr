@@ -539,6 +539,23 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
   }
 }
 
+/* ── helpers ──────────────────────────────────────────────────────── */
+
+/**
+ * A fallback chain folds away until it has a rung — most runs have none — so a
+ * spec that builds one opens the section the way a user does, and fails here
+ * rather than at the first field if it will not open.
+ */
+export async function openFallbacks(scope: Page | Locator): Promise<Locator> {
+  const section = scope.locator("[data-chain-section]").first()
+  await expect(section).toBeVisible()
+  if ((await section.getAttribute("data-chain-section")) !== "open") {
+    await scope.getByRole("button", { name: "Fallbacks" }).first().click()
+    await expect(section).toHaveAttribute("data-chain-section", "open")
+  }
+  return section
+}
+
 /* ── fixtures ─────────────────────────────────────────────────────── */
 
 export const test = base.extend<{ api: ApiStub }>({

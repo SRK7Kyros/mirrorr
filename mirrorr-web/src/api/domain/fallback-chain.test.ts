@@ -9,6 +9,7 @@ import {
   chainTitle,
   foldLegacy,
   mapNaming,
+  moveRung,
   normaliseRung,
   planLabel,
   profileBase,
@@ -114,6 +115,29 @@ describe("rungNames", () => {
     expect(rungNames({ profile_id: 1 })).toBe(true)
     expect(rungNames({ engine_id: 11 })).toBe(true)
     expect(rungNames({ resolver_id: 3 })).toBe(true)
+  })
+})
+
+describe("moveRung", () => {
+  const chain = [{ profile_id: 1 }, { resolver_id: 2, resolver_config: {} }, { engine_id: 3 }]
+
+  it("moves a rung to the position it was dropped on", () => {
+    expect(moveRung(chain, 0, 2)).toEqual([chain[1], chain[2], chain[0]])
+    expect(moveRung(chain, 2, 0)).toEqual([chain[2], chain[0], chain[1]])
+    expect(moveRung(chain, 1, 2)).toEqual([chain[0], chain[2], chain[1]])
+  })
+
+  it("leaves the chain alone when the move goes nowhere", () => {
+    expect(moveRung(chain, 1, 1)).toEqual(chain)
+    expect(moveRung(chain, 0, 9)).toEqual(chain)
+    expect(moveRung(chain, -1, 0)).toEqual(chain)
+    expect(moveRung([], 0, 0)).toEqual([])
+  })
+
+  it("never mutates the chain it was given", () => {
+    const original = [...chain]
+    moveRung(chain, 0, 2)
+    expect(chain).toEqual(original)
   })
 })
 

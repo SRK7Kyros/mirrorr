@@ -1,4 +1,4 @@
-import { autorun, engine, expect, profile, resolver, test } from "./fixtures"
+import { autorun, engine, expect, openFallbacks, profile, resolver, test } from "./fixtures"
 
 /**
  * The fallback chain is an ordered list of rungs on the create/edit form. A rung
@@ -68,6 +68,10 @@ test.describe("fallback chain", () => {
     const dialog = page.getByRole("dialog")
     await dialog.locator("#autorun-profile").selectOption("1")
 
+    // Optional everywhere, so it starts folded with just its summary showing.
+    await expect(dialog.locator('[data-chain-section="closed"]')).toBeVisible()
+    await openFallbacks(dialog)
+
     await dialog.locator("#autorun-fallback-profile").selectOption("2")
     await dialog.getByRole("button", { name: "Add fallback" }).click()
     await dialog.locator("#autorun-fallback-profile").selectOption("3")
@@ -96,6 +100,7 @@ test.describe("fallback chain", () => {
     await dialog.locator("#autorun-profile").selectOption("1")
 
     // News Hour is a real change; F1 Weekend is the capture before the chain.
+    await openFallbacks(dialog)
     await dialog.locator("#autorun-fallback-profile").selectOption("1")
     const add = dialog.getByRole("button", { name: "Add fallback" })
     await expect(add).toBeDisabled()
@@ -117,6 +122,7 @@ test.describe("fallback chain", () => {
 
     await dialog.locator("#autorun-friendly").fill("Race")
     await dialog.locator("#autorun-profile").selectOption("1")
+    await openFallbacks(dialog)
     await dialog.locator("#autorun-fallback-profile").selectOption("3")
     await dialog.getByRole("button", { name: "Add fallback" }).click()
     await dialog.locator("#autorun-fallback-profile").selectOption("2")
@@ -177,6 +183,8 @@ test.describe("fallback chain", () => {
     await dialog.locator("#autorun-engine").selectOption("1")
     await dialog.locator("#autorun-resolver").selectOption("4")
 
+    await openFallbacks(dialog)
+
     // The rung's preview says what it will actually run before it is added.
     await expect(dialog.locator('[data-chain-preview="empty"]')).toBeVisible()
     await dialog.locator("#autorun-fallback-resolver").selectOption("4")
@@ -201,6 +209,7 @@ test.describe("fallback chain", () => {
     const dialog = page.getByRole("dialog")
 
     await dialog.locator("#autorun-profile").selectOption("1")
+    await openFallbacks(dialog)
     await dialog.locator("#autorun-fallback-profile").selectOption("2")
     await dialog.getByRole("button", { name: "Add fallback" }).click()
     await dialog.locator("#autorun-fallback-profile").selectOption("3")
@@ -233,6 +242,8 @@ test.describe("fallback chain", () => {
     await dialog.getByRole("tab", { name: "Engine + resolver" }).click()
     await dialog.locator("#autorun-engine").selectOption("1")
     await dialog.locator("#autorun-resolver").selectOption("4")
+
+    await openFallbacks(dialog)
 
     // Only the run's own source is browsable until the rung names a resolver.
     const browse = dialog.getByRole("button", { name: "Browse Wide IPTV…" })
