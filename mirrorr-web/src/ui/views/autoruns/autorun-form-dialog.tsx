@@ -31,7 +31,7 @@ import {
 import { DiscoveryDrawer, canBrowseResolver } from "@/ui/views/shared/discovery-drawer"
 import { FallbackProfiles } from "./fallback-profiles"
 import { FallbackSources, SourceFields } from "@/ui/views/shared/source-chain"
-import type { FallbackSource } from "@/api/domain/fallback-sources"
+import { chainProblem, chainProblemSentence, type FallbackSource } from "@/api/domain/fallback-sources"
 import {
   AccessCreation,
   useCreationAccessApplier,
@@ -190,7 +190,12 @@ export function AutorunFormDialog({
     new Date(endLocal).getTime() < parseNaiveUtc(autorun.end_time).getTime()
   const resolver = resolvers.find((item) => String(item.id) === resolverId)
   const canBrowse = canBrowseResolver(resolver)
-  const canSubmit = mode === "profile" ? profileId !== "" : engineId !== "" && resolverId !== ""
+  const primarySource =
+    resolver === undefined ? null : { resolver_id: resolver.id, resolver_config: resolverConfig }
+  const chainTrouble = mode === "custom" ? chainProblem(fallbackSources, primarySource) : null
+  const canSubmit =
+    (mode === "profile" ? profileId !== "" : engineId !== "" && resolverId !== "") &&
+    chainTrouble === null
 
   const save = useMutation({
     mutationFn: async (body: AutorunBody) => {
@@ -282,7 +287,11 @@ export function AutorunFormDialog({
       return
     }
     if (!canSubmit) {
-      setError("Pick a profile, or an engine and resolver.")
+      setError(
+        chainTrouble === null
+          ? "Pick a profile, or an engine and resolver."
+          : chainProblemSentence(chainTrouble, "run"),
+      )
       return
     }
     if (endEarlierWhileLive) {
@@ -507,11 +516,7 @@ export function AutorunFormDialog({
                 resolvers={resolvers}
                 value={fallbackSources}
                 onChange={setFallbackSources}
-                primary={
-                  resolver === undefined
-                    ? null
-                    : { resolver_id: resolver.id, resolver_config: resolverConfig }
-                }
+                primary={primarySource}
               />
             ) : null}
           </TabPanel>

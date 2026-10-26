@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react"
 import { useSources } from "@/api"
-import { fallbackSourceLabel, sourceKey, type FallbackSource } from "@/api/domain/fallback-sources"
+import { chainProblem, chainProblemSentence, fallbackSourceLabel, sourceKey, type FallbackSource } from "@/api/domain/fallback-sources"
 import type { Resolver } from "@/api/schemas"
 import {
   Button,
@@ -197,6 +197,8 @@ export interface FallbackSourcesProps {
   /** The run's own capture — offered again only with a different config. */
   readonly primary?: FallbackSource | null
   readonly disabled?: boolean
+  /** Who owns the capture before the chain — it decides how a clash is worded. */
+  readonly subject?: "run" | "profile"
 }
 
 /**
@@ -215,6 +217,7 @@ export function FallbackSources({
   onChange,
   primary = null,
   disabled = false,
+  subject = "run",
 }: FallbackSourcesProps) {
   const sources = useSources()
   const [draft, setDraft] = useState<SourceDraft>(EMPTY_DRAFT)
@@ -228,6 +231,7 @@ export function FallbackSources({
   const duplicate = key !== "" && taken.has(key)
   const step = value.length + 1
   const excluded = primary === null ? [...value] : [...value, primary]
+  const problem = chainProblem(value, primary)
 
   function commit(): void {
     if (draft.resolverId === null || duplicate || isPrimary || disabled) return
@@ -249,13 +253,23 @@ export function FallbackSources({
         <ol className="flex flex-wrap gap-2" aria-label="Fallback sources, in order">
           {value.map((entry, index) => {
             const name = fallbackSourceLabel(entry, (id) => resolverName(resolvers, id), sources)
+            const offender = problem !== null && problem.index === index
             return (
               <li
                 key={entryKey(entry)}
-                className="flex h-9 items-center gap-1 rounded-xs border border-line-subtle bg-surface-2 pl-1.5 pr-1"
+                data-problem={offender ? problem.kind : undefined}
+                className={`flex h-9 items-center gap-1 rounded-xs border pl-1.5 pr-1 ${
+                  offender
+                    ? "border-warning bg-warning-dim"
+                    : "border-line-subtle bg-surface-2"
+                }`}
               >
                 <Tag className="border-0 bg-transparent px-0 text-ink-dim">{index + 1}</Tag>
-                <span className="max-w-52 truncate text-sm text-ink">{name}</span>
+                <span
+                  className={`max-w-52 truncate text-sm ${offender ? "text-warning" : "text-ink"}`}
+                >
+                  {name}
+                </span>
                 <IconButton
                   label={`Move ${name} up`}
                   size="sm"
@@ -282,6 +296,12 @@ export function FallbackSources({
           })}
         </ol>
       ) : null}
+
+      {problem === null ? null : (
+        <p role="status" data-chain-problem={problem.kind} className="text-sm text-warning">
+          {chainProblemSentence(problem, subject)}
+        </p>
+      )}
 
       <div className="flex flex-col gap-3 rounded-xs border border-line-subtle bg-surface-2 p-3">
         <p className="text-sm text-ink">Fallback {step}</p>

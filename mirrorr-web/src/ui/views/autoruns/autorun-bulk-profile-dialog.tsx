@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useProfiles, useResolvers } from "@/api"
-import type { FallbackSource } from "@/api/domain/fallback-sources"
+import { chainProblem, type FallbackSource } from "@/api/domain/fallback-sources"
 import { Button, Dialog, Field, Select } from "@/ui/components"
 import { FallbackSources } from "@/ui/views/shared/source-chain"
 
@@ -35,6 +35,13 @@ export function AutorunBulkProfileDialog({ open, onClose, count, busy, onApply }
   }, [open])
 
   const profile = profiles.find((item) => String(item.id) === profileId)
+  const chainTrouble =
+    profile === undefined
+      ? null
+      : chainProblem(chain, {
+          resolver_id: profile.resolver_id,
+          resolver_config: profile.resolver_config ?? {},
+        })
 
   return (
     <Dialog
@@ -51,7 +58,7 @@ export function AutorunBulkProfileDialog({ open, onClose, count, busy, onApply }
           </Button>
           <Button
             variant="primary"
-            disabled={profileId === "" || busy}
+            disabled={profileId === "" || busy || chainTrouble !== null}
             loading={busy}
             onClick={() => {
               if (profileId !== "") onApply(Number(profileId), chain)
@@ -93,6 +100,7 @@ export function AutorunBulkProfileDialog({ open, onClose, count, busy, onApply }
           value={chain}
           onChange={setChain}
           primary={{ resolver_id: profile.resolver_id, resolver_config: profile.resolver_config ?? {} }}
+          subject="profile"
           disabled={busy}
         />
       )}

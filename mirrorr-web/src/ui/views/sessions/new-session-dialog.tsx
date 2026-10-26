@@ -24,7 +24,7 @@ import {
 import { DiscoveryDrawer, canBrowseResolver } from "@/ui/views/shared/discovery-drawer"
 import { FallbackProfiles } from "@/ui/views/autoruns/fallback-profiles"
 import { FallbackSources, SourceFields } from "@/ui/views/shared/source-chain"
-import type { FallbackSource } from "@/api/domain/fallback-sources"
+import { chainProblem, type FallbackSource } from "@/api/domain/fallback-sources"
 import {
   AccessCreation,
   useCreationAccessApplier,
@@ -101,7 +101,12 @@ export function NewSessionDialog({
 
   const resolver = resolvers.find((item) => String(item.id) === resolverId)
   const canBrowse = canBrowseResolver(resolver)
-  const canSubmit = mode === "profile" ? profileId !== "" : engineId !== "" && resolverId !== ""
+  const primarySource =
+    resolver === undefined ? null : { resolver_id: resolver.id, resolver_config: resolverConfig }
+  const chainTrouble = mode === "custom" ? chainProblem(fallbackSources, primarySource) : null
+  const canSubmit =
+    (mode === "profile" ? profileId !== "" : engineId !== "" && resolverId !== "") &&
+    chainTrouble === null
 
   const submit = () => {
     setError(null)
@@ -254,11 +259,7 @@ export function NewSessionDialog({
                   resolvers={resolvers}
                   value={fallbackSources}
                   onChange={setFallbackSources}
-                  primary={
-                    resolver === undefined
-                      ? null
-                      : { resolver_id: resolver.id, resolver_config: resolverConfig }
-                  }
+                  primary={primarySource}
                   disabled={create.isPending}
                 />
               ) : null}
