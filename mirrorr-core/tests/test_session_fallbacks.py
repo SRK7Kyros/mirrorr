@@ -104,7 +104,7 @@ def test_a_custom_session_without_fallbacks_plans_only_its_own_capture():
     asyncio.run(scenario())
 
 
-def test_a_rung_is_a_patch_over_the_capture_before_it():
+def test_a_rung_is_a_patch_over_the_runs_own_capture():
     async def scenario():
         engine, maker = await _fresh_db()
         await _seed(maker)
@@ -115,14 +115,14 @@ def test_a_rung_is_a_patch_over_the_capture_before_it():
                 resolver_id=1,
                 fallback_chain=[
                     {"profile_id": 2},
-                    {"engine_id": 1},
+                    {"engine_id": 2, "resolver_id": 1},
                     {"resolver_id": 1, "resolver_config": {"channel": "one"}},
                 ],
             )
             assert _plan(out) == [
                 (None, 1, 1, {}),
                 (2, 2, 2, {}),
-                (None, 1, 2, {}),
+                (None, 2, 1, {}),
                 (None, 1, 1, {"channel": "one"}),
             ]
         await engine.dispose()

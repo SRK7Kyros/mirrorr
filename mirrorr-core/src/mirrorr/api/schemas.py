@@ -63,10 +63,10 @@ class ChangePasswordRequest(BaseModel):
 
 
 class FallbackRung(BaseModel):
-    """One step of a chain: a patch over the capture before it.
+    """One step of a chain: a patch over the run's own capture.
 
     Whatever a rung leaves out is inherited — from the profile when it names one,
-    otherwise from the rung above (the run's own capture for the first). Naming
+    otherwise from the run's own capture, never from the rung before it. Naming
     only a profile is the old profile fallback, only a resolver the old source
     fallback, and naming both is something neither of those could express.
     """
@@ -87,7 +87,7 @@ class FallbackSource(BaseModel):
     """
 
     resolver_id: int
-    # Self-contained: no config names this resolver's empty one, never the rung above's.
+    # Self-contained: no config names this resolver's empty one, never a sibling rung's.
     resolver_config: dict[str, Any] = Field(default_factory=dict)
 
 
