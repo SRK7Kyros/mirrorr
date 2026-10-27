@@ -71,6 +71,15 @@ Response envelope: `{"items":[...], "next_cursor": <int|null>, "has_more": <bool
 - Cursor = id of last item on the previous page; server orders by `id DESC` (newest first is *not* guaranteed — client must sort by `id` or its own fields).
 - `has_more: true` → fetch `?cursor=next_cursor` for the next page (infinite scroll / "load more").
 - `GET /sessions/` also accepts `?autorun=<id>`, which returns only the sessions that scheduled recording spawned — the autorun detail page reads its linked run from that instead of paging the whole history. The filter narrows the access predicate; it never widens it (an unreadable row stays unreadable, and an unknown id is an empty page rather than a 404).
+- `GET /sessions/` and `GET /recordings/` accept **`?q=<term>`**, matched **by the server** over the fields their cards show (sessions: profile/engine/resolver name, status, id; recordings: friendly + snake name, profile/engine/resolver name, id). A client search therefore reaches rows no page has loaded yet, and `has_more`/`next_cursor` describe the filtered set. The term only narrows — it is ANDed with the access predicate, never widens it. A `q` that matches nothing is an empty first page, not a 404.
+
+### 1.5 Ops numbers (`GET /overview`)
+One round trip for the numbers a console shows above its lists — `{"sessions": {running, live, starting, finishing, failed_24h, total}, "recordings": {count, size_bytes, seconds}, "disk": {total_bytes, free_bytes} | null, "next_autorun": {id, name, starts_at, status} | null}`.
+
+- **Every number is scoped by the caller's own access predicate**, exactly as the lists are — a count can never describe a row its reader may not open (an admin sees everything). Read `total` instead of guessing from a page header: a paged list's length is not an account-wide count.
+- `running` = `starting + live + finishing`; `failed_24h` = rows that reached `failed` in the last day. `disk` is the **content** filesystem (`null` when it cannot be read, so a client must render a dash rather than a zero); a capture refuses to start below `MIN_FREE_GB`.
+- `recordings.seconds` is the total played runtime on disk, and `next_autorun` the soonest `scheduled`/**`active`** row, or null when nothing is pending.
+- `PrivilegedRoute`: no schema/origin information, and it is auth-gated like the lists.
 
 ---
 
