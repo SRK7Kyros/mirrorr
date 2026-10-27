@@ -252,6 +252,64 @@ def group_holds(username: str, group_id_column):
     )
 
 
+def access_predicate(model, user_token: str):
+    """SQL predicate: the rows of *model* that *user_token* may see.
+
+    The filter every owner-bearing list is paginated through — a row the caller
+    owns, a row carrying a grant for them (directly or through one of their
+    groups, the reserved ``everyone`` group included), and a row any of their
+    owner rows names them on. VIEW is the base capability, so *any* grant
+    admits the row and the grant EXISTS deliberately does not filter on
+    ``capability``; a crown handed to a group admits that group's members.
+
+    Shared by the paginated lists and the console's counts, so a number and the
+    list it describes can never disagree about what a caller holds. A model
+    with no owner column (engines, resolvers) answers the bare owner match —
+    they are ownerless system rows and never route through here.
+    """
+    owner_match = model.requester_user_token == user_token
+    resource_type = _ACCESS_MODEL_TYPES.get(model)
+    if resource_type is None:
+        return owner_match
+    granted = (
+        select(ResourceAccess.id)
+        .where(
+            ResourceAccess.resource_type == resource_type,
+            ResourceAccess.resource_id == model.id,
+            or_(
+                ResourceAccess.username == user_token,
+                group_holds(user_token, ResourceAccess.group_id),
+            ),
+        )
+        .exists()
+    )
+    owned_by_group = (
+        select(ResourceOwnerGroup.id)
+        .where(
+            ResourceOwnerGroup.resource_type == resource_type,
+            ResourceOwnerGroup.resource_id == model.id,
+            group_holds(user_token, ResourceOwnerGroup.group_id),
+        )
+        .exists()
+    )
+    owned_by_user = (
+        select(ResourceOwnerUser.id)
+        .where(
+            ResourceOwnerUser.resource_type == resource_type,
+            ResourceOwnerUser.resource_id == model.id,
+            ResourceOwnerUser.username == user_token,
+        )
+        .exists()
+    )
+    return or_(
+        owner_match,
+        group_holds(user_token, model.requester_group_id),
+        granted,
+        owned_by_group,
+        owned_by_user,
+    )
+
+
 async def require_capability(
     db: AsyncSession, auth: AuthState, obj, capability: Capability
 ) -> None:

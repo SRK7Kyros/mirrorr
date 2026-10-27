@@ -636,3 +636,41 @@ class DeleteResultResponse(BaseModel):
     deleted: dict[str, int] = Field(default_factory=dict)
 
 
+class OverviewSessions(BaseModel):
+    """Sessions by what they are doing, all scoped to the caller."""
+
+    running: int = 0
+    live: int = 0
+    starting: int = 0
+    finishing: int = 0
+    failed_24h: int = 0
+    total: int = 0
+
+
+class OverviewRecordings(BaseModel):
+    count: int = 0
+    size_bytes: int = 0
+    seconds: int = 0
+
+
+class OverviewDisk(BaseModel):
+    total_bytes: int
+    free_bytes: int
+
+
+class OverviewAutorun(BaseModel):
+    id: int
+    name: str
+    starts_at: datetime
+    status: str
+
+
+class OverviewResponse(BaseModel):
+    """The console's ops numbers — one round trip for the strip and the storage line."""
+
+    sessions: OverviewSessions
+    recordings: OverviewRecordings
+    disk: OverviewDisk | None = None
+    next_autorun: OverviewAutorun | None = None
+
+

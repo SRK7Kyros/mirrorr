@@ -8,7 +8,6 @@ from urllib.parse import urlparse
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import and_ as sa_and
-from sqlalchemy import or_ as sa_or
 from sqlalchemy.orm import selectinload
 from loguru import logger
 from mirrorr.event_bus.nats import bus, get_control_nc
@@ -21,7 +20,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from mirrorr.api.dependencies import _get_db, require_auth, AuthState
 from mirrorr.api.privileged import PrivilegedRoute
 from mirrorr.api.auth import subscribe_requester
-from mirrorr.services import fallback_chain
+from mirrorr.services import fallback_chain, search
 from mirrorr.api.schemas import (
     CreateSessionRequest,
     CreateAutorunRequest,
@@ -54,7 +53,7 @@ from mirrorr.api.schemas import (
     DeleteResultResponse,
 )
 from mirrorr.storage.models import Session, Autorun, Recording, Profile, Engine, Resolver, ResolverSource, ResourceAccess, ResourceOwnerGroup, ResourceOwnerUser, ResolverProbe
-from mirrorr.services.permissions import group_holds, has_capability
+from mirrorr.services.permissions import access_predicate, has_capability
 from mirrorr.services.session_helpers import build_session_urls
 from mirrorr.storage.enums import SessionStatus, ResourceType, AutorunStatus, Capability
 from mirrorr.storage import crud
@@ -252,16 +251,7 @@ async def _cascade_delete_profile(db: AsyncSession, profile_id: int) -> dict[str
     return counts
 
 
-# The five owner-bearing resource kinds a grant can point at, mapped to the
-# ``resource_access`` tag. Engines and resolvers are ownerless system rows on
-# the admin surface and are not here.
-_ACCESS_MODEL_TYPES: dict[type, ResourceType] = {
-    Session: ResourceType.SESSION,
-    Autorun: ResourceType.AUTORUN,
-    Recording: ResourceType.RECORDING,
-    Profile: ResourceType.PROFILE,
-    ResolverSource: ResourceType.SOURCE,
-}
+# ── Access helpers ────────────────────────────────────────────────────
 
 
 async def _require_read_access(db: AsyncSession, auth: AuthState, obj) -> bool:
@@ -568,48 +558,7 @@ async def _get_paginated_for_user(
 
     Returns {"items": [...], "next_cursor": ..., "has_more": ...}.
     """
-    owner_match = model.requester_user_token == user_token
-    resource_type = _ACCESS_MODEL_TYPES.get(model)
-    if resource_type is None:
-        predicate = owner_match
-    else:
-        granted = (
-            select(ResourceAccess.id)
-            .where(
-                ResourceAccess.resource_type == resource_type,
-                ResourceAccess.resource_id == model.id,
-                sa_or(
-                    ResourceAccess.username == user_token,
-                    group_holds(user_token, ResourceAccess.group_id),
-                ),
-            )
-            .exists()
-        )
-        owned_by_group = (
-            select(ResourceOwnerGroup.id)
-            .where(
-                ResourceOwnerGroup.resource_type == resource_type,
-                ResourceOwnerGroup.resource_id == model.id,
-                group_holds(user_token, ResourceOwnerGroup.group_id),
-            )
-            .exists()
-        )
-        owned_by_user = (
-            select(ResourceOwnerUser.id)
-            .where(
-                ResourceOwnerUser.resource_type == resource_type,
-                ResourceOwnerUser.resource_id == model.id,
-                ResourceOwnerUser.username == user_token,
-            )
-            .exists()
-        )
-        predicate = sa_or(
-            owner_match,
-            group_holds(user_token, model.requester_group_id),
-            granted,
-            owned_by_group,
-            owned_by_user,
-        )
+    predicate = access_predicate(model, user_token)
     scope = predicate if where_expr is None else sa_and(predicate, where_expr)
     stmt = select(model).where(scope)
     if cursor is not None:
@@ -811,14 +760,24 @@ async def get_all_sessions(
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
     include_total: bool = Query(False, description="Include a total row count in the response"),
     autorun: int | None = Query(None, description="Only sessions spawned by this autorun"),
+    q: str | None = Query(None, description="Only sessions whose names, status or id contain this"),
 ):
     """List sessions, newest first.
 
     ``?autorun=<id>`` narrows the list to the runs one scheduled recording
     spawned, so a caller never has to page through the whole history to find
-    them. Access still applies: the filter narrows what the caller may see.
+    them. ``?q=<term>`` narrows it the same way for a search box: a row that was
+    never paged in cannot be ranked, so the match runs in SQL over what a card
+    shows (profile, engine, resolver, status, id). Both narrow what the caller
+    may see rather than widening it.
     """
-    where_expr = Session.autorun_id == autorun if autorun is not None else None
+    narrow = []
+    if autorun is not None:
+        narrow.append(Session.autorun_id == autorun)
+    pattern = search.like_pattern(q)
+    if pattern is not None:
+        narrow.append(search.session_predicate(pattern))
+    where_expr = sa_and(*narrow) if narrow else None
     total = None
     if auth.is_admin:
         result = await crud.get_all_paginated(
@@ -1236,15 +1195,27 @@ async def get_all_recordings(
     cursor: int | None = Query(None, description="ID of last item from previous page"),
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
     include_total: bool = Query(False, description="Include a total row count in the response"),
+    q: str | None = Query(None, description="Only recordings whose names contain this"),
 ):
+    """List recordings, newest first.
+
+    ``?q=<term>`` matches what a card shows — its name, profile, engine,
+    resolver — so a term finds a recording that was never paged in, which
+    client-side ranking over the loaded page cannot do.
+    """
+    pattern = search.like_pattern(q)
+    where_expr = search.recording_predicate(pattern) if pattern is not None else None
     total = None
     if auth.is_admin:
-        result = await crud.get_all_paginated(db, Recording, cursor=cursor, limit=limit)
+        result = await crud.get_all_paginated(
+            db, Recording, cursor=cursor, limit=limit, where_expr=where_expr
+        )
         if include_total:
-            total = await crud.count(db, Recording)
+            total = await crud.count(db, Recording, where_expr)
     else:
         result = await _get_paginated_for_user(
-            db, Recording, auth.user.username, cursor=cursor, limit=limit, include_total=include_total,
+            db, Recording, auth.user.username, cursor=cursor, limit=limit,
+            include_total=include_total, where_expr=where_expr,
         )
         total = result.get("total") if isinstance(result, dict) else None
     data = _paginate_response(result)
