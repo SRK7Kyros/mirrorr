@@ -239,11 +239,12 @@ test.describe("fallback chain", () => {
     const dialog = page.getByRole("dialog")
     const cards = chainList(dialog)
 
-    // A profile rung takes a profile and the source that came with it.
-    // A profile rung takes a profile and the source that came with it.
+    // A profile rung takes a profile and the source that came with it, and says
+    // what each one replaces — the row above is the base, not the rung.
     await expect(cards.nth(0).locator("[data-change]")).toHaveCount(2)
     await expect(cards.nth(0).locator('[data-change="profile"]')).toContainText("News Hour")
-    await expect(cards.nth(0).locator("[data-rung-trail]")).toContainText("F1 Weekend · Sky")
+    await expect(cards.nth(0).locator('[data-change="profile"]')).toContainText("F1 Weekend")
+    await expect(cards.nth(0).locator("[data-rung-trail]")).toHaveCount(0)
 
     // A source rung takes a source only — it does not drop the profile it inherits.
     await expect(cards.nth(1).locator("[data-change]")).toHaveCount(1)

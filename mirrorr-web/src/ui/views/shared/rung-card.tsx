@@ -113,8 +113,6 @@ export interface RungCardProps {
   readonly catalog: ChainCatalog
   readonly naming: ChainNaming
   readonly base: ChainBase
-  /** The capture that runs before this one — the run's own, or the rung above. */
-  readonly previous: ChainCapture | null
   readonly subject: "run" | "profile"
   readonly disabled: boolean
   readonly resolve: (draft: RungDraft) => RungPreview
@@ -139,7 +137,6 @@ export function RungCard({
   catalog,
   naming,
   base,
-  previous,
   subject,
   disabled,
   resolve,
@@ -164,13 +161,6 @@ export function RungCard({
   const target = draftRung(draft)
   const state = resolve(draft)
   const changes = state.capture === null ? [] : rungChanges(state.capture, own, naming)
-  const trail =
-    previous === null || state.capture === null
-      ? null
-      : {
-          before: captureLabel(previous, base, naming),
-          after: captureLabel(state.capture, base, naming),
-        }
   const dirty = target !== null && canonicalJson(normaliseRung(target)) !== seedKey
   const blocked = disabled || target === null || state.problem !== null
   const chosenResolver =
@@ -249,94 +239,96 @@ export function RungCard({
             <IconGrip size={14} />
           </span>
         )}
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-label={`${open ? "Close" : "Edit"} fallback ${number}`}
-          onClick={() => setOpen((current) => !current)}
-          className="flex min-w-0 flex-1 items-start gap-2 rounded-xs text-left hover:text-ink"
-        >
-          <IconChevronRight
-            size={15}
-            className={cn("mt-0.5 shrink-0 text-ink-dim transition-transform", open && "rotate-90")}
-          />
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="truncate text-sm text-ink">Fallback {number}</span>
-              {dirty ? <Tag className="text-dim">edited</Tag> : null}
-              {state.problem === null ? null : <Tag className="border-warning text-warning">problem</Tag>}
-            </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start gap-2">
+            <button
+              type="button"
+              aria-expanded={open}
+              aria-label={`${open ? "Close" : "Edit"} fallback ${number}`}
+              onClick={() => setOpen((current) => !current)}
+              className="flex min-w-0 flex-1 items-start gap-2 rounded-xs text-left hover:text-ink"
+            >
+              <IconChevronRight
+                size={15}
+                className={cn("mt-0.5 shrink-0 text-ink-dim transition-transform", open && "rotate-90")}
+              />
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                <span className="truncate text-sm text-ink">Fallback {number}</span>
+                {dirty ? <Tag className="text-dim">edited</Tag> : null}
+                {state.problem === null ? null : <Tag className="border-warning text-warning">problem</Tag>}
+              </div>
+            </button>
 
-            {open ? null : (
-              <>
-                {changes.length === 0 ? (
-                  <p className="mt-1 text-xs text-dim">
-                    {kind === "draft"
-                      ? "Nothing named yet — open to pick a profile, an engine or a source."
-                      : "Changes nothing yet."}
-                  </p>
-                ) : (
-                  <div
-                    role="group"
-                    className="mt-1.5 flex flex-wrap items-center gap-1"
-                    aria-label={`What fallback ${number} changes`}
-                  >
-                    {changes.map((change) => (
-                      <span
-                        key={change.key}
-                        data-change={change.key}
-                        className="flex min-w-0 items-baseline gap-1 rounded-xs border border-line-subtle bg-surface-3 px-1.5 py-1 text-xs"
-                      >
-                        <span className="shrink-0 text-dim">{change.label}</span>
-                        <span className="truncate text-ink">{change.value}</span>
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {trail === null ? null : (
-                  <p className="mt-1 flex min-w-0 flex-wrap items-center gap-1 text-xs" data-rung-trail>
-                    <span className="truncate text-ink-dim">{trail.before}</span>
-                    <IconArrowRight size={12} className="shrink-0 text-dim" />
-                    <span className="truncate text-ink">{trail.after}</span>
-                  </p>
-                )}
-
-                {state.problem === null ? null : (
-                  <p className="mt-1 text-xs text-warning">
-                    {chainProblemSentence(state.problem, subject)}
-                  </p>
-                )}
-              </>
+            {actions === undefined ? null : (
+              <div className="flex shrink-0 items-center">
+                <IconButton
+                  label={`Move fallback ${number} up`}
+                  size="sm"
+                  icon={<IconArrowUp size={13} />}
+                  disabled={disabled || !actions.canMoveUp}
+                  onClick={actions.onMoveUp}
+                />
+                <IconButton
+                  label={`Move fallback ${number} down`}
+                  size="sm"
+                  icon={<IconArrowDown size={13} />}
+                  disabled={disabled || !actions.canMoveDown}
+                  onClick={actions.onMoveDown}
+                />
+                <IconButton
+                  label={`Remove fallback ${number}`}
+                  size="sm"
+                  icon={<IconX size={13} />}
+                  disabled={disabled}
+                  onClick={actions.onRemove}
+                />
+              </div>
             )}
           </div>
-        </button>
 
-        {actions === undefined ? null : (
-          <div className="flex shrink-0 items-center">
-            <IconButton
-              label={`Move fallback ${number} up`}
-              size="sm"
-              icon={<IconArrowUp size={13} />}
-              disabled={disabled || !actions.canMoveUp}
-              onClick={actions.onMoveUp}
-            />
-            <IconButton
-              label={`Move fallback ${number} down`}
-              size="sm"
-              icon={<IconArrowDown size={13} />}
-              disabled={disabled || !actions.canMoveDown}
-              onClick={actions.onMoveDown}
-            />
-            <IconButton
-              label={`Remove fallback ${number}`}
-              size="sm"
-              icon={<IconX size={13} />}
-              disabled={disabled}
-              onClick={actions.onRemove}
-            />
-          </div>
-        )}
+          {open ? null : (
+            <>
+              {changes.length === 0 ? (
+                <p className="mt-1 text-xs text-dim">
+                  {kind === "draft"
+                    ? "Nothing named yet — open to pick a profile, an engine or a source."
+                    : "Changes nothing yet."}
+                </p>
+              ) : (
+                <div
+                  role="group"
+                  className="mt-1.5 flex flex-wrap items-center gap-1"
+                  aria-label={`What fallback ${number} changes`}
+                >
+                  {changes.map((change) => (
+                    <span
+                      key={change.key}
+                      data-change={change.key}
+                      data-change-from={change.from}
+                      data-change-to={change.to}
+                      className="flex max-w-full shrink-0 items-center gap-1 rounded-xs border border-line-subtle bg-surface-3 px-1.5 py-1 text-xs"
+                    >
+                      <span className="shrink-0 text-dim">{change.label}</span>
+                      {change.from === "" ? null : (
+                        <>
+                          <span className="max-w-[50%] shrink-0 truncate text-ink-dim">{change.from}</span>
+                          <IconArrowRight size={11} className="shrink-0 text-dim" />
+                        </>
+                      )}
+                      <span className="min-w-0 truncate text-ink">{change.to}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {state.problem === null ? null : (
+                <p className="mt-1 text-xs text-warning">
+                  {chainProblemSentence(state.problem, subject)}
+                </p>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {open ? (

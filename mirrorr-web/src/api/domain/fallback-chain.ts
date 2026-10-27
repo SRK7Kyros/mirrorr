@@ -411,11 +411,15 @@ export function sourceLabel(
   )
 }
 
-/** One thing a rung changes about the capture it patches — a mini card on its stack row. */
+/**
+ * One thing a rung changes about the capture it patches — a mini card on its
+ * stack row, read as `label from → to`.
+ */
 export interface RungChange {
   readonly key: "profile" | "source" | "engine"
   readonly label: string
-  readonly value: string
+  readonly from: string
+  readonly to: string
 }
 
 /**
@@ -440,7 +444,8 @@ export function rungChanges(
     changes.push({
       key: "profile",
       label: "Profile",
-      value: capture.profile_name === "" ? naming.profile(profile) : capture.profile_name,
+      from: ownProfile === null ? "" : profileName(own, ownProfile, naming),
+      to: profileName(capture, profile, naming),
     })
   }
   const sameSource =
@@ -450,17 +455,24 @@ export function rungChanges(
     changes.push({
       key: "source",
       label: "Source",
-      value: sourceLabel(capture.resolver_id, capture.resolver_config, naming),
+      from: sourceLabel(own.resolver_id, own.resolver_config, naming),
+      to: sourceLabel(capture.resolver_id, capture.resolver_config, naming),
     })
   }
   if (capture.engine_id !== own.engine_id) {
     changes.push({
       key: "engine",
       label: "Engine",
-      value: naming.engine(capture.engine_id),
+      from: naming.engine(own.engine_id),
+      to: naming.engine(capture.engine_id),
     })
   }
   return changes
+}
+
+/** A capture's profile as it is shown — the name it carries, else the catalogue's. */
+function profileName(capture: ChainCapture, id: number, naming: ChainNaming): string {
+  return capture.profile_name === "" ? naming.profile(id) : capture.profile_name
 }
 
 /** What a rung *changes* — the profile it names, its source, its engine. */
