@@ -12,8 +12,6 @@ import { fetchSessionPage } from "@/api/endpoints";
 import { queryKeys, queryRoots } from "@/api/query-keys";
 import {
   DEFAULT_FILTER,
-  isLive,
-  isSpent,
   matchesFilter,
   shouldAutoExhaust,
   type FilterToken,
@@ -38,15 +36,12 @@ import {
   IconTrash,
   Input,
   LoadMore,
-  Panel,
-  PanelBody,
-  PanelHead,
   Skeleton,
-  Stat,
   toast,
 } from "@/ui/components";
-import { useSelection } from "@/ui/hooks";
+import { useDebouncedValue, useSelection } from "@/ui/hooks";
 import { Page } from "@/ui/views/shared/page";
+import { OpsStrip } from "@/ui/views/shared/ops-strip";
 import { NewSessionDialog } from "./new-session-dialog";
 import { SessionCard } from "./session-card";
 
@@ -106,12 +101,13 @@ export function SessionsListView() {
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const term = useDebouncedValue(search, 250);
   const selection = useSelection<number>();
   const names = useNameMaps();
 
   const list = useEntityList<Session>({
-    queryKey: queryKeys.sessions({ filter: tokens.join("+") }),
-    fetchPage: (cursor) => fetchSessionPage(cursor),
+    queryKey: queryKeys.sessions({ filter: tokens.join("+"), q: term }),
+    fetchPage: (cursor) => fetchSessionPage(cursor, undefined, { q: term }),
   });
   const { hasMore, isFetching, loadingAll, loadAll } = list;
   const autoExhaust = shouldAutoExhaust(tokens);
@@ -122,7 +118,8 @@ export function SessionsListView() {
     void loadAll().catch(() => undefined);
   }, [autoExhaust, hasMore, loadingAll, isFetching, loadAll]);
 
-  // The filter buttons are a hard scope; the search term only ranks what's left.
+  // The status buttons scope what the server rows are then ranked by; the term
+  // itself went to the server, so it reaches sessions no page has loaded yet.
   const cards = useMemo(
     () =>
       rankBySearch(
@@ -177,18 +174,6 @@ export function SessionsListView() {
       ),
   });
 
-  const tally = useMemo(() => {
-    let live = 0;
-    let recording = 0;
-    let spent = 0;
-    for (const session of list.items) {
-      if (isLive(session.status)) live += 1;
-      if (session.status === "recording") recording += 1;
-      if (isSpent(session.status)) spent += 1;
-    }
-    return { live, recording, spent };
-  }, [list.items]);
-
   const toggleToken = (token: FilterToken) => {
     selection.clear();
     if (token === "all") {
@@ -205,7 +190,7 @@ export function SessionsListView() {
   return (
     <Page
       title="Sessions"
-      description="Live and recent capture runs. Hover a card to preview its stream; status filtering and search apply to the cards loaded so far."
+      description="Live and recent capture runs. Hover a card to preview its stream. Search reaches the whole history; the status buttons scope it."
       actions={
         <Button
           variant="primary"
@@ -223,35 +208,7 @@ export function SessionsListView() {
         onClick={() => setCreateOpen(true)}
       />
 
-      <Panel>
-        <PanelHead
-          title="Tally"
-          actions={
-            <span className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
-              over {list.items.length} loaded
-            </span>
-          }
-        />
-        <PanelBody>
-          <div className="grid grid-cols-2 gap-3">
-            <Stat
-              label="Live"
-              value={
-                <>
-                  {tally.live}
-                  {tally.recording > 0 ? (
-                    <span className="text-dim">
-                      {" "}
-                      · {tally.recording} recording
-                    </span>
-                  ) : null}
-                </>
-              }
-            />
-            <Stat label="Spent" value={tally.spent} />
-          </div>
-        </PanelBody>
-      </Panel>
+      <OpsStrip />
 
       <div className="flex items-center gap-2 flex-wrap">
         <div className="flex items-center gap-3">
@@ -302,17 +259,26 @@ export function SessionsListView() {
           icon={<IconSessions size={22} />}
           title={
             list.items.length === 0
-              ? "No sessions yet."
+              ? term.trim() === ""
+                ? "No sessions yet."
+                : `No session matches “${term.trim()}”.`
               : "Nothing matches this filter"
           }
           text={
             list.items.length === 0
-              ? "A session is one capture run. Start one from a profile, or build the config by hand."
+              ? term.trim() === ""
+                ? "A session is one capture run. Start one from a profile, or build the config by hand."
+                : "The search covers every session in the account, whatever page it lives on."
               : "Widen the status filter or clear the search box."
           }
           action={
             list.items.length === 0 ? (
               <div className="flex items-center gap-3">
+                {term.trim() === "" ? null : (
+                  <Button variant="secondary" onClick={() => setSearch("")}>
+                    Clear search
+                  </Button>
+                )}
                 <Button
                   variant="primary"
                   icon={<IconPlus size={16} />}

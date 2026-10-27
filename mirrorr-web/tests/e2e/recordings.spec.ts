@@ -1,4 +1,4 @@
-import { expect, test, type Row } from "./fixtures"
+import { expect, session, test, type Row } from "./fixtures"
 
 function recording(overrides: Row = {}): Row {
   return {
@@ -89,5 +89,60 @@ test.describe("recordings", () => {
 
     await head.uncheck()
     await expect(page.getByRole("region", { name: "Bulk actions" })).toBeHidden()
+  })
+
+  test("the storage line adds up the whole library", async ({ page }) => {
+    await page.goto("/recordings")
+
+    const strip = page.getByTestId("storage-strip")
+    // Three one-hour, 900 MB cards: 2.7 GB of bytes and three hours of video.
+    await expect(strip).toContainText("3 recordings · 2.5 GB · 3:00:00")
+    await expect(strip).toContainText("free of")
+  })
+
+  test("the order control sorts the loaded cards, newest by default", async ({ page }) => {
+    await page.goto("/recordings")
+    const cards = page.locator(".session-card")
+    await expect(cards.first()).toContainText("The Race")
+
+    await page.getByLabel("Sort recordings").selectOption("largest")
+    await expect(cards.first()).toContainText("The Race")
+    await expect(cards.last()).toContainText("Practice 1")
+
+    await page.getByLabel("Sort recordings").selectOption("longest")
+    await expect(cards.first()).toContainText("The Race")
+  })
+
+  test("a card links to the session that made it", async ({ page, api }) => {
+    api.data.recordings = [recording({ id: 1, session_id: 42 })]
+    api.data.sessions = [session({ id: 42 })]
+
+    await page.goto("/recordings")
+
+    await page.getByRole("link", { name: "Session #42" }).click()
+    await expect(page).toHaveURL(/\/sessions\/42$/)
+  })
+
+  test("the search reaches a recording no page has loaded yet", async ({ page, api }) => {
+    api.data.pageSize = 2
+
+    await page.goto("/recordings")
+    await expect(page.locator(".session-card")).toHaveCount(2)
+    await expect(page.locator(".session-grid")).not.toContainText("The Race")
+
+    // The term goes to the server, so the third card is found without paging.
+    await page.getByLabel("Search recordings").fill("race")
+
+    await expect(page.locator(".session-card")).toHaveCount(1)
+    await expect(page.locator(".session-card")).toContainText("The Race")
+  })
+
+  test("a term nobody matches offers a way back", async ({ page }) => {
+    await page.goto("/recordings")
+    await page.getByLabel("Search recordings").fill("nothing-like-this")
+
+    await expect(page.getByText("No recording matches \u201cnothing-like-this\u201d.")).toBeVisible()
+    await page.getByRole("button", { name: "Clear search" }).click()
+    await expect(page.locator(".session-card")).toHaveCount(3)
   })
 })

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -9,6 +9,7 @@ import {
 } from "@/api";
 import { fetchRecordingPage } from "@/api/endpoints";
 import { queryKeys, queryRoots } from "@/api/query-keys";
+import { rankBySearch } from "@/api/domain/search";
 import type { Recording } from "@/api/schemas";
 import { showingLabel } from "@/ui/lib/format";
 import {
@@ -20,14 +21,18 @@ import {
   ErrorPanel,
   IconRecordings,
   IconRefresh,
+  IconSearch,
   IconTrash,
+  Input,
   LoadMore,
+  Select,
   SelectionHead,
   Skeleton,
   toast,
 } from "@/ui/components";
-import { useHighlightRef, useSelection } from "@/ui/hooks";
+import { useDebouncedValue, useHighlightRef, useSelection } from "@/ui/hooks";
 import { Page } from "@/ui/views/shared/page";
+import { StorageStrip } from "@/ui/views/shared/ops-strip";
 import { useBulkAccessAction } from "@/ui/views/shared/resource-access-slot";
 import { RecordingCard } from "./recording-card";
 
@@ -65,16 +70,42 @@ function RecordingsSkeleton({ count = 6 }: { readonly count?: number }) {
   );
 }
 
+type RecordingOrder = "newest" | "largest" | "longest";
+
+const ORDERS: readonly { readonly value: RecordingOrder; readonly label: string }[] = [
+  { value: "newest", label: "Newest first" },
+  { value: "largest", label: "Largest first" },
+  { value: "longest", label: "Longest first" },
+];
+
+const recordingSearchFields = (recording: Recording): readonly string[] => [
+  recording.user_friendly_name,
+  recording.snake_case_name,
+  recording.profile_name ?? "",
+  recording.engine_name ?? "",
+  recording.resolver_name ?? "",
+  String(recording.id),
+];
+
+const byOrder = (order: RecordingOrder) => (a: Recording, b: Recording): number => {
+  if (order === "largest") return b.size_bytes - a.size_bytes || b.id - a.id;
+  if (order === "longest") return b.duration_seconds - a.duration_seconds || b.id - a.id;
+  return b.id - a.id;
+};
+
 export function RecordingsView({ highlight }: { readonly highlight?: number }) {
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<Recording | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [order, setOrder] = useState<RecordingOrder>("newest");
+  const term = useDebouncedValue(search, 250);
   const selection = useSelection<number>();
   const highlightRef = useHighlightRef(highlight);
 
   const list = useEntityList<Recording>({
-    queryKey: queryKeys.recordings(),
-    fetchPage: (cursor) => fetchRecordingPage(cursor),
+    queryKey: queryKeys.recordings({ q: term }),
+    fetchPage: (cursor) => fetchRecordingPage(cursor, undefined, term),
   });
   const { hasMore, isFetching, loadingAll, loadAll } = list;
 
@@ -109,7 +140,10 @@ export function RecordingsView({ highlight }: { readonly highlight?: number }) {
       ),
   });
 
-  const rows = list.items;
+  const rows = useMemo(
+    () => [...rankBySearch(list.items, term, recordingSearchFields)].sort(byOrder(order)),
+    [list.items, term, order],
+  );
   const selectedRecordings = rows.filter((recording) => selection.has(recording.id));
   const access = useBulkAccessAction(
     "recording",
@@ -135,10 +169,42 @@ export function RecordingsView({ highlight }: { readonly highlight?: number }) {
         </Button>
       }
     >
+      <StorageStrip />
+
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
           {showingLabel(rows.length)}
+          {order === "newest" || !hasMore ? null : (
+            <span className="text-dim"> · of {list.items.length} loaded</span>
+          )}
         </span>
+        <div className="flex-1" />
+        <Select
+          aria-label="Sort recordings"
+          className="max-w-[180px] max-sm:max-w-none"
+          value={order}
+          onChange={(event) => setOrder(event.target.value as RecordingOrder)}
+        >
+          {ORDERS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </Select>
+        <div className="relative flex-1 min-w-[200px] max-w-[340px] [&_input]:pl-8">
+          <span
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none"
+            aria-hidden="true"
+          >
+            <IconSearch size={15} />
+          </span>
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search by name, profile, source…"
+            aria-label="Search recordings"
+          />
+        </div>
       </div>
 
       {list.isLoading ? (
@@ -151,12 +217,22 @@ export function RecordingsView({ highlight }: { readonly highlight?: number }) {
       ) : rows.length === 0 ? (
         <EmptyState
           icon={<IconRecordings size={22} />}
-          title="No recordings yet."
-          text="Recordings appear when a session finishes with recording enabled."
+          title={term.trim() === "" ? "No recordings yet." : `No recording matches “${term.trim()}”.`}
+          text={
+            term.trim() === ""
+              ? "Recordings appear when a session finishes with recording enabled."
+              : "The search reaches the whole library, not just the cards loaded so far."
+          }
           action={
-            <Link className={buttonClass({ variant: "secondary" })} to="/sessions">
-              Open sessions
-            </Link>
+            term.trim() === "" ? (
+              <Link className={buttonClass({ variant: "secondary" })} to="/sessions">
+                Open sessions
+              </Link>
+            ) : (
+              <Button variant="secondary" onClick={() => setSearch("")}>
+                Clear search
+              </Button>
+            )
           }
         />
       ) : (

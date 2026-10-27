@@ -1,4 +1,5 @@
 import { useEffect, useState, type MouseEvent } from "react";
+import { Link } from "@tanstack/react-router";
 import { probeMediaUrl } from "@/api";
 import type { Recording } from "@/api/schemas";
 import { formatBytes, formatDateTime, formatDuration } from "@/api/time";
@@ -176,10 +177,24 @@ export function RecordingCard({
           {recording.engine_name}
         </div>
 
-        <div className="flex items-baseline justify-between gap-3 text-sm text-dim">
-          <span className="text-truncate">{recording.profile_name}</span>
-          <span className="tnum">{formatBytes(recording.size_bytes)}</span>
-          <span>{formatDateTime(recording.created_at)}</span>
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm text-dim">
+          <span className="min-w-0 flex-1 text-truncate">{recording.profile_name}</span>
+          {recording.session_id === null || recording.session_id === undefined ? null : (
+            <Link
+              className="shrink-0 whitespace-nowrap hover:text-ink"
+              to="/sessions/$sessionId"
+              params={{ sessionId: String(recording.session_id) }}
+              title={`Open session #${recording.session_id}`}
+            >
+              Session #{recording.session_id}
+            </Link>
+          )}
+          <span className="shrink-0 whitespace-nowrap tnum">
+            {formatBytes(recording.size_bytes)}
+          </span>
+          <span className="shrink-0 whitespace-nowrap">
+            {formatDateTime(recording.created_at)}
+          </span>
         </div>
 
         {served === false ? <MediaHint recording={recording} /> : null}

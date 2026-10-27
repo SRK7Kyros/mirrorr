@@ -4,6 +4,7 @@ import {
   AutorunSchema,
   DiscoveryPageSchema,
   EngineSchema,
+  OverviewSchema,
   ProfileSchema,
   ProbeLookupSchema,
   ProbeVerdictSchema,
@@ -15,6 +16,7 @@ import {
   type Autorun,
   type DiscoveryPage,
   type Engine,
+  type Overview,
   type Profile,
   type ProbeVerdict,
   type Resolver,
@@ -64,13 +66,22 @@ async function fetchPageOf<T>(
 }
 
 /* ── sessions ─────────────────────────────────────────────────────── */
+export interface SessionPageOptions {
+  /** Only sessions spawned by this schedule (the autorun detail's own run). */
+  readonly autorun?: number | string
+  /** A search term the server matches, so it reaches rows never paged in. */
+  readonly q?: string
+}
 export function fetchSessionPage(
   cursor: number | undefined,
   limit = PAGE_SIZE,
-  autorun?: number | string,
+  options: SessionPageOptions = {},
 ) {
-  const extra = autorun === undefined ? "" : `&autorun=${encodeURIComponent(String(autorun))}`
-  return fetchPageOf("/sessions/", SessionSchema, cursor, limit, extra)
+  const extra = new URLSearchParams()
+  if (options.autorun !== undefined) extra.set("autorun", String(options.autorun))
+  if (options.q !== undefined && options.q.trim() !== "") extra.set("q", options.q.trim())
+  const tail = extra.toString()
+  return fetchPageOf("/sessions/", SessionSchema, cursor, limit, tail === "" ? "" : `&${tail}`)
 }
 export function fetchSession(id: number | string): Promise<Session> {
   return apiFetch<unknown>(`/sessions/${id}`).then((raw) => parseOrWarn(SessionSchema.parse, raw))
@@ -143,11 +154,24 @@ export function saveAutorunAsProfile(id: number, name: string): Promise<Profile>
 }
 
 /* ── recordings ───────────────────────────────────────────────────── */
-export function fetchRecordingPage(cursor: number | undefined, limit = PAGE_SIZE) {
-  return fetchPageOf("/recordings/", RecordingSchema, cursor, limit)
+/** `q` is matched by the server over the names a card shows, so a term reaches
+ *  recordings that no page of the list has loaded yet. */
+export function fetchRecordingPage(
+  cursor: number | undefined,
+  limit = PAGE_SIZE,
+  q?: string,
+) {
+  const term = q?.trim() ?? ""
+  const extra = term === "" ? "" : `&q=${encodeURIComponent(term)}`
+  return fetchPageOf("/recordings/", RecordingSchema, cursor, limit, extra)
 }
 export function deleteRecording(id: number): Promise<void> {
   return apiFetch<void>(`/recordings/${id}`, { method: "DELETE" })
+}
+
+/* ── overview ─────────────────────────────────────────────────────── */
+export function fetchOverview(): Promise<Overview> {
+  return apiFetch<unknown>("/overview").then((raw) => parseOrWarn(OverviewSchema.parse, raw))
 }
 
 /* ── profiles ─────────────────────────────────────────────────────── */

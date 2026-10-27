@@ -81,7 +81,7 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
   // so the first page already carries the spawned run.
   const sessions = useEntityList<Session>({
     queryKey: queryKeys.sessions({ autorun: autorunId }),
-    fetchPage: (cursor) => fetchSessionPage(cursor, undefined, autorunId),
+    fetchPage: (cursor) => fetchSessionPage(cursor, undefined, { autorun: autorunId }),
   })
   const { hasMore, isFetching, loadingAll, loadAll } = sessions
 
