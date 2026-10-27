@@ -47,9 +47,13 @@ from mirrorr.api.schemas import (
     ResolverSourceListResponse,
     DiscoveryRequest,
     DiscoveryResponse,
+    ProbeRequest,
+    ProbeResponse,
+    ProbeLookupRequest,
+    ProbeLookupResponse,
     DeleteResultResponse,
 )
-from mirrorr.storage.models import Session, Autorun, Recording, Profile, Engine, Resolver, ResolverSource, ResourceAccess, ResourceOwnerGroup, ResourceOwnerUser
+from mirrorr.storage.models import Session, Autorun, Recording, Profile, Engine, Resolver, ResolverSource, ResourceAccess, ResourceOwnerGroup, ResourceOwnerUser, ResolverProbe
 from mirrorr.services.permissions import group_holds, has_capability
 from mirrorr.services.session_helpers import build_session_urls
 from mirrorr.storage.enums import SessionStatus, ResourceType, AutorunStatus, Capability
@@ -1605,6 +1609,67 @@ async def discover_resolver(
     if page is None:
         return {"items": [], "next_cursor": None}
     return {"items": [asdict(i) for i in page.items], "next_cursor": page.next_cursor}
+
+
+@resolvers_router.post("/probes/lookup", response_model=ProbeLookupResponse)
+async def lookup_probes(
+    body: ProbeLookupRequest,
+    db: AsyncSession = Depends(_get_db),
+    _auth: AuthState = Depends(require_auth),
+):
+    """The last verdict for each of these captures, without probing any of them.
+
+    Answers one entry per requested source, in the same order, ``null`` where a
+    capture has never been probed — the editor marks a rung from this without
+    paying a resolve each time it opens.
+    """
+    from mirrorr.services import probes
+
+    keys = [probes.key_for(s.engine_id, s.resolver_id, s.resolver_config) for s in body.sources]
+    rows: dict[str, ResolverProbe] = {}
+    if keys:
+        found = (await db.exec(select(ResolverProbe).where(ResolverProbe.source_key.in_(keys)))).all()
+        rows = {row.source_key: row for row in found}
+    return {"items": [probes.verdict(rows.get(key)) for key in keys]}
+
+
+@resolvers_router.post("/{id}/probe", response_model=ProbeResponse)
+async def probe_resolver(
+    id: int,
+    body: ProbeRequest,
+    db: AsyncSession = Depends(_get_db),
+    auth: AuthState = Depends(require_auth),
+):
+    """Resolve a config and run the resolver's smoke test — no session, no engine.
+
+    A failing probe answers ``200`` with ``ok: false``: the question was "does
+    this source work", and "no, for this reason" is the answer. The verdict is
+    remembered against the capture identity so the editor can show it later.
+    """
+    from mirrorr.di import container
+    from mirrorr.services import probes
+
+    resolver = await crud.get_by_id(db, Resolver, id)
+    if not resolver:
+        raise HTTPException(status_code=404, detail="Resolver not found")
+
+    result = await probes.run(
+        container.settings,
+        resolver,
+        body.engine_id,
+        body.resolver_config,
+        bus=container.event_bus,
+    )
+    key = probes.key_for(body.engine_id, resolver.id, body.resolver_config)
+    await probes.remember(db, result, resolver.id, key, auth.user.username if auth.user else "")
+    await db.commit()
+    return {
+        "ok": result.ok,
+        "latency_ms": result.latency_ms,
+        "error": result.error or None,
+        "source_url": result.source_url or None,
+        "checked_at": result.checked_at,
+    }
 
 
 crud_routers.include_router(resolvers_router)

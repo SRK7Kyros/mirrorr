@@ -511,3 +511,24 @@ class ResourceOwnerUser(SQLModel, table=True):
     resource_type: ResourceType = Field(sa_column=Column(SQLEnum(ResourceType), index=True))
     resource_id: int = Field(index=True)
     username: str = Field(index=True)
+
+
+class ResolverProbe(SQLModel, table=True):
+    """The last verdict a probe gave one capture identity.
+
+    ``source_key`` is the same identity a chain uses (engine + resolver + sorted
+    config, ``services.fallback_chain.source_key``), so an editor can mark a rung
+    that was last seen failing without running it again. A row is replaced, never
+    appended: only the newest verdict is worth showing.
+    """
+
+    __tablename__ = "resolver_probes"
+
+    source_key: str = Field(primary_key=True)
+    resolver_id: int = Field(index=True)
+    ok: bool = Field(default=False)
+    latency_ms: int = Field(default=0)
+    error: str = Field(default="")
+    source_url: str = Field(default="")
+    checked_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    requester_user_token: str = Field(default="")

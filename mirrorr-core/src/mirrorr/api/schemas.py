@@ -406,6 +406,39 @@ class DiscoveryResponse(BaseModel):
     next_cursor: str | None = None
 
 
+class ProbeRequest(BaseModel):
+    """One resolver config to check, and the engine it would run behind."""
+
+    resolver_config: dict[str, Any] = Field(default_factory=dict)
+    engine_id: int | None = None
+
+
+class ProbeResponse(BaseModel):
+    """A probe's verdict. A failure is an answer — the HTTP call itself succeeds."""
+
+    ok: bool
+    latency_ms: int
+    error: str | None = None
+    source_url: str | None = None
+    checked_at: datetime | None = None
+
+
+class ProbeLookupSource(BaseModel):
+    engine_id: int | None = None
+    resolver_id: int
+    resolver_config: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProbeLookupRequest(BaseModel):
+    sources: list[ProbeLookupSource] = Field(default_factory=list)
+
+
+class ProbeLookupResponse(BaseModel):
+    """One verdict per requested source, in the order they were asked for."""
+
+    items: list[ProbeResponse | None] = Field(default_factory=list)
+
+
 class ResolverSourceResponse(BaseModel):
     id: int
     name: str
