@@ -140,6 +140,13 @@ class MirrorrSettings(BaseModel):
     autorun_check_interval: int = 10  # seconds between autorun schedule checks
     housekeeping_interval: int = 600  # seconds between orphaned-folder sweeps
 
+    # ── unattended safety ────────────────────────────────────────────
+    min_free_gb: float = 2.0  # free space a capture needs on the content disk (0 = off)
+    stall_timeout_s: float = 120.0  # a live stream silent this long is dead (0 = off)
+    retention_max_gb: float = 0.0  # size cap for stored recordings (0 = keep all)
+    retention_max_age_days: float = 0.0  # age cap for stored recordings (0 = keep all)
+    alert_webhook_url: str = ""  # one POST per failed session (empty = off)
+
     # ── web exposure ─────────────────────────────────────────────────
     web_url: str = ""  # required: e.g. https://your-domain.duckdns.org
 
@@ -271,6 +278,11 @@ class MirrorrSettings(BaseModel):
             HLS_WINDOW: int = 7200
             SEGMENT_DURATION: int = 10
             AUTORUN_CHECK_INTERVAL: int = 10
+            MIN_FREE_GB: float | None = None
+            STALL_TIMEOUT_S: float | None = None
+            RETENTION_MAX_GB: float | None = None
+            RETENTION_MAX_AGE_DAYS: float | None = None
+            ALERT_WEBHOOK_URL: str = ""
             NATS_PORT: int = 4222
             USE_SYSTEM_FFMPEG: bool = False
             USE_SYSTEM_NATS: bool = False
@@ -343,6 +355,8 @@ class MirrorrSettings(BaseModel):
             "use_system_nats", "api_host", "api_port", "dev_serve_files",
             "dev_reset_database", "dev_seed_admin", "jwt_secret_key",
             "hls_window", "segment_duration", "autorun_check_interval",
+            "min_free_gb", "stall_timeout_s", "retention_max_gb",
+            "retention_max_age_days", "alert_webhook_url",
             "web_url", "rate_limit_login", "rate_limit_register",
             "cookie_secure", "cookie_domain", "log_http_requests",
         ):
