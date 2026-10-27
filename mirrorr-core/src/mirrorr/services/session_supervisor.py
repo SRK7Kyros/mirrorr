@@ -31,7 +31,7 @@ from mirrorr.services.session_helpers import (
     build_session_urls,
     load_capture,
 )
-from mirrorr.services import fallback_chain
+from mirrorr.services import fallback_chain, guards
 from mirrorr.services.telemetry import (
     PUBLISH_INTERVAL_S as TELEMETRY_PUBLISH_INTERVAL_S,
     build_frame,
@@ -43,6 +43,7 @@ from nats.aio.client import Client as NATS
 
 _HEARTBEAT_INTERVAL = 60.0
 STREAM_READY_POLL_S = 0.5
+STALL_POLL_S = 2.0
 # Bounds the startup gate: a source whose engine never writes a segment is
 # dead, and a session left in stream_pending kept its autorun's chain from
 # advancing. Unlike a slow-channel poll, this deadline is deliberate.
@@ -444,6 +445,10 @@ class SessionSupervisor:
                 f"session folder {self.session_folder.name} is in use by session {holder}"
             )
 
+        blocked = guards.disk_refusal(self.settings.content_dir, self.settings.min_free_gb)
+        if blocked is not None:
+            return await self._preflight_failed(blocked)
+
         # 2. Publish the session as initializing. URLs are published now, before
         # the playlist exists, so the player can mount the instant the status
         # turns playable; the web client gates rendering on the status.
@@ -537,6 +542,7 @@ class SessionSupervisor:
         await update_session(self.settings, self.session_id, status=SessionStatus.STREAM_PENDING, nc=self._nc)
 
         ready_task = asyncio.create_task(self._wait_for_playlist())
+        stall_task = asyncio.create_task(self._watch_stall())
         lifecycle = [done_task, crash_task, stop_task]
         try:
             finished, _ = await asyncio.wait([ready_task, *lifecycle], return_when=asyncio.FIRST_COMPLETED)
@@ -554,9 +560,11 @@ class SessionSupervisor:
                     nc=self._nc,
                 )
                 self._playable = True
-                finished, _ = await asyncio.wait(lifecycle, return_when=asyncio.FIRST_COMPLETED)
+                finished, _ = await asyncio.wait(
+                    [*lifecycle, stall_task], return_when=asyncio.FIRST_COMPLETED
+                )
         finally:
-            for t in [ready_task, *lifecycle]:
+            for t in [ready_task, stall_task, *lifecycle]:
                 if not t.done():
                     t.cancel()
                     try:
@@ -568,6 +576,11 @@ class SessionSupervisor:
             logger.info("stop requested")
             await self._cleanup(reason="stop")
             return "stopped", None
+
+        if stall_task in finished:
+            reason = stall_task.result()
+            logger.opt(colors=True).error(f"<red>Session stalled</red>: {reason}")
+            return "crashed", EngineCrashed(reason=reason)
 
         result = (crash_task if crash_task in finished else done_task).result()
 
@@ -627,6 +640,33 @@ class SessionSupervisor:
                     f"stream did not appear within {STREAM_READY_TIMEOUT_S:g}s"
                 )
             await asyncio.sleep(STREAM_READY_POLL_S)
+
+    async def _watch_stall(self) -> str:
+        """Answer a reason once the stream has written nothing for too long.
+
+        A dead source leaves its engine process running, so the run's own
+        output is the only liveness that matters: the playlist is rewritten per
+        segment and the segment folder grows, and a live source moves at least
+        one of them while a frozen one moves neither.
+        """
+        timeout = self.settings.stall_timeout_s
+        if timeout <= 0:
+            # Disabled: the task only has to exist so the attempt cancels it.
+            await asyncio.Event().wait()
+        poll = min(STALL_POLL_S, timeout / 2)
+        loop = asyncio.get_running_loop()
+        previous = guards.progress(self.session_folder)
+        since = loop.time()
+        while True:
+            await asyncio.sleep(poll)
+            current = guards.progress(self.session_folder)
+            if current != previous:
+                previous, since = current, loop.time()
+            elif timeout > 0 and loop.time() - since >= timeout:
+                return (
+                    f"no segment was written for {loop.time() - since:.0f}s"
+                    " — the stream is gone"
+                )
 
     # ── recording / remux ────────────────────────────────────────────
 

@@ -8,7 +8,9 @@ from loguru import logger
 from mirrorr.event_bus.nats import bus
 from mirrorr.event_bus.event import MirrorrEvent
 from mirrorr.services import session_supervisor
+from mirrorr.services.webhook import send_alert
 from mirrorr.storage.enums import ResourceType
+from mirrorr.storage.models import Session
 
 # ── Process registry: session_id → (Process, ShutdownEvent) ──────────
 _supervisors: dict[int, tuple[multiprocessing.Process, ShutdownEvent]] = {}
@@ -145,6 +147,44 @@ async def handle_session_stopped(data: MirrorrEvent.SESSION_STOPPED):
     )
 
 
+async def _alert_failure(session_id: int) -> None:
+    """Report a session's death to the operator's webhook, with its own reason.
+
+    A scheduled capture fails while nobody is looking at the console, so the
+    alert carries what the row already knows: the last capture's or attempt's
+    reason, which is the difference between "the channel is gone" and "the
+    disk is full".
+    """
+    from mirrorr.di import container
+
+    settings = container.settings
+    if not settings.alert_webhook_url:
+        return
+
+    reason, autorun_id = "The session terminated unexpectedly.", None
+    try:
+        async with container.db_factory() as db:
+            session = await db.get(Session, session_id)
+        if session is not None:
+            autorun_id = session.autorun_id
+            for entry in reversed([*(session.captures or []), *(session.attempts or [])]):
+                if isinstance(entry, dict) and entry.get("reason"):
+                    reason = entry["reason"]
+                    break
+    except Exception as e:
+        logger.error(f"Could not read session {session_id} for its alert: {e}")
+
+    await send_alert(
+        settings,
+        "session.failed",
+        f"Session {session_id} failed",
+        reason,
+        session_id=session_id,
+        autorun_id=autorun_id,
+        url=f"{settings.web_url}/sessions/{session_id}" if settings.web_url else "",
+    )
+
+
 @bus.on(MirrorrEvent.SESSION_CRASHED)
 async def handle_session_crashed(data: MirrorrEvent.SESSION_CRASHED):
     await _create_notification(
@@ -152,6 +192,7 @@ async def handle_session_crashed(data: MirrorrEvent.SESSION_CRASHED):
         title=f"Session {data.id} crashed",
         body="The session terminated unexpectedly.",
     )
+    await _alert_failure(data.id)
 
 
 @bus.on(MirrorrEvent.RECORDING_CREATED)
