@@ -468,27 +468,51 @@ describe("rungChanges", () => {
     return resolved.ok ? rungChanges(resolved.capture, own, naming) : []
   }
 
-  it("names the profile a rung takes and the source that came with it", () => {
+  it("names the profile a rung takes, and what it takes it from", () => {
     expect(changesOf({ profile_id: 2 })).toEqual([
-      { key: "profile", label: "Profile", value: "F1 IT" },
-      { key: "source", label: "Source", value: "daddylive · kind=channel · ref=577" },
+      { key: "profile", label: "Profile", from: "", to: "F1 IT" },
+      {
+        key: "source",
+        label: "Source",
+        from: "Sky Sports",
+        to: "daddylive · kind=channel · ref=577",
+      },
     ])
   })
 
   it("names only the engine when that is all the rung changes", () => {
     expect(changesOf({ engine_id: 11 })).toEqual([
-      { key: "engine", label: "Engine", value: "streamlink" },
+      { key: "engine", label: "Engine", from: "ffmpeg", to: "streamlink" },
     ])
   })
 
   it("names only the source when the rung keeps the run's own engine", () => {
     expect(changesOf({ resolver_id: 3 })).toEqual([
-      { key: "source", label: "Source", value: "tvnow" },
+      { key: "source", label: "Source", from: "Sky Sports", to: "tvnow" },
     ])
   })
 
   it("reports nothing for a rung that changes nothing", () => {
     expect(changesOf({ engine_id: 10 })).toEqual([])
+  })
+
+  it("replaces the profile the capture it patches already runs", () => {
+    const fromProfile = baseCapture({
+      engine_id: 10,
+      resolver_id: 2,
+      resolver_config: { kind: "channel", ref: "60" },
+      profile_id: 1,
+      profile_name: "F1 UK",
+    })
+    const resolved = resolveRung({ profile_id: 2 }, fromProfile, catalog)
+    expect(resolved.ok).toBe(true)
+    if (!resolved.ok) return
+    expect(rungChanges(resolved.capture, fromProfile, naming)[0]).toEqual({
+      key: "profile",
+      label: "Profile",
+      from: "F1 UK",
+      to: "F1 IT",
+    })
   })
 
   it("takes no profile away when a rung names none", () => {

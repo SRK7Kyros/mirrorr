@@ -8,7 +8,6 @@ import {
   moveRung,
   resolveChain,
   type ChainBase,
-  type ChainCapture,
   type ChainCatalog,
   type FallbackRung,
 } from "@/api/domain/fallback-chain"
@@ -57,7 +56,6 @@ export function ChainEditor({
   const [dragging, setDragging] = useState<number | null>(null)
   const [over, setOver] = useState<number | null>(null)
   const naming = useMemo(() => catalogNaming({ ...catalog, sources }), [catalog, sources])
-  const resolved = useMemo(() => resolveChain(value, base, catalog), [value, base, catalog])
   const own = useMemo(() => baseCapture(base), [base])
   const step = value.length + 1
   const bodyId = `${idPrefix}-fallbacks`
@@ -85,11 +83,6 @@ export function ChainEditor({
       index === null ? [...value, rung] : value.map((item, position) => (position === index ? rung : item))
     const entry = resolveChain(next, base, catalog).steps[at]
     return entry ?? { capture: null, problem: null }
-  }
-
-  function previousOf(index: number): ChainCapture | null {
-    if (index === 0) return own
-    return resolved.steps[index - 1]?.capture ?? null
   }
 
   function startDrag(event: DragEvent<HTMLElement>, index: number): void {
@@ -185,7 +178,6 @@ export function ChainEditor({
                       catalog={catalog}
                       naming={naming}
                       base={base}
-                      previous={previousOf(index)}
                       subject={subject}
                       disabled={disabled}
                       resolve={(draft) => evaluate(index, draft)}
@@ -217,7 +209,6 @@ export function ChainEditor({
             catalog={catalog}
             naming={naming}
             base={base}
-            previous={previousOf(value.length)}
             subject={subject}
             disabled={disabled}
             resolve={(draft) => evaluate(null, draft)}
