@@ -20,6 +20,7 @@ from mirrorr.api.routers.auth import auth_router, notifications_router, admin_ro
 from mirrorr.api.routers.groups import groups_router
 from mirrorr.api.routers.import_export import import_export_router
 from mirrorr.api.routers.logs import logs_router
+from mirrorr.api.routers.overview import overview_router
 from mirrorr.api.ws import ws_router
 
 
@@ -234,6 +235,7 @@ def setup_http_debug_logging(app: FastAPI) -> None:
 # If _boot() doesn't run (e.g., testing), the API has no CORS middleware.
 
 API.include_router(crud_routers)
+API.include_router(overview_router)
 API.include_router(session_control_router)
 API.include_router(logs_router)
 API.include_router(auth_router)
