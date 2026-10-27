@@ -140,6 +140,7 @@ export const IconGrip = makeIcon(
 )
 export const IconArrowUp = makeIcon(<path d="M12 19V5M5 12l7-7 7 7" />)
 export const IconArrowDown = makeIcon(<path d="M12 5v14M19 12l-7 7-7-7" />)
+export const IconArrowRight = makeIcon(<path d="M5 12h14M12 5l7 7-7 7" />)
 export const IconMenu = makeIcon(<path d="M4 6h16M4 12h16M4 18h16" />)
 export const IconMoreVertical = makeIcon(
   <>

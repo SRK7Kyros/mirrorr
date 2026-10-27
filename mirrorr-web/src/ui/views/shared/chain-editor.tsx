@@ -4,91 +4,17 @@ import {
   baseCapture,
   captureLabel,
   catalogNaming,
-  chainProblemSentence,
   chainTitle,
   moveRung,
   resolveChain,
-  resolveRung,
-  rungLabel,
-  rungNames,
-  normaliseRung,
-  sourceLabel,
   type ChainBase,
-  type ChainCatalog,
   type ChainCapture,
+  type ChainCatalog,
   type FallbackRung,
 } from "@/api/domain/fallback-chain"
-import {
-  Button,
-  Field,
-  IconArrowDown,
-  IconArrowUp,
-  IconChevronRight,
-  IconGrip,
-  IconButton,
-  IconSearch,
-  IconX,
-  Select,
-  Tag,
-  panelTitleClass,
-} from "@/ui/components"
-import { DiscoveryDrawer, canBrowseResolver } from "./discovery-drawer"
-import { SourceFields } from "./source-chain"
-
-interface RungDraft {
-  readonly profileId: string
-  readonly engineId: string
-  readonly resolverId: string
-  readonly resolverConfig: Record<string, unknown>
-}
-
-const EMPTY_DRAFT: RungDraft = { profileId: "", engineId: "", resolverId: "", resolverConfig: {} }
-
-/**
- * The draft as a rung: only what the form actually names.
- *
- * A config travels with the resolver it belongs to, so it is sent only when the
- * user picked that resolver here — otherwise the server would use it to
- * override the config the profile above already brings.
- */
-function draftRung(draft: RungDraft): FallbackRung | null {
-  const rung: {
-    profile_id?: number
-    engine_id?: number
-    resolver_id?: number
-    resolver_config?: Record<string, unknown>
-  } = {}
-  if (draft.profileId !== "") rung.profile_id = Number(draft.profileId)
-  if (draft.engineId !== "") rung.engine_id = Number(draft.engineId)
-  if (draft.resolverId !== "") {
-    rung.resolver_id = Number(draft.resolverId)
-    rung.resolver_config = draft.resolverConfig
-  }
-  return rungNames(rung) ? rung : null
-}
-
-/** What a rung inherits when it names nothing — the profile's, else the run's own capture's. */
-function inherited(
-  profileId: string,
-  own: ChainCapture,
-  catalog: ChainCatalog,
-): { capture: ChainCapture; profile: ChainCatalog["profiles"][number] | null } {
-  const profile =
-    profileId === "" ? null : (catalog.profiles.find((item) => item.id === Number(profileId)) ?? null)
-  if (profile === null) return { capture: own, profile }
-  return {
-    profile,
-    capture: {
-      engine_id: profile.default_engine_id,
-      resolver_id: profile.resolver_id,
-      resolver_config: profile.resolver_config ?? {},
-      profile_id: profile.id,
-      profile_name: profile.name,
-      retry_mode: profile.retry_mode ?? own.retry_mode,
-      retry_config: profile.retry_config ?? {},
-    },
-  }
-}
+import { IconChevronRight, Tag, panelTitleClass } from "@/ui/components"
+import { cn } from "@/ui/lib/cn"
+import { RungCard, draftRung, type RungDraft, type RungPreview } from "./rung-card"
 
 export interface ChainEditorProps {
   readonly idPrefix: string
@@ -110,11 +36,11 @@ export interface ChainEditorProps {
  *
  * A rung is a *patch*, not a kind of thing: it may name a profile, a different
  * engine, a different source, or any combination, and whatever it leaves blank
- * is inherited from its base — the profile when it names one, else the run's own
- * capture. The bottom editor is always the rung being written, and it shows what
- * that rung will actually run before it is added. Rungs are cards in a stack,
- * reordered by dragging one onto another or by the arrow buttons, which are the
- * keyboard and touch route to the same thing.
+ * is inherited from the run's own capture — never from the rung above it. So a
+ * stored rung and the one being written are drawn by the same card: collapsed it
+ * says what it changes and what it runs instead, expanded it is the form. Rungs
+ * are reordered by dragging a card's grip onto another card or by the arrow
+ * buttons, which are the keyboard and touch route to the same thing.
  */
 export function ChainEditor({
   idPrefix,
@@ -126,8 +52,6 @@ export function ChainEditor({
   subject = "run",
 }: ChainEditorProps) {
   const sources = useSources()
-  const [draft, setDraft] = useState<RungDraft>(EMPTY_DRAFT)
-  const [browseOpen, setBrowseOpen] = useState(false)
   const [open, setOpen] = useState(value.length > 0)
   const previousLength = useRef(value.length)
   const [dragging, setDragging] = useState<number | null>(null)
@@ -135,22 +59,7 @@ export function ChainEditor({
   const naming = useMemo(() => catalogNaming({ ...catalog, sources }), [catalog, sources])
   const resolved = useMemo(() => resolveChain(value, base, catalog), [value, base, catalog])
   const own = useMemo(() => baseCapture(base), [base])
-  const rung = draftRung(draft)
-  const preview = rung === null ? null : resolveRung(rung, own, catalog)
-  const candidate = useMemo(
-    () => (rung === null ? null : resolveChain([...value, rung], base, catalog)),
-    [rung, value, base, catalog],
-  )
-  const blocker =
-    candidate !== null && candidate.problem !== null && candidate.problem.index === value.length
-      ? candidate.problem
-      : null
-  const inheritedNow = inherited(draft.profileId, own, catalog)
-  const chosenResolver =
-    draft.resolverId === "" ? null : (catalog.resolvers.find((item) => String(item.id) === draft.resolverId) ?? null)
-  const canBrowse = chosenResolver !== null && canBrowseResolver(chosenResolver)
   const step = value.length + 1
-  const label = (text: string): string => `Fallback ${step} · ${text}`
   const bodyId = `${idPrefix}-fallbacks`
   const summary =
     value.length === 0
@@ -164,17 +73,26 @@ export function ChainEditor({
     previousLength.current = value.length
   }, [value.length])
 
-  function patch(next: Partial<RungDraft>): void {
-    setDraft((previous) => ({ ...previous, ...next }))
+  /**
+   * What a draft would run in the position it is headed for — the chain with that
+   * one rung written in, read back at that rung.
+   */
+  function evaluate(index: number | null, draft: RungDraft): RungPreview {
+    const rung = draftRung(draft)
+    if (rung === null) return { capture: null, problem: null }
+    const at = index === null ? value.length : index
+    const next =
+      index === null ? [...value, rung] : value.map((item, position) => (position === index ? rung : item))
+    const entry = resolveChain(next, base, catalog).steps[at]
+    return entry ?? { capture: null, problem: null }
   }
 
-  function commit(): void {
-    if (rung === null || blocker !== null || disabled) return
-    onChange([...value, normaliseRung(rung)])
-    setDraft(EMPTY_DRAFT)
+  function previousOf(index: number): ChainCapture | null {
+    if (index === 0) return own
+    return resolved.steps[index - 1]?.capture ?? null
   }
 
-  function startDrag(event: DragEvent<HTMLLIElement>, index: number): void {
+  function startDrag(event: DragEvent<HTMLElement>, index: number): void {
     if (disabled) return
     setDragging(index)
     event.dataTransfer.effectAllowed = "move"
@@ -208,7 +126,7 @@ export function ChainEditor({
       >
         <IconChevronRight
           size={15}
-          className={`shrink-0 text-ink-dim transition-transform ${open ? "rotate-90" : ""}`}
+          className={cn("shrink-0 text-ink-dim transition-transform", open && "rotate-90")}
         />
         <span role="heading" aria-level={3} className={panelTitleClass}>
           Fallbacks
@@ -243,15 +161,11 @@ export function ChainEditor({
             <p className="text-sm text-dim">Nothing after it — add a fallback below if it should.</p>
           ) : (
             <ol className="flex flex-col gap-1.5" aria-label="Fallback chain, in order">
-              {resolved.steps.map((entry, index) => {
-                const name = rungLabel(entry.rung, naming)
-                const runs = entry.capture === null ? null : captureLabel(entry.capture, base, naming)
+              {value.map((rung, index) => {
                 const target = over === index && dragging !== null && dragging !== index
                 return (
                   <li
                     key={index}
-                    draggable={!disabled}
-                    onDragStart={(event) => startDrag(event, index)}
                     onDragOver={(event) => {
                       if (dragging === null) return
                       event.preventDefault()
@@ -260,53 +174,34 @@ export function ChainEditor({
                     }}
                     onDragLeave={() => setOver((current) => (current === index ? null : current))}
                     onDrop={(event) => dropOn(event, index)}
-                    onDragEnd={endDrag}
-                    data-problem={entry.problem?.kind}
-                    data-dragging={dragging === index ? "true" : undefined}
                     data-drop-target={target ? "true" : undefined}
-                    title={runs === null ? undefined : `Runs ${runs}`}
-                    className={`flex items-center gap-2 rounded-xs border bg-surface-2 px-2 py-1.5 ${
-                      entry.problem === null ? "border-line-subtle" : "border-warning bg-warning-dim"
-                    } ${dragging === index ? "opacity-40" : ""} ${
-                      target ? "border-brand shadow-ring" : ""
-                    }`}
+                    className={cn("rounded-xs", target && "shadow-ring")}
                   >
-                    <span className="shrink-0 cursor-grab text-dim active:cursor-grabbing">
-                      <IconGrip size={14} />
-                    </span>
-                    <Tag className="border-0 bg-transparent px-0 text-ink-dim">{index + 1}</Tag>
-                    <div className="min-w-0 flex-1">
-                      <p
-                        className={`truncate text-sm ${entry.problem === null ? "text-ink" : "text-warning"}`}
-                      >
-                        {name}
-                      </p>
-                      {runs === null ? (
-                        <p className="truncate text-xs text-warning">Names something no longer here.</p>
-                      ) : runs === name ? null : (
-                        <p className="truncate text-xs text-dim">Runs {runs}</p>
-                      )}
-                    </div>
-                    <IconButton
-                      label={`Move fallback ${index + 1} up`}
-                      size="sm"
-                      icon={<IconArrowUp size={13} />}
-                      disabled={disabled || index === 0}
-                      onClick={() => onChange(moveRung(value, index, index - 1))}
-                    />
-                    <IconButton
-                      label={`Move fallback ${index + 1} down`}
-                      size="sm"
-                      icon={<IconArrowDown size={13} />}
-                      disabled={disabled || index === value.length - 1}
-                      onClick={() => onChange(moveRung(value, index, index + 1))}
-                    />
-                    <IconButton
-                      label={`Remove fallback ${index + 1}`}
-                      size="sm"
-                      icon={<IconX size={13} />}
+                    <RungCard
+                      kind="saved"
+                      number={index + 1}
+                      idPrefix={idPrefix}
+                      rung={rung}
+                      catalog={catalog}
+                      naming={naming}
+                      base={base}
+                      previous={previousOf(index)}
+                      subject={subject}
                       disabled={disabled}
-                      onClick={() => onChange(value.filter((_, position) => position !== index))}
+                      resolve={(draft) => evaluate(index, draft)}
+                      onApply={(next) =>
+                        onChange(value.map((item, position) => (position === index ? next : item)))
+                      }
+                      actions={{
+                        canMoveUp: index > 0,
+                        canMoveDown: index < value.length - 1,
+                        onMoveUp: () => onChange(moveRung(value, index, index - 1)),
+                        onMoveDown: () => onChange(moveRung(value, index, index + 1)),
+                        onRemove: () => onChange(value.filter((_, position) => position !== index)),
+                        dragging: dragging === index,
+                        onDragStart: (event) => startDrag(event, index),
+                        onDragEnd: endDrag,
+                      }}
                     />
                   </li>
                 )
@@ -314,133 +209,22 @@ export function ChainEditor({
             </ol>
           )}
 
-          {resolved.problem === null ? null : (
-            <p role="status" data-chain-problem={resolved.problem.kind} className="text-sm text-warning">
-              {chainProblemSentence(resolved.problem, subject)}
-            </p>
-          )}
-
-          <div className="flex flex-col gap-3 rounded-xs border border-line-subtle bg-surface-2 p-2.5">
-            <p className="text-sm text-ink">Fallback {step}</p>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field
-                label={label("Profile")}
-                htmlFor={`${idPrefix}-fallback-profile`}
-                hint="Optional — takes that profile whole."
-              >
-                <Select
-                  id={`${idPrefix}-fallback-profile`}
-                  value={draft.profileId}
-                  disabled={disabled}
-                  onChange={(event) => patch({ profileId: event.target.value })}
-                >
-                  <option value="">Change nothing from a profile…</option>
-                  {catalog.profiles.map((profile) => (
-                    <option key={profile.id} value={String(profile.id)}>
-                      {profile.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-
-              <Field label={label("Engine")} htmlFor={`${idPrefix}-fallback-engine`}>
-                <Select
-                  id={`${idPrefix}-fallback-engine`}
-                  value={draft.engineId}
-                  disabled={disabled}
-                  onChange={(event) => patch({ engineId: event.target.value })}
-                >
-                  <option value="">Inherit — {naming.engine(inheritedNow.capture.engine_id)}</option>
-                  {catalog.engines.map((engine) => (
-                    <option key={engine.id} value={String(engine.id)}>
-                      {engine.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            </div>
-
-            <SourceFields
-              key={step}
-              idPrefix={`${idPrefix}-fallback`}
-              formIdPrefix={`${idPrefix}-fallback-${step}`}
-              resolvers={catalog.resolvers}
-              value={{
-                resolverId: draft.resolverId === "" ? null : Number(draft.resolverId),
-                resolverConfig: draft.resolverConfig,
-              }}
-              onChange={(next) =>
-                patch({
-                  resolverId: next.resolverId === null ? "" : String(next.resolverId),
-                  resolverConfig: next.resolverConfig,
-                })
-              }
-              kindLabel={`How fallback ${step} takes its source`}
-              labels={{ resolver: label("Source"), saved: label("Load a saved source") }}
-              inherit={sourceLabel(
-                inheritedNow.capture.resolver_id,
-                inheritedNow.capture.resolver_config,
-                naming,
-              )}
-              disabled={disabled}
-              browse={
-                canBrowse ? (
-                  <div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      icon={<IconSearch size={15} />}
-                      disabled={disabled}
-                      onClick={() => setBrowseOpen(true)}
-                    >
-                      Browse {chosenResolver.name}…
-                    </Button>
-                  </div>
-                ) : null
-              }
-            />
-
-            <p className="text-sm text-ink-dim" data-chain-preview={preview === null ? "empty" : "runs"}>
-              {preview === null ? (
-                "Name a profile, an engine or a source to add a fallback."
-              ) : preview.ok ? (
-                <>
-                  Runs <span className="text-ink">{captureLabel(preview.capture, base, naming)}</span>
-                </>
-              ) : (
-                <span className="text-warning">That names something no longer here.</span>
-              )}
-            </p>
-
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="primary"
-                disabled={disabled || rung === null || blocker !== null}
-                onClick={commit}
-              >
-                Add fallback
-              </Button>
-              {blocker === null ? null : (
-                <span className="text-xs text-dim">{chainProblemSentence(blocker, subject)}</span>
-              )}
-            </div>
-          </div>
+          <RungCard
+            kind="draft"
+            number={step}
+            idPrefix={idPrefix}
+            rung={null}
+            catalog={catalog}
+            naming={naming}
+            base={base}
+            previous={previousOf(value.length)}
+            subject={subject}
+            disabled={disabled}
+            resolve={(draft) => evaluate(null, draft)}
+            onApply={(next) => onChange([...value, next])}
+          />
         </div>
       ) : null}
-
-      <DiscoveryDrawer
-        open={browseOpen}
-        onClose={() => setBrowseOpen(false)}
-        resolver={chosenResolver}
-        onUse={(item) => {
-          patch({ resolverConfig: item.config ?? {} })
-          setBrowseOpen(false)
-        }}
-      />
     </section>
   )
 }
