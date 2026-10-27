@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react"
-import { useSources } from "@/api"
+import { useProbeVerdicts, useSources } from "@/api"
 import {
   baseCapture,
   captureLabel,
@@ -57,6 +57,9 @@ export function ChainEditor({
   const [over, setOver] = useState<number | null>(null)
   const naming = useMemo(() => catalogNaming({ ...catalog, sources }), [catalog, sources])
   const own = useMemo(() => baseCapture(base), [base])
+  const resolved = useMemo(() => resolveChain(value, base, catalog), [value, base, catalog])
+  const watched = useMemo(() => [own, ...resolved.captures], [own, resolved])
+  const probe = useProbeVerdicts(watched)
   const step = value.length + 1
   const bodyId = `${idPrefix}-fallbacks`
   const summary =
@@ -148,6 +151,11 @@ export function ChainEditor({
               </p>
               <p className="truncate text-xs text-dim">{captureLabel(own, base, naming)}</p>
             </div>
+            {probe.verdict(own)?.ok === false ? (
+              <Tag className="border-danger text-danger" title={probe.verdict(own)?.error ?? undefined}>
+                failed
+              </Tag>
+            ) : null}
           </div>
 
           {value.length === 0 ? (
@@ -181,6 +189,7 @@ export function ChainEditor({
                       subject={subject}
                       disabled={disabled}
                       resolve={(draft) => evaluate(index, draft)}
+                      probe={probe}
                       onApply={(next) =>
                         onChange(value.map((item, position) => (position === index ? next : item)))
                       }
@@ -212,6 +221,7 @@ export function ChainEditor({
             subject={subject}
             disabled={disabled}
             resolve={(draft) => evaluate(null, draft)}
+            probe={probe}
             onApply={(next) => onChange([...value, next])}
           />
         </div>

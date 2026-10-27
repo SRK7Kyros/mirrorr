@@ -175,6 +175,10 @@ export interface ApiData {
   discovery?: readonly Row[]
   /** Page size the stub slices `discovery` with (default: one page). */
   discoveryPageSize?: number
+  /** Remembered probe verdicts keyed `"{engine_id}:{resolver_id}"` for the lookup route. */
+  probes?: Record<string, Row>
+  /** What `POST /resolvers/{id}/probe` answers — the last check it made. */
+  probe?: Row
   /** `POST /import-export/validate` — the staged-item report. */
   validate?: unknown
   /** `POST /import-export/apply` — the applied-import summary. */
@@ -289,6 +293,30 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
         ...((body as Row | undefined) ?? {}),
         id: createdIds,
       })
+    }
+
+    // Probes: what a capture answered last time (a lookup costs no resolve) and
+    // what one costs to ask again now.
+    if (path === "/resolvers/probes/lookup") {
+      const asked =
+        (body as { sources?: readonly { engine_id?: number | null; resolver_id: number }[] } | undefined)
+          ?.sources ?? []
+      return answer(200, {
+        items: asked.map((item) => data.probes?.[`${item.engine_id ?? 0}:${item.resolver_id}`] ?? null),
+      })
+    }
+    const probe = /^\/resolvers\/(\d+)\/probe$/.exec(path)
+    if (probe !== null) {
+      return answer(
+        200,
+        data.probe ?? {
+          ok: true,
+          latency_ms: 1200,
+          error: null,
+          source_url: null,
+          checked_at: new Date().toISOString(),
+        },
+      )
     }
 
     // Discovery: a paged catalog, so a spec can watch the browser read it and
