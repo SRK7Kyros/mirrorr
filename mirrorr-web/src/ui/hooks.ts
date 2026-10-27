@@ -17,6 +17,16 @@ export function useNowTick(intervalMs: number = COUNTDOWN_TICK_MS): Date {
   return now
 }
 
+/** A value that settles only once it stops changing (debounced server search). */
+export function useDebouncedValue<T>(value: T, delayMs = 250): T {
+  const [settled, setSettled] = useState(value)
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), delayMs)
+    return () => clearTimeout(timer)
+  }, [value, delayMs])
+  return settled
+}
+
 /** Live session duration in seconds (1s tick while running). */
 export function useLiveDurationSeconds(
   startedAt: string | null | undefined,

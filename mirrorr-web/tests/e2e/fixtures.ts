@@ -179,6 +179,21 @@ export interface ApiData {
   probes?: Record<string, Row>
   /** What `POST /resolvers/{id}/probe` answers — the last check it made. */
   probe?: Row
+  /**
+   * `GET /overview` — the ops strip's numbers. Omitted, they are derived from
+   * the stubbed rows, so a spec never has to keep two fixtures in step.
+   */
+  overview?: Row
+  /** `GET /overview` — the content disk, when a spec needs a tight one. */
+  disk?: { readonly total_bytes: number; readonly free_bytes: number } | null
+  /** `GET /overview` — the schedule the strip should point at. */
+  nextAutorun?: Row | null
+  /**
+   * Rows per list page. Omitted, every stubbed collection answers in one page
+   * (a spec that never sets it is unaffected); set it to prove a list reaches
+   * rows its first page never held.
+   */
+  pageSize?: number
   /** `POST /import-export/validate` — the staged-item report. */
   validate?: unknown
   /** `POST /import-export/apply` — the applied-import summary. */
@@ -202,6 +217,54 @@ function parseBody(raw: string | null): unknown {
     return JSON.parse(raw)
   } catch {
     return raw
+  }
+}
+
+/** The status buckets `services/overview.py` counts, as the console labels them. */
+const OVERVIEW_BUCKETS: Record<string, "starting" | "live" | "finishing" | "spent" | "failed"> = {
+  initializing: "starting",
+  stream_pending: "starting",
+  active: "live",
+  recording: "live",
+  terminating: "live",
+  remuxing: "finishing",
+  finalizing: "finishing",
+  completed: "spent",
+  failed: "failed",
+}
+
+/**
+ * `GET /overview` derived from the stubbed rows — the same arithmetic the core
+ * does, so a strip in a spec agrees with the cards under it.
+ */
+export function overviewOf(data: ApiData): Row {
+  const counts = { starting: 0, live: 0, finishing: 0, spent: 0, failed: 0 }
+  for (const row of data.sessions ?? []) {
+    const bucket = OVERVIEW_BUCKETS[String(row.status ?? "")]
+    if (bucket !== undefined) counts[bucket] += 1
+  }
+  const recordings = data.recordings ?? []
+  return {
+    sessions: {
+      running: counts.starting + counts.live + counts.finishing,
+      live: counts.live,
+      starting: counts.starting,
+      finishing: counts.finishing,
+      failed_24h: counts.failed,
+      total: (data.sessions ?? []).length,
+    },
+    recordings: {
+      count: recordings.length,
+      size_bytes: recordings.reduce((sum, row) => sum + Number(row.size_bytes ?? 0), 0),
+      seconds: recordings.reduce((sum, row) => sum + Number(row.duration_seconds ?? 0), 0),
+    },
+    // `undefined` means "whatever the host has"; an explicit `null` means the
+    // core could not read the disk, which the strip draws as an em dash.
+    disk:
+      data.disk === undefined
+        ? { total_bytes: 200 * 1024 ** 3, free_bytes: 60 * 1024 ** 3 }
+        : data.disk,
+    next_autorun: data.nextAutorun ?? null,
   }
 }
 
@@ -249,7 +312,19 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
 
     const answer = (status: number, json: unknown): Promise<void> =>
       route.fulfill({ status, contentType: "application/json", body: JSON.stringify(json) })
-    const list = (items: readonly Row[] | undefined): Promise<void> => answer(200, cursorPage(items ?? []))
+    const list = (items: readonly Row[] | undefined): Promise<void> => {
+      const rows = items ?? []
+      const size = data.pageSize ?? 0
+      if (size <= 0) return answer(200, cursorPage(rows))
+      const start = Number(new URL(request.url()).searchParams.get("cursor") ?? 0) || 0
+      const next = start + size < rows.length ? start + size : null
+      return answer(200, {
+        items: rows.slice(start, start + size),
+        next_cursor: next,
+        has_more: next !== null,
+        total: rows.length,
+      })
+    }
 
     const groupById = (id: number): Row | undefined => groups.find((row) => row.id === id)
     const groupName = (id: number): string => String(groupById(id)?.name ?? `#${id}`)
@@ -331,14 +406,46 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
       return answer(200, { items, next_cursor: start + size < catalog.length ? String(start + size) : null })
     }
 
-    if (path === "/sessions/") return list(data.sessions)
+    const search = (row: Row, term: string, fields: readonly string[]): boolean => {
+      const lower = term.toLowerCase()
+      return fields.some((field) => String(row[field] ?? "").toLowerCase().includes(lower))
+    }
+    const recordedTerm = new URL(request.url()).searchParams.get("q")?.trim() ?? ""
+
+    if (path === "/sessions/") {
+      const rows =
+        recordedTerm === ""
+          ? data.sessions
+          : (data.sessions ?? []).filter((row) =>
+              search(row, recordedTerm, ["profile_name", "engine_name", "resolver_name", "status", "id"]),
+            )
+      return list(rows)
+    }
     if (path === "/autoruns/") return list(data.autoruns)
-    if (path === "/recordings/") return list(data.recordings)
+    if (path === "/recordings/") {
+      const rows =
+        recordedTerm === ""
+          ? data.recordings
+          : (data.recordings ?? []).filter((row) =>
+              search(row, recordedTerm, [
+                "user_friendly_name",
+                "snake_case_name",
+                "profile_name",
+                "engine_name",
+                "resolver_name",
+                "id",
+              ]),
+            )
+      return list(rows)
+    }
     if (path === "/profiles/") return list(data.profiles)
     if (path === "/engines/") return list(data.engines)
     if (path === "/resolvers/") return list(data.resolvers)
     if (path === "/sources/") return list(data.sources)
     if (path === "/notifications/") return list([])
+    if (path === "/overview" || path === "/overview/") {
+      return answer(200, data.overview ?? overviewOf(data))
+    }
 
     // Item routes: echo the stored row with the patch applied, so a spec can
     // assert both the request and the view's reaction to it.

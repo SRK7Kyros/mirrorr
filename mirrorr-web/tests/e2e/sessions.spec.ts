@@ -1,3 +1,4 @@
+import type { Locator } from "@playwright/test"
 import { expect, session, test } from "./fixtures"
 
 /**
@@ -31,6 +32,21 @@ const STARTING = session({
   status: "stream_pending",
   session_urls: [{ label: "M3U8", url: "https://example.test/stream.m3u8" }],
 })
+const FAILED = session({
+  id: 6,
+  status: "failed",
+  started_at: "2026-10-10 08:00:00",
+  ended_at: "2026-10-10 08:02:00",
+  profile_name: "Archive",
+})
+
+/** One `Stat` inside the ops strip — its label's cell, so a value is unambiguous. */
+const stat = (strip: Locator, label: string): Locator =>
+  strip.getByText(label, { exact: true }).locator("..")
+
+/** A naive-UTC stamp `offsetMs` from now, the shape the server sends. */
+const naiveUtc = (offsetMs: number): string =>
+  new Date(Date.now() + offsetMs).toISOString().slice(0, 19).replace("T", " ")
 
 test.describe("sessions list", () => {
   test.beforeEach(async ({ api }) => {
@@ -43,8 +59,41 @@ test.describe("sessions list", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Sessions" })).toBeVisible()
     // The default view is `all`, so the completed session is carded too.
     await expect(page.locator(".session-grid .session-card")).toHaveCount(4)
-    await expect(page.getByText("4 sessions")).toBeVisible()
-    await expect(page.getByText("over 4 loaded")).toBeVisible()
+  })
+
+  test("the ops strip counts the account, not only the page in hand", async ({ page, api }) => {
+    api.data.sessions = [LIVE, RECORDING, STARTING, SCHEDULED, SPENT, FAILED]
+    api.data.nextAutorun = {
+      id: 7,
+      name: "mexico_gp_race",
+      starts_at: naiveUtc(2 * 3600 * 1000),
+      status: "scheduled",
+    }
+    // Danger territory: the core refuses a capture below 2 GB free.
+    api.data.disk = { total_bytes: 200 * 1024 ** 3, free_bytes: 1024 ** 3 }
+
+    await page.goto("/sessions")
+
+    const strip = page.getByTestId("ops-strip")
+    await expect(strip).toContainText("6 sessions in account")
+    await expect(stat(strip, "Live")).toContainText("2")
+    await expect(stat(strip, "Live")).toContainText("1 starting")
+    await expect(stat(strip, "Failed in 24 h")).toContainText("1")
+    await expect(stat(strip, "Disk free")).toContainText("1.0 GB")
+    await expect(stat(strip, "Disk free")).toContainText("200.0 GB total")
+    await expect(stat(strip, "Next schedule")).toContainText("mexico_gp_race")
+    await expect(stat(strip, "Next schedule")).toContainText("starts in ~2 h")
+  })
+
+  test("the strip says so when nothing is pending", async ({ page, api }) => {
+    api.data.sessions = [SPENT]
+    api.data.disk = null
+
+    await page.goto("/sessions")
+
+    const strip = page.getByTestId("ops-strip")
+    await expect(stat(strip, "Next schedule")).toContainText("none pending")
+    await expect(stat(strip, "Disk free")).toContainText("—")
   })
 
   test("the status tokens are additive, and dropping one widens the set again", async ({ page }) => {
@@ -75,6 +124,32 @@ test.describe("sessions list", () => {
 
     await expect(page.locator(".session-grid .session-card")).toHaveCount(1)
     await expect(page.locator(".session-grid")).toContainText("News Hour")
+  })
+
+  test("the search reaches a session no page has loaded yet", async ({ page, api }) => {
+    api.data.pageSize = 2
+    api.data.sessions = [LIVE, RECORDING, SCHEDULED, SPENT]
+
+    await page.goto("/sessions")
+    await expect(page.locator(".session-grid .session-card")).toHaveCount(2)
+    await expect(page.locator(".session-grid")).not.toContainText("Archive")
+
+    // The term goes to the server, so the fourth row is found without paging.
+    await page.getByLabel("Filter sessions").fill("archive")
+
+    await expect(page.locator(".session-grid .session-card")).toHaveCount(1)
+    await expect(page.locator(".session-grid")).toContainText("Archive")
+  })
+
+  test("a term nobody matches says so instead of claiming the list is empty", async ({
+    page,
+  }) => {
+    await page.goto("/sessions")
+    await page.getByLabel("Filter sessions").fill("nothing-like-this")
+
+    await expect(page.getByText("No session matches “nothing-like-this”.")).toBeVisible()
+    await page.getByRole("button", { name: "Clear search" }).first().click()
+    await expect(page.locator(".session-grid .session-card")).toHaveCount(4)
   })
 
   test("the grid still renders at a phone width", async ({ page }) => {
