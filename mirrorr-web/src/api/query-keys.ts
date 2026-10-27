@@ -31,6 +31,7 @@ export const queryKeys = {
   source: (id: number | string) => ["source", String(id)] as const,
   engines: ["engines"] as const,
   resolvers: ["resolvers"] as const,
+  probes: (keys: readonly string[]) => ["probes", ...keys] as const,
   notifications: ["notifications"] as const,
   users: ["users"] as const,
   clients: ["clients"] as const,

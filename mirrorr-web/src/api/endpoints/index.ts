@@ -5,6 +5,8 @@ import {
   DiscoveryPageSchema,
   EngineSchema,
   ProfileSchema,
+  ProbeLookupSchema,
+  ProbeVerdictSchema,
   RecordingSchema,
   ResolverSchema,
   ResolverSourceSchema,
@@ -14,6 +16,7 @@ import {
   type DiscoveryPage,
   type Engine,
   type Profile,
+  type ProbeVerdict,
   type Resolver,
   type ResolverSource,
   type Session,
@@ -208,6 +211,37 @@ export interface DiscoveryBody {
 export function discoverResolver(id: number | string, body: DiscoveryBody): Promise<DiscoveryPage> {
   return apiFetch<unknown>(`/resolvers/${id}/discover`, { method: "POST", body }).then((raw) =>
     parseOrWarn(DiscoveryPageSchema.parse, raw),
+  )
+}
+
+/* ── probing one source before a schedule needs it ────────────────── */
+export interface ProbeBody {
+  readonly resolver_config?: Record<string, unknown>
+  readonly engine_id?: number | null
+}
+/**
+ * Check one resolver config the way a run checks its own capture — validate,
+ * resolve, smoke test — without starting a session or an engine.
+ */
+export function probeResolver(id: number | string, body: ProbeBody): Promise<ProbeVerdict> {
+  return apiFetch<unknown>(`/resolvers/${id}/probe`, { method: "POST", body }).then((raw) =>
+    parseOrWarn(ProbeVerdictSchema.parse, raw),
+  )
+}
+
+export interface ProbeLookupSource {
+  readonly engine_id?: number | null
+  readonly resolver_id: number
+  readonly resolver_config?: Record<string, unknown>
+}
+/**
+ * The last verdict for each capture, without probing any of them — one entry
+ * per source, in the order asked, `null` where a capture has never been probed.
+ */
+export function lookupProbes(sources: readonly ProbeLookupSource[]): Promise<(ProbeVerdict | null)[]> {
+  if (sources.length === 0) return Promise.resolve([])
+  return apiFetch<unknown>("/resolvers/probes/lookup", { method: "POST", body: { sources } }).then(
+    (raw) => parseOrWarn(ProbeLookupSchema.parse, raw).items,
   )
 }
 

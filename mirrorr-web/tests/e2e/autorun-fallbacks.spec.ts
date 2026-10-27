@@ -309,4 +309,40 @@ test.describe("fallback chain", () => {
 
     await expect(dialog.locator("#autorun-fallback-1-channel")).toHaveValue("premium9")
   })
+
+  test("a rung says whether its source answered, and can be asked again", async ({ page, api }) => {
+    // A verdict from an earlier check: reading one costs no resolve.
+    api.data.probes = {
+      "1:2": {
+        ok: false,
+        latency_ms: 0,
+        error: "The source answered 403.",
+        source_url: null,
+        checked_at: "2026-10-27T11:00:00Z",
+      },
+    }
+    api.data.probe = {
+      ok: true,
+      latency_ms: 2100,
+      error: null,
+      source_url: "https://edge.example/x.m3u8",
+      checked_at: new Date().toISOString(),
+    }
+
+    await openCreate(page)
+    const dialog = page.getByRole("dialog")
+    await dialog.locator("#autorun-profile").selectOption("1")
+    await openFallbacks(dialog)
+    await dialog.locator("#autorun-fallback-profile").selectOption("2")
+    await dialog.getByRole("button", { name: "Add fallback" }).click()
+
+    const rung = chainList(dialog).first()
+    await expect(rung).toContainText("failed")
+    await rung.getByRole("button", { name: "Edit fallback 1" }).click()
+    await expect(rung).toContainText("The source answered 403.")
+
+    await rung.getByRole("button", { name: "Check fallback 1 again" }).click()
+    await expect(rung).toContainText("answered in 2.1 s")
+    expect(api.callsTo("/resolvers/2/probe")).toHaveLength(1)
+  })
 })

@@ -15,6 +15,8 @@ import {
   type FallbackRung,
 } from "@/api/domain/fallback-chain"
 import { canonicalJson } from "@/api/domain/fallback-sources"
+import { formatRelativeTime } from "@/api/time"
+import type { ProbeVerdicts } from "@/api/hooks"
 import {
   Button,
   Field,
@@ -118,6 +120,8 @@ export interface RungCardProps {
   readonly resolve: (draft: RungDraft) => RungPreview
   readonly onApply: (rung: FallbackRung) => void
   readonly actions?: RungActions
+  /** What is known about this rung's capture, and the way to check it again. */
+  readonly probe?: ProbeVerdicts
 }
 
 /**
@@ -142,6 +146,7 @@ export function RungCard({
   resolve,
   onApply,
   actions,
+  probe,
 }: RungCardProps) {
   const seedKey = rung === null ? "draft" : canonicalJson(normaliseRung(rung))
   const [draft, setDraft] = useState<RungDraft>(() => (rung === null ? EMPTY_DRAFT : draftOf(rung)))
@@ -160,6 +165,10 @@ export function RungCard({
   const own = baseCapture(base)
   const target = draftRung(draft)
   const state = resolve(draft)
+  const capture = state.capture
+  const verdict = probe?.verdict(capture) ?? null
+  const checking = probe?.testing(capture) ?? false
+  const failed = verdict !== null && !verdict.ok
   const changes = state.capture === null ? [] : rungChanges(state.capture, own, naming)
   const dirty = target !== null && canonicalJson(normaliseRung(target)) !== seedKey
   const blocked = disabled || target === null || state.problem !== null
@@ -256,6 +265,11 @@ export function RungCard({
                 <span className="truncate text-sm text-ink">Fallback {number}</span>
                 {dirty ? <Tag className="text-dim">edited</Tag> : null}
                 {state.problem === null ? null : <Tag className="border-warning text-warning">problem</Tag>}
+                {failed ? (
+                  <Tag className="border-danger text-danger">
+                    {verdict?.checked_at == null ? "check failed" : `failed ${formatRelativeTime(verdict.checked_at)}`}
+                  </Tag>
+                ) : null}
               </div>
             </button>
 
@@ -428,6 +442,19 @@ export function RungCard({
             )}
           </p>
 
+          {verdict === null ? null : (
+            <p className="text-xs" data-probe={verdict.ok ? "ok" : "failed"}>
+              {verdict.ok ? (
+                <span className="text-ink-dim">
+                  {verdict.checked_at == null ? "The stream answers" : `Checked ${formatRelativeTime(verdict.checked_at)}`}{" "}
+                  · answered in {(verdict.latency_ms / 1000).toFixed(1)} s
+                </span>
+              ) : (
+                <span className="text-danger">{verdict.error ?? "The last check failed."}</span>
+              )}
+            </p>
+          )}
+
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
@@ -439,6 +466,26 @@ export function RungCard({
             >
               {kind === "draft" ? "Add fallback" : "Apply"}
             </Button>
+            {probe === undefined ? null : (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={capture === null || checking || disabled}
+                aria-label={
+                  checking
+                    ? `Checking fallback ${number}`
+                    : verdict === null
+                      ? `Check fallback ${number}`
+                      : `Check fallback ${number} again`
+                }
+                onClick={() => {
+                  if (capture !== null) probe.test(capture)
+                }}
+              >
+                {checking ? "Checking…" : verdict === null ? "Check this source" : "Check again"}
+              </Button>
+            )}
             {kind === "saved" && dirty ? (
               <Button type="button" size="sm" variant="outline" onClick={reset}>
                 Reset
