@@ -411,6 +411,58 @@ export function sourceLabel(
   )
 }
 
+/** One thing a rung changes about the capture it patches — a mini card on its stack row. */
+export interface RungChange {
+  readonly key: "profile" | "source" | "engine"
+  readonly label: string
+  readonly value: string
+}
+
+/**
+ * What a rung *changes*, in the order a reader scans it: the profile it takes,
+ * the source it runs, the engine that runs it.
+ *
+ * The comparison is against the capture the rung patches — the run's own, never
+ * the rung above it — because that is what a rung means. A field the rung leaves
+ * alone is not a change even when an earlier rung moved it.
+ */
+export function rungChanges(
+  capture: ChainCapture,
+  own: ChainCapture,
+  naming: ChainNaming,
+): RungChange[] {
+  const changes: RungChange[] = []
+  // Only a rung that names a profile takes one. A rung naming none runs the
+  // capture it patches — it does not drop the profile that capture came from.
+  const ownProfile = own.profile_id ?? null
+  const profile = capture.profile_id ?? null
+  if (profile !== null && profile !== ownProfile) {
+    changes.push({
+      key: "profile",
+      label: "Profile",
+      value: capture.profile_name === "" ? naming.profile(profile) : capture.profile_name,
+    })
+  }
+  const sameSource =
+    capture.resolver_id === own.resolver_id &&
+    canonicalJson(capture.resolver_config) === canonicalJson(own.resolver_config)
+  if (!sameSource) {
+    changes.push({
+      key: "source",
+      label: "Source",
+      value: sourceLabel(capture.resolver_id, capture.resolver_config, naming),
+    })
+  }
+  if (capture.engine_id !== own.engine_id) {
+    changes.push({
+      key: "engine",
+      label: "Engine",
+      value: naming.engine(capture.engine_id),
+    })
+  }
+  return changes
+}
+
 /** What a rung *changes* — the profile it names, its source, its engine. */
 export function rungLabel(raw: FallbackRung, naming: ChainNaming): string {
   const rung = normaliseRung(raw)

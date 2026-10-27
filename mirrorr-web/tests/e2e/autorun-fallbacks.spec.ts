@@ -203,6 +203,54 @@ test.describe("fallback chain", () => {
     await expect(dialog.getByText(/is the run’s own source/)).toBeVisible()
   })
 
+  test("dragging a card's grip reorders the chain", async ({ page }) => {
+    await openCreate(page)
+    const dialog = page.getByRole("dialog")
+    await dialog.locator("#autorun-profile").selectOption("1")
+    await openFallbacks(dialog)
+    await dialog.locator("#autorun-fallback-profile").selectOption("2")
+    await dialog.getByRole("button", { name: "Add fallback" }).click()
+    await dialog.locator("#autorun-fallback-profile").selectOption("3")
+    await dialog.getByRole("button", { name: "Add fallback" }).click()
+
+    const cards = chainList(dialog)
+    await expect(cards).toHaveCount(2)
+    await expect(cards.nth(0)).toContainText("News Hour")
+
+    // The grip is the handle — a draggable card would swallow the fields' text selection.
+    await cards.nth(1).locator('[title="Drag to reorder"]').dragTo(cards.nth(0))
+    await expect(cards.nth(0)).toContainText("GB edge")
+    await expect(cards.nth(1)).toContainText("News Hour")
+  })
+
+  test("a card says what it changes and what it runs instead", async ({ api, page }) => {
+    api.data.autoruns = [
+      autorun({
+        id: 2,
+        user_friendly_name: "Mixed",
+        snake_case_name: "mixed",
+        profile_id: 1,
+        fallback_chain: [{ profile_id: 2 }, { resolver_id: 4, resolver_config: { channel: "premium9" } }],
+      }),
+    ]
+    await page.goto("/autoruns")
+    await page.getByRole("button", { name: "Actions for Mixed" }).click()
+    await page.getByRole("menuitem", { name: "Edit" }).click()
+    const dialog = page.getByRole("dialog")
+    const cards = chainList(dialog)
+
+    // A profile rung takes a profile and the source that came with it.
+    // A profile rung takes a profile and the source that came with it.
+    await expect(cards.nth(0).locator("[data-change]")).toHaveCount(2)
+    await expect(cards.nth(0).locator('[data-change="profile"]')).toContainText("News Hour")
+    await expect(cards.nth(0).locator("[data-rung-trail]")).toContainText("F1 Weekend · Sky")
+
+    // A source rung takes a source only — it does not drop the profile it inherits.
+    await expect(cards.nth(1).locator("[data-change]")).toHaveCount(1)
+    await expect(cards.nth(1).locator('[data-change="source"]')).toContainText("premium9")
+    await expect(cards.nth(1).locator('[data-change="profile"]')).toHaveCount(0)
+  })
+
   test("a phone width holds a whole chain without widening the dialog", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 800 })
     await openCreate(page)

@@ -153,7 +153,7 @@ test.describe("presets page", () => {
     await page.getByRole("button", { name: "Add fallback" }).click()
 
     const chain = page.getByRole("list", { name: "Fallback chain, in order" })
-    await expect(chain.getByText("Wide IPTV")).toBeVisible()
+    await expect(chain.getByText("Wide IPTV").first()).toBeVisible()
     await expect(page.getByRole("combobox", { name: "Fallback 2 · Source" })).toBeVisible()
 
     await page.getByLabel("Name").fill("Two sources")
@@ -184,7 +184,7 @@ test.describe("presets page", () => {
 
     await page.getByRole("button", { name: "Edit profile F1 Weekend" }).first().click()
     const chain = page.getByRole("list", { name: "Fallback chain, in order" })
-    await expect(chain.getByText("Wide IPTV")).toBeVisible()
+    await expect(chain.getByText("Wide IPTV").first()).toBeVisible()
 
     await page.getByRole("button", { name: "Remove fallback 1" }).click()
     await page.getByRole("button", { name: "Save changes" }).click()

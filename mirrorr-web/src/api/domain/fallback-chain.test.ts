@@ -16,12 +16,14 @@ import {
   pruneChain,
   resolveChain,
   resolveRung,
+  rungChanges,
   rungLabel,
   rungNames,
   sameChain,
   type ChainBase,
   type ChainCatalog,
   type ChainProfile,
+  type FallbackRung,
 } from "./fallback-chain"
 
 const uk: ChainProfile = {
@@ -454,6 +456,55 @@ describe("planLabel", () => {
 
   it("refuses to invent a label for a value that is not a plan entry", () => {
     expect(planLabel("nonsense", base, naming)).toBe("—")
+  })
+})
+
+describe("rungChanges", () => {
+  const own = baseCapture(base)
+
+  function changesOf(rung: FallbackRung) {
+    const resolved = resolveRung(rung, own, catalog)
+    expect(resolved.ok).toBe(true)
+    return resolved.ok ? rungChanges(resolved.capture, own, naming) : []
+  }
+
+  it("names the profile a rung takes and the source that came with it", () => {
+    expect(changesOf({ profile_id: 2 })).toEqual([
+      { key: "profile", label: "Profile", value: "F1 IT" },
+      { key: "source", label: "Source", value: "daddylive · kind=channel · ref=577" },
+    ])
+  })
+
+  it("names only the engine when that is all the rung changes", () => {
+    expect(changesOf({ engine_id: 11 })).toEqual([
+      { key: "engine", label: "Engine", value: "streamlink" },
+    ])
+  })
+
+  it("names only the source when the rung keeps the run's own engine", () => {
+    expect(changesOf({ resolver_id: 3 })).toEqual([
+      { key: "source", label: "Source", value: "tvnow" },
+    ])
+  })
+
+  it("reports nothing for a rung that changes nothing", () => {
+    expect(changesOf({ engine_id: 10 })).toEqual([])
+  })
+
+  it("takes no profile away when a rung names none", () => {
+    const fromProfile = baseCapture({
+      engine_id: 10,
+      resolver_id: 2,
+      resolver_config: { kind: "channel", ref: "60" },
+      profile_id: 1,
+      profile_name: "F1 UK",
+    })
+    const resolved = resolveRung({ resolver_id: 3 }, fromProfile, catalog)
+    expect(resolved.ok).toBe(true)
+    if (!resolved.ok) return
+    expect(rungChanges(resolved.capture, fromProfile, naming).map((change) => change.key)).toEqual([
+      "source",
+    ])
   })
 })
 
