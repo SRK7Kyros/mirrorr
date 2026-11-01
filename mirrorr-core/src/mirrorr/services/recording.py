@@ -232,6 +232,14 @@ class RecordingManager:
         return recording_id
 
     async def _concat(self, sources: list[Path], out: Path, *, total_duration: float) -> None:
+        """Concat ``sources`` into ``out``, keeping the audio when copy cannot.
+
+        A segment that begins mid-stream carries an ADTS frame the MP4 muxer's
+        bitstream filter refuses, and one such frame aborts the whole copy five
+        minutes into a ten-minute capture (Oct 31 2026 Qualifying). Re-encoding
+        the audio is the fallback: the video still copies, and the rest of the
+        capture survives instead of being truncated.
+        """
         concat_list = self.session_folder / "concat.txt"
 
         def _write_concat():
@@ -241,6 +249,24 @@ class RecordingManager:
 
         await asyncio.to_thread(_write_concat)
 
+        code = await self._run_remux(concat_list, out, total_duration, ["-c", "copy"])
+        if code != 0:
+            out.unlink(missing_ok=True)
+            logger.warning(
+                f"Session {self.session_id}: stream copy failed (code {code}) — re-encoding audio"
+            )
+            code = await self._run_remux(
+                concat_list, out, total_duration,
+                ["-c:v", "copy", "-c:a", "aac", "-b:a", "128k"],
+            )
+
+        if code != 0:
+            raise RuntimeError(f"ffmpeg concat failed (code {code})")
+
+    async def _run_remux(
+        self, concat_list: Path, out: Path, total_duration: float, codec_args: list[str],
+    ) -> int:
+        """Run one concat attempt and return ffmpeg's exit code."""
         ffmpeg_bin = os.environ.get("FFMPEG_EXECUTABLE") or await asyncio.to_thread(shutil.which, "ffmpeg")
         if not ffmpeg_bin:
             raise RuntimeError("ffmpeg not found")
@@ -251,7 +277,7 @@ class RecordingManager:
                 ffmpeg_bin,
                 "-hide_banner", "-loglevel", "info", "-stats",
                 "-f", "concat", "-safe", "0", "-i", str(concat_list),
-                "-c", "copy", str(out),
+                *codec_args, str(out),
             ],
             bus=self.bus,
             stdout=asyncio.subprocess.DEVNULL,
@@ -291,9 +317,7 @@ class RecordingManager:
         self._telemetry_tasks.clear()
 
         await self._remux_proc.close()
-
-        if exit_event.returncode != 0:
-            raise RuntimeError(f"ffmpeg concat failed (code {exit_event.returncode})")
+        return exit_event.returncode
 
     # ── remux progress tracking ──────────────────────────────────────
 
