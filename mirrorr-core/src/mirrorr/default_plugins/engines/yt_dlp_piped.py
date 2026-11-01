@@ -2,14 +2,34 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shutil
 import subprocess
+from pathlib import Path
 
 from mirrorr.plugin_api.interfaces import (
     EngineInterface, Capabilities, Source, EngineContext,
 )
 from mirrorr.services.managed_process import ManagedProcess
 from mirrorr.services.process_bus import EngineDone, EngineCrashed
+
+_SEGMENT_RE = re.compile(r"stream-(\d+)\.ts$")
+
+
+def _next_segment_number(folder: Path) -> int:
+    """Where this attempt's numbering must start.
+
+    ffmpeg numbers HLS segments from zero on every run, so a retry overwrote
+    the files the previous attempt had already captured — seven attempts left
+    69 segments of the 330 MB recorded during the Oct 31 2026 Qualifying. The
+    live window is what survives in ``segments/``, and its highest index is the
+    last one written, so continuing past it keeps every attempt on disk.
+    """
+    try:
+        names = [p.name for p in folder.iterdir()]
+    except OSError:
+        return 0
+    return max((int(m.group(1)) for name in names if (m := _SEGMENT_RE.search(name))), default=-1) + 1
 
 
 class YtDlpPipedEngine(EngineInterface):
@@ -54,6 +74,14 @@ class YtDlpPipedEngine(EngineInterface):
             yt_dlp_path, url,
             "--output", "-",
             "--live-from-start",
+            # A live relay goes quiet now and then — an upstream playlist dip,
+            # a re-minted token. yt-dlp's 20 s read timeout plus ten retries
+            # gave up 9 minutes into a 70-minute capture (Oct 31 2026
+            # Qualifying), so the read is patient and the retries outnumber
+            # the dips instead of the other way round.
+            "--socket-timeout", "60",
+            "--retries", "20",
+            "--fragment-retries", "20",
             *header_args,
         ]
 
@@ -71,6 +99,7 @@ class YtDlpPipedEngine(EngineInterface):
             "-hls_segment_type", "mpegts",
             "-hls_base_url", "segments/",
             "-hls_segment_filename", str(context.segments_folder / "stream-%12d.ts"),
+            "-start_number", str(_next_segment_number(context.segments_folder)),
             "-hls_flags", "delete_segments+append_list+program_date_time",
             str(context.session_folder / "stream.m3u8"),
         ]
