@@ -74,6 +74,42 @@ test.describe("new session dialog", () => {
     await expect(dialog.getByTestId("access-creation")).toHaveCount(0)
   })
 
+  test("a wide panel sets the chain beside the setup, a phone stacks it under", async ({ page }) => {
+    const dialog = page.getByRole("dialog", { name: "New session" })
+    const profileSelect = page.locator("#new-session-profile")
+    const chain = dialog.locator("[data-chain-section]")
+
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await page.goto("/sessions")
+    await page.getByRole("button", { name: "New session" }).first().click()
+    await profileSelect.selectOption("1")
+    await expect(chain).toBeVisible()
+
+    // Side by side: the chain's left edge clears the profile field's right edge.
+    await expect
+      .poll(async () => {
+        const chainBox = await chain.boundingBox()
+        const profileBox = await profileSelect.boundingBox()
+        if (chainBox === null || profileBox === null) return false
+        return chainBox.x > profileBox.x + profileBox.width - 8
+      })
+      .toBe(true)
+    expect((await dialog.boundingBox())!.width).toBeGreaterThan(900)
+
+    await page.setViewportSize({ width: 375, height: 812 })
+
+    // Stacked: the chain drops below the profile field and spans the panel.
+    await expect
+      .poll(async () => {
+        const chainBox = await chain.boundingBox()
+        const profileBox = await profileSelect.boundingBox()
+        if (chainBox === null || profileBox === null) return false
+        return chainBox.y > profileBox.y + profileBox.height
+      })
+      .toBe(true)
+    expect((await dialog.boundingBox())!.width).toBeLessThanOrEqual(375)
+  })
+
   test("ArrowRight moves the segmented control and swaps the form", async ({ page }) => {
     await page.goto("/sessions")
     await page.getByRole("button", { name: "New session" }).first().click()
