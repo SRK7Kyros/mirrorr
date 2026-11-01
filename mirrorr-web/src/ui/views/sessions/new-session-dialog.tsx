@@ -166,6 +166,7 @@ export function NewSessionDialog({
       onClose={onClose}
       title="New session"
       description="Start a capture now. A profile carries its own engine, resolver and retry policy."
+      size="xl"
       busy={create.isPending}
       footer={
         <>
@@ -186,122 +187,138 @@ export function NewSessionDialog({
       <div className="flex flex-col gap-4">
         {error !== null ? <Banner kind="danger" title={error} /> : null}
 
-        <Field label="Start from">
-          <Segmented
-            ariaLabel="Start from"
-            panelId="new-session-mode"
-            active={mode}
-            onChange={setMode}
-            items={[
-              {
-                id: "profile",
-                label: "A profile",
-                disabled: profiles.length === 0,
-              },
-              { id: "custom", label: "Engine + resolver" },
-            ]}
-          />
-        </Field>
+        {/* Two columns only where the panel is wide enough for them. DOM order
+            stays the phone's order, so the grid placements below differ from it. */}
+        <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)] lg:grid-rows-[auto_1fr] lg:items-start lg:gap-5">
+          <div className="order-1 flex min-w-0 flex-col gap-4">
+            <Field label="Start from">
+              <Segmented
+                ariaLabel="Start from"
+                panelId="new-session-mode"
+                active={mode}
+                onChange={setMode}
+                items={[
+                  {
+                    id: "profile",
+                    label: "A profile",
+                    disabled: profiles.length === 0,
+                  },
+                  { id: "custom", label: "Engine + resolver" },
+                ]}
+              />
+            </Field>
 
-        <TabPanel panelId="new-session-mode" active={mode} className="flex flex-col gap-4">
-          {mode === "profile" ? (
-            <>
-              <Field
-                label="Profile"
-                htmlFor="new-session-profile"
-                required
-                hint={`${profiles.length} available`}
-              >
-                <Select
-                  id="new-session-profile"
-                  value={profileId}
-                  onChange={(event) => {
-                    const next = event.target.value
-                    setProfileId(next)
-                    const profile = profiles.find((item) => String(item.id) === next)
-                    // The chain goes with the profile it was written for — its
-                    // own rungs are what runs unless the user changes them.
-                    setChain(profile === undefined ? [] : chainOf(profile))
-                  }}
-                >
-                  <option value="">Select a profile…</option>
-                  {profiles.map((profile) => (
-                    <option key={profile.id} value={String(profile.id)}>
-                      {profile.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            </>
-          ) : (
-            <>
-              <Field label="Engine" htmlFor="new-session-engine" required>
-                <Select
-                  id="new-session-engine"
-                  value={engineId}
-                  onChange={(event) => setEngineId(event.target.value)}
-                >
-                  <option value="">Select an engine…</option>
-                  {engines.map((engine) => (
-                    <option key={engine.id} value={String(engine.id)}>
-                      {engine.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              {engineId === "" ? null : (
-                <SourceFields
-                  idPrefix="new-session"
-                  kindLabel="Primary source"
-                  resolvers={resolvers}
-                  value={{
-                    resolverId: resolver?.id ?? null,
-                    resolverConfig,
-                  }}
-                  onChange={(next) => {
-                    setResolverId(next.resolverId === null ? "" : String(next.resolverId))
-                    setResolverConfig(next.resolverConfig)
-                  }}
-                  browse={
-                    canBrowse ? (
-                      <div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          icon={<IconSearch size={15} />}
-                          onClick={() => setBrowseOpen(true)}
-                        >
-                          Browse {resolver.name}…
-                        </Button>
-                      </div>
-                    ) : undefined
-                  }
-                  disabled={create.isPending}
-                />
+            <TabPanel panelId="new-session-mode" active={mode} className="flex flex-col gap-4">
+              {mode === "profile" ? (
+                <>
+                  <Field
+                    label="Profile"
+                    htmlFor="new-session-profile"
+                    required
+                    hint={`${profiles.length} available`}
+                  >
+                    <Select
+                      id="new-session-profile"
+                      value={profileId}
+                      onChange={(event) => {
+                        const next = event.target.value
+                        setProfileId(next)
+                        const profile = profiles.find((item) => String(item.id) === next)
+                        // The chain goes with the profile it was written for — its
+                        // own rungs are what runs unless the user changes them.
+                        setChain(profile === undefined ? [] : chainOf(profile))
+                      }}
+                    >
+                      <option value="">Select a profile…</option>
+                      {profiles.map((profile) => (
+                        <option key={profile.id} value={String(profile.id)}>
+                          {profile.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                </>
+              ) : (
+                <>
+                  <Field label="Engine" htmlFor="new-session-engine" required>
+                    <Select
+                      id="new-session-engine"
+                      value={engineId}
+                      onChange={(event) => setEngineId(event.target.value)}
+                    >
+                      <option value="">Select an engine…</option>
+                      {engines.map((engine) => (
+                        <option key={engine.id} value={String(engine.id)}>
+                          {engine.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  {engineId === "" ? null : (
+                    <SourceFields
+                      idPrefix="new-session"
+                      kindLabel="Primary source"
+                      resolvers={resolvers}
+                      value={{
+                        resolverId: resolver?.id ?? null,
+                        resolverConfig,
+                      }}
+                      onChange={(next) => {
+                        setResolverId(next.resolverId === null ? "" : String(next.resolverId))
+                        setResolverConfig(next.resolverConfig)
+                      }}
+                      browse={
+                        canBrowse ? (
+                          <div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              icon={<IconSearch size={15} />}
+                              onClick={() => setBrowseOpen(true)}
+                            >
+                              Browse {resolver.name}…
+                            </Button>
+                          </div>
+                        ) : undefined
+                      }
+                      disabled={create.isPending}
+                    />
+                  )}
+                </>
               )}
-            </>
-          )}
-        </TabPanel>
+            </TabPanel>
+          </div>
 
-        {base === null ? null : (
-          <ChainEditor
-            idPrefix="new-session"
-            catalog={catalog}
-            base={base}
-            value={chain}
-            onChange={setChain}
-            disabled={create.isPending}
-          />
-        )}
+          <div className="order-2 min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1">
+            {base === null ? (
+              <div className="flex min-h-24 items-center justify-center rounded-sm border border-dashed border-line-subtle px-4 py-5 text-center text-sm text-dim">
+                {mode === "profile"
+                  ? "Pick a profile to see and edit the chain it falls back to."
+                  : "Pick an engine and a source to build its fallback chain."}
+              </div>
+            ) : (
+              <ChainEditor
+                idPrefix="new-session"
+                catalog={catalog}
+                base={base}
+                value={chain}
+                onChange={setChain}
+                disabled={create.isPending}
+              />
+            )}
+          </div>
 
-        <Switch
-          label="Record this session"
-          checked={recording}
-          onChange={(event) => setRecording(event.target.checked)}
-        />
+          <div className="order-3 flex min-w-0 flex-col gap-4 lg:col-start-1 lg:row-start-2">
+            <Switch
+              label="Record this session"
+              checked={recording}
+              onChange={(event) => setRecording(event.target.checked)}
+            />
 
-        <AccessCreation resourceType="session" onChange={setAccess} busy={create.isPending} />
+            <AccessCreation resourceType="session" onChange={setAccess} busy={create.isPending} />
+          </div>
+        </div>
       </div>
 
       <DiscoveryDrawer

@@ -226,10 +226,10 @@ export function RungCard({
   return (
     <div
       className={cn(
-        "flex flex-col rounded-xs border bg-surface-2 px-2 py-1.5",
+        "flex flex-col rounded-xs border bg-surface-2 px-2 py-1.5 sm:px-2.5",
         state.problem === null ? "border-line-subtle" : "border-warning bg-warning-dim",
-        kind === "draft" && "border-dashed",
-        open && state.problem === null && "border-line",
+        kind === "draft" && "border-dashed border-[var(--accent-line)]",
+        open && state.problem === null && kind === "saved" && "border-line",
         actions?.dragging === true && "opacity-40",
       )}
       data-rung={kind}
@@ -241,7 +241,7 @@ export function RungCard({
             draggable={!disabled}
             onDragStart={startDrag}
             onDragEnd={actions.onDragEnd}
-            className="mt-0.5 shrink-0 cursor-grab text-dim active:cursor-grabbing"
+            className="mt-1 shrink-0 cursor-grab text-dim active:cursor-grabbing"
             aria-hidden="true"
             title="Drag to reorder"
           >
@@ -249,28 +249,38 @@ export function RungCard({
           </span>
         )}
         <div className="min-w-0 flex-1">
-          <div className="flex items-start gap-2">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               aria-expanded={open}
               aria-label={`${open ? "Close" : "Edit"} fallback ${number}`}
               onClick={() => setOpen((current) => !current)}
-              className="flex min-w-0 flex-1 items-start gap-2 rounded-xs text-left hover:text-ink"
+              className="flex min-w-0 flex-1 items-center gap-1.5 rounded-xs text-left hover:text-ink"
             >
               <IconChevronRight
                 size={15}
-                className={cn("mt-0.5 shrink-0 text-ink-dim transition-transform", open && "rotate-90")}
+                className={cn("shrink-0 text-ink-dim transition-transform", open && "rotate-90")}
               />
-              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-                <span className="truncate text-sm text-ink">Fallback {number}</span>
+              <span
+                className="grid h-5 w-5 shrink-0 place-items-center rounded-full border border-line-strong bg-surface-3 text-2xs font-semibold tabular-nums text-ink-muted"
+                aria-hidden="true"
+              >
+                {number}
+              </span>
+              <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                <span className="hidden truncate text-sm text-ink sm:inline">Fallback {number}</span>
                 {dirty ? <Tag className="text-dim">edited</Tag> : null}
-                {state.problem === null ? null : <Tag className="border-warning text-warning">problem</Tag>}
+                {state.problem === null ? null : (
+                  <Tag className="border-warning text-warning">problem</Tag>
+                )}
                 {failed ? (
                   <Tag className="border-danger text-danger">
-                    {verdict?.checked_at == null ? "check failed" : `failed ${formatRelativeTime(verdict.checked_at)}`}
+                    {verdict?.checked_at == null
+                      ? "check failed"
+                      : `failed ${formatRelativeTime(verdict.checked_at)}`}
                   </Tag>
                 ) : null}
-              </div>
+              </span>
             </button>
 
             {actions === undefined ? null : (
@@ -305,7 +315,7 @@ export function RungCard({
               {changes.length === 0 ? (
                 <p className="mt-1 text-xs text-dim">
                   {kind === "draft"
-                    ? "Nothing named yet — open to pick a profile, an engine or a source."
+                    ? "Nothing named yet — pick a profile, an engine or a source."
                     : "Changes nothing yet."}
                 </p>
               ) : (
@@ -346,8 +356,8 @@ export function RungCard({
       </div>
 
       {open ? (
-        <div className="mt-2.5 flex flex-col gap-3 border-t border-line-subtle pt-2.5">
-          <div className="grid gap-3 sm:grid-cols-2">
+        <div className="mt-2 flex flex-col gap-2.5 border-t border-line-subtle pt-2">
+          <div className="grid gap-2.5 sm:grid-cols-2">
             <Field
               label={label("Profile")}
               htmlFor={fieldId("profile")}

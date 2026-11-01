@@ -104,7 +104,7 @@ export function SourceFields({
           ]}
         />
       ) : (
-        <p className="text-sm text-ink-dim">
+        <p className="text-xs text-dim">
           No saved source to load — fill a resolver and its config.
         </p>
       )}
@@ -141,10 +141,10 @@ export function SourceFields({
 
           {browse}
 
-          <section className="flex flex-col gap-2">
+          <section className="flex flex-col gap-2 border-t border-line-subtle pt-2.5">
             <h3 className={panelTitleClass}>Resolver config</h3>
             {resolver === undefined ? (
-              <p className="text-sm text-ink-dim">
+              <p className="text-xs text-ink-dim">
                 {inherited
                   ? `Leaves the source as it is — ${inherit}.`
                   : "Pick a resolver to configure it."}

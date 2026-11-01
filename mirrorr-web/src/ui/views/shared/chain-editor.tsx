@@ -110,7 +110,7 @@ export function ChainEditor({
 
   return (
     <section
-      className="flex flex-col rounded-xs border border-line-subtle bg-surface-1"
+      className="flex flex-col overflow-hidden rounded-sm border border-line-subtle bg-surface-1"
       data-chain-section={open ? "open" : "closed"}
     >
       <button
@@ -118,7 +118,10 @@ export function ChainEditor({
         aria-expanded={open}
         aria-controls={bodyId}
         onClick={() => setOpen((current) => !current)}
-        className="flex items-center gap-2 rounded-xs px-2.5 py-2 text-left hover:bg-surface-2"
+        className={cn(
+          "flex items-center gap-2 px-2.5 py-2 text-left hover:bg-surface-2",
+          open && "bg-surface-2",
+        )}
       >
         <IconChevronRight
           size={15}
@@ -130,21 +133,25 @@ export function ChainEditor({
         <Tag className={value.length === 0 ? "text-dim" : undefined}>
           {value.length === 0 ? "optional" : value.length}
         </Tag>
-        <span className="min-w-0 flex-1 truncate text-right text-xs text-ink-dim">{summary}</span>
+        <span className="hidden min-w-0 flex-1 truncate text-right text-xs text-ink-dim sm:block">
+          {summary}
+        </span>
       </button>
 
       {open ? (
-        <div id={bodyId} className="flex flex-col gap-3 border-t border-line-subtle p-2.5">
-          <p className="text-sm text-ink-dim">
+        <div id={bodyId} className="flex flex-col gap-2.5 border-t border-line-subtle p-2 sm:p-2.5">
+          <p className="text-xs leading-snug text-ink-dim">
             Tried in this order after its own capture. A rung changes only what it names — anything
-            left blank comes from that first capture, never from the rung above it.
+            blank is inherited from that first capture.
           </p>
 
           <div
-            className="flex items-center gap-2 rounded-xs border border-dashed border-line-strong bg-surface-2 px-2 py-1.5"
+            className="flex items-center gap-2 rounded-xs border border-[var(--accent-line)] bg-[var(--accent-dim)] px-2 py-1.5"
             data-chain-base
           >
-            <Tag className="border-0 bg-transparent px-0 text-ink-dim">first</Tag>
+            <Tag accent className="border-0 bg-transparent px-0">
+              first
+            </Tag>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm text-ink">
                 {subject === "profile" ? "This profile's own capture" : "The run's own capture"}
@@ -159,7 +166,7 @@ export function ChainEditor({
           </div>
 
           {value.length === 0 ? (
-            <p className="text-sm text-dim">Nothing after it — add a fallback below if it should.</p>
+            <p className="text-sm text-dim">Nothing after it — add a fallback below.</p>
           ) : (
             <ol className="flex flex-col gap-1.5" aria-label="Fallback chain, in order">
               {value.map((rung, index) => {

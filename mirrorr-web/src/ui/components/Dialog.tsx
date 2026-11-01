@@ -34,10 +34,11 @@ export interface DialogProps {
 
 const OVERLAY_CLASS = "fixed inset-0 bg-[var(--overlay-scrim)] backdrop-blur-[2px] z-[var(--z-modal)]"
 
-const HEAD_CLASS = "flex items-start gap-3 pt-5 px-5 pb-3"
+const HEAD_CLASS = "flex items-start gap-3 pt-4 px-4 pb-3 sm:pt-5 sm:px-5"
 const DESC_CLASS = "text-ink-muted text-base mt-1"
-const BODY_CLASS = "px-5 pb-4 overflow-y-auto overflow-x-hidden flex flex-col gap-4"
-const FOOT_CLASS = "flex items-center justify-end gap-2 py-4 px-5 border-t border-line-subtle bg-surface-1 rounded-b-lg"
+const BODY_CLASS = "px-4 pb-4 overflow-y-auto overflow-x-hidden flex flex-col gap-4 sm:px-5"
+const FOOT_CLASS =
+  "flex items-center justify-end gap-2 py-4 px-4 sm:px-5 border-t border-line-subtle bg-surface-1 rounded-b-lg"
 
 const CONTENT_BASE =
   "fixed top-1/2 left-1/2 flex flex-col max-h-[calc(100dvh_-_48px_-_var(--safe-top)_-_var(--safe-bottom))] bg-surface-2 border border-line-strong rounded-lg shadow-elev-lg z-[calc(var(--z-modal)_+_1)]"
