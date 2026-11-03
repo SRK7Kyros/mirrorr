@@ -196,6 +196,45 @@ describe("ResourceAccessFields", () => {
     ).toBeTruthy();
   });
 
+  it("lists every existing override with the capabilities each principal holds", () => {
+    render(
+      <ResourceAccessFields
+        resourceType="session"
+        access={access({
+          VIEW: ["alice", "bob"],
+          OPERATE: ["alice"],
+          groupGrants: { EDIT: [2] },
+        })}
+        users={USERS}
+        groups={GROUPS}
+        onApply={vi.fn()}
+      />,
+    );
+
+    const rows = within(
+      screen.getByRole("list", { name: "Current permission overrides" }),
+    ).getAllByRole("listitem");
+    expect(rows).toHaveLength(3);
+    expect(within(rows[0]).getByText("Alice")).toBeTruthy();
+    expect(within(rows[0]).getByText("View access")).toBeTruthy();
+    expect(within(rows[0]).getByText("Operate")).toBeTruthy();
+    expect(within(rows[0]).queryByText("Edit")).toBeNull();
+    expect(within(rows[1]).getByText("Bob")).toBeTruthy();
+    expect(within(rows[1]).getByText("View access")).toBeTruthy();
+    expect(within(rows[1]).queryByText("Operate")).toBeNull();
+    // VIEW is implied by the group's EDIT grant, exactly as the chips read it.
+    expect(within(rows[2]).getByText("editors")).toBeTruthy();
+    expect(within(rows[2]).getByText("Edit")).toBeTruthy();
+    expect(within(rows[2]).getByText("View access")).toBeTruthy();
+    // The crown is not an override — it holds everything by being the owner.
+    expect(screen.queryByText("Kyros", { selector: "li *" })).toBeNull();
+
+    fireEvent.click(within(rows[0]).getByRole("button"));
+    expect(setChip("View access").getAttribute("aria-pressed")).toBe("true");
+    expect(setChip("Operate").getAttribute("aria-pressed")).toBe("true");
+    expect(setChip("Edit").getAttribute("aria-pressed")).toBe("false");
+  });
+
   it("keeps Apply disabled until the draft is dirty", () => {
     render(
       <ResourceAccessFields
