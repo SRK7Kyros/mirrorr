@@ -598,6 +598,7 @@ class RecordingManager:
         the entry names that source, not the profile the session was created for.
         """
         from mirrorr.services.session_lifecycle import _get_db_factory
+        from mirrorr.services.permissions import inherit_effective_access
         from mirrorr.storage.models import Recording
         from mirrorr.storage import crud
         from mirrorr.storage.enums import ResourceType
@@ -637,6 +638,7 @@ class RecordingManager:
                     requester_group_id=self.session.requester_group_id,
                 )
                 recording = await crud.create(db, recording)
+                await inherit_effective_access(db, self.session, recording)
                 await subscribe_requester(
                     db, self.session.requester_user_token,
                     ResourceType.RECORDING, recording.id,

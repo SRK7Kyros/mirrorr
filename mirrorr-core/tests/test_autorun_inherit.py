@@ -8,7 +8,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 from mirrorr.api.dependencies import AuthState
 from mirrorr.services import autorun_scheduler
 from mirrorr.services.autorun_scheduler import _tick
-from mirrorr.services.permissions import has_capability
+from mirrorr.services.permissions import (
+    access_predicate,
+    has_capability,
+    inherit_effective_access,
+)
 from mirrorr.startup.config import MirrorrSettings
 from mirrorr.storage.enums import AutorunStatus, Capability, ResourceType, UserRole
 from mirrorr.storage.models import (
@@ -17,6 +21,7 @@ from mirrorr.storage.models import (
     EventSubscription,
     Group,
     GroupMember,
+    Recording,
     ResourceAccess,
     ResourceOwnerGroup,
     ResourceOwnerUser,
@@ -59,7 +64,7 @@ async def _seed(db) -> None:
     await db.commit()
 
 
-def test_spawned_session_inherits_the_autoruns_grants_and_owners(monkeypatch, tmp_path):
+def test_a_spawned_session_copies_nothing_and_answers_to_its_autorun(monkeypatch, tmp_path):
     async def scenario() -> None:
         engine = create_async_engine("sqlite+aiosqlite://")
         async with engine.begin() as conn:
@@ -68,7 +73,7 @@ def test_spawned_session_inherits_the_autoruns_grants_and_owners(monkeypatch, tm
         monkeypatch.setattr(autorun_scheduler, "bus", _Bus())
 
         async with maker() as db:
-            await _seed(db)
+            await _seed_audience(db)
 
         await _tick(maker, MirrorrSettings(base_dir=tmp_path))
 
@@ -77,52 +82,75 @@ def test_spawned_session_inherits_the_autoruns_grants_and_owners(monkeypatch, tm
             assert session is not None
             assert session.autorun_id == 1
             assert session.requester_user_token == "kyros"
+            for model in (ResourceAccess, ResourceOwnerGroup, ResourceOwnerUser):
+                rows = (
+                    await db.exec(
+                        select(model).where(
+                            model.resource_type == ResourceType.SESSION
+                        )
+                    )
+                ).all()
+                assert rows == [], model.__name__
 
-            grants = (
+            assert await has_capability(db, _auth("kyros"), session, Capability.DELETE)
+            assert await has_capability(db, _auth("alice"), session, Capability.OPERATE)
+            assert await has_capability(db, _auth("bob"), session, Capability.EDIT)
+            assert await has_capability(db, _auth("dana"), session, Capability.DELETE)
+            assert await has_capability(db, _auth("eve"), session, Capability.VIEW)
+            assert not await has_capability(db, _auth("eve"), session, Capability.EDIT)
+
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_editing_the_autoruns_sharing_moves_its_existing_sessions(monkeypatch, tmp_path):
+    """The link is live, not a snapshot: a revoke on the schedule takes the run
+    away, and a grant added afterwards reaches the run already produced."""
+
+    async def scenario() -> None:
+        engine = create_async_engine("sqlite+aiosqlite://")
+        async with engine.begin() as conn:
+            await conn.run_sync(SQLModel.metadata.create_all)
+        maker = async_sessionmaker(engine, class_=SQLModelAsyncSession, expire_on_commit=False)
+        monkeypatch.setattr(autorun_scheduler, "bus", _Bus())
+
+        async with maker() as db:
+            await _seed_audience(db)
+
+        await _tick(maker, MirrorrSettings(base_dir=tmp_path))
+
+        async with maker() as db:
+            session = (await db.exec(select(Session))).first()
+            assert session is not None
+            assert await has_capability(db, _auth("alice"), session, Capability.OPERATE)
+            assert not await has_capability(db, _auth("eve"), session, Capability.EDIT)
+
+            for row in (
                 await db.exec(
                     select(ResourceAccess).where(
-                        ResourceAccess.resource_type == ResourceType.SESSION
+                        ResourceAccess.resource_type == ResourceType.AUTORUN,
+                        ResourceAccess.resource_id == 1,
+                        ResourceAccess.username == "alice",
                     )
                 )
-            ).all()
-            assert {(g.username, g.group_id, g.capability) for g in grants} == {
-                ("alice", None, Capability.VIEW),
-                ("alice", None, Capability.OPERATE),
-                (None, 9, Capability.EDIT),
-            }
-            owners = (
-                await db.exec(
-                    select(ResourceOwnerGroup).where(
-                        ResourceOwnerGroup.resource_type == ResourceType.SESSION
-                    )
+            ).all():
+                await db.delete(row)
+            db.add(
+                ResourceAccess(
+                    resource_type=ResourceType.AUTORUN,
+                    resource_id=1,
+                    username="eve",
+                    capability=Capability.OPERATE,
                 )
-            ).all()
-            assert [o.group_id for o in owners] == [9]
-            owner_users = (
-                await db.exec(
-                    select(ResourceOwnerUser).where(
-                        ResourceOwnerUser.resource_type == ResourceType.SESSION
-                    )
-                )
-            ).all()
-            assert [o.username for o in owner_users] == ["dana"]
+            )
+            await db.commit()
 
-            autorun_grants = (
-                await db.exec(
-                    select(ResourceAccess).where(
-                        ResourceAccess.resource_type == ResourceType.AUTORUN
-                    )
-                )
-            ).all()
-            assert len(autorun_grants) == 3
-            autorun_owners = (
-                await db.exec(
-                    select(ResourceOwnerUser).where(
-                        ResourceOwnerUser.resource_type == ResourceType.AUTORUN
-                    )
-                )
-            ).all()
-            assert [o.username for o in autorun_owners] == ["dana"]
+        async with maker() as db:
+            session = (await db.exec(select(Session))).first()
+            assert session is not None
+            assert not await has_capability(db, _auth("alice"), session, Capability.OPERATE)
+            assert await has_capability(db, _auth("eve"), session, Capability.OPERATE)
 
         await engine.dispose()
 
@@ -154,14 +182,14 @@ def test_spawn_survives_the_requester_subscription_insert(monkeypatch, tmp_path)
             assert [(s.user_id, s.resource_type, s.resource_id) for s in subs] == [
                 (1, ResourceType.SESSION, session.id)
             ]
-            grants = (
+            copies = (
                 await db.exec(
                     select(ResourceAccess).where(
                         ResourceAccess.resource_type == ResourceType.SESSION
                     )
                 )
             ).all()
-            assert len(grants) == 3
+            assert copies == []
 
         await engine.dispose()
 
@@ -241,12 +269,139 @@ async def _seed_audience(db) -> None:
     await db.commit()
 
 
+def test_the_sessions_list_applies_the_same_live_rule(monkeypatch, tmp_path):
+    """The paginated list is a second implementation of the predicate; it must
+    admit exactly whose runs the live link admits, and follow a later revoke."""
+
+    async def scenario() -> None:
+        engine = create_async_engine("sqlite+aiosqlite://")
+        async with engine.begin() as conn:
+            await conn.run_sync(SQLModel.metadata.create_all)
+        maker = async_sessionmaker(engine, class_=SQLModelAsyncSession, expire_on_commit=False)
+        monkeypatch.setattr(autorun_scheduler, "bus", _Bus())
+
+        async with maker() as db:
+            await _seed_audience(db)
+
+        await _tick(maker, MirrorrSettings(base_dir=tmp_path))
+
+        async with maker() as db:
+            async def seen(username: str) -> list[int]:
+                rows = (
+                    await db.exec(
+                        select(Session).where(access_predicate(Session, username))
+                    )
+                ).all()
+                return sorted(session.autorun_id for session in rows)
+
+            assert await seen("alice") == [1, 2]
+            assert await seen("kyros") == [1]
+            assert await seen("bob") == [1, 2]
+            assert await seen("dana") == [1]
+            assert await seen("eve") == [1]
+            assert await seen("ghost") == [1]
+
+            everyone_grant = (
+                await db.exec(
+                    select(ResourceAccess).where(
+                        ResourceAccess.resource_type == ResourceType.AUTORUN,
+                        ResourceAccess.resource_id == 1,
+                        ResourceAccess.group_id == 7,
+                    )
+                )
+            ).first()
+            assert everyone_grant is not None
+            await db.delete(everyone_grant)
+            await db.commit()
+
+            assert await seen("eve") == []
+
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_a_recording_keeps_what_its_session_could_see():
+    async def scenario() -> None:
+        engine = create_async_engine("sqlite+aiosqlite://")
+        async with engine.begin() as conn:
+            await conn.run_sync(SQLModel.metadata.create_all)
+        maker = async_sessionmaker(engine, class_=SQLModelAsyncSession, expire_on_commit=False)
+
+        async with maker() as db:
+            await _seed_audience(db)
+            db.add_all(
+                [
+                    Session(
+                        id=1,
+                        autorun_id=1,
+                        engine_id=1,
+                        resolver_id=1,
+                        requester_user_token="kyros",
+                    ),
+                    Recording(
+                        id=1,
+                        user_friendly_name="F1 Race",
+                        snake_case_name="f1-race",
+                        disk_path="/tmp/f1-race",
+                        content_url="http://mirrorr/content/recordings/f1-race.mp4",
+                        profile_name="F1",
+                        engine_name="yt_dlp_piped",
+                        resolver_name="static",
+                        started_at=_now(),
+                        ended_at=_now(),
+                        duration_seconds=1.0,
+                        size_bytes=1,
+                        requester_user_token="kyros",
+                    ),
+                ]
+            )
+            await db.commit()
+
+            await inherit_effective_access(db, await db.get(Session, 1), await db.get(Recording, 1))
+            await db.commit()
+
+        async with maker() as db:
+            recording = await db.get(Recording, 1)
+            assert recording is not None
+            for model, expected in (
+                (ResourceAccess, 4),
+                (ResourceOwnerGroup, 1),
+                (ResourceOwnerUser, 1),
+            ):
+                rows = (
+                    await db.exec(
+                        select(model).where(
+                            model.resource_type == ResourceType.RECORDING
+                        )
+                    )
+                ).all()
+                assert len(rows) == expected, model.__name__
+
+            for username, held in (
+                ("kyros", set(Capability)),
+                ("bob", set(Capability)),
+                ("dana", set(Capability)),
+                ("alice", {Capability.VIEW, Capability.OPERATE, Capability.EXPORT}),
+                ("eve", {Capability.VIEW, Capability.EXPORT}),
+                ("ghost", {Capability.VIEW, Capability.EXPORT}),
+            ):
+                for capability in Capability:
+                    assert (
+                        await has_capability(db, _auth(username), recording, capability)
+                    ) is (capability in held), (username, capability)
+
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
 def test_a_spawned_session_answers_every_capability_like_its_autorun(monkeypatch, tmp_path):
-    """The session is not merely a row copy: for every account and every one of
-    the six capabilities, ``has_capability`` must answer exactly what it answers
-    on the autorun. That covers the user crown, the group crown, direct and group
-    grants, the sealed ``everyone`` group, additive owner rows, a stranger, an
-    anonymous caller and an admin."""
+    """For every account and every one of the six capabilities,
+    ``has_capability`` must answer on the session exactly what it answers on the
+    autorun: the user crown, the group crown, direct and group grants, the sealed
+    ``everyone`` group, additive owner rows, a stranger, an anonymous caller and
+    an admin."""
 
     async def scenario() -> None:
         engine = create_async_engine("sqlite+aiosqlite://")

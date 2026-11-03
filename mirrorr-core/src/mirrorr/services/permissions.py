@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 from sqlalchemy import literal, or_
+from sqlalchemy.orm import aliased
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -40,30 +41,28 @@ _ACCESS_MODEL_TYPES: dict[type, ResourceType] = {
     ResolverSource: ResourceType.SOURCE,
 }
 
+# A session answers to its autorun **live** — the same question is asked of the
+# schedule the run came from, so a share added there reaches the runs it already
+# produced and a revoked one takes them away. Nothing is copied onto the session.
+_ACCESS_PARENT: dict[type, type] = {Session: Autorun}
 
-async def has_capability(
-    db: AsyncSession, auth: AuthState, obj, capability: Capability
+
+async def _parent_of(db: AsyncSession, obj):
+    """The row *obj* also answers to, if any — a session's autorun."""
+    parent_model = _ACCESS_PARENT.get(type(obj))
+    parent_id = getattr(obj, "autorun_id", None)
+    if parent_model is None or parent_id is None:
+        return None
+    return await db.get(parent_model, parent_id)
+
+
+async def _holds(
+    db: AsyncSession, username: str, obj, capability: Capability
 ) -> bool:
-    """True when *auth* may perform *capability* on *obj*. Never raises.
-
-    VIEW is the base capability: any grant on the item implies it, so a VIEW
-    check passes on the presence of *any* row while every other capability is
-    matched exactly. The implication lives here, in the one predicate, so every
-    VIEW-gated route inherits it.
-
-    Principals are users *and* groups: a grant counts when it names the caller
-    or a group they belong to (the reserved ``everyone`` group meaning "every
-    authenticated user"), and any owner row — a user owner or an owner group —
-    confers all six, exactly like the requester.
-    """
+    """Whether *username* holds *capability* through *obj*'s own rows."""
     resource_type = _ACCESS_MODEL_TYPES.get(type(obj))
     if resource_type is None:
         return False  # system row: no owner, no grants
-    if auth.is_admin:
-        return True
-    if not auth.user:
-        return False
-    username = auth.user.username
     if getattr(obj, "requester_user_token", None) == username:
         return True
     # The primary owner may be a group: every member then holds all six, and the
@@ -99,6 +98,37 @@ async def has_capability(
     if capability is not Capability.VIEW:
         stmt = stmt.where(ResourceAccess.capability == capability)
     return (await db.exec(stmt)).first() is not None
+
+
+async def has_capability(
+    db: AsyncSession, auth: AuthState, obj, capability: Capability
+) -> bool:
+    """True when *auth* may perform *capability* on *obj*. Never raises.
+
+    VIEW is the base capability: any grant on the item implies it, so a VIEW
+    check passes on the presence of *any* row while every other capability is
+    matched exactly. The implication lives here, in the one predicate, so every
+    VIEW-gated route inherits it.
+
+    Principals are users *and* groups: a grant counts when it names the caller
+    or a group they belong to (the reserved ``everyone`` group meaning "every
+    authenticated user"), and any owner row — a user owner or an owner group —
+    confers all six, exactly like the requester.
+
+    A resource with a live parent (a session's autorun) is also asked of that
+    parent, so the schedule's sharing governs its runs as it stands *now*.
+    """
+    if _ACCESS_MODEL_TYPES.get(type(obj)) is None:
+        return False  # system row: no owner, no grants
+    if auth.is_admin:
+        return True
+    if not auth.user:
+        return False
+    username = auth.user.username
+    if await _holds(db, username, obj, capability):
+        return True
+    parent = await _parent_of(db, obj)
+    return parent is not None and await _holds(db, username, parent, capability)
 
 
 async def viewer_usernames(
@@ -177,15 +207,24 @@ async def viewer_usernames(
                     )
                 ).all()
             )
+    parent_model = _ACCESS_PARENT.get(model)
+    parent_id = getattr(obj, "autorun_id", None)
+    if parent_model is not None and parent_id is not None:
+        inherited = await viewer_usernames(
+            db, _ACCESS_MODEL_TYPES[parent_model], parent_id
+        )
+        if inherited:
+            usernames |= inherited
     return frozenset(usernames)
 
 
 async def inherit_access(db: AsyncSession, source, target) -> int:
     """Copy *source*'s grants and owner rows onto *target*, returning the rows added.
 
-    A session spawned by an autorun inherits that autorun's access, so whoever
-    can see the scheduled item can see what it produced. A snapshot, not a link:
-    later edits to the autorun do not reach a session already created.
+    A session follows its autorun live (``_ACCESS_PARENT``) and needs no copy;
+    this materialises access for a resource that outlives its source — a
+    recording keeps what the run could see when it finished. Rows the target
+    already holds are skipped, so two sources can feed one target.
     """
     source_type = _ACCESS_MODEL_TYPES[type(source)]
     target_type = _ACCESS_MODEL_TYPES[type(target)]
@@ -213,7 +252,47 @@ async def inherit_access(db: AsyncSession, source, target) -> int:
             )
         )
     ).all()
+
+    held = {
+        (row.username, row.group_id, row.capability)
+        for row in (
+            await db.exec(
+                select(ResourceAccess).where(
+                    ResourceAccess.resource_type == target_type,
+                    ResourceAccess.resource_id == target.id,
+                )
+            )
+        ).all()
+    }
+    held_groups = {
+        row.group_id
+        for row in (
+            await db.exec(
+                select(ResourceOwnerGroup).where(
+                    ResourceOwnerGroup.resource_type == target_type,
+                    ResourceOwnerGroup.resource_id == target.id,
+                )
+            )
+        ).all()
+    }
+    held_users = {
+        row.username
+        for row in (
+            await db.exec(
+                select(ResourceOwnerUser).where(
+                    ResourceOwnerUser.resource_type == target_type,
+                    ResourceOwnerUser.resource_id == target.id,
+                )
+            )
+        ).all()
+    }
+
+    added = 0
     for row in grants:
+        key = (row.username, row.group_id, row.capability)
+        if key in held:
+            continue
+        held.add(key)
         db.add(
             ResourceAccess(
                 resource_type=target_type,
@@ -223,19 +302,42 @@ async def inherit_access(db: AsyncSession, source, target) -> int:
                 capability=row.capability,
             )
         )
+        added += 1
     for row in owner_groups:
+        if row.group_id in held_groups:
+            continue
+        held_groups.add(row.group_id)
         db.add(
             ResourceOwnerGroup(
                 resource_type=target_type, resource_id=target.id, group_id=row.group_id
             )
         )
+        added += 1
     for row in owner_users:
+        if row.username in held_users:
+            continue
+        held_users.add(row.username)
         db.add(
             ResourceOwnerUser(
                 resource_type=target_type, resource_id=target.id, username=row.username
             )
         )
-    return len(grants) + len(owner_groups) + len(owner_users)
+        added += 1
+    return added
+
+
+async def inherit_effective_access(db: AsyncSession, source, target) -> int:
+    """Materialise what *source* answers to onto *target* — own rows and live parent alike.
+
+    A recording outlives the session that produced it, so it cannot follow that
+    session live the way the session follows its autorun: it keeps what the run
+    could see when it finished.
+    """
+    added = await inherit_access(db, source, target)
+    parent = await _parent_of(db, source)
+    if parent is not None:
+        added += await inherit_access(db, parent, target)
+    return added
 
 
 def group_holds(username: str, group_id_column):
@@ -252,23 +354,9 @@ def group_holds(username: str, group_id_column):
     )
 
 
-def access_predicate(model, user_token: str):
-    """SQL predicate: the rows of *model* that *user_token* may see.
-
-    The filter every owner-bearing list is paginated through — a row the caller
-    owns, a row carrying a grant for them (directly or through one of their
-    groups, the reserved ``everyone`` group included), and a row any of their
-    owner rows names them on. VIEW is the base capability, so *any* grant
-    admits the row and the grant EXISTS deliberately does not filter on
-    ``capability``; a crown handed to a group admits that group's members.
-
-    Shared by the paginated lists and the console's counts, so a number and the
-    list it describes can never disagree about what a caller holds. A model
-    with no owner column (engines, resolvers) answers the bare owner match —
-    they are ownerless system rows and never route through here.
-    """
+def _row_predicate(model, resource_type: ResourceType | None, user_token: str):
+    """SQL predicate over *model*'s own owner, owner rows and grants."""
     owner_match = model.requester_user_token == user_token
-    resource_type = _ACCESS_MODEL_TYPES.get(model)
     if resource_type is None:
         return owner_match
     granted = (
@@ -308,6 +396,40 @@ def access_predicate(model, user_token: str):
         owned_by_group,
         owned_by_user,
     )
+
+
+def access_predicate(model, user_token: str):
+    """SQL predicate: the rows of *model* that *user_token* may see.
+
+    The filter every owner-bearing list is paginated through — a row the caller
+    owns, a row carrying a grant for them (directly or through one of their
+    groups, the reserved ``everyone`` group included), and a row any of their
+    owner rows names them on. VIEW is the base capability, so *any* grant
+    admits the row and the grant EXISTS deliberately does not filter on
+    ``capability``; a crown handed to a group admits that group's members.
+
+    Shared by the paginated lists and the console's counts, so a number and the
+    list it describes can never disagree about what a caller holds. A model
+    with no owner column (engines, resolvers) answers the bare owner match —
+    they are ownerless system rows and never route through here.
+
+    A session also admits whoever its autorun admits *now*, which is the same
+    live rule ``has_capability`` applies, so a list and a detail page agree.
+    """
+    own = _row_predicate(model, _ACCESS_MODEL_TYPES.get(model), user_token)
+    parent_model = _ACCESS_PARENT.get(model)
+    if parent_model is None:
+        return own
+    parent = aliased(parent_model)
+    inherited = (
+        select(literal(1))
+        .where(
+            model.autorun_id == parent.id,
+            _row_predicate(parent, _ACCESS_MODEL_TYPES[parent_model], user_token),
+        )
+        .exists()
+    )
+    return or_(own, inherited)
 
 
 async def require_capability(
