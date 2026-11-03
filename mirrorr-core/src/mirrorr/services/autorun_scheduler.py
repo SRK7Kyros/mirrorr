@@ -114,10 +114,8 @@ async def _spawn_session(db, autorun: Autorun, now: datetime, key: str) -> int |
             db, autorun.requester_user_token, ResourceType.SESSION, session.id, commit=False
         )
 
-    # The session inherits the autorun's access: whoever can see
-    # the scheduled item can see what it produced.
-    from mirrorr.services.permissions import inherit_access
-    await inherit_access(db, autorun, session)
+    # No access rows are copied: a session answers to its autorun live, so the
+    # schedule's sharing (whatever it is now) governs the run.
     return session.id
 
 
