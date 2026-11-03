@@ -467,6 +467,14 @@ const CHIP_PARTIAL = "border-brand border-dashed bg-transparent text-ink";
 
 const OVERRIDES_LIST_ID = "access-overrides-options";
 
+const OVERRIDE_ROW_CLASS =
+  "flex w-full min-w-0 items-center gap-2 rounded-md border border-line-subtle bg-surface-1 px-2 py-1 text-left tab-stop " +
+  "transition-colors [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-2 " +
+  "focus-visible:outline-none data-[picked=true]:border-brand data-[picked=true]:bg-[var(--accent-dim)] disabled:opacity-45";
+
+const OVERRIDE_BADGE_CLASS =
+  "inline-flex shrink-0 items-center rounded-full border border-brand bg-[var(--accent-dim)] px-2 py-0.5 text-2xs font-medium text-ink";
+
 /** The `+` / `−` / `=` of a bulk permission edit, in the words of the API. */
 const BULK_MODES: readonly { readonly id: BulkMode; readonly label: string }[] =
   [
@@ -851,6 +859,14 @@ export function ResourceAccessEditor({
   const highlighted =
     cards.length === 0 ? 0 : Math.min(highlight, cards.length - 1);
 
+  const overrideRows = useMemo(
+    () =>
+      pool.filter((card) =>
+        CAPABILITIES.some((capability) => holdsKey(draft, capability, card.key)),
+      ),
+    [pool, draft],
+  );
+
   // A picked principal stays picked while the search hides it, so the count and
   // the chip row read the whole pool, not the filtered list.
   const selectedKeys = useMemo(
@@ -1168,6 +1184,45 @@ export function ResourceAccessEditor({
               : "Overrides are more specific — they grant only the capabilities you pick."}
           </span>
         </div>
+        {onModeChange === undefined ? (
+          overrideRows.length === 0 ? (
+            <p className="text-xs text-ink-dim">No overrides yet.</p>
+          ) : (
+            <ul
+              aria-label="Current permission overrides"
+              className="flex max-h-40 flex-col gap-1 overflow-y-auto"
+            >
+              {overrideRows.map((card) => (
+                <li key={card.key}>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    aria-pressed={isPicked(card)}
+                    data-picked={isPicked(card)}
+                    onClick={() => pickCard(card)}
+                    className={OVERRIDE_ROW_CLASS}
+                  >
+                    <span className="max-w-[11rem] truncate text-sm">
+                      {card.label}
+                    </span>
+                    <span className="shrink-0 text-2xs text-ink-dim">
+                      {card.kind === "group" ? "group" : `@${card.id}`}
+                    </span>
+                    <span className="ml-auto flex flex-wrap justify-end gap-1">
+                      {CAPABILITIES.filter((capability) =>
+                        holdsKey(draft, capability, card.key),
+                      ).map((capability) => (
+                        <span key={capability} className={OVERRIDE_BADGE_CLASS}>
+                          {capabilityLabel(capability)}
+                        </span>
+                      ))}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
