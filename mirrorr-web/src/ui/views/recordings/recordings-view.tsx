@@ -16,59 +16,36 @@ import {
   BulkBar,
   Button,
   buttonClass,
+  CardGrid,
+  CardGridSkeleton,
+  Checkbox,
   ConfirmDialog,
   EmptyState,
-  ErrorPanel,
   IconRecordings,
   IconRefresh,
   IconSearch,
   IconTrash,
   Input,
   LoadMore,
+  PageToolbar,
+  QueryState,
   Select,
-  SelectionHead,
-  Skeleton,
+  TimeZoneNote,
   toast,
 } from "@/ui/components";
-import { useDebouncedValue, useHighlightRef, useSelection } from "@/ui/hooks";
+import { useDebouncedValue, useHighlightRef, useScopedSelection } from "@/ui/hooks";
 import { Page } from "@/ui/views/shared/page";
 import { StorageStrip } from "@/ui/views/shared/ops-strip";
 import { useBulkAccessAction } from "@/ui/views/shared/resource-access-slot";
 import { RecordingCard } from "./recording-card";
 
 /**
- * Recordings — read + delete only (spec §5.7). Each finished capture is a card
- * that previews the file on hover (or via the play button on touch) and offers
- * its served URL plus where it lives on disk, mirroring the sessions grid.
+ * Recordings — read + delete only (spec §5.7). Every finished capture is one
+ * card of the shared skeleton: the file's own first frame (or a plate when the
+ * install does not serve it), the duration as the headline, and a real
+ * download in the footer. One toolbar owns search, sort, count and the
+ * `Select` toggle; the grid is `CardGrid`, never a local copy of it.
  */
-
-/** Card-shaped shimmer for the first paint, matching the grid it replaces. */
-function RecordingsSkeleton({ count = 6 }: { readonly count?: number }) {
-  return (
-    <div
-      className="session-grid grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4 items-start"
-      aria-busy="true"
-      aria-label="Loading recordings"
-    >
-      {Array.from({ length: count }, (_, index) => (
-        <div key={index} className="session-card flex flex-col border border-line rounded-lg bg-surface-2 overflow-hidden">
-          <div className="relative aspect-video bg-sunken overflow-hidden">
-            <Skeleton
-              width="100%"
-              height="100%"
-              className="block"
-            />
-          </div>
-          <div className="flex flex-col gap-3 px-4 pt-3 pb-4">
-            <Skeleton width="48%" />
-            <Skeleton width="70%" />
-            <Skeleton width="56%" />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 type RecordingOrder = "newest" | "largest" | "longest";
 
@@ -99,8 +76,8 @@ export function RecordingsView({ highlight }: { readonly highlight?: number }) {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [order, setOrder] = useState<RecordingOrder>("newest");
+  const [selectMode, setSelectMode] = useState(false);
   const term = useDebouncedValue(search, 250);
-  const selection = useSelection<number>();
   const highlightRef = useHighlightRef(highlight);
 
   const list = useEntityList<Recording>({
@@ -108,6 +85,17 @@ export function RecordingsView({ highlight }: { readonly highlight?: number }) {
     fetchPage: (cursor) => fetchRecordingPage(cursor, undefined, term),
   });
   const { hasMore, isFetching, loadingAll, loadAll } = list;
+
+  const rows = useMemo(
+    () => [...rankBySearch(list.items, term, recordingSearchFields)].sort(byOrder(order)),
+    [list.items, term, order],
+  );
+  const rowIds = useMemo(() => rows.map((recording) => recording.id), [rows]);
+  // Selection is scoped to the cards actually on screen: a search or a sort
+  // drops every id it hides, so a bulk delete never touches an unseen card.
+  const selection = useScopedSelection(rowIds);
+  const allSelected = selection.allSelected(rowIds);
+  const someSelected = selection.someSelected(rowIds);
 
   const remove = useMutation({
     mutationFn: (id: number) => deleteRecording(id),
@@ -140,10 +128,6 @@ export function RecordingsView({ highlight }: { readonly highlight?: number }) {
       ),
   });
 
-  const rows = useMemo(
-    () => [...rankBySearch(list.items, term, recordingSearchFields)].sort(byOrder(order)),
-    [list.items, term, order],
-  );
   const selectedRecordings = rows.filter((recording) => selection.has(recording.id));
   const access = useBulkAccessAction(
     "recording",
@@ -153,10 +137,15 @@ export function RecordingsView({ highlight }: { readonly highlight?: number }) {
     })),
   );
 
+  function leaveSelectMode(): void {
+    setSelectMode(false);
+    selection.clear();
+  }
+
   return (
     <Page
       title="Recordings"
-      description="Every finished capture that wrote a file. Hover a card to preview it, open to watch or download — delete removes the file from disk."
+      description="Every finished capture that wrote a file. Open one to watch it, or download the file."
       actions={
         <Button
           variant="ghost"
@@ -171,123 +160,150 @@ export function RecordingsView({ highlight }: { readonly highlight?: number }) {
     >
       <StorageStrip />
 
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
-          {showingLabel(rows.length)}
-          {order === "newest" || !hasMore ? null : (
-            <span className="text-dim"> · of {list.items.length} loaded</span>
-          )}
-        </span>
-        <div className="flex-1" />
-        <Select
-          aria-label="Sort recordings"
-          className="max-w-[180px] max-sm:max-w-none"
-          value={order}
-          onChange={(event) => setOrder(event.target.value as RecordingOrder)}
-        >
-          {ORDERS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </Select>
-        <div className="relative flex-1 min-w-[200px] max-w-[340px] [&_input]:pl-8">
-          <span
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none"
-            aria-hidden="true"
-          >
-            <IconSearch size={15} />
-          </span>
-          <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by name, profile, source…"
-            aria-label="Search recordings"
-          />
-        </div>
-      </div>
-
-      {list.isLoading ? (
-        <RecordingsSkeleton />
-      ) : list.isError ? (
-        <ErrorPanel
-          message={getErrorMessage(list.error, "Could not load recordings")}
-          onRetry={list.refetch}
-        />
-      ) : rows.length === 0 ? (
-        <EmptyState
-          icon={<IconRecordings size={22} />}
-          title={term.trim() === "" ? "No recordings yet." : `No recording matches “${term.trim()}”.`}
-          text={
-            term.trim() === ""
-              ? "Recordings appear when a session finishes with recording enabled."
-              : "The search reaches the whole library, not just the cards loaded so far."
-          }
-          action={
-            term.trim() === "" ? (
-              <Link className={buttonClass({ variant: "secondary" })} to="/sessions">
-                Open sessions
-              </Link>
-            ) : (
-              <Button variant="secondary" onClick={() => setSearch("")}>
-                Clear search
-              </Button>
-            )
-          }
-        />
-      ) : (
-        <>
-          <SelectionHead
-            label="Select all recordings"
-            checked={selection.allSelected(rows.map((recording) => recording.id))}
-            onChange={(checked) =>
-              selection.setMany(checked ? rows.map((recording) => recording.id) : [])
-            }
-            count={rows.length}
-            noun="recording"
-          />
-          <div className="session-grid grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4 items-start">
-            {rows.map((recording) => (
-              <RecordingCard
-                key={recording.id}
-                recording={recording}
-                onDelete={setPending}
-                highlightRef={highlightRef}
-                selected={selection.has(recording.id)}
-                onToggle={selection.toggle}
-              />
-            ))}
-          </div>
-
-          {selection.count > 0 ? (
-            <BulkBar
-              count={selection.count}
-              onClear={selection.clear}
-              actions={[
-                ...(access.action === null ? [] : [access.action]),
-                {
-                  key: "delete",
-                  label: "Delete selected",
-                  icon: <IconTrash size={15} />,
-                  danger: true,
-                  loading: bulkRemove.isPending,
-                  onClick: () => setBulkDeleteOpen(true),
-                },
-              ]}
+      <PageToolbar
+        search={
+          <div className="relative [&_input]:pl-8">
+            <span
+              className="absolute top-1/2 left-3 -translate-y-1/2 text-ink-faint pointer-events-none"
+              aria-hidden="true"
+            >
+              <IconSearch size={15} />
+            </span>
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search by name, profile, source…"
+              aria-label="Search recordings"
             />
-          ) : null}
-          {access.dialog}
+          </div>
+        }
+        sort={
+          <Select
+            aria-label="Sort recordings"
+            className="max-w-[180px]"
+            value={order}
+            onChange={(event) => setOrder(event.target.value as RecordingOrder)}
+          >
+            {ORDERS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+        }
+        count={
+          <span>
+            {showingLabel(rows.length)}
+            {order === "newest" || !hasMore ? null : (
+              <span className="text-dim"> · of {list.items.length} loaded</span>
+            )}
+          </span>
+        }
+        select={
+          <div className="flex items-center gap-2">
+            {selectMode ? (
+              <>
+                <Checkbox
+                  aria-label="Select all recordings"
+                  checked={allSelected}
+                  indeterminate={someSelected && !allSelected}
+                  onChange={(event) =>
+                    selection.setMany(event.target.checked ? rowIds : [])
+                  }
+                />
+                <Button size="sm" variant="ghost" onClick={leaveSelectMode}>
+                  Done
+                </Button>
+              </>
+            ) : (
+              <Button
+                size="sm"
+                variant="secondary"
+                aria-pressed={false}
+                onClick={() => setSelectMode(true)}
+              >
+                Select
+              </Button>
+            )}
+          </div>
+        }
+        note={<TimeZoneNote />}
+      />
 
-          <LoadMore
-            hasMore={hasMore}
-            isFetching={isFetching}
-            onLoadMore={list.loadMore}
-            onLoadAll={() => void loadAll().catch(() => undefined)}
-            loadingAll={loadingAll}
-            count={rows.length}
+      <QueryState
+        query={list}
+        loading={<CardGridSkeleton count={6} label="Loading recordings" />}
+        isEmpty={rows.length === 0}
+        errorMessage="Could not load recordings"
+        empty={
+          <EmptyState
+            icon={<IconRecordings size={22} />}
+            title={
+              term.trim() === ""
+                ? "No recordings yet."
+                : `No recording matches “${term.trim()}”.`
+            }
+            text={
+              term.trim() === ""
+                ? "Recordings appear when a session finishes with recording enabled."
+                : "The search reaches the whole library, not just the cards loaded so far."
+            }
+            action={
+              term.trim() === "" ? (
+                <Link className={buttonClass({ variant: "secondary" })} to="/sessions">
+                  Open sessions
+                </Link>
+              ) : (
+                <Button variant="secondary" onClick={() => setSearch("")}>
+                  Clear search
+                </Button>
+              )
+            }
           />
-        </>
-      )}
+        }
+      >
+        <CardGrid rowHeight={330} label="Recordings">
+          {rows.map((recording) => (
+            <RecordingCard
+              key={recording.id}
+              recording={recording}
+              onDelete={setPending}
+              highlightRef={highlightRef}
+              selectMode={selectMode}
+              selected={selection.has(recording.id)}
+              onToggle={selection.toggle}
+            />
+          ))}
+        </CardGrid>
+
+        {selection.count > 0 ? (
+          <BulkBar
+            count={selection.count}
+            onClear={selection.clear}
+            actions={[
+              ...(access.action === null ? [] : [access.action]),
+              {
+                key: "delete",
+                label: "Delete selected",
+                icon: <IconTrash size={15} />,
+                danger: true,
+                loading: bulkRemove.isPending,
+                onClick: () => setBulkDeleteOpen(true),
+              },
+            ]}
+          />
+        ) : null}
+        {access.dialog}
+
+        <LoadMore
+          hasMore={hasMore}
+          isFetching={isFetching}
+          onLoadMore={list.loadMore}
+          onLoadAll={() => void loadAll().catch(() => undefined)}
+          loadingAll={loadingAll}
+          count={rows.length}
+        />
+      </QueryState>
 
       <ConfirmDialog
         open={bulkDeleteOpen}

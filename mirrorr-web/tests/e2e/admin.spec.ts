@@ -34,6 +34,18 @@ function accessButton(page: Page) {
   return page.getByRole("button", { name: /^Access for / });
 }
 
+/** A resource row's affordances live behind its `⋯`. */
+async function openResourceAccess(
+  page: Page,
+  label = "F1 Weekend",
+): Promise<void> {
+  await resourcePanel(page)
+    .getByRole("table")
+    .getByRole("button", { name: `Actions for ${label}` })
+    .click();
+  await page.getByRole("menuitem", { name: "Manage access" }).click();
+}
+
 const USERS = [
   { id: 1, username: "kyros", role: "admin", display_name: "Kyros" },
   { id: 2, username: "alice", role: "user", display_name: "Alice" },
@@ -101,14 +113,15 @@ test.describe("admin resource access", () => {
     await openAdminSettings(page);
 
     const panel = resourcePanel(page);
-    await expect(panel.getByText("F1 Weekend", { exact: true })).toBeVisible();
-    await expect(panel.getByText("kyros", { exact: true })).toBeVisible();
-    await expect(panel.getByText("System", { exact: true })).toBeVisible();
+    const table = panel.getByRole("table");
+    await expect(table.getByText("F1 Weekend", { exact: true })).toBeVisible();
+    await expect(table.getByText("kyros", { exact: true })).toBeVisible();
+    await expect(table.getByText("System", { exact: true })).toBeVisible();
     await expect(
-      panel.getByRole("button", { name: "Manage access for Streamlink" }),
+      panel.getByRole("button", { name: "Actions for Streamlink" }),
     ).toHaveCount(0);
     await expect(
-      panel.getByRole("button", { name: "Manage access for F1 Weekend" }),
+      table.getByRole("button", { name: "Actions for F1 Weekend" }),
     ).toBeVisible();
   });
 
@@ -121,9 +134,7 @@ test.describe("admin resource access", () => {
 
     await openAdminSettings(page);
 
-    await resourcePanel(page)
-      .getByRole("button", { name: "Manage access for F1 Weekend" })
-      .click();
+    await openResourceAccess(page);
 
     const dialog = page.getByRole("dialog");
     const catalog = dialog.getByTestId("access-catalog");
@@ -188,9 +199,7 @@ test.describe("admin resource access", () => {
 
     await openAdminSettings(page);
 
-    await resourcePanel(page)
-      .getByRole("button", { name: "Manage access for F1 Weekend" })
-      .click();
+    await openResourceAccess(page);
 
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("combobox", { name: "Add an owner" }).fill("F1");
@@ -223,9 +232,7 @@ test.describe("admin resource access", () => {
 
     await openAdminSettings(page);
 
-    await resourcePanel(page)
-      .getByRole("button", { name: "Manage access for F1 Weekend" })
-      .click();
+    await openResourceAccess(page);
 
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("button", { name: "Make Alice the owner" }).click();
@@ -253,9 +260,7 @@ test.describe("admin resource access", () => {
 
     await openAdminSettings(page);
 
-    await resourcePanel(page)
-      .getByRole("button", { name: "Manage access for F1 Weekend" })
-      .click();
+    await openResourceAccess(page);
 
     const dialog = page.getByRole("dialog");
     await dialog
@@ -292,8 +297,8 @@ test.describe("admin resource access", () => {
       await expect(accessButton(page).first()).toBeVisible();
     }
 
-    // Presets paints both panels at once — profiles above, saved sources below.
-    await openNav(page, "Presets");
+    // The Profiles page paints both panels at once — profiles above, sources below.
+    await openNav(page, "Profiles");
     await expect(
       page.getByRole("button", { name: "Access for F1 Weekend" }).first(),
     ).toBeVisible();
@@ -465,6 +470,8 @@ test.describe("admin resource access", () => {
     await openAdmin(page);
     await openNav(page, "Autoruns");
 
+    // Selection is a mode now: the per-card checkbox appears after the toggle.
+    await page.getByRole("button", { name: "Select", exact: true }).click();
     await page.getByRole("checkbox", { name: "Select F1 Race" }).check();
     await page.getByRole("checkbox", { name: "Select F2 Sprint" }).check();
     await page.getByRole("button", { name: "Access", exact: true }).click();
@@ -529,6 +536,7 @@ test.describe("admin resource access", () => {
 
     await openAdmin(page);
 
+    await page.getByRole("button", { name: "Select", exact: true }).click();
     await page.getByRole("checkbox", { name: "Select session #7" }).check();
     await page.getByRole("button", { name: "Access", exact: true }).click();
 
@@ -571,7 +579,10 @@ test.describe("admin resource access", () => {
     api.data.sources = [source({ id: 8, name: "Sky Sports" })];
 
     await openAdmin(page);
-    await openNav(page, "Presets");
+    await openNav(page, "Profiles");
+
+    // One toolbar toggle turns selection on for both stacked panels.
+    await page.getByRole("button", { name: "Select", exact: true }).click();
 
     const profilesPanel = page.locator('section:has(h2:text-is("Profiles"))');
     const sourcesPanel = page.locator('section:has(h2:text-is("Sources"))');
@@ -634,6 +645,13 @@ test.describe("admin resource access", () => {
     await openAdmin(page);
 
     const openBulk = async () => {
+      // Selection is a mode. Applying a bulk change clears the selection but
+      // leaves the mode alone, so the state to read is the toggle's, not a
+      // transient "is a checkbox on screen yet".
+      const toggle = page.getByRole("button", { name: "Select", exact: true });
+      if ((await toggle.getAttribute("aria-pressed")) !== "true") {
+        await toggle.click();
+      }
       await page.getByRole("checkbox", { name: "Select session #7" }).check();
       await page.getByRole("button", { name: "Access", exact: true }).click();
       return page.getByRole("dialog");
@@ -875,12 +893,13 @@ test.describe("admin resource access", () => {
     await openAdminSettings(page);
 
     const panel = groupsPanel(page);
-    await expect(panel.getByText("F1 team", { exact: true })).toBeVisible();
-    await expect(panel.getByText("@f1-team", { exact: true })).toBeVisible();
+    const table = panel.getByRole("table");
+    await expect(table.getByText("F1 team", { exact: true })).toBeVisible();
+    await expect(table.getByText("@f1-team", { exact: true })).toBeVisible();
     await expect(
       panel
         .getByRole("row", { name: /f1-team/ })
-        .getByRole("cell", { name: "1", exact: true }),
+        .getByRole("button", { name: "1 member of f1-team" }),
     ).toBeVisible();
 
     // The reserved group is always listed and never editable: its membership is
@@ -895,12 +914,11 @@ test.describe("admin resource access", () => {
     await expect(
       sealed.getByRole("cell", { name: "Everyone", exact: true }),
     ).toBeVisible();
-    await expect(panel.getByRole("button", { name: "Members" })).toHaveCount(1);
     await expect(
-      panel.getByRole("button", { name: "Edit everyone" }),
-    ).toHaveCount(0);
+      table.getByRole("button", { name: /member[s]? of f1-team$/ }),
+    ).toHaveCount(1);
     await expect(
-      panel.getByRole("button", { name: "Delete everyone" }),
+      panel.getByRole("button", { name: "Actions for everyone" }),
     ).toHaveCount(0);
 
     await panel.getByRole("button", { name: "Add group" }).click();
@@ -928,8 +946,12 @@ test.describe("admin resource access", () => {
 
     await openAdminSettings(page);
     const panel = groupsPanel(page);
+    const table = panel.getByRole("table");
 
-    await panel.getByRole("button", { name: "Members" }).click();
+    await table
+      .getByRole("button", { name: "Actions for f1-team" })
+      .click();
+    await page.getByRole("menuitem", { name: "Members" }).click();
     const members = page.getByRole("dialog");
     await expect(members.getByText("Members · f1-team")).toBeVisible();
     await members.getByRole("checkbox", { name: /Kyros/ }).click();
@@ -946,7 +968,10 @@ test.describe("admin resource access", () => {
       .at(-1);
     expect(put?.body).toEqual({ usernames: ["alice", "kyros"] });
 
-    await panel.getByRole("button", { name: "Edit f1-team" }).click();
+    await table
+      .getByRole("button", { name: "Actions for f1-team" })
+      .click();
+    await page.getByRole("menuitem", { name: "Edit group" }).click();
     const edit = page.getByRole("dialog");
     await expect(edit.getByText("Edit f1-team")).toBeVisible();
     await edit.getByLabel(/^Display/).fill("F1 team 2026");
@@ -963,7 +988,10 @@ test.describe("admin resource access", () => {
       .at(-1);
     expect(patch?.body).toMatchObject({ display_name: "F1 team 2026" });
 
-    await panel.getByRole("button", { name: "Delete f1-team" }).click();
+    await table
+      .getByRole("button", { name: "Actions for f1-team" })
+      .click();
+    await page.getByRole("menuitem", { name: "Delete group" }).click();
     const confirm = page.getByRole("dialog");
     await expect(confirm.getByText("Delete group")).toBeVisible();
     await confirm.getByRole("button", { name: "Delete", exact: true }).click();
@@ -985,9 +1013,7 @@ test.describe("admin resource access", () => {
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await openAdminSettings(page);
-    await resourcePanel(page)
-      .getByRole("button", { name: "Manage access for F1 Weekend" })
-      .click();
+    await openResourceAccess(page);
 
     const dialog = page.getByRole("dialog");
     const catalog = dialog.getByTestId("access-catalog");
@@ -1137,10 +1163,11 @@ test.describe("admin resource access", () => {
     await openAdmin(page);
     await page.setViewportSize({ width: 402, height: 874 });
     await openNav(page, "Autoruns");
-    await page.getByRole("checkbox", { name: "Select all scheduled recordings" }).check();
+    await page.getByRole("button", { name: "Select", exact: true }).click();
+    await page.getByRole("checkbox", { name: "Select all autoruns" }).check();
 
     const bar = page.getByRole("region", { name: "Bulk actions" });
-    const fab = page.getByRole("button", { name: "New scheduled recording" });
+    const fab = page.getByRole("button", { name: "New autorun" });
 
     // The bulk permission editor was unreachable on a phone while it was one of
     // four labelled buttons in a row that could not fit; it is an icon now.

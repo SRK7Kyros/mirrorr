@@ -20,6 +20,7 @@ export function SkeletonRows({ rows = 6, cols = 4 }: { readonly rows?: number; r
   return (
     <motion.div
       className="flex flex-col gap-2"
+      role="status"
       aria-busy="true"
       aria-label="Loading"
       initial={{ opacity: 0 }}

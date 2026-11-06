@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ApiError,
@@ -7,44 +7,30 @@ import {
   getErrorMessage,
   updateProfile,
   updateSource,
-  useProfiles,
-  useSources,
   type ProfileBody,
   type SourceBody,
 } from "@/api"
-import { fetchAllEngines, fetchAllResolvers } from "@/api/endpoints"
-import { queryKeys, queryRoots, staleTimes } from "@/api/query-keys"
+import {
+  fetchAllEngines,
+  fetchAllResolvers,
+  fetchProfilePage,
+  fetchSourcePage,
+} from "@/api/endpoints"
+import { fetchAllLookupPages, queryKeys, queryRoots, staleTimes } from "@/api/query-keys"
 import type { Engine, Profile, Resolver, ResolverSource } from "@/api/schemas"
-import { cn } from "@/ui/lib/cn"
-import { humanize } from "@/ui/lib/format"
-import {
-  asObject,
-  Banner,
-  Button,
-  defaultsFromSchema,
-  Dialog,
-  Field,
-  IconCheck,
-  IconSearch,
-  Input,
-  JsonView,
-  SchemaForm,
-  Segmented,
-  Select,
-  SkeletonRows,
-  TabPanel,
-  toast,
-  panelTitleClass,
-} from "@/ui/components"
-import { DiscoveryDrawer, canBrowseResolver } from "@/ui/views/shared/discovery-drawer"
-import { ChainEditor } from "@/ui/views/shared/chain-editor"
-import {
-  AccessCreation,
-  useCreationAccessApplier,
-} from "@/ui/views/shared/resource-access-slot"
 import type { AccessTarget } from "@/api/domain/access-plan"
 import {
-  chainOf,
+  asObject,
+  Button,
+  ConfirmDialog,
+  defaultsFromSchema,
+  Dialog,
+  Segmented,
+  toast,
+} from "@/ui/components"
+import { DiscoveryDrawer } from "@/ui/views/shared/discovery-drawer"
+import { AccessCreation, useCreationAccessApplier } from "@/ui/views/shared/resource-access-slot"
+import {
   chainProblemSentence,
   normaliseRung,
   pruneChain,
@@ -54,43 +40,55 @@ import {
   type ChainCatalog,
   type FallbackRung,
 } from "@/api/domain/fallback-chain"
+import { BodyTail, FormPanel } from "./presets-dialog-blocks"
+import { ProfileForm, SourceForm, type ProfileFormActions, type SourceFormActions } from "./presets-dialog-forms"
+import {
+  changedFields,
+  discardSentence,
+  draftFrom,
+  EMPTY_DRAFT,
+  type PresetDraftState,
+  type PresetKind,
+  type ResolverMode,
+} from "./presets-dialog-dirty"
+
+export type { PresetKind } from "./presets-dialog-dirty"
 
 /**
- * The create/edit dialog for both things the Presets page holds.
+ * The create/edit dialog for both things the Profiles page holds.
  *
  * A profile is a whole recording setup (engine + resolver config + retry
  * policy); a source is only the saved `(resolver_id, resolver_config)` pair.
  * They used to be two dialogs behind two floating "+" buttons stacked in the
  * same corner, so on touch layouts the source one always won the tap and a
- * profile could not be created at all. Now the phone's single "+" opens this
- * dialog and picks the kind from a segmented switcher; a section button
- * (`allowKindSwitch` false) already says what it makes, so it opens straight
- * into that kind's form.
+ * profile could not be created at all. Now the page's own buttons open this
+ * dialog scoped to the kind they name; a build that hands the phone's single
+ * "+" here keeps the segmented kind switcher.
  *
- * The profile body separates the two ways its resolver config can arrive. Both
- * used to be live at once — a resolver picker *and* a "load from a saved
- * source" picker, either of which silently overwrote the other — so the *Source*
- * block opens with a mode control ("Pick a resolver" / "Use a saved source") and
- * only the chosen mode's controls are rendered. Switching to "Pick a resolver"
- * keeps whatever the saved source copied in, so the copy stays editable; only
- * the *link* to the source is dropped.
+ * Three things are the point of this rewrite:
  *
- * Blocks read in the order the work happens — Identity, Source, Engine & retry:
- * the resolver decides *what* is recorded, the engine only *how*, and the retry
- * group (whose modes the engine declares) stays inert until one is chosen.
+ * 1. **Nothing typed is discarded without a word** (`PRE-02`, `FLW-07`). Every
+ *    close path — scrim, Escape, Cancel, the X, switching kind — goes through
+ *    `requestClose`, which asks "Discard changes?" and names the fields that
+ *    differ from what the dialog opened with. An untouched dialog closes
+ *    straight away, and a saved one closes without asking.
+ * 2. **A failed catalog never reads as an empty one** (`CMP-08`). Engines,
+ *    resolvers and saved sources each render loading → error + Retry → empty
+ *    prose, and a failed list the form needs also disables the primary with a
+ *    reason that names it.
+ * 3. **The footer does not sit on the last field on a phone** (`PRE-07`): the
+ *    body carries a footer's worth of headroom and scroll margin.
+ *
+ * The profile body separates the two ways its resolver config can arrive —
+ * a resolver picker *or* a saved source, never both live at once.
  */
-
-export type PresetKind = "profile" | "source"
-
-/** Where the profile's resolver config comes from — exactly one of the two. */
-type ResolverMode = "resolver" | "source"
 
 export interface PresetsDialogProps {
   readonly open: boolean
   /** Which tab opens first; also the kind being edited. */
   readonly kind: PresetKind
   /**
-   * Whether the kind may be chosen here. True for the phone's "+", which is the
+   * Whether the kind may be chosen here. True for a phone's "+", which is the
    * only create entry there; false for a section button, whose label already
    * says what it makes.
    */
@@ -104,54 +102,32 @@ export interface PresetsDialogProps {
 
 const PROFILE_FORM_ID = "preset-profile-form"
 const SOURCE_FORM_ID = "preset-source-form"
+const REASON_ID = "preset-submit-reason"
 
-interface FormBlockProps {
-  /** Short index shown in the accent disc — the order the form is read in. */
-  readonly step: string
-  readonly title: string
-  /** One-line note on the right of the header (what this part decides). */
-  readonly hint?: string
-  readonly children: ReactNode
+const NO_ENGINES: readonly Engine[] = []
+const NO_RESOLVERS: readonly Resolver[] = []
+const NO_PROFILES: readonly Profile[] = []
+const NO_SOURCES: readonly ResolverSource[] = []
+
+/** Which failed list stops the save — named, because "disabled" alone teaches nothing. */
+export function catalogBlockReason(
+  enginesFailed: boolean,
+  resolversFailed: boolean,
+): string | null {
+  if (enginesFailed) return "The engine list did not load — retry it above before saving."
+  if (resolversFailed) return "The resolver list did not load — retry it above before saving."
+  return null
 }
 
-/** One numbered part of a form, so the parts never blur into one another. */
-function FormBlock({ step, title, hint, children }: FormBlockProps) {
-  return (
-    <section className="flex flex-col gap-3 rounded-md border border-line-subtle bg-surface-1 p-4 max-sm:p-3">
-      <header className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span
-          className="grid h-6 w-6 shrink-0 place-items-center rounded-full border border-[var(--accent-line)] bg-[var(--accent-dim)] text-xs font-semibold tabular-nums text-brand"
-          aria-hidden="true"
-        >
-          {step}
-        </span>
-        <h3 className="text-sm font-semibold tracking-wider text-ink uppercase">{title}</h3>
-        {hint !== undefined ? <span className="ms-auto text-sm text-ink-dim">{hint}</span> : null}
-      </header>
-      {children}
-    </section>
-  )
-}
-
-/** The kind tab panel when the switcher is on screen, a plain group when not. */
-function FormPanel({
-  switcher,
-  active,
-  children,
-}: {
-  readonly switcher: boolean
-  readonly active: PresetKind
-  readonly children: ReactNode
-}) {
-  if (!switcher) return <div className="flex flex-col gap-4">{children}</div>
-  return (
-    <TabPanel panelId="preset-kind" active={active} className="flex flex-col gap-4">
-      {children}
-    </TabPanel>
-  )
-}
-
-export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, onClose }: PresetsDialogProps) {
+/** Every close path lands here: ask first when there is something to lose. */
+export function PresetsDialog({
+  open,
+  kind,
+  allowKindSwitch,
+  profile,
+  source,
+  onClose,
+}: PresetsDialogProps) {
   const queryClient = useQueryClient()
   const enginesQuery = useQuery({
     queryKey: queryKeys.engines,
@@ -163,14 +139,24 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
     queryFn: () => fetchAllResolvers(),
     staleTime: staleTimes.lookup,
   })
-  // Full lists, not the panel's loaded page — duplicate names are checked
-  // against everything that exists. Same query keys, so no extra request.
-  const profiles = useProfiles()
-  const sources = useSources()
+  // Full lists, not a panel's loaded page — duplicate names are checked against
+  // everything that exists. Same query keys as the lookup hooks, so the dialog
+  // adds no request; having the query object is what lets a failure be shown.
+  const profilesQuery = useQuery({
+    queryKey: queryKeys.profiles({ lookup: true }),
+    queryFn: () => fetchAllLookupPages((cursor) => fetchProfilePage(cursor)),
+    staleTime: staleTimes.lookup,
+  })
+  const sourcesQuery = useQuery({
+    queryKey: queryKeys.sources({ lookup: true }),
+    queryFn: () => fetchAllLookupPages((cursor) => fetchSourcePage(cursor)),
+    staleTime: staleTimes.lookup,
+  })
 
-  const engines: readonly Engine[] = enginesQuery.data ?? []
-  const resolvers: readonly Resolver[] = resolversQuery.data ?? []
-  const schemasLoading = enginesQuery.isLoading || resolversQuery.isLoading
+  const engines = enginesQuery.data ?? NO_ENGINES
+  const resolvers = resolversQuery.data ?? NO_RESOLVERS
+  const profiles = profilesQuery.data ?? NO_PROFILES
+  const sources = sourcesQuery.data ?? NO_SOURCES
 
   const [tab, setTab] = useState<PresetKind>(kind)
 
@@ -197,10 +183,40 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
   const [access, setAccess] = useState<AccessTarget>({})
   const applyCreation = useCreationAccessApplier()
 
-  const catalog = useMemo<ChainCatalog>(
-    () => ({ profiles, engines, resolvers }),
-    [profiles, engines, resolvers],
-  )
+  /** What the dialog opened with; the dirty model is the difference from here. */
+  const [initial, setInitial] = useState<PresetDraftState>(EMPTY_DRAFT)
+  /** Which close was interrupted by "Discard changes?", if any. */
+  const [discard, setDiscard] = useState<PresetKind | "close" | null>(null)
+
+  const resetDraft = useCallback(() => {
+    const next = draftFrom(profile, source)
+    setName(next.profile.name)
+    setEngineId(next.profile.engineId)
+    setResolverId(next.profile.resolverId)
+    setResolverConfig({ ...next.profile.resolverConfig })
+    setRetryMode(next.profile.retryMode)
+    setRetryConfig({ ...next.profile.retryConfig })
+    setChain([...next.profile.chain])
+    setMode("resolver")
+    setPickedSourceId("")
+    setSourceName(next.source.name)
+    setSourceResolverId(next.source.resolverId)
+    setSourceConfig({ ...next.source.resolverConfig })
+    setAccess({})
+    setInitial(next)
+    setBrowseTarget(null)
+    setError(null)
+    setFieldErrors({})
+    setDiscard(null)
+  }, [profile, source])
+
+  // Reset the whole dialog each time it opens — create after create, or a
+  // different row. `profile`/`source` identity is stable while it is open.
+  useEffect(() => {
+    if (!open) return
+    setTab(kind)
+    resetDraft()
+  }, [open, kind, resetDraft])
 
   const base = useMemo<ChainBase | null>(() => {
     if (engineId === "" || resolverId === "") return null
@@ -214,6 +230,11 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
     }
   }, [engineId, resolverId, resolverConfig, retryMode, retryConfig, profile])
 
+  const catalog = useMemo<ChainCatalog>(
+    () => ({ profiles, engines, resolvers }),
+    [profiles, engines, resolvers],
+  )
+
   // Editing the profile's own capture can turn a rung into a repeat of it; the
   // chain travels with the source it was written against.
   useEffect(() => {
@@ -226,29 +247,6 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
 
   const chainState = base === null ? null : resolveChain(chain, base, catalog)
   const chainTrouble = chainState === null ? null : chainState.problem
-
-  // Reset the whole dialog each time it opens — create after create, or a
-  // different row. `profile`/`source` identity is stable while it is open.
-  useEffect(() => {
-    if (!open) return
-    setTab(kind)
-    setName(profile?.name ?? "")
-    setEngineId(profile !== null ? String(profile.default_engine_id) : "")
-    setResolverId(profile !== null ? String(profile.resolver_id) : "")
-    setResolverConfig(profile?.resolver_config ?? {})
-    setRetryMode(profile?.retry_mode ?? "")
-    setRetryConfig(profile?.retry_config ?? {})
-    setChain(chainOf(profile ?? {}))
-    setMode("resolver")
-    setPickedSourceId("")
-    setSourceName(source?.name ?? "")
-    setSourceResolverId(source !== null ? String(source.resolver_id) : "")
-    setSourceConfig(source?.resolver_config ?? {})
-    setBrowseTarget(null)
-    setError(null)
-    setFieldErrors({})
-    setAccess({})
-  }, [open, kind, profile, source])
 
   const saveProfile = useMutation({
     mutationFn: async (body: ProfileBody) => {
@@ -269,6 +267,7 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
       void queryClient.invalidateQueries({ queryKey: queryRoots.profiles })
       void queryClient.invalidateQueries({ queryKey: queryKeys.profile(saved.id) })
       toast.success(profile === null ? "Profile created" : "Profile updated", saved.name)
+      // Saved, so there is nothing left to guard: close without asking.
       onClose()
     },
     onError: (caught) => {
@@ -307,17 +306,8 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
   const engine = engines.find((item) => String(item.id) === engineId)
   const resolver = resolvers.find((item) => String(item.id) === resolverId)
   const retryModes = asObject(engine?.retry_modes_schema)
-  const retryModeKeys = Object.keys(retryModes)
-  const retryEntry = asObject(retryModeKeys.includes(retryMode) ? retryModes[retryMode] : undefined)
-  const retrySchema = asObject(retryEntry["schema"])
-
-  const pickedSource = sources.find((item) => String(item.id) === pickedSourceId)
 
   const sourceResolver = resolvers.find((item) => String(item.id) === sourceResolverId)
-  const canBrowse = canBrowseResolver(sourceResolver)
-  // The profile body gets the same panel: a resolver that declares discovery has
-  // a catalog to browse wherever it is configured.
-  const canBrowseProfile = canBrowseResolver(resolver)
 
   const editing = tab === "profile" ? profile !== null : source !== null
   // The kind switcher is a phone affordance: there the "+" is the only create
@@ -425,411 +415,232 @@ export function PresetsDialog({ open, kind, allowKindSwitch, profile, source, on
   }
 
   const pending = tab === "profile" ? saveProfile.isPending : saveSource.isPending
+
+  // `blockedReason` names what stops the save, in the footer beside the button.
+  const blockedReason =
+    catalogBlockReason(
+      tab === "profile" && enginesQuery.isError,
+      resolversQuery.isError,
+    ) ?? (tab === "profile" && chainTrouble !== null ? chainProblemSentence(chainTrouble, "profile") : null)
+
   const submitDisabled =
-    tab === "profile"
-      ? duplicateName || name.trim() === "" || chainTrouble !== null
-      : duplicateSourceName || sourceName.trim() === ""
+    blockedReason !== null ||
+    (tab === "profile" ? duplicateName || name.trim() === "" : duplicateSourceName || sourceName.trim() === "")
+
+  const draft = useMemo<PresetDraftState>(
+    () => ({
+      profile: { name, engineId, resolverId, resolverConfig, retryMode, retryConfig, chain },
+      source: { name: sourceName, resolverId: sourceResolverId, resolverConfig: sourceConfig },
+      access,
+    }),
+    [name, engineId, resolverId, resolverConfig, retryMode, retryConfig, chain, sourceName, sourceResolverId, sourceConfig, access],
+  )
+  const changes = useMemo(() => changedFields(initial, draft), [initial, draft])
+  const dirty = changes.length > 0
+
+
+  /** Close for real — the saved path and an untouched dialog both land here. */
+  function closeNow(): void {
+    setDiscard(null)
+    onClose()
+  }
+
+  function requestClose(): void {
+    if (pending) return
+    if (!dirty) {
+      closeNow()
+      return
+    }
+    setDiscard("close")
+  }
+
+  function applyTab(next: PresetKind): void {
+    setTab(next)
+    setError(null)
+    setFieldErrors({})
+  }
+
+  function changeTab(next: PresetKind): void {
+    if (next === tab) return
+    if (dirty) {
+      setDiscard(next)
+      return
+    }
+    applyTab(next)
+  }
+
+  /** "Discard" — the only place a draft is actually thrown away. */
+  function discardDraft(): void {
+    const target = discard
+    setDiscard(null)
+    if (target === null) return
+    if (target === "close") {
+      onClose()
+      return
+    }
+    resetDraft()
+    applyTab(target)
+  }
+
+  const profileValues = { name, engineId, resolverId, resolverConfig, retryMode, retryConfig, chain, mode, pickedSourceId }
+  const profileActions: ProfileFormActions = {
+    onName: setName,
+    onEngine: changeEngine,
+    onResolver: changeResolver,
+    onResolverConfig: setResolverConfig,
+    onRetryMode: changeRetryMode,
+    onRetryConfig: setRetryConfig,
+    onChain: setChain,
+    onMode: changeResolverMode,
+    onPickSource: pickSource,
+    onBrowse: () => setBrowseTarget("profile"),
+  }
+  const sourceActions: SourceFormActions = {
+    onName: setSourceName,
+    onResolver: changeSourceResolver,
+    onResolverConfig: setSourceConfig,
+    onBrowse: () => setBrowseTarget("source"),
+  }
 
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      size="lg"
-      title={editing ? `Edit ${noun}` : switcher ? "New preset" : `New ${noun}`}
-      description={
-        editing
-          ? tab === "profile"
-            ? "Change its engine, resolver config or retry policy."
-            : "Change the resolver and the config saved with it."
-          : switcher
-            ? "A profile is a complete recording setup — engine, resolver config and retry policy. A source is just a saved resolver config."
-            : tab === "profile"
-              ? "A complete recording setup — resolver config, engine and retry policy."
-              : "A saved resolver config, reusable wherever a resolver asks for one."
-      }
-      busy={pending}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={pending}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            type="submit"
-            form={tab === "profile" ? PROFILE_FORM_ID : SOURCE_FORM_ID}
-            loading={pending}
-            disabled={submitDisabled}
-          >
-            {editing ? "Save changes" : tab === "profile" ? "Create profile" : "Create source"}
-          </Button>
-        </>
-      }
-    >
-      {switcher ? (
-        <Field label="Type">
+    <>
+      <Dialog
+        open={open}
+        onClose={requestClose}
+        size="lg"
+        title={editing ? `Edit ${noun}` : switcher ? "New preset" : `New ${noun}`}
+        description={
+          editing
+            ? tab === "profile"
+              ? "Change its engine, resolver config or retry policy."
+              : "Change the resolver and the config saved with it."
+            : switcher
+              ? "A profile is a complete recording setup — engine, resolver config and retry policy. A source is just a saved resolver config."
+              : tab === "profile"
+                ? "A complete recording setup — resolver config, engine and retry policy."
+                : "A saved resolver config, reusable wherever a resolver asks for one."
+        }
+        busy={pending}
+        footer={
+          <div className="flex w-full flex-wrap items-center justify-end gap-x-3 gap-y-2">
+            {blockedReason !== null ? (
+              <p id={REASON_ID} className="min-w-0 flex-1 basis-full text-sm text-ink-dim sm:basis-auto">
+                {blockedReason}
+              </p>
+            ) : null}
+            <Button variant="ghost" onClick={requestClose} disabled={pending}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              form={tab === "profile" ? PROFILE_FORM_ID : SOURCE_FORM_ID}
+              loading={pending}
+              disabled={submitDisabled}
+              aria-describedby={blockedReason === null ? undefined : REASON_ID}
+            >
+              {editing ? "Save changes" : tab === "profile" ? "Create profile" : "Create source"}
+            </Button>
+          </div>
+        }
+      >
+        {switcher ? (
           <Segmented
             className="self-start"
             ariaLabel="Preset type"
             panelId="preset-kind"
             active={tab}
-            onChange={(next) => {
-              setTab(next)
-              setError(null)
-              setFieldErrors({})
-            }}
+            onChange={changeTab}
             items={[
               { id: "profile", label: "Profile" },
               { id: "source", label: "Source" },
             ]}
           />
-        </Field>
-      ) : null}
+        ) : null}
 
-      <FormPanel switcher={switcher} active={tab}>
-        {tab === "profile" ? (
-          <form id={PROFILE_FORM_ID} className="flex flex-col gap-4" onSubmit={submitProfile}>
-            {error !== null ? <Banner kind="danger" title={error} /> : null}
+        <FormPanel switcher={switcher} active={tab}>
+          {tab === "profile" ? (
+            <ProfileForm
+              formId={PROFILE_FORM_ID}
+              values={profileValues}
+              actions={profileActions}
+              catalogs={{
+                engines,
+                enginesQuery,
+                resolvers,
+                resolversQuery,
+                sources,
+                sourcesQuery,
+                profiles,
+                profilesQuery,
+              }}
+              base={base}
+              fieldErrors={fieldErrors}
+              nameError={duplicateName ? "A profile with this name already exists." : null}
+              error={error}
+              pending={pending}
+              onRetryProfiles={() => void profilesQuery.refetch()}
+              onSubmit={submitProfile}
+            />
+          ) : (
+            <SourceForm
+              formId={SOURCE_FORM_ID}
+              values={{ name: sourceName, resolverId: sourceResolverId, resolverConfig: sourceConfig }}
+              actions={sourceActions}
+              catalogs={{
+                engines,
+                enginesQuery,
+                resolvers,
+                resolversQuery,
+                sources,
+                sourcesQuery,
+                profiles,
+                profilesQuery,
+              }}
+              fieldErrors={fieldErrors}
+              nameError={duplicateSourceName ? "A source with this name already exists." : null}
+              error={error}
+              onSubmit={submitSource}
+            />
+          )}
+        </FormPanel>
 
-            <FormBlock step="1" title="Identity" hint="what it's called">
-              <Field
-                label="Name"
-                htmlFor="preset-profile-name"
-                required
-                error={
-                  duplicateName ? "A profile with this name already exists." : (fieldErrors.name ?? null)
-                }
-                hint="How it is listed in the session and autorun pickers."
-              >
-                <Input
-                  id="preset-profile-name"
-                  value={name}
-                  autoComplete="off"
-                  placeholder="e.g. nightly-news"
-                  onChange={(event) => setName(event.target.value)}
-                />
-              </Field>
-            </FormBlock>
-
-            <FormBlock step="2" title="Source & engine" hint="where the stream comes from">
-              <Field
-                label="Engine"
-                htmlFor="preset-profile-engine"
-                required
-                error={fieldErrors.default_engine_id ?? fieldErrors.engine_id ?? null}
-                hint={engine === undefined ? "Engines come from the installed plugins." : undefined}
-              >
-                <Select
-                  id="preset-profile-engine"
-                  value={engineId}
-                  onChange={(event) => changeEngine(event.target.value)}
-                >
-                  <option value="">Select an engine…</option>
-                  {engines.map((item) => (
-                    <option key={item.id} value={String(item.id)}>
-                      {item.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-
-              <Field label="Config source">
-                <Segmented
-                  className="self-start"
-                  ariaLabel="Config source"
-                  panelId="preset-resolver-mode"
-                  active={mode}
-                  onChange={changeResolverMode}
-                  items={[
-                    { id: "resolver", label: "Pick a resolver" },
-                    { id: "source", label: "Use a saved source", disabled: sources.length === 0 },
-                  ]}
-                />
-              </Field>
-
-              <TabPanel panelId="preset-resolver-mode" active={mode} className="flex flex-col gap-4">
-                {mode === "resolver" ? (
-                  <>
-                    <Field
-                      label="Resolver"
-                      htmlFor="preset-profile-resolver"
-                      required
-                      error={fieldErrors.resolver_id ?? null}
-                    >
-                      <Select
-                        id="preset-profile-resolver"
-                        value={resolverId}
-                        onChange={(event) => changeResolver(event.target.value)}
-                      >
-                        <option value="">Select a resolver…</option>
-                        {resolvers.map((item) => (
-                          <option key={item.id} value={String(item.id)}>
-                            {item.name}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
-
-                    {canBrowseProfile ? (
-                      <div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          icon={<IconSearch size={15} />}
-                          onClick={() => setBrowseTarget("profile")}
-                        >
-                          Browse {resolver.name}…
-                        </Button>
-                      </div>
-                    ) : null}
-
-                    <section className="flex flex-col gap-2">
-                      <h4 className={panelTitleClass}>Resolver config</h4>
-                      {schemasLoading ? (
-                        <SkeletonRows rows={3} cols={2} />
-                      ) : resolver === undefined ? (
-                        <p className="text-ink-dim" style={{ fontSize: "var(--fs-sm)" }}>
-                          Pick a resolver to configure it.
-                        </p>
-                      ) : (
-                        <SchemaForm
-                          schema={resolver.config_schema}
-                          value={resolverConfig}
-                          onChange={setResolverConfig}
-                          idPrefix="preset-profile-resolver-config"
-                        />
-                      )}
-                      {fieldErrors.resolver_config !== undefined ? (
-                        <span className="flex items-center gap-1 text-sm text-danger" role="alert">
-                          {fieldErrors.resolver_config}
-                        </span>
-                      ) : null}
-                    </section>
-                  </>
-                ) : (
-                  <>
-                    <Field
-                      label="Saved source"
-                      htmlFor="preset-profile-source"
-                      required
-                      error={fieldErrors.resolver_id ?? null}
-                    >
-                      <Select
-                        id="preset-profile-source"
-                        value={pickedSourceId}
-                        onChange={(event) => pickSource(event.target.value)}
-                      >
-                        <option value="">Pick a saved source…</option>
-                        {sources.map((item) => (
-                          <option key={item.id} value={String(item.id)}>
-                            {item.name}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
-
-                    <section className="flex flex-col gap-2">
-                      <h4 className={panelTitleClass}>Resolver config</h4>
-                      {pickedSource === undefined ? (
-                        <p className="text-ink-dim" style={{ fontSize: "var(--fs-sm)" }}>
-                          {sources.length === 0
-                            ? "No saved sources yet — create one from the Source tab."
-                            : "Pick a source to see what it fills in."}
-                        </p>
-                      ) : (
-                        <div className="flex flex-col gap-3 rounded-sm border border-[var(--accent-line)] bg-[var(--accent-dim)] p-3">
-                          <p className="flex items-center gap-2 text-sm text-ink">
-                            <span className="text-brand" aria-hidden="true">
-                              <IconCheck size={14} />
-                            </span>
-                            Copies{" "}
-                            <strong className="font-semibold">{pickedSource.name}</strong>
-                            {pickedSource.resolver_id === Number(resolverId) ? (
-                              <span className="text-ink-dim">
-                                · {resolver?.name ?? `resolver #${pickedSource.resolver_id}`}
-                              </span>
-                            ) : null}
-                          </p>
-                          <JsonView value={pickedSource.resolver_config ?? {}} label="Config" />
-                          <p className="text-ink-dim" style={{ fontSize: "var(--fs-sm)" }}>
-                            The profile keeps its own copy — switch to “Pick a resolver” to edit the values.
-                          </p>
-                        </div>
-                      )}
-                    </section>
-                  </>
-                )}
-              </TabPanel>
-
-              {base === null ? null : (
-                <ChainEditor
-                  idPrefix="preset-profile"
-                  catalog={catalog}
-                  base={base}
-                  value={chain}
-                  onChange={setChain}
-                  disabled={pending}
-                  subject="profile"
-                />
-              )}
-            </FormBlock>
-
-            <FormBlock step="3" title="Retry" hint="when it needs another go">
-              {/* Inert until an engine is chosen: the modes belong to the engine,
-                  so there is nothing to pick before then. */}
-              <section
-                className={cn("flex flex-col gap-3", engine === undefined && "opacity-45")}
-              >
-                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                  <h4 className={panelTitleClass}>Retry</h4>
-                  <span className="text-sm text-ink-dim">
-                    {engine === undefined
-                      ? "pick an engine first"
-                      : retryModeKeys.length === 0
-                        ? "this engine declares no retry modes"
-                        : "optional"}
-                  </span>
-                </div>
-                <Field label="Mode" htmlFor="preset-profile-retry-mode" error={fieldErrors.retry_mode ?? null}>
-                  <Select
-                    id="preset-profile-retry-mode"
-                    value={retryMode}
-                    disabled={engine === undefined || retryModeKeys.length === 0}
-                    onChange={(event) => changeRetryMode(event.target.value)}
-                  >
-                    {/* Not a mode of its own: shown only when the value cannot be
-                        one — an engine that declares nothing, or a stored mode this
-                        engine no longer lists. "none" is a real mode of the schema. */}
-                    {retryModeKeys.includes(retryMode) ? null : (
-                      <option value={retryMode}>
-                        {retryMode === "" ? "\u2014" : `${humanize(retryMode)} (unavailable)`}
-                      </option>
-                    )}
-                    {retryModeKeys.map((key) => (
-                      <option key={key} value={key}>
-                        {humanize(key)}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                {retryMode !== "" ? (
-                  <SchemaForm
-                    schema={retrySchema}
-                    value={retryConfig}
-                    onChange={setRetryConfig}
-                    idPrefix="preset-profile-retry-config"
-                  />
-                ) : null}
-                {fieldErrors.retry_config !== undefined ? (
-                  <span className="flex items-center gap-1 text-sm text-danger" role="alert">
-                    {fieldErrors.retry_config}
-                  </span>
-                ) : null}
-              </section>
-            </FormBlock>
-          </form>
-        ) : (
-          <form id={SOURCE_FORM_ID} className="flex flex-col gap-4" onSubmit={submitSource}>
-            {error !== null ? <Banner kind="danger" title={error} /> : null}
-
-            <FormBlock step="1" title="Identity" hint="what it's called">
-              <Field
-                label="Name"
-                htmlFor="preset-source-name"
-                required
-                error={
-                  duplicateSourceName
-                    ? "A source with this name already exists."
-                    : (fieldErrors.name ?? null)
-                }
-                hint="Pick it by name wherever a resolver asks for a config."
-              >
-                <Input
-                  id="preset-source-name"
-                  value={sourceName}
-                  autoComplete="off"
-                  placeholder="e.g. sky-sports-main"
-                  onChange={(event) => setSourceName(event.target.value)}
-                />
-              </Field>
-            </FormBlock>
-
-            <FormBlock step="2" title="Resolver" hint="how the stream is found">
-              <Field label="Resolver" htmlFor="preset-source-resolver" required error={fieldErrors.resolver_id ?? null}>
-                <Select
-                  id="preset-source-resolver"
-                  value={sourceResolverId}
-                  onChange={(event) => changeSourceResolver(event.target.value)}
-                >
-                  <option value="">Select a resolver…</option>
-                  {resolvers.map((item) => (
-                    <option key={item.id} value={String(item.id)}>
-                      {item.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-
-              {canBrowse ? (
-                <div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    icon={<IconSearch size={15} />}
-                    onClick={() => setBrowseTarget("source")}
-                  >
-                    Browse {sourceResolver.name}…
-                  </Button>
-                </div>
-              ) : null}
-
-              <section className="flex flex-col gap-2">
-                <h4 className={panelTitleClass}>Resolver config</h4>
-                {schemasLoading ? (
-                  <SkeletonRows rows={3} cols={2} />
-                ) : sourceResolver === undefined ? (
-                  <p className="text-ink-dim" style={{ fontSize: "var(--fs-sm)" }}>
-                    Pick a resolver to configure it.
-                  </p>
-                ) : (
-                  <SchemaForm
-                    schema={sourceResolver.config_schema}
-                    value={sourceConfig}
-                    onChange={setSourceConfig}
-                    idPrefix="preset-source-resolver-config"
-                  />
-                )}
-                {fieldErrors.resolver_config !== undefined ? (
-                  <span className="flex items-center gap-1 text-sm text-danger" role="alert">
-                    {fieldErrors.resolver_config}
-                  </span>
-                ) : null}
-              </section>
-            </FormBlock>
-          </form>
+        {editing ? null : (
+          <AccessCreation
+            key={tab}
+            resourceType={tab === "profile" ? "profile" : "source"}
+            onChange={setAccess}
+            busy={pending}
+          />
         )}
-      </FormPanel>
 
-      {editing ? null : (
-        <AccessCreation
-          key={tab}
-          resourceType={tab === "profile" ? "profile" : "source"}
-          onChange={setAccess}
-          busy={pending}
+        <DiscoveryDrawer
+          open={browseTarget !== null}
+          onClose={() => setBrowseTarget(null)}
+          resolver={(browseTarget === "source" ? sourceResolver : resolver) ?? null}
+          onUse={(item) => {
+            if (browseTarget === "source") setSourceConfig(item.config ?? {})
+            else setResolverConfig(item.config ?? {})
+            setBrowseTarget(null)
+          }}
         />
-      )}
 
-      <DiscoveryDrawer
-        open={browseTarget !== null}
-        onClose={() => setBrowseTarget(null)}
-        resolver={(browseTarget === "source" ? sourceResolver : resolver) ?? null}
-        onUse={(item) => {
-          if (browseTarget === "source") setSourceConfig(item.config ?? {})
-          else setResolverConfig(item.config ?? {})
-          setBrowseTarget(null)
-        }}
+        <BodyTail />
+      </Dialog>
+
+      <ConfirmDialog
+        open={discard !== null}
+        onClose={() => setDiscard(null)}
+        title="Discard changes?"
+        description={
+          discard === null
+            ? undefined
+            : discardSentence(changes, tab, discard === "close" ? "close" : "switch")
+        }
+        confirmLabel="Discard"
+        cancelLabel="Keep editing"
+        onConfirm={discardDraft}
       />
-    </Dialog>
+    </>
   )
 }

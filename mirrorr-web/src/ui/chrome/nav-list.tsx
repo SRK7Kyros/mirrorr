@@ -25,10 +25,13 @@ export function NavList({ onNavigate }: { readonly onNavigate?: () => void }) {
                 key={item.to}
                 to={item.to}
                 className={cn(NAV_ITEM_CLASS, active ? NAV_ITEM_ACTIVE : NAV_ITEM_IDLE)}
+                title={item.label}
                 onClick={onNavigate}
               >
                 {item.icon}
-                <span className="max-lg:hidden">{item.label}</span>
+                {/* Not `hidden` at narrow widths: an icon-only link still needs a
+                    name for screen readers and for `getByRole("link", …)`. */}
+                <span className="max-lg:sr-only">{item.label}</span>
               </Link>
             )
           })}

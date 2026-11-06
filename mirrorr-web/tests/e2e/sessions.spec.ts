@@ -96,24 +96,23 @@ test.describe("sessions list", () => {
     await expect(stat(strip, "Disk free")).toContainText("—")
   })
 
-  test("the status tokens are additive, and dropping one widens the set again", async ({ page }) => {
+  test("the status filter is single-select and All widens the set again", async ({ page }) => {
     await page.goto("/sessions")
     await expect(page.locator(".session-grid .session-card")).toHaveCount(4)
 
     await expect(page.getByRole("button", { name: "Scheduled" })).toHaveCount(0)
 
-    // Naming any status drops `all`, so Spent alone leaves the completed run.
-    await page.getByRole("button", { name: "Spent" }).click()
+    // One token at a time: naming Spent leaves the completed run alone.
+    await page.getByRole("button", { name: "Finished" }).click()
     await expect(page.locator(".session-grid .session-card")).toHaveCount(1)
     await expect(page.locator(".session-grid")).toContainText("Archive")
 
-    // Adding Live widens the set to live + spent; the tokens are additive.
+    // Naming Live replaces Spent rather than adding to it.
     await page.getByRole("button", { name: "Live" }).click()
-    await expect(page.locator(".session-grid .session-card")).toHaveCount(3)
-
-    // Dropping Spent again leaves the two live runs.
-    await page.getByRole("button", { name: "Spent" }).click()
     await expect(page.locator(".session-grid .session-card")).toHaveCount(2)
+
+    await page.getByRole("button", { name: "All" }).click()
+    await expect(page.locator(".session-grid .session-card")).toHaveCount(4)
   })
 
   test("the search box narrows the cards", async ({ page }) => {

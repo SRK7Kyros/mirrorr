@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ReactNode } from "react";
 import type { Recording } from "@/api/schemas";
+import { toast } from "@/ui/components";
 import { RecordingCard } from "./recording-card";
 
 const api = vi.hoisted(() => ({
@@ -9,19 +11,23 @@ const api = vi.hoisted(() => ({
 
 vi.mock("@/api", () => api);
 
-vi.mock("hls.js", () => ({
-  default: Object.assign(
-    class {
-      static isSupported(): boolean {
-        return true;
-      }
-      loadSource = vi.fn();
-      attachMedia = vi.fn();
-      destroy = vi.fn();
-      on = vi.fn();
-    },
-    { Events: { MANIFEST_PARSED: "MANIFEST_PARSED" } },
-  ),
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({
+    to,
+    params,
+    children,
+    ...rest
+  }: {
+    readonly to?: string;
+    readonly params?: Record<string, string>;
+    readonly children?: ReactNode;
+  }) => {
+    const href = (to ?? "#").replace(
+      /\$(\w+)/g,
+      (_match, key: string) => params?.[key] ?? "",
+    );
+    return <a href={href} {...rest}>{children}</a>;
+  },
 }));
 
 function recording(overrides: Partial<Recording> = {}): Recording {
@@ -54,54 +60,136 @@ beforeEach(() => {
 
 afterEach(() => {
   open.mockRestore();
+  vi.restoreAllMocks();
+  Reflect.deleteProperty(navigator, "clipboard");
 });
 
-function renderCard(value: Recording) {
+function renderCard(value: Recording, selectMode = false) {
   const onDelete = vi.fn();
+  const onToggle = vi.fn();
   return {
     onDelete,
+    onToggle,
     ...render(
       <RecordingCard
         recording={value}
         onDelete={onDelete}
         highlightRef={() => {}}
+        selectMode={selectMode}
+        onToggle={onToggle}
       />,
     ),
   };
 }
 
 describe("RecordingCard", () => {
-  it("tapping preview pins playback without opening it", () => {
+  it("fills the media slot with the file's own first frame when served", () => {
     const { container } = renderCard(recording());
-    const preview = screen.getByRole("button", { name: /preview recording #3/i });
-    expect(
-      container.querySelector(".session-preview")?.getAttribute("data-active"),
-    ).toBe("false");
 
-    fireEvent.click(preview);
+    const media = container.querySelector('[data-slot="media-fill"]');
+    expect(media?.getAttribute("data-fill")).toBe("cover");
 
-    expect(
-      container.querySelector(".session-preview")?.getAttribute("data-active"),
-    ).toBe("true");
-    expect(open).not.toHaveBeenCalled();
-  });
-
-  it("tapping the preview video does not open the file", () => {
-    const { container } = renderCard(recording());
     const video = container.querySelector("video");
     expect(video).not.toBeNull();
+    expect(video?.getAttribute("src")).toBe(
+      "https://example.test/content/speedcubing_3/recording.mp4#t=0.1",
+    );
+    expect(video?.hasAttribute("data-card-ignore")).toBe(true);
+    expect(container.querySelector('[data-fill="plate"]')).toBeNull();
+  });
 
-    fireEvent.click(video as Element);
+  it("renders a plate with the record's own fields when the file is not served", () => {
+    const { container } = renderCard(recording({ media_served: false }));
 
+    expect(container.querySelector("video")).toBeNull();
+    expect(container.querySelector("img")).toBeNull();
+    const plate = container.querySelector('[data-fill="plate"]') as HTMLElement;
+    expect(plate).not.toBeNull();
+    expect(within(plate).getByText(/file kept — not served/i)).not.toBeNull();
+    expect(within(plate).getByText("1:00:00")).not.toBeNull();
+    expect(within(plate).getByText("117.7 MB")).not.toBeNull();
+    expect(within(plate).getByText(/not serving this file/i)).not.toBeNull();
+  });
+
+  it("probes for the serve state when the server does not answer it", async () => {
+    api.probeMediaUrl.mockResolvedValueOnce(false);
+    const { container } = renderCard(recording({ media_served: undefined }));
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-slot="media-fill"]')?.getAttribute("data-fill"),
+      ).toBe("plate"),
+    );
+    expect(api.probeMediaUrl).toHaveBeenCalledWith(
+      "https://example.test/content/speedcubing_3/recording.mp4",
+    );
+  });
+
+  it("offers a real download control that points at the file", () => {
+    renderCard(recording());
+
+    const download = screen.getByRole("link", { name: /download recording #3/i });
+    expect(download.getAttribute("href")).toBe(
+      "https://example.test/content/speedcubing_3/recording.mp4",
+    );
+    expect(download.hasAttribute("download")).toBe(true);
+  });
+
+  it("offers no dead download when the file is not served", () => {
+    renderCard(recording({ media_served: false }));
+
+    expect(screen.queryByRole("link", { name: /download recording #3/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /copy link for recording #3/i })).not.toBeNull();
+  });
+
+  it("copies the link and says so", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const success = vi.spyOn(toast, "success").mockImplementation(() => 0);
+    renderCard(recording());
+
+    fireEvent.click(screen.getByRole("button", { name: /copy link/i }));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        "https://example.test/content/speedcubing_3/recording.mp4",
+      ),
+    );
+    expect(success).toHaveBeenCalled();
+  });
+
+  it("surfaces a message when the clipboard refuses the copy", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) },
+    });
+    const failure = vi.spyOn(toast, "error").mockImplementation(() => 0);
+    renderCard(recording());
+
+    fireEvent.click(screen.getByRole("button", { name: /copy link/i }));
+
+    await waitFor(() => expect(failure).toHaveBeenCalled());
+    expect(failure.mock.calls[0]?.[0]).toMatch(/could not copy/i);
+  });
+
+  it("delete lives in the actions menu and asks the parent", () => {
+    const { onDelete } = renderCard(recording());
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions for recording #3" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /delete recording #3/i }));
+
+    expect(onDelete).toHaveBeenCalledTimes(1);
+    expect(onDelete.mock.calls[0]?.[0]).toMatchObject({ id: 3 });
     expect(open).not.toHaveBeenCalled();
   });
 
-  it("clicking elsewhere on the card opens the file in a new tab", () => {
-    const { container } = renderCard(recording());
-    const source = container.querySelector(".session-card-source");
-    expect(source).not.toBeNull();
+  it("clicking the card body opens the file in a new tab", () => {
+    renderCard(recording());
 
-    fireEvent.click(source as Element);
+    fireEvent.click(screen.getByText("daddylive", { exact: false }));
 
     expect(open).toHaveBeenCalledWith(
       "https://example.test/content/speedcubing_3/recording.mp4",
@@ -110,27 +198,29 @@ describe("RecordingCard", () => {
     );
   });
 
-  it("delete asks the parent without opening the file", () => {
-    const { onDelete } = renderCard(recording());
+  it("does not open a file the install does not serve", () => {
+    const { container } = renderCard(recording({ media_served: false }));
 
-    fireEvent.click(
-      screen.getByRole("button", { name: /delete recording #3/i }),
-    );
+    fireEvent.click(container.querySelector('[data-slot="identity"]') as Element);
 
-    expect(onDelete).toHaveBeenCalledTimes(1);
     expect(open).not.toHaveBeenCalled();
   });
 
-  it("offers no preview and no open when the media is not served", () => {
-    const { container } = renderCard(recording({ media_served: false }));
-    expect(
-      screen.queryByRole("button", { name: /preview recording/i }),
-    ).toBeNull();
-    expect(
-      screen.getByText(/media not served on this install/i),
-    ).not.toBeNull();
+  it("shows the select checkbox only in select mode", () => {
+    const first = renderCard(recording());
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    first.unmount();
 
-    fireEvent.click(container.querySelector(".session-card-source") as Element);
-    expect(open).not.toHaveBeenCalled();
+    const selectable = renderCard(recording(), true);
+    const box = screen.getByRole("checkbox", { name: "Select Speedcubing finals" });
+    fireEvent.click(box);
+
+    expect(selectable.onToggle).toHaveBeenCalledWith(3);
+  });
+
+  it("keeps a link to the session that produced the file", () => {
+    renderCard(recording({ session_id: 42 }));
+
+    expect(screen.getByRole("link", { name: "Session #42" })).not.toBeNull();
   });
 });

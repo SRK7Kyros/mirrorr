@@ -243,6 +243,8 @@ kbd {
 .json-toggle {
   display: inline-flex;
   align-items: center;
+  /* A 24 px target (WCAG 2.5.8); the glyphs stay 18 px, the row does not. */
+  min-height: 24px;
   gap: var(--s-1);
   padding: 1px var(--s-1);
   margin-left: calc(-1 * var(--s-1));
@@ -307,7 +309,7 @@ kbd {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text-faint);
+  color: var(--text-dim);
 }
 
 .json-brace-close {

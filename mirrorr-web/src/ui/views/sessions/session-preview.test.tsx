@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { render } from "@testing-library/react"
+import { act, render } from "@testing-library/react"
 import { SessionPreview } from "./session-preview"
 
 const hls = vi.hoisted(() => ({
@@ -20,7 +20,7 @@ vi.mock("hls.js", () => ({
       destroy = hls.destroy
       on = hls.on
     },
-    { Events: { MANIFEST_PARSED: "MANIFEST_PARSED" } },
+    { Events: { MANIFEST_PARSED: "MANIFEST_PARSED", ERROR: "ERROR" } },
   ),
 }))
 
@@ -66,5 +66,28 @@ describe("SessionPreview", () => {
   it("does nothing without a playlist", () => {
     render(<SessionPreview src={null} load active loop />)
     expect(hls.loadSource).not.toHaveBeenCalled()
+  })
+
+  it("says so when the stream cannot be played, and again for the next one", () => {
+    const { container, rerender } = render(
+      <SessionPreview src="https://x/stream.m3u8" load active={false} loop />,
+    )
+    expect(container.querySelector("[data-slot=preview-fallback]")).toBeNull()
+
+    const error = hls.on.mock.calls.find(([event]) => event === "ERROR")?.[1] as
+      | ((event: string, data: { fatal: boolean }) => void)
+      | undefined
+    expect(error).toBeDefined()
+    act(() => error?.("ERROR", { fatal: false }))
+    expect(container.querySelector("[data-slot=preview-fallback]")).toBeNull()
+
+    act(() => error?.("ERROR", { fatal: true }))
+    expect(container.querySelector("[data-slot=preview-fallback]")?.textContent).toContain(
+      "Preview unavailable",
+    )
+    expect(container.querySelector("video")?.getAttribute("data-failed")).toBe("true")
+
+    rerender(<SessionPreview src="https://x/other.m3u8" load active={false} loop />)
+    expect(container.querySelector("[data-slot=preview-fallback]")).toBeNull()
   })
 })

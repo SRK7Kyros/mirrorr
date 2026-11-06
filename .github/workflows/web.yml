@@ -49,3 +49,36 @@ jobs:
       - name: Check utility collisions
         run: bun run check:collisions
         working-directory: mirrorr-web
+
+  browser:
+    name: Route-mocked browser suites
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Install web dependencies
+        run: bun install
+        working-directory: mirrorr-web
+
+      # No backend and no database: every spec fulfils `**/api/**` from
+      # `tests/e2e/fixtures.ts`. The pixel baselines stay local (host font
+      # rendering), but behaviour, axe and the target-size sweep are portable.
+      - name: Install Chromium
+        run: bunx playwright install --with-deps chromium
+        working-directory: mirrorr-web
+
+      - name: Behaviour suite
+        run: bun run test:e2e
+        working-directory: mirrorr-web
+
+      - name: Accessibility (axe + WCAG 2.5.8 target size)
+        run: bun run test:a11y
+        working-directory: mirrorr-web
+
+      - name: Card fact inventory
+        run: bun run test:facts
+        working-directory: mirrorr-web

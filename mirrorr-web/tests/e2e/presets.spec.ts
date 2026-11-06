@@ -1,7 +1,8 @@
+import type { Page } from "@playwright/test"
 import { engine, expect, openFallbacks, profile, resolver, source, test } from "./fixtures"
 
 /**
- * The Presets page (`/profiles`) — one "+" and one dialog for both things the
+ * The Profiles page (`/profiles`) — one "+" and one dialog for both things the
  * page holds.
  *
  * The two panels used to render their own floating "+", pinned to the same
@@ -42,6 +43,12 @@ const CATALOG = [
 
 const MOBILE = { width: 375, height: 812 }
 
+/** Row commands live in the `⋯` menu; there is no naked icon per verb any more. */
+async function openRowAction(page: Page, name: string, action: string) {
+  await page.getByRole("button", { name: `Actions for ${name}` }).first().click()
+  await page.getByRole("menuitem", { name: action }).click()
+}
+
 test.describe("presets page", () => {
   test.beforeEach(async ({ api }) => {
     api.data.engines = [
@@ -59,18 +66,19 @@ test.describe("presets page", () => {
     api.data.sources = [SKY]
   })
 
-  test("the page has exactly one + and it opens on the profile tab", async ({ page }) => {
+  test("each kind has one create entry and opens straight into its own form", async ({ page }) => {
     await page.setViewportSize(MOBILE)
     await page.goto("/profiles")
 
-    const fab = page.locator("[data-slot=fab]")
-    await expect(fab).toHaveCount(1)
-    await expect(fab).toHaveAccessibleName("New preset")
+    // Two actions, each naming the thing it makes — no "+" that asks which
+    // kind you meant, and no second entry for either kind.
+    await expect(page.getByRole("button", { name: "New profile" })).toHaveCount(1)
+    await expect(page.getByRole("button", { name: "New source" })).toHaveCount(1)
+    await expect(page.locator("[data-slot=fab]")).toHaveCount(0)
 
-    await fab.click()
+    await page.getByRole("button", { name: "New profile" }).click()
 
-    await expect(page.getByRole("dialog", { name: "New preset" })).toBeVisible()
-    await expect(page.getByRole("tab", { name: "Profile", exact: true })).toHaveAttribute("aria-selected", "true")
+    await expect(page.getByRole("dialog", { name: "New profile" })).toBeVisible()
     await expect(page.getByRole("combobox", { name: /^Engine/ })).toBeVisible()
     await expect(page.getByRole("button", { name: "Create profile" })).toBeDisabled()
 
@@ -86,13 +94,14 @@ test.describe("presets page", () => {
     await expect(mode).toHaveValue("none")
   })
 
-  test("the + panel can create a source without leaving the dialog", async ({ page, api }) => {
+  test("the Sources action creates a source without leaving the page", async ({ page, api }) => {
     await page.setViewportSize(MOBILE)
     await page.goto("/profiles")
-    await page.locator("[data-slot=fab]").click()
+    await page.getByRole("button", { name: "New source" }).click()
 
-    await page.getByRole("tab", { name: "Source", exact: true }).click()
-
+    // The trigger already said which kind, so the dialog is the source form —
+    // no profile/source switcher to answer.
+    await expect(page.getByRole("dialog", { name: "New source" })).toBeVisible()
     await expect(page.getByRole("button", { name: "Create source" })).toBeVisible()
     await expect(page.getByRole("combobox", { name: /^Engine/ })).toHaveCount(0)
 
@@ -182,7 +191,7 @@ test.describe("presets page", () => {
 
     await expect(page.getByTitle("Fallbacks: Wide IPTV").first()).toBeVisible()
 
-    await page.getByRole("button", { name: "Edit profile F1 Weekend" }).first().click()
+    await openRowAction(page, "F1 Weekend", "Edit")
     const chain = page.getByRole("list", { name: "Fallback chain, in order" })
     await expect(chain.getByText("Wide IPTV").first()).toBeVisible()
 
@@ -206,7 +215,7 @@ test.describe("presets page", () => {
 
   test("editing locks the dialog to the kind being edited", async ({ page }) => {
     await page.goto("/profiles")
-    await page.getByRole("button", { name: "Edit profile F1 Weekend" }).first().click()
+    await openRowAction(page, "F1 Weekend", "Edit")
 
     await expect(page.getByRole("dialog", { name: "Edit profile" })).toBeVisible()
     await expect(page.getByRole("tab", { name: "Source", exact: true })).toHaveCount(0)
@@ -332,6 +341,7 @@ test.describe("presets page", () => {
 
     await expect(bulk).toBeHidden()
 
+    await page.getByRole("button", { name: "Select", exact: true }).click()
     await page.getByRole("checkbox", { name: "Select F1 Weekend" }).check()
     await expect(bulk).toContainText("1 selected item")
     await expect(bulk.getByRole("button", { name: "Export selected" })).toBeVisible()
@@ -349,7 +359,7 @@ test.describe("presets page", () => {
     api.data.profileDeleteCounts = { flagged: 2 }
     await page.goto("/profiles")
 
-    await page.getByRole("button", { name: "Delete profile F1 Weekend" }).click()
+    await openRowAction(page, "F1 Weekend", "Delete")
     await page
       .getByRole("dialog", { name: "Delete profile “F1 Weekend”?" })
       .getByRole("button", { name: "Delete" })
@@ -357,7 +367,7 @@ test.describe("presets page", () => {
 
     await expect(page.getByText("Profile deleted")).toBeVisible()
     await expect(
-      page.getByText("2 scheduled recordings need a new profile — they will not run until you pick one."),
+      page.getByText("2 autoruns need a new profile — they will not run until you pick one."),
     ).toBeVisible()
   })
 
@@ -365,6 +375,7 @@ test.describe("presets page", () => {
     await page.setViewportSize(MOBILE)
     await page.goto("/profiles")
 
+    await page.getByRole("button", { name: "Select", exact: true }).click()
     await page.getByRole("checkbox", { name: "Select F1 Weekend" }).check()
 
     const bulk = page.getByRole("region", { name: "Bulk actions" })
@@ -378,6 +389,7 @@ test.describe("presets page", () => {
 
     const bulk = page.getByRole("region", { name: "Bulk actions" })
 
+    await page.getByRole("button", { name: "Select", exact: true }).click()
     await page.getByRole("checkbox", { name: "Select all profiles" }).check()
     await expect(bulk).toContainText("1 selected item")
 

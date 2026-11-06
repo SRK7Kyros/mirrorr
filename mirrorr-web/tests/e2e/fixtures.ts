@@ -136,6 +136,30 @@ export interface ApiCall {
   readonly body: unknown
 }
 
+/** One deterministic deviation from the stub: a failure, or a held-open request. */
+export interface StubRule {
+  /** Request method the rule applies to; omit for any. */
+  readonly method?: string
+  /** Exact path without the `/api` prefix (`/sessions/101`) or a regex tested against it. */
+  readonly path: string | RegExp
+}
+
+/** A rule that answers an error instead of the seeded rows. */
+export interface StubFailure extends StubRule {
+  readonly status: number
+  readonly body?: unknown
+}
+
+/** A rule that keeps the request pending for `delayMs` before the stub answers. */
+export interface StubLatency extends StubRule {
+  readonly delayMs: number
+}
+
+function matchesRule(rule: StubRule, method: string, path: string): boolean {
+  if (rule.method !== undefined && rule.method !== method) return false
+  return typeof rule.path === "string" ? rule.path === path : rule.path.test(path)
+}
+
 export interface ApiData {
   authenticated?: boolean
   /** `POST /auth/login` — reject the credentials to exercise the fallback path. */
@@ -202,6 +226,16 @@ export interface ApiData {
   fetchBundle?: unknown
   /** `DELETE /profiles/{id}` cascade counts, e.g. `{flagged: 2}`. */
   profileDeleteCounts?: Record<string, number>
+  /**
+   * Deterministic error responses, matched before dispatch. The first match wins;
+   * a spec that seeds one is asserting the UI's failure path, not a race.
+   */
+  failures?: readonly StubFailure[]
+  /**
+   * Requests held open for a fixed delay so a loading state can be photographed.
+   * Unlike `failures` the stub still answers afterwards, with the seeded rows.
+   */
+  latency?: readonly StubLatency[]
 }
 
 export interface ApiStub {
@@ -324,6 +358,14 @@ async function installApi(page: Page, data: ApiData): Promise<ApiStub> {
         has_more: next !== null,
         total: rows.length,
       })
+    }
+
+    const latency = data.latency?.find((rule) => matchesRule(rule, method, path))
+    if (latency !== undefined) await new Promise((resolve) => setTimeout(resolve, latency.delayMs))
+
+    const failure = data.failures?.find((rule) => matchesRule(rule, method, path))
+    if (failure !== undefined) {
+      return answer(failure.status, failure.body ?? { detail: `Stub failure: ${method} ${path}` })
     }
 
     const groupById = (id: number): Row | undefined => groups.find((row) => row.id === id)

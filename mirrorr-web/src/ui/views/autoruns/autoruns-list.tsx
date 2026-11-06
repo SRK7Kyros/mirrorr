@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react"
-import { Link } from "@tanstack/react-router"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   deleteAutorun,
@@ -11,18 +10,11 @@ import {
   updateAutorun,
   useEntityList,
   useNameMaps,
-  type NameMaps,
 } from "@/api"
 import { fetchAutorunPage } from "@/api/endpoints"
-import { queryKeys, queryRoots, resolveEntityName } from "@/api/query-keys"
+import { queryKeys, queryRoots } from "@/api/query-keys"
+import type { FallbackRung } from "@/api/domain/fallback-chain"
 import {
-  chainOf,
-  mapNaming,
-  rungLabel,
-  type FallbackRung,
-} from "@/api/domain/fallback-chain"
-import {
-  DEFAULT_FILTER,
   FILTER_TOKENS,
   matchesFilter,
   shouldAutoExhaust,
@@ -30,18 +22,17 @@ import {
 } from "@/api/domain/filter-grammar"
 import { rankBySearch } from "@/api/domain/search"
 import type { Autorun } from "@/api/schemas"
-import { formatCountdown, formatWindow } from "@/api/time"
 import {
   BulkBar,
   Button,
+  CardGrid,
+  CardGridSkeleton,
   Checkbox,
   ConfirmDialog,
   EmptyState,
-  ErrorPanel,
   Fab,
-  IconAlert,
+  FilterSegmented,
   IconAutoruns,
-  IconClock,
   IconDownload,
   IconPlus,
   IconProfiles,
@@ -50,16 +41,16 @@ import {
   IconTrash,
   Input,
   LoadMore,
-  Skeleton,
-  StatusChip,
-  Tag,
+  PageToolbar,
+  QueryState,
+  Select,
+  TimeZoneNote,
   toast,
 } from "@/ui/components"
-import { useNowTick, useSelection } from "@/ui/hooks"
-import { autorunIssue } from "@/api/domain/autorun-issue"
+import { useScopedSelection } from "@/ui/hooks"
 import { Page } from "@/ui/views/shared/page"
-import { AccessButton, useBulkAccessAction } from "@/ui/views/shared/resource-access-slot"
-import { AutorunActionsMenu } from "./autorun-actions"
+import { useBulkAccessAction } from "@/ui/views/shared/resource-access-slot"
+import { AutorunCard, runTarget } from "./autorun-card"
 import { AutorunBulkProfileDialog } from "./autorun-bulk-profile-dialog"
 import { AutorunFormDialog } from "./autorun-form-dialog"
 
@@ -67,20 +58,17 @@ import { AutorunFormDialog } from "./autorun-form-dialog"
 const FILTER_LABELS: Record<FilterToken, string> = {
   scheduled: "Upcoming",
   live: "Live",
-  spent: "Spent",
+  spent: "Finished",
   all: "All",
 }
 
-/** When the autorun will next run — the re-armed time if set, else its start. */
-function runTarget(autorun: Autorun): string {
-  const next = autorun.next_run_at
-  return next !== null && next !== undefined && next !== "" ? next : autorun.start_time
-}
+const FILTER_ITEMS = FILTER_TOKENS.map((token) => ({ id: token, label: FILTER_LABELS[token] }))
 
-/** "starts in ~12 min" for a `scheduled` row — tick-granular, never seconds. */
-function countdownFor(autorun: Autorun, now: Date): string | null {
-  if (autorun.status !== "scheduled") return null
-  return formatCountdown(runTarget(autorun), now)
+type SortKey = "soonest" | "name"
+
+const SORT_LABELS: Record<SortKey, string> = {
+  soonest: "Soonest first",
+  name: "Name (A–Z)",
 }
 
 /** Epoch ms, or `null` for an unusable timestamp (which sorts last). */
@@ -100,6 +88,11 @@ function bySoonest(a: Autorun, b: Autorun): number {
   return left !== right ? left - right : a.id - b.id
 }
 
+/** Alphabetical, for the one list where "next up" is not what you are looking for. */
+function byName(a: Autorun, b: Autorun): number {
+  return a.user_friendly_name.localeCompare(b.user_friendly_name) || a.id - b.id
+}
+
 const autorunSearchFields = (autorun: Autorun): readonly string[] => [
   String(autorun.id),
   autorun.user_friendly_name,
@@ -111,180 +104,30 @@ const autorunSearchFields = (autorun: Autorun): readonly string[] => [
 ]
 
 /**
- * The schedule is the card's hero: a sunken panel with a three-step type
- * scale (date eyebrow → time → countdown) so *when* reads first. Everything
- * else — pipeline, profile, owner — drops to one muted meta line.
+ * Autoruns — one row per one-shot schedule, as cards (decision §0: the grid is
+ * the product, the card is what changed).
+ *
+ * The page owns one toolbar, one query gate and the selection; the card owns
+ * its four slots (`autorun-card.tsx`). Nothing here re-derives state — the
+ * chip, the hero and the flag all come from the record.
  */
-
-/**
-    The card view — now the only one at every width. Only the title links; a
-    whole-card click would swallow the checkbox and the actions menu.
- */
-function AutorunCard({
-  autorun,
-  names,
-  now,
-  selected,
-  onToggle,
-}: {
-  readonly autorun: Autorun
-  readonly names: NameMaps
-  readonly now: Date
-  readonly selected: boolean
-  readonly onToggle: (id: number) => void
-}) {
-  const countdown = countdownFor(autorun, now)
-  const windowText = formatWindow(autorun.start_time, autorun.end_time)
-  const issue = autorunIssue(autorun)
-  const owner = autorun.requester_user_token
-  const resolver = resolveEntityName(autorun.resolver_name, names.resolvers, autorun.resolver_id)
-  const engine = resolveEntityName(autorun.engine_name, names.engines, autorun.engine_id)
-  const profile = resolveEntityName(autorun.profile_name, names.profiles, autorun.profile_id)
-  const naming = mapNaming({
-    engines: names.engines ?? new Map<number, string>(),
-    resolvers: names.resolvers ?? new Map<number, string>(),
-    profiles: names.profiles ?? new Map<number, string>(),
-  })
-  const fallbacks = chainOf(autorun).map((rung) => rungLabel(rung, naming))
-
-  return (
-    <article
-      className="entity-card flex flex-col gap-3 p-4 border border-line rounded-md bg-surface-2 data-[selected=true]:bg-[var(--accent-dim)] data-[selected=true]:shadow-[inset_2px_0_0_var(--accent)]"
-      data-selected={selected}
-      data-issue={issue?.code ?? undefined}
-    >
-      <div className="flex flex-col gap-1 min-w-0">
-        <Link
-          className="text-md font-semibold text-ink [overflow-wrap:anywhere]"
-          to="/autoruns/$autorunId"
-          params={{ autorunId: String(autorun.id) }}
-        >
-          {autorun.user_friendly_name}
-        </Link>
-        <div className="text-sm text-ink-muted [&>span]:block">
-          <Tag
-            className="w-fit max-w-full overflow-hidden text-ellipsis"
-            title={autorun.snake_case_name}
-          >
-            {autorun.snake_case_name}
-          </Tag>
-        </div>
-      </div>
-
-      {issue === null ? null : (
-        <p className="flex items-start gap-2 rounded-md border border-[rgba(227,179,65,0.35)] bg-warning-dim px-2.5 py-2 text-[13px] leading-snug font-medium text-warning">
-          <IconAlert size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
-          {issue.title}
-        </p>
-      )}
-
-      <div className="rounded-md border border-line bg-surface-3 px-3 py-2.5 flex flex-col gap-0.5">
-        {windowText === null ? (
-          <span className="text-dim text-sm">—</span>
-        ) : (
-          <>
-            <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-dim">
-              {windowText.date}
-            </span>
-            <span className="text-base font-semibold leading-snug text-ink">
-              {windowText.time}
-              <span className="ml-1.5 align-middle text-[11px] font-normal text-dim whitespace-nowrap">
-                stored UTC
-              </span>
-            </span>
-          </>
-        )}
-        {countdown === null ? null : (
-          <span className="mt-1 inline-flex items-center gap-1.5 text-[13px] text-ink-muted">
-            <IconClock size={14} className="shrink-0 text-brand" />
-            {countdown}
-          </span>
-        )}
-      </div>
-
-      <div className="flex flex-col gap-0.5 min-w-0 text-[13px] leading-snug">
-        <span className="text-ink [overflow-wrap:anywhere]">
-          {resolver}
-          <span className="text-dim" aria-hidden="true">
-            {" → "}
-          </span>
-          {engine}
-        </span>
-        <span className="text-xs text-dim" title={fallbacks.length > 0 ? `Fallbacks: ${fallbacks.join(" → ")}` : undefined}>
-          {profile}
-          {fallbacks.length > 0 ? (
-            <span className="text-ink-muted">
-              {" "}
-              · {fallbacks.length} fallback{fallbacks.length === 1 ? "" : "s"}
-            </span>
-          ) : null}
-          {__ADMIN__ ? (
-            <>
-              <span aria-hidden="true">{" • "}</span>
-              <span className="mono">
-                {owner !== undefined && owner !== "" ? owner : "—"}
-              </span>
-            </>
-          ) : null}
-        </span>
-      </div>
-
-      <div className="flex items-center gap-3 border-t border-line pt-3 mt-auto">
-        <StatusChip status={autorun.status} />
-        {autorun.recording === true ? <Tag accent>REC</Tag> : null}
-        <div className="flex-1" />
-        <Checkbox
-          aria-label={`Select ${autorun.user_friendly_name}`}
-          checked={selected}
-          onChange={() => onToggle(autorun.id)}
-        />
-        <AccessButton resourceType="autorun" id={autorun.id} label={autorun.user_friendly_name} />
-        <AutorunActionsMenu autorun={autorun} />
-      </div>
-    </article>
-  )
-}
-
-/** Card-shaped shimmer for the first paint, matching the grid it replaces. */
-function SkeletonCards({ count = 6 }: { readonly count?: number }) {
-  return (
-    <div
-      className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4 items-start"
-      aria-busy="true"
-      aria-label="Loading scheduled recordings"
-    >
-      {Array.from({ length: count }, (_, index) => (
-        <div
-          key={index}
-          className="entity-card flex flex-col gap-3 p-4 border border-line rounded-md bg-surface-2"
-        >
-          <Skeleton width="38%" />
-          <Skeleton width="62%" />
-          <Skeleton width="52%" />
-          <Skeleton width="72%" />
-        </div>
-      ))}
-    </div>
-  )
-}
-
 export function AutorunsListView() {
   const queryClient = useQueryClient()
-  const [tokens, setTokens] = useState<readonly FilterToken[]>(() => [...DEFAULT_FILTER])
+  const [token, setToken] = useState<FilterToken>("all")
   const [search, setSearch] = useState("")
+  const [sort, setSort] = useState<SortKey>("soonest")
+  const [selectMode, setSelectMode] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
   const [bulkProfileOpen, setBulkProfileOpen] = useState(false)
-  const selection = useSelection<number>()
   const names = useNameMaps()
-  const now = useNowTick()
 
   const list = useEntityList<Autorun>({
-    queryKey: queryKeys.autoruns({ filter: tokens.join("+") }),
+    queryKey: queryKeys.autoruns({ filter: token }),
     fetchPage: (cursor) => fetchAutorunPage(cursor),
   })
   const { hasMore, isFetching, loadingAll, loadAll } = list
-  const autoExhaust = shouldAutoExhaust(tokens)
+  const autoExhaust = shouldAutoExhaust([token])
 
   // Non-`all` filters are a client-side scope over the whole (small) set.
   useEffect(() => {
@@ -292,19 +135,26 @@ export function AutorunsListView() {
     void loadAll().catch(() => undefined)
   }, [autoExhaust, hasMore, loadingAll, isFetching, loadAll])
 
-  // The filter buttons are a hard scope; the search term only ranks what's left,
-  // so the soonest-first order the rows come in is the tie-break.
+  // The filter is a hard scope; the search term only ranks what is left, so the
+  // chosen sort stays the tie-break.
   const rows = useMemo(
     () =>
       rankBySearch(
-        [...list.items.filter((autorun) => matchesFilter(autorun.status, tokens))].sort(bySoonest),
+        [...list.items.filter((autorun) => matchesFilter(autorun.status, [token]))].sort(
+          sort === "name" ? byName : bySoonest,
+        ),
         search,
         autorunSearchFields,
       ),
-    [list.items, tokens, search],
+    [list.items, token, sort, search],
   )
 
   const rowIds = useMemo(() => rows.map((autorun) => autorun.id), [rows])
+  // Selection is scoped to the cards on screen: a filter or a narrower search
+  // drops the ids it hides, so "Delete 4 selected" can never mean two you
+  // cannot see.
+  const selection = useScopedSelection(rowIds)
+
   const selectedAutoruns = rows.filter((autorun) => selection.has(autorun.id))
   const selectedIds = selectedAutoruns.map((autorun) => autorun.id)
   const access = useBulkAccessAction(
@@ -336,18 +186,18 @@ export function AutorunsListView() {
       }
       void queryClient.invalidateQueries({ queryKey: queryRoots.autoruns })
       if (failed.length === 0) {
-        toast.success("Scheduled recordings deleted", `${deleted.length} removed`)
+        toast.success("Autoruns deleted", `${deleted.length} removed`)
       } else if (deleted.length === 0) {
         toast.error("Nothing was deleted", `${failed.length} could not be removed`)
       } else {
         toast.success(
-          "Scheduled recordings partly deleted",
+          "Autoruns partly deleted",
           `${deleted.length} removed, ${failed.length} skipped`,
         )
       }
       selection.setMany(failed)
     },
-    onError: (error) => toast.error("Could not delete the recordings", getErrorMessage(error, "Request failed")),
+    onError: (error) => toast.error("Could not delete the autoruns", getErrorMessage(error, "Request failed")),
   })
 
   const bulkExport = useMutation({
@@ -357,13 +207,13 @@ export function AutorunsListView() {
     },
     onSuccess: (bundle, targets) => {
       if (downloadJson(`autoruns-${targets.length}.json`, bundle)) {
-        toast.success("Scheduled recordings exported", `${targets.length} bundled`)
+        toast.success("Autoruns exported", `${targets.length} bundled`)
         selection.clear()
       } else {
         toast.error("Export failed", "The download could not be started.")
       }
     },
-    onError: (error) => toast.error("Could not export the recordings", getErrorMessage(error, "Request failed")),
+    onError: (error) => toast.error("Could not export the autoruns", getErrorMessage(error, "Request failed")),
   })
 
   const bulkSetProfile = useMutation({
@@ -392,14 +242,11 @@ export function AutorunsListView() {
     onSuccess: ({ updated, failed }) => {
       void queryClient.invalidateQueries({ queryKey: queryRoots.autoruns })
       if (failed.length === 0) {
-        toast.success("Profile set", `${updated} scheduled recording${updated === 1 ? "" : "s"} updated`)
+        toast.success("Profile set", `${updated} autorun${updated === 1 ? "" : "s"} updated`)
       } else if (updated === 0) {
         toast.error("Profile not set", `${failed.length} could not be updated — ${failed[0].reason}`)
       } else {
-        toast.success(
-          "Profile partly set",
-          `${updated} updated, ${failed.length} not — ${failed[0].reason}`,
-        )
+        toast.success("Profile partly set", `${updated} updated, ${failed.length} not — ${failed[0].reason}`)
       }
       selection.clear()
       setBulkProfileOpen(false)
@@ -407,177 +254,203 @@ export function AutorunsListView() {
     onError: (error) => toast.error("Could not set the profile", getErrorMessage(error, "Request failed")),
   })
 
-  const selectAllRows = async () => {
-    const all = list.hasMore ? await list.loadAll() : list.items
-    const matched = rankBySearch(
-      all.filter((autorun) => matchesFilter(autorun.status, tokens)),
-      search,
-      autorunSearchFields,
-    )
-    selection.setMany(matched.map((autorun) => autorun.id))
-  }
-
-  // The grid's head row: select-all plus how many the filter left.
-  const selectAllCheckbox = (
-    <Checkbox
-      aria-label="Select all scheduled recordings"
-      checked={selection.allSelected(rowIds)}
-      onChange={(event) => {
-        if (!event.target.checked) {
-          selection.clear()
-          return
-        }
-        void selectAllRows().catch(() => undefined)
-      }}
-    />
-  )
-
-  const toggleToken = (token: FilterToken) => {
+  const changeFilter = (next: FilterToken) => {
+    setToken(next)
     selection.clear()
-    if (token === "all") {
-      setTokens(["all"])
-      return
-    }
-    const without = tokens.filter((value) => value !== "all" && value !== token)
-    const next = tokens.includes(token) ? without : [...without, token]
-    setTokens(next.length === 0 ? ["all"] : next)
   }
 
-  return (
-    <Page
-      title="Autoruns"
-      description="Scheduled recordings, soonest first. A scheduled recording runs once at its start time and then retires — status filtering and search apply to the rows loaded so far."
-      actions={
-        <Button variant="primary" className="max-sm:hidden" icon={<IconPlus size={16} />} onClick={() => setCreateOpen(true)}>
-          New scheduled recording
-        </Button>
-      }
-    >
-      <Fab label="New scheduled recording" icon={<IconPlus size={22} />} onClick={() => setCreateOpen(true)} />
+  const toggleSelectMode = () => {
+    setSelectMode((current) => {
+      if (current) selection.clear()
+      return !current
+    })
+  }
 
-      <div className="flex items-center gap-2 flex-wrap">
-        <div className="flex items-center gap-3">
-          {FILTER_TOKENS.map((token) => (
-            <Button
-              key={token}
-              size="sm"
-              variant={tokens.includes(token) ? "primary" : "outline"}
-              aria-pressed={tokens.includes(token)}
-              onClick={() => toggleToken(token)}
-            >
-              {FILTER_LABELS[token]}
-            </Button>
-          ))}
-        </div>
-        <div className="flex-1" />
-        <div className="relative flex-1 min-w-[200px] max-w-[340px] [&_input]:pl-8">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none" aria-hidden="true">
+  const allSelected = selection.allSelected(rowIds)
+  const someSelected = selection.someSelected(rowIds)
+
+  const toolbar = (
+    <PageToolbar
+      filters={
+        <FilterSegmented
+          items={FILTER_ITEMS}
+          value={token}
+          onChange={changeFilter}
+          ariaLabel="Filter autoruns by status"
+        />
+      }
+      search={
+        <div className="relative [&_input]:pl-8">
+          <span
+            className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-ink-faint"
+            aria-hidden="true"
+          >
             <IconSearch size={15} />
           </span>
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Filter by name, slug, engine, status…"
-            aria-label="Filter scheduled recordings"
+            aria-label="Filter autoruns"
           />
         </div>
-        <Button variant="ghost" size="sm" icon={<IconRefresh size={15} />} loading={isFetching} onClick={list.refetch}>
-          Refresh
-        </Button>
-      </div>
-
-      {list.isLoading ? (
-        <SkeletonCards />
-      ) : list.isError ? (
-        <ErrorPanel
-          message={getErrorMessage(list.error, "Could not load scheduled recordings")}
-          onRetry={list.refetch}
-        />
-      ) : rows.length === 0 ? (
-        <EmptyState
-          icon={<IconAutoruns size={22} />}
-          title={list.items.length === 0 ? "No scheduled recordings." : "Nothing matches this filter"}
-          text={
-            list.items.length === 0
-              ? "A scheduled recording runs once at its start time and then retires."
-              : "Widen the status filter or clear the search box."
-          }
-          action={
-            list.items.length === 0 ? (
-              <Button variant="primary" icon={<IconPlus size={16} />} onClick={() => setCreateOpen(true)}>
-                New scheduled recording
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : (
+      }
+      sort={
+        <Select
+          value={sort}
+          aria-label="Sort autoruns"
+          onChange={(event) => setSort(event.target.value === "name" ? "name" : "soonest")}
+        >
+          {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
+            <option key={key} value={key}>
+              {SORT_LABELS[key]}
+            </option>
+          ))}
+        </Select>
+      }
+      count={`${rows.length} autorun${rows.length === 1 ? "" : "s"}`}
+      select={
         <>
-          <div className="flex items-center gap-3 px-1">
-            {selectAllCheckbox}
-            <span className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
-              {rows.length} scheduled recording{rows.length === 1 ? "" : "s"}
-            </span>
-          </div>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4 items-stretch">
-            {rows.map((autorun) => (
-              <AutorunCard
-                key={autorun.id}
-                autorun={autorun}
-                names={names}
-                now={now}
-                selected={selection.has(autorun.id)}
-                onToggle={selection.toggle}
-              />
-            ))}
-          </div>
-          {selection.count > 0 ? (
-            <BulkBar
-              nextToFab
-              count={selectedIds.length}
-              onClear={selection.clear}
-              actions={[
-                {
-                  key: "profile",
-                  label: "Set profile",
-                  icon: <IconProfiles size={15} />,
-                  onClick: () => setBulkProfileOpen(true),
-                },
-                ...(access.action === null ? [] : [access.action]),
-                {
-                  key: "export",
-                  label: "Export selected",
-                  icon: <IconDownload size={15} />,
-                  loading: bulkExport.isPending,
-                  onClick: () => bulkExport.mutate(selectedAutoruns),
-                },
-                {
-                  key: "delete",
-                  label: "Delete selected",
-                  icon: <IconTrash size={15} />,
-                  danger: true,
-                  loading: bulkRemove.isPending,
-                  onClick: () => setBulkDeleteOpen(true),
-                },
-              ]}
+          {selectMode ? (
+            <Checkbox
+              aria-label="Select all autoruns"
+              checked={allSelected}
+              indeterminate={someSelected && !allSelected}
+              onChange={(event) => {
+                if (event.target.checked) selection.setMany(rowIds)
+                else selection.clear()
+              }}
             />
           ) : null}
-          {access.dialog}
-          <LoadMore
-            hasMore={hasMore}
-            isFetching={isFetching}
-            onLoadMore={list.loadMore}
-            onLoadAll={() => void loadAll().catch(() => undefined)}
-            loadingAll={loadingAll}
-            count={rows.length}
-          />
+          <Button
+            size="sm"
+            variant={selectMode ? "secondary" : "ghost"}
+            aria-pressed={selectMode}
+            onClick={toggleSelectMode}
+          >
+            Select
+          </Button>
         </>
-      )}
+      }
+      refresh={
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={<IconRefresh size={15} />}
+          loading={isFetching}
+          onClick={list.refetch}
+        >
+          Refresh
+        </Button>
+      }
+      note={<TimeZoneNote />}
+    />
+  )
+
+  return (
+    <Page
+      title="Autoruns"
+      description="One-shot schedules, soonest first. An autorun starts at its start time, records once, then retires — the filter and the search apply to the rows loaded so far."
+      actions={
+        <Button
+          variant="primary"
+          className="max-sm:hidden"
+          icon={<IconPlus size={16} />}
+          onClick={() => setCreateOpen(true)}
+        >
+          New autorun
+        </Button>
+      }
+    >
+      <Fab label="New autorun" icon={<IconPlus size={22} />} onClick={() => setCreateOpen(true)} />
+
+      {toolbar}
+
+      <QueryState
+        query={list}
+        loading={<CardGridSkeleton media={false} label="Loading autoruns" />}
+        isEmpty={rows.length === 0}
+        empty={
+          <EmptyState
+            icon={<IconAutoruns size={22} />}
+            title={list.items.length === 0 ? "No autoruns yet." : "Nothing matches this filter"}
+            text={
+              list.items.length === 0
+                ? "An autorun records a stream at a set time, runs once, then retires."
+                : "Widen the status filter or clear the search box."
+            }
+            action={
+              list.items.length === 0 ? (
+                <Button variant="primary" icon={<IconPlus size={16} />} onClick={() => setCreateOpen(true)}>
+                  New autorun
+                </Button>
+              ) : undefined
+            }
+          />
+        }
+        errorMessage="Could not load autoruns"
+        onRetry={list.refetch}
+      >
+        <CardGrid rowHeight={250} label="Autoruns">
+          {rows.map((autorun) => (
+            <AutorunCard
+              key={autorun.id}
+              autorun={autorun}
+              names={names}
+              selected={selection.has(autorun.id)}
+              selectMode={selectMode}
+              onToggle={selection.toggle}
+            />
+          ))}
+        </CardGrid>
+
+        {selection.count > 0 ? (
+          <BulkBar
+            nextToFab
+            count={selectedIds.length}
+            onClear={selection.clear}
+            actions={[
+              {
+                key: "profile",
+                label: "Set profile",
+                icon: <IconProfiles size={15} />,
+                onClick: () => setBulkProfileOpen(true),
+              },
+              ...(access.action === null ? [] : [access.action]),
+              {
+                key: "export",
+                label: "Export selected",
+                icon: <IconDownload size={15} />,
+                loading: bulkExport.isPending,
+                onClick: () => bulkExport.mutate(selectedAutoruns),
+              },
+              {
+                key: "delete",
+                label: "Delete selected",
+                icon: <IconTrash size={15} />,
+                danger: true,
+                loading: bulkRemove.isPending,
+                onClick: () => setBulkDeleteOpen(true),
+              },
+            ]}
+          />
+        ) : null}
+        {access.dialog}
+        <LoadMore
+          hasMore={hasMore}
+          isFetching={isFetching}
+          onLoadMore={list.loadMore}
+          onLoadAll={() => void loadAll().catch(() => undefined)}
+          loadingAll={loadingAll}
+          count={rows.length}
+        />
+      </QueryState>
 
       <ConfirmDialog
         open={bulkDeleteOpen}
         onClose={() => setBulkDeleteOpen(false)}
-        title={`Delete ${selectedIds.length} selected scheduled recording${selectedIds.length === 1 ? "" : "s"}?`}
-        description="A scheduled recording that has already run cannot be deleted — only upcoming ones can."
+        title={`Delete ${selectedIds.length} selected autorun${selectedIds.length === 1 ? "" : "s"}?`}
+        description="An autorun that has already run cannot be deleted — only upcoming ones can."
         confirmLabel="Delete"
         danger
         onConfirm={async () => {

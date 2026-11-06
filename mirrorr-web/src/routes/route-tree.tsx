@@ -3,6 +3,7 @@ import { ensureAuthMe, getAuthState } from "@/api"
 import { AppShell } from "@/ui/chrome/app-shell"
 import { AutorunDetailView } from "@/ui/views/autoruns/autorun-detail"
 import { AutorunsListView } from "@/ui/views/autoruns/autoruns-list"
+import { DesignView } from "@/ui/views/design/design-view"
 import { LoginView } from "@/ui/views/auth/login-view"
 import { NotFoundView } from "@/ui/views/auth/not-found-view"
 import { RegisterView } from "@/ui/views/auth/register-view"
@@ -43,6 +44,7 @@ const appLayout = createRoute({
     if (getAuthState().status !== "authenticated") throw redirect({ to: "/login" })
   },
   component: AppShell,
+  notFoundComponent: NotFoundView,
 })
 
 const indexRoute = createRoute({
@@ -104,6 +106,14 @@ const importExportRoute = createRoute({
   component: ImportExportView,
 })
 const settingsRoute = createRoute({ getParentRoute: () => appLayout, path: "/settings", component: SettingsView })
+// A URL under the app that matches no route still belongs to the app: the
+// splat renders the 404 inside the shell, so the sidebar and top bar remain the
+// way out. Without it the root not-found component paints a bare page.
+const notFoundRoute = createRoute({ getParentRoute: () => appLayout, path: "$", component: NotFoundView })
+
+
+/** Primitive gallery — every card slot state in one place (`/design`). */
+const designRoute = createRoute({ getParentRoute: () => appLayout, path: "/design", component: DesignView })
 
 export const routeTree = rootRoute.addChildren([
   indexRoute,
@@ -118,5 +128,7 @@ export const routeTree = rootRoute.addChildren([
     pluginsRoute,
     importExportRoute,
     settingsRoute,
+    designRoute,
+    notFoundRoute,
   ]),
 ])

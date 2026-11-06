@@ -55,7 +55,7 @@ export function Hash({ value, label = "Value", className }: HashProps) {
       className={cn(HASH_CLASS, "tab-stop", className)}
       data-copied={copied}
       title={`${value} — click to copy`}
-      aria-label={`Copy ${label}`}
+      aria-label={`Copy ${label}: ${value}`}
       onClick={() => void copy()}
     >
       <code className={HASH_TEXT_CLASS}>{value}</code>

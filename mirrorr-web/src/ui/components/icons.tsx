@@ -217,6 +217,19 @@ export const IconAlert = makeIcon(
     <path d="M12 9v4M12 17h.01" />
   </>,
 )
+export const IconEye = makeIcon(
+  <>
+    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+    <circle cx="12" cy="12" r="3" />
+  </>,
+)
+export const IconEyeOff = makeIcon(
+  <>
+    <path d="M9.9 5.2A10.5 10.5 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.1" />
+    <path d="M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a10 10 0 0 0 4.4-1" />
+    <path d="m3 3 18 18" />
+  </>,
+)
 export const IconInfo = makeIcon(
   <>
     <circle cx="12" cy="12" r="9" />

@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState, type FormEvent } from "react"
-import { Link, useNavigate } from "@tanstack/react-router"
+import { useNavigate } from "@tanstack/react-router"
 import { getErrorMessage, login } from "@/api"
 import { ApiError } from "@/api/client"
 import { useAuthStatus } from "@/api/hooks"
 import { isNativeShell, readHostCredential } from "@/api/native"
-import { Banner, Button, Field, IconDisc, Input, Panel, PanelBody, useFocusScope } from "@/ui/components"
+import { Button, Field, Input, PasswordInput, Skeleton } from "@/ui/components"
+import { useCapsLock } from "@/ui/hooks"
 import { landAfterAuth } from "./landing"
+import { AuthError, AuthLink, AuthShell } from "./auth-shell"
 
 export function LoginView() {
   const navigate = useNavigate()
   const authStatus = useAuthStatus()
+  const capsLock = useCapsLock()
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
@@ -17,7 +20,6 @@ export function LoginView() {
   const [busy, setBusy] = useState(false)
   const [autoUsername, setAutoUsername] = useState<string | null>(null)
   const autoLoginTried = useRef(false)
-  const scope = useFocusScope<HTMLFormElement>()
 
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
@@ -56,76 +58,73 @@ export function LoginView() {
     })()
   }, [navigate])
 
-  // No users yet → /register bootstraps the first admin; once users exist the
-  // same page files a registration request an admin must approve. Either way it
-  // is the only way in, so the link always renders and only the copy adapts.
+  // `/auth/status` decides whether the second door creates the first admin or
+  // files a request. Rendering a label before it resolves makes the link flip
+  // under the pointer, so the footer keeps its space and stays silent until the
+  // answer is in.
+  const statusKnown = authStatus.isLoading !== true && authStatus.status !== undefined
   const isFirstUser = authStatus.status?.has_users === false
 
   return (
-    <div className="grid place-items-center min-h-dvh px-4 pt-6 pb-6 bg-canvas">
-      <div className="w-full max-w-[400px] flex flex-col gap-4">
-        <div className="flex items-center justify-center gap-3 mb-2">
-          <span className="grid place-content-center w-7 h-7 rounded-sm text-brand-ink shrink-0 [background:linear-gradient(140deg,var(--accent)_0%,var(--accent-press)_100%)]">
-            <IconDisc size={18} />
-          </span>
-          <div>
-            <div className="text-md font-bold tracking-[-0.02em]">Mirrorr</div>
-            <div className="text-2xs text-ink-dim uppercase tracking-[0.08em] [font-family:var(--font-mono)]">Control Room</div>
-          </div>
-        </div>
-        <Panel>
-          <PanelBody>
-            {autoUsername !== null ? (
-              <p className="text-sm text-ink-muted">
-                Signing in as <strong className="text-ink">{autoUsername}</strong>…
-              </p>
-            ) : (
-              <form
-                ref={scope.ref}
-                onKeyDown={scope.onKeyDown}
-                className="flex flex-col gap-4"
-                onSubmit={(event) => void onSubmit(event)}
-                noValidate
-              >
-                {error !== null ? <Banner kind="danger" title={error} /> : null}
-                <Field label="Username" htmlFor="login-username" required error={fieldErrors.username ?? null}>
-                  <Input
-                    id="login-username"
-                    name="username"
-                    autoComplete="username"
-                    autoFocus
-                    value={username}
-                    onChange={(event) => setUsername(event.target.value)}
-                  />
-                </Field>
-                <Field label="Password" htmlFor="login-password" required error={fieldErrors.password ?? null}>
-                  <Input
-                    id="login-password"
-                    name="password"
-                    type="password"
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                  />
-                </Field>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  block
-                  loading={busy}
-                  disabled={username.trim() === "" || password === ""}
-                >
-                  Sign in
-                </Button>
-              </form>
-            )}
-          </PanelBody>
-        </Panel>
-        <div className="flex justify-center gap-2 text-sm text-ink-muted">
-          <span>{isFirstUser ? "No account yet?" : "Need an account?"}</span>
-          <Link to="/register">{isFirstUser ? "Create the first user" : "Request access"}</Link>
-        </div>
-      </div>
-    </div>
+    <AuthShell
+      footer={
+        statusKnown ? (
+          <>
+            <span>{isFirstUser ? "No account yet?" : "Need an account?"}</span>
+            <AuthLink to="/register">{isFirstUser ? "Create the first user" : "Request access"}</AuthLink>
+            <span className="px-2 text-sm text-dim">Forgotten it? An administrator can reset it.</span>
+          </>
+        ) : (
+          <Skeleton width={220} height={16} />
+        )
+      }
+    >
+      {autoUsername !== null ? (
+        <p className="text-base text-ink-muted">
+          Signing in as <strong className="text-ink">{autoUsername}</strong>…
+        </p>
+      ) : (
+        <form className="flex flex-col gap-4" onSubmit={(event) => void onSubmit(event)} noValidate>
+          <AuthError message={error} />
+          <Field label="Username" htmlFor="login-username" required error={fieldErrors.username ?? null}>
+            <Input
+              id="login-username"
+              name="username"
+              className="h-11"
+              autoComplete="username"
+              autoFocus
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+            />
+          </Field>
+          <Field
+            label="Password"
+            htmlFor="login-password"
+            required
+            error={fieldErrors.password ?? null}
+            hint={capsLock ? "Caps Lock is on." : undefined}
+          >
+            <PasswordInput
+              id="login-password"
+              name="password"
+              className="h-11"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </Field>
+          <Button
+            type="submit"
+            variant="primary"
+            block
+            className="min-h-11"
+            loading={busy}
+            disabled={username.trim() === "" || password === ""}
+          >
+            Sign in
+          </Button>
+        </form>
+      )}
+    </AuthShell>
   )
 }

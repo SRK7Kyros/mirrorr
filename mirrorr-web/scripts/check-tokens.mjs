@@ -145,10 +145,15 @@ const PINNED = {
   "--ring": "0 0 0 2px var(--bg), 0 0 0 4px var(--accent)",
 
   // ---- layout ----
+  // 1240 px keeps three 400 px cards plus gutters on a 1440 screen; the pin
+  // moved with the card grid (was 1400 px for the old max-width page).
   "--sidebar-w": "236px",
   "--sidebar-rail-w": "64px",
   "--topbar-h": "56px",
-  "--content-max": "1400px",
+  "--content-max": "1240px",
+  "--card-min": "300px",
+  "--card-max": "400px",
+  "--control-border": "#6e6e7a",
   "--bottomnav-h": "56px",
 
   // ---- motion ----

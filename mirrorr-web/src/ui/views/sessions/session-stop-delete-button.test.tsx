@@ -6,9 +6,7 @@ import { SessionStopDeleteButton } from "./session-stop-delete-button"
 
 const api = vi.hoisted(() => ({
   stopSession: vi.fn().mockResolvedValue(undefined),
-  deleteSession: vi.fn().mockResolvedValue(undefined),
   getErrorMessage: vi.fn((_error: unknown, fallback: string) => fallback),
-  removeFromInfiniteLists: vi.fn(),
 }))
 
 vi.mock("@/api", () => api)
@@ -30,21 +28,31 @@ function renderButton(overrides: Partial<Session> = {}) {
 
 beforeEach(() => {
   api.stopSession.mockClear()
-  api.deleteSession.mockClear()
 })
 
 describe("SessionStopDeleteButton", () => {
-  it("stops a live session", async () => {
-    renderButton({ status: "recording" })
-    fireEvent.click(screen.getByRole("button", { name: /stop session #7/i }))
+  it("is one labelled verb and confirms, naming the run, before stopping", async () => {
+    renderButton({ status: "recording", autorun_name: "F1 Weekend" })
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording session #7" }))
+    expect(api.stopSession).not.toHaveBeenCalled()
+
+    expect(screen.getByText("Stop recording session #7?")).toBeTruthy()
+    expect(screen.getByText(/“F1 Weekend” ends its capture now/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }))
     await waitFor(() => expect(api.stopSession).toHaveBeenCalledWith(7))
   })
 
-  it("asks before deleting a spent session", () => {
+  it("confirms without a name when the run has none", () => {
+    renderButton({ status: "initializing" })
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording session #7" }))
+    expect(screen.getByText(/The capture ends now and the file written so far is kept/)).toBeTruthy()
+  })
+
+  it("renders nothing once the run is spent — delete lives in the overflow", () => {
     renderButton({ status: "completed" })
-    fireEvent.click(screen.getByRole("button", { name: /delete session #7/i }))
-    expect(api.deleteSession).not.toHaveBeenCalled()
-    expect(screen.getByText("Delete session #7?")).toBeTruthy()
+    expect(screen.queryByRole("button")).toBeNull()
   })
 
   it("renders nothing for a status with no terminal action", () => {

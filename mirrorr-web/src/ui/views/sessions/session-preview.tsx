@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
 import { cn } from "@/ui/lib/cn";
 
@@ -17,6 +17,11 @@ function prefersReducedMotion(): boolean {
  * Playback starts on MANIFEST_PARSED (`canplay` for native sources), never
  * blindly after attach: playing before the manifest is ready is what used to
  * leave hovered cards stuck on a loaded-but-paused frame.
+ *
+ * A stream that cannot be fetched says so. Before `REC-05` the box stayed
+ * black with a play glyph over it, which reads as "still loading" forever; now
+ * the first fatal hls error (or the element's own `error`) replaces the frame
+ * with one line of prose, and it resets when the src changes.
  */
 export function SessionPreview({
   src,
@@ -33,15 +38,21 @@ export function SessionPreview({
 }) {
   const ref = useRef<HTMLVideoElement>(null);
   const activeRef = useRef(active);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     activeRef.current = active;
   }, [active]);
 
   useEffect(() => {
+    setFailed(false);
+  }, [src]);
+
+  useEffect(() => {
     const video = ref.current;
     if (video === null || src === null || !load) return;
 
+    const fail = () => setFailed(true);
     let hls: Hls | null = null;
     let cancelled = false;
     const tryPlay = () => {
@@ -54,6 +65,8 @@ export function SessionPreview({
       // A progressive media file, or HLS that Safari/iOS play natively — the
       // element handles both without hls.js.
       video.src = src;
+      video.addEventListener("error", fail);
+      cleanups.push(() => video.removeEventListener("error", fail));
       if (video.readyState >= 3) {
         tryPlay();
       } else {
@@ -67,6 +80,9 @@ export function SessionPreview({
         capLevelToPlayerSize: true,
       });
       hls.on(Hls.Events.MANIFEST_PARSED, tryPlay);
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (data.fatal) fail();
+      });
       hls.loadSource(src);
       hls.attachMedia(video);
     } else {
@@ -95,6 +111,7 @@ export function SessionPreview({
   }, [src, load, active]);
 
   return (
+    <>
     <video
       ref={ref}
       className={cn(
@@ -109,6 +126,16 @@ export function SessionPreview({
       preload="metadata"
       aria-hidden="true"
       tabIndex={-1}
+      data-failed={failed}
     />
+    {failed ? (
+      <span
+        data-slot="preview-fallback"
+        className="absolute inset-0 grid place-content-center bg-sunken px-3 text-center text-sm text-ink-muted"
+      >
+        Preview unavailable — open it to watch
+      </span>
+    ) : null}
+    </>
   );
 }

@@ -33,7 +33,7 @@ function Head({ title, description, actions, level }: HeadProps) {
         ) : null}
       </div>
       {actions !== undefined ? (
-        <div className="flex flex-wrap items-center gap-2 max-[479px]:[&_[data-slot=button]]:px-3 max-[479px]:[&_[data-slot=button-label]]:hidden">
+        <div className="flex flex-wrap items-center gap-2 max-[479px]:[&_[data-slot=button]]:px-3 max-[479px]:[&_[data-slot=button-label]]:sr-only">
           {actions}
         </div>
       ) : null}
@@ -48,8 +48,11 @@ function Head({ title, description, actions, level }: HeadProps) {
 export function Page({ title, description, actions, children, className }: PageProps) {
   return (
     <main
+      id="page-main"
+      tabIndex={-1}
       className={cn(
-        "mx-auto flex w-full max-w-[var(--content-max)] flex-1 flex-col gap-5 px-5 pt-6 pb-12 max-sm:px-3 max-sm:pt-4 max-sm:pb-8",
+        "mx-auto flex w-full max-w-[var(--content-max)] flex-1 flex-col gap-5 px-5 pt-6 pb-12 outline-none",
+        "max-sm:px-3 max-sm:pt-4 max-sm:pb-[calc(var(--bottomnav-h)+var(--safe-bottom)+var(--s-4))]",
         className,
       )}
     >

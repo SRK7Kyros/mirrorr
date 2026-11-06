@@ -21,7 +21,7 @@ export interface AutorunBulkProfileDialogProps {
 }
 
 /**
- * Bulk profile picker — points every selected scheduled recording at one
+ * Bulk profile picker — points every selected autorun at one
  * profile, with the chain that run tries after its own capture. The chain
  * starts as the profile's own and is edited here, so one action can set a run's
  * whole source list across the selection.
@@ -66,7 +66,7 @@ export function AutorunBulkProfileDialog({
       onClose={onClose}
       busy={busy}
       size="lg"
-      title={`Set the profile on ${count} scheduled recording${count === 1 ? "" : "s"}`}
+      title={`Set the profile on ${count} autorun${count === 1 ? "" : "s"}`}
       description="Each selected recording adopts this profile's engine, resolver, retry policy and fallback chain. Recordings that have already run are skipped."
       footer={
         <>
