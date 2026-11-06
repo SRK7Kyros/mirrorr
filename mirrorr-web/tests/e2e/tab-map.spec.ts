@@ -17,6 +17,8 @@ interface Stop {
   marked: boolean
   skipped: boolean
   guard: boolean
+  /** `tabindex="-1"`: focusable by script only, never by Tab. */
+  programmatic: boolean
 }
 
 async function readStop(page: Page): Promise<Stop | null> {
@@ -37,6 +39,7 @@ async function readStop(page: Page): Promise<Stop | null> {
       marked: active.classList.contains("tab-stop"),
       skipped: active.closest(".tab-skip") !== null,
       guard: active.hasAttribute("data-radix-focus-guard"),
+      programmatic: active.tabIndex < 0,
     }
   })
 }
@@ -44,14 +47,16 @@ async function readStop(page: Page): Promise<Stop | null> {
 /** Presses Tab until the order wraps, and returns every stop it landed on. */
 async function walk(page: Page, limit = 80): Promise<Stop[]> {
   const stops: Stop[] = []
+  // A route change focuses `#page-main` (tabindex="-1") so the new page is
+  // announced; that is a programmatic target, not a stop the user tabs to.
   const start = await readStop(page)
-  if (start !== null && !start.guard) stops.push(start)
+  if (start !== null && !start.guard && !start.programmatic) stops.push(start)
   for (let index = 0; index < limit; index += 1) {
     await page.keyboard.press("Tab")
     const stop = await readStop(page)
     if (stop === null) break
     // Radix's focus guards are the machinery behind its modal trap, not stops.
-    if (stop.guard) continue
+    if (stop.guard || stop.programmatic) continue
     if (stops.length > 0 && stop.tag === stops[0].tag && stop.label === stops[0].label) break
     stops.push(stop)
   }
@@ -113,13 +118,15 @@ test.describe("tab-stop map", () => {
       "/autoruns",
       "/recordings",
       "/profiles",
-      "/presets",
       "/plugins",
       "/import-export",
       "/settings",
     ]) {
       await page.goto(route)
-      await expect(page.getByRole("heading", { level: 1 })).toBeVisible()
+      await expect(
+        page.getByRole("heading", { level: 1 }),
+        `no h1 on ${route}`,
+      ).toBeVisible()
       expect(await strayStops(page), `unmarked stops on ${route}`).toEqual([])
     }
   })
@@ -245,7 +252,9 @@ test.describe("tab-stop map", () => {
     await expect(page).toHaveURL(/\/login/)
     await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible()
     await page.getByLabel("Username").fill("kyros")
-    await page.getByLabel("Password").fill("hunter2")
+    // The required marker lives inside the <label>, so the label text is
+    // "Password*" — anchor instead of matching exactly.
+    await page.getByLabel(/^Password/).fill("hunter2")
     await page.getByLabel("Username").focus()
     await expect(page.getByRole("button", { name: "Sign in" })).toBeEnabled()
 

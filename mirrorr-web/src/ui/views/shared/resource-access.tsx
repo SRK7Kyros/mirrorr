@@ -1184,6 +1184,14 @@ export function ResourceAccessEditor({
               : "Overrides are more specific — they grant only the capabilities you pick."}
           </span>
         </div>
+        {/*
+          A capability chip that lights up View as well looks like a bug unless
+          the rule is on screen; a title attribute would only reach a pointer.
+        */}
+        <p className="text-xs text-ink-dim">
+          Any capability includes View access: granting Operate also grants View
+          access.
+        </p>
         {onModeChange === undefined ? (
           overrideRows.length === 0 ? (
             <p className="text-xs text-ink-dim">No overrides yet.</p>

@@ -1,18 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ApiError,
   createAutorun,
   getErrorMessage,
   updateAutorun,
-  useEngines,
-  useProfiles,
-  useResolvers,
   type AutorunBody,
 } from "@/api"
-import { queryKeys, queryRoots } from "@/api/query-keys"
+import { fetchAllEngines, fetchAllResolvers, fetchProfilePage } from "@/api/endpoints"
+import { fetchAllLookupPages, queryKeys, queryRoots, staleTimes } from "@/api/query-keys"
 import { isLive } from "@/api/domain/filter-grammar"
-import type { Autorun } from "@/api/schemas"
+import type { Autorun, Engine, Profile, Resolver } from "@/api/schemas"
 import { datetimeLocalToNaiveUtc, naiveUtcToDatetimeLocal, parseNaiveUtc } from "@/api/time"
 import {
   Banner,
@@ -41,16 +39,53 @@ import {
   sameChain,
   type ChainBase,
   type ChainCatalog,
-  type FallbackRung,
 } from "@/api/domain/fallback-chain"
 import {
   AccessCreation,
   useCreationAccessApplier,
 } from "@/ui/views/shared/resource-access-slot"
 import type { AccessTarget } from "@/api/domain/access-plan"
+import {
+  CatalogEmpty,
+  CatalogGate,
+  catalogBlockReason,
+  catalogLoadingLabel,
+  ENGINE_LIST_FAILED,
+  PROFILE_LIST_FAILED,
+  RESOLVER_LIST_FAILED,
+} from "./autorun-form-catalogs"
+import {
+  changedFields,
+  discardSentence,
+  draftFrom,
+  EMPTY_AUTORUN_DRAFT,
+  resolveMode,
+  type AutorunDraft,
+  type ProfileCatalogState,
+} from "./autorun-form-dirty"
+import { AutorunWindowFields } from "./autorun-form-window"
 
 /** Slug grammar enforced live in the wizard (spec §5.5). */
 const SLUG_RE = /^[a-zA-Z0-9_-]+$/
+
+/** 44 px on a coarse pointer, the sizes above elsewhere (`plan.md` §2.5). */
+const COARSE_TARGET = "[@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
+
+const REASON_ID = "autorun-submit-reason"
+
+/**
+ * Room left below the body for the footer on a phone (`P6` sticky footer).
+ * 144 px is measured, not guessed: at 375 px with a coarse pointer the footer is
+ * 128 px tall on a valid form and 149 px when its reason line wraps, and the space
+ * left below the last field at full scroll is 173–176 px, so a focused control can
+ * always be scrolled out from under the footer.
+ */
+const BODY_CLEARANCE =
+  "flex flex-col gap-4 [&_input]:scroll-mb-36 [&_select]:scroll-mb-36 [&_textarea]:scroll-mb-36"
+
+const NO_PROFILES: readonly Profile[] = []
+const NO_ENGINES: readonly Engine[] = []
+const NO_RESOLVERS: readonly Resolver[] = []
 
 /** Friendly name → URL-safe slug preview (spec §5.5 auto-slug). */
 function slugify(value: string): string {
@@ -90,14 +125,19 @@ function mapAutorunError(error: unknown): FieldIssues {
     return { general: error.message }
   }
   return {
-    general: getErrorMessage(error, "Could not save the scheduled recording"),
+    general: getErrorMessage(error, "Could not save the autorun"),
   }
 }
 
 /**
- * Create / edit wizard — one-shot schedule: name + auto-slug, local-time
- * start/end pickers (stored UTC), profile or direct config, recording toggle
- * (default on). Live runs lock the config fields and warn on a past start.
+ * One-shot schedule, in one dialog: name + auto-slug, a local-time window
+ * (stored UTC), a profile or a direct engine + resolver, an optional fallback
+ * chain, recording on by default.
+ *
+ * Three things this dialog owes the operator, all from the P6 exit criteria:
+ * catalogs that say "loading", "failed — retry" or "none" instead of an empty
+ * select (`AUT-07`); a live run's Start locked, because the server ignores it
+ * (`AUT-02`); and no close path that throws typed work away unasked.
  */
 export function AutorunFormDialog({
   open,
@@ -109,31 +149,45 @@ export function AutorunFormDialog({
   readonly autorun?: Autorun
 }) {
   const queryClient = useQueryClient()
-  const profiles = useProfiles()
-  const engines = useEngines()
-  const resolvers = useResolvers()
+  const profilesQuery = useQuery({
+    queryKey: queryKeys.profiles({ lookup: true }),
+    queryFn: () => fetchAllLookupPages((cursor) => fetchProfilePage(cursor)),
+    staleTime: staleTimes.lookup,
+  })
+  const enginesQuery = useQuery({
+    queryKey: queryKeys.engines,
+    queryFn: () => fetchAllEngines(),
+    staleTime: staleTimes.lookup,
+  })
+  const resolversQuery = useQuery({
+    queryKey: queryKeys.resolvers,
+    queryFn: () => fetchAllResolvers(),
+    staleTime: staleTimes.lookup,
+  })
+  const profiles = profilesQuery.data ?? NO_PROFILES
+  const engines = enginesQuery.data ?? NO_ENGINES
+  const resolvers = resolversQuery.data ?? NO_RESOLVERS
   const editing = autorun !== undefined
 
-  const [friendly, setFriendly] = useState("")
-  const [slug, setSlug] = useState("")
+  const [draft, setDraft] = useState<AutorunDraft>(EMPTY_AUTORUN_DRAFT)
+  const [initial, setInitial] = useState<AutorunDraft>(EMPTY_AUTORUN_DRAFT)
   const [slugTouched, setSlugTouched] = useState(false)
-  const [startLocal, setStartLocal] = useState("")
-  const [endLocal, setEndLocal] = useState("")
-  const [mode, setMode] = useState<"profile" | "custom">("profile")
-  const [profileId, setProfileId] = useState("")
-  const [chain, setChain] = useState<FallbackRung[]>([])
-  const [engineId, setEngineId] = useState("")
-  const [resolverId, setResolverId] = useState("")
-  const [resolverConfig, setResolverConfig] = useState<Record<string, unknown>>({})
   const [browseOpen, setBrowseOpen] = useState(false)
-  const [recording, setRecording] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [slugError, setSlugError] = useState<string | null>(null)
   const [timeError, setTimeError] = useState<string | null>(null)
   const [confirmEnd, setConfirmEnd] = useState(false)
-  const [access, setAccess] = useState<AccessTarget>({})
-  const applyCreation = useCreationAccessApplier()
+  /**
+   * The close that "Discard this autorun?" interrupted. The sequence number is
+   * the prompt's React key, so a second request is its own element instead of
+   * inheriting the exiting one (`P6` — same reason as the preset editor).
+   */
+  const [discard, setDiscard] = useState<{ readonly seq: number } | null>(null)
+  const discardSeq = useRef(0)
   const openedRef = useRef<string | null>(null)
+
+  const patch = (values: Partial<AutorunDraft>) =>
+    setDraft((previous) => ({ ...previous, ...values }))
 
   useEffect(() => {
     if (!open) {
@@ -143,57 +197,41 @@ export function AutorunFormDialog({
     const key = autorun === undefined ? "new" : String(autorun.id)
     if (openedRef.current === key) return
     openedRef.current = key
+    const next = draftFrom(autorun)
+    setDraft(next)
+    setInitial(next)
+    setSlugTouched(autorun !== undefined)
     setError(null)
     setSlugError(null)
     setTimeError(null)
     setConfirmEnd(false)
-    setAccess({})
-    if (autorun === undefined) {
-      setFriendly("")
-      setSlug("")
-      setSlugTouched(false)
-      setStartLocal("")
-      setEndLocal("")
-      setMode(profiles.length > 0 ? "profile" : "custom")
-      setProfileId("")
-      setChain([])
-      setEngineId("")
-      setResolverId("")
-      setResolverConfig({})
-      setRecording(true)
-      return
-    }
-    setFriendly(autorun.user_friendly_name)
-    setSlug(autorun.snake_case_name)
-    setSlugTouched(true)
-    setStartLocal(naiveUtcToDatetimeLocal(autorun.start_time))
-    setEndLocal(naiveUtcToDatetimeLocal(autorun.end_time))
-    const existingProfile = autorun.profile_id
-    setMode(existingProfile !== null && existingProfile !== undefined ? "profile" : "custom")
-    setProfileId(
-      existingProfile !== null && existingProfile !== undefined ? String(existingProfile) : "",
-    )
-    setChain(chainOf(autorun))
-    setEngineId(String(autorun.engine_id))
-    setResolverId(String(autorun.resolver_id))
-    setResolverConfig(autorun.resolver_config ?? {})
-    setRecording(autorun.recording !== false)
-  }, [open, autorun, profiles.length])
+    setDiscard(null)
+  }, [open, autorun])
 
   const live = editing && isLive(autorun.status)
-  const startInPast = startLocal !== "" && new Date(startLocal).getTime() < Date.now()
+  const hasCustomBase = draft.engineId !== "" && draft.resolverId !== ""
+  const profileCatalog: ProfileCatalogState = profilesQuery.isError
+    ? "failed"
+    : profilesQuery.isLoading
+      ? "loading"
+      : profiles.length === 0
+        ? "empty"
+        : "ready"
+  const mode = resolveMode(draft.mode, profileCatalog, hasCustomBase)
+
+  const startInPast = draft.startLocal !== "" && new Date(draft.startLocal).getTime() < Date.now()
   const endBeforeStart =
-    startLocal !== "" &&
-    endLocal !== "" &&
-    new Date(endLocal).getTime() <= new Date(startLocal).getTime()
+    draft.startLocal !== "" &&
+    draft.endLocal !== "" &&
+    new Date(draft.endLocal).getTime() <= new Date(draft.startLocal).getTime()
   const endEarlierWhileLive =
     live &&
     autorun !== undefined &&
-    endLocal !== "" &&
-    new Date(endLocal).getTime() < parseNaiveUtc(autorun.end_time).getTime()
-  const resolver = resolvers.find((item) => String(item.id) === resolverId)
+    draft.endLocal !== "" &&
+    new Date(draft.endLocal).getTime() < parseNaiveUtc(autorun.end_time).getTime()
+  const resolver = resolvers.find((item) => String(item.id) === draft.resolverId)
   const canBrowse = canBrowseResolver(resolver)
-  const chosenProfile = profiles.find((item) => String(item.id) === profileId) ?? null
+  const chosenProfile = profiles.find((item) => String(item.id) === draft.profileId) ?? null
 
   const catalog = useMemo<ChainCatalog>(
     () => ({ profiles, engines, resolvers }),
@@ -202,25 +240,26 @@ export function AutorunFormDialog({
 
   const base = useMemo<ChainBase | null>(() => {
     if (mode === "profile") return chosenProfile === null ? null : profileBase(chosenProfile)
-    if (engineId === "" || resolverId === "") return null
+    if (!hasCustomBase) return null
     return {
-      engine_id: Number(engineId),
-      resolver_id: Number(resolverId),
-      resolver_config: resolverConfig,
+      engine_id: Number(draft.engineId),
+      resolver_id: Number(draft.resolverId),
+      resolver_config: draft.resolverConfig,
     }
-  }, [mode, chosenProfile, engineId, resolverId, resolverConfig])
+  }, [mode, chosenProfile, hasCustomBase, draft.engineId, draft.resolverId, draft.resolverConfig])
 
   useEffect(() => {
     if (base === null) return
-    setChain((previous) => {
-      const next = pruneChain(previous, base, catalog)
-      return sameChain(next, previous) ? previous : next
+    setDraft((previous) => {
+      const next = pruneChain(previous.chain, base, catalog)
+      return sameChain(next, previous.chain) ? previous : { ...previous, chain: next }
     })
   }, [base, catalog])
 
-  const chainState = base === null ? null : resolveChain(chain, base, catalog)
+  const chainState = base === null ? null : resolveChain(draft.chain, base, catalog)
   const chainTrouble = chainState === null ? null : chainState.problem
   const canSubmit = chainState !== null && chainTrouble === null
+  const applyCreation = useCreationAccessApplier()
 
   const save = useMutation({
     mutationFn: async (body: AutorunBody) => {
@@ -228,10 +267,10 @@ export function AutorunFormDialog({
       const created = await createAutorun(body)
       if (applyCreation === null) return created
       try {
-        await applyCreation("autorun", created.id, access)
+        await applyCreation("autorun", created.id, draft.access)
       } catch (caught) {
         toast.error(
-          "Scheduled recording created, but its access was not set",
+          "Autorun created, but its access was not set",
           getErrorMessage(caught, "Could not set access"),
         )
       }
@@ -239,7 +278,7 @@ export function AutorunFormDialog({
     },
     onSuccess: (saved) => {
       toast.success(
-        autorun === undefined ? "Scheduled recording created" : "Scheduled recording updated",
+        autorun === undefined ? "Autorun created" : "Autorun updated",
         saved.user_friendly_name,
       )
       void queryClient.invalidateQueries({ queryKey: queryRoots.autoruns })
@@ -262,32 +301,32 @@ export function AutorunFormDialog({
     setTimeError(null)
     const initialStart = autorun === undefined ? null : naiveUtcToDatetimeLocal(autorun.start_time)
     const initialEnd = autorun === undefined ? null : naiveUtcToDatetimeLocal(autorun.end_time)
-    const rungs = chain.map(normaliseRung)
+    const rungs = draft.chain.map(normaliseRung)
     save.mutate({
-      user_friendly_name: friendly.trim(),
-      snake_case_name: slug,
+      user_friendly_name: draft.friendly.trim(),
+      snake_case_name: draft.slug,
       ...(live
         ? endEarlierWhileLive
-          ? { end_time: datetimeLocalToNaiveUtc(endLocal) }
+          ? { end_time: datetimeLocalToNaiveUtc(draft.endLocal) }
           : {}
         : {
-            ...(initialStart === null || startLocal !== initialStart
-              ? { start_time: datetimeLocalToNaiveUtc(startLocal) }
+            ...(initialStart === null || draft.startLocal !== initialStart
+              ? { start_time: datetimeLocalToNaiveUtc(draft.startLocal) }
               : {}),
-            ...(initialEnd === null || endLocal !== initialEnd
-              ? { end_time: datetimeLocalToNaiveUtc(endLocal) }
+            ...(initialEnd === null || draft.endLocal !== initialEnd
+              ? { end_time: datetimeLocalToNaiveUtc(draft.endLocal) }
               : {}),
           }),
-      recording,
+      recording: draft.recording,
       ...(mode === "profile"
         ? {
-            profile_id: Number(profileId),
+            profile_id: Number(draft.profileId),
             fallback_chain: rungs,
           }
         : {
-            engine_id: Number(engineId),
-            resolver_id: Number(resolverId),
-            resolver_config: resolverConfig,
+            engine_id: Number(draft.engineId),
+            resolver_id: Number(draft.resolverId),
+            resolver_config: draft.resolverConfig,
             fallback_chain: rungs,
           }),
     })
@@ -297,11 +336,11 @@ export function AutorunFormDialog({
     setError(null)
     setSlugError(null)
     setTimeError(null)
-    if (!SLUG_RE.test(slug)) {
+    if (!SLUG_RE.test(draft.slug)) {
       setSlugError("Use letters, numbers, hyphens and underscores only.")
       return
     }
-    if (startLocal === "" || endLocal === "") {
+    if (draft.startLocal === "" || draft.endLocal === "") {
       setTimeError("Pick a start and end time.")
       return
     }
@@ -324,32 +363,90 @@ export function AutorunFormDialog({
     persist()
   }
 
+  const changes = useMemo(() => changedFields(initial, draft), [initial, draft])
+  const dirty = changes.length > 0
+
+  /** Scrim, Escape, the close button and Cancel all land here (`P6`). */
+  const requestClose = () => {
+    if (save.isPending) return
+    if (!dirty) {
+      onClose()
+      return
+    }
+    discardSeq.current += 1
+    setDiscard({ seq: discardSeq.current })
+  }
+
+  /** "Discard" — the only place a draft is actually thrown away. */
+  const discardDraft = () => {
+    setDiscard(null)
+    onClose()
+  }
+
+  const catalogReason = catalogBlockReason(mode, {
+    profileEmpty: draft.profileId === "",
+    engineEmpty: draft.engineId === "",
+    resolverEmpty: draft.resolverId === "",
+    profilesFailed: profilesQuery.isError,
+    enginesFailed: enginesQuery.isError,
+    resolversFailed: resolversQuery.isError,
+  })
+  const catalogsPending =
+    mode === "profile"
+      ? profilesQuery.isLoading
+      : enginesQuery.isLoading || resolversQuery.isLoading
+  const blockedReason =
+    catalogReason ??
+    (chainTrouble === null ? null : chainProblemSentence(chainTrouble, "run")) ??
+    (base === null
+      ? catalogsPending
+        ? `${catalogLoadingLabel(mode)}…`
+        : "Pick a profile, or an engine and resolver."
+      : null)
+
   return (
     <>
       <Dialog
         open={open}
-        onClose={onClose}
-        title={editing ? "Edit scheduled recording" : "New scheduled recording"}
-        description="A scheduled recording runs once at its start time and then retires."
+        onClose={requestClose}
+        title={editing ? "Edit autorun" : "New autorun"}
+        description="A one-off recording at the window you choose."
         size="lg"
         busy={save.isPending}
         footer={
-          <>
-            <Button variant="ghost" onClick={onClose} disabled={save.isPending}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              loading={save.isPending}
-              disabled={!canSubmit}
-              onClick={submit}
-            >
-              {editing ? "Save changes" : "Create scheduled recording"}
-            </Button>
-          </>
+          <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+            <p className="text-sm text-ink-dim sm:flex-1">
+              Runs once at its start time, then retires.
+            </p>
+            {blockedReason === null ? null : (
+              <p id={REASON_ID} className="text-sm text-ink-dim sm:max-w-[22rem]">
+                {blockedReason}
+              </p>
+            )}
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                variant="ghost"
+                className={COARSE_TARGET}
+                onClick={requestClose}
+                disabled={save.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                className={COARSE_TARGET}
+                loading={save.isPending}
+                disabled={blockedReason !== null}
+                aria-describedby={blockedReason === null ? undefined : REASON_ID}
+                onClick={submit}
+              >
+                {editing ? "Save changes" : "Create autorun"}
+              </Button>
+            </div>
+          </div>
         }
       >
-        <div className="flex flex-col gap-4">
+        <div className={BODY_CLEARANCE}>
           {error !== null ? <Banner kind="danger" title={error} /> : null}
           {startInPast && (autorun === undefined || autorun.status === "scheduled") ? (
             <Banner
@@ -361,13 +458,16 @@ export function AutorunFormDialog({
           <Field label="Name" htmlFor="autorun-friendly" required>
             <Input
               id="autorun-friendly"
-              value={friendly}
+              value={draft.friendly}
               autoComplete="off"
               placeholder="e.g. Nightly news"
               onChange={(event) => {
                 const value = event.target.value
-                setFriendly(value)
-                if (!slugTouched) setSlug(slugify(value))
+                patch(
+                  slugTouched
+                    ? { friendly: value }
+                    : { friendly: value, slug: slugify(value) },
+                )
               }}
             />
           </Field>
@@ -377,52 +477,29 @@ export function AutorunFormDialog({
             htmlFor="autorun-slug"
             required
             error={slugError}
-            hint={`Used in URLs. Preview: ${slug === "" ? "—" : slug}`}
+            hint={`Used in URLs. Preview: ${draft.slug === "" ? "—" : draft.slug}`}
           >
             <Input
               id="autorun-slug"
-              value={slug}
+              value={draft.slug}
               autoComplete="off"
               spellCheck={false}
               aria-invalid={slugError !== null}
               onChange={(event) => {
                 setSlugTouched(true)
-                setSlug(event.target.value)
+                patch({ slug: event.target.value })
               }}
             />
           </Field>
 
-          <div className="flex gap-5 max-sm:flex-col">
-            <Field
-              label="Start"
-              htmlFor="autorun-start"
-              required
-              className="min-w-0 flex-1"
-              hint="Your local time — stored as UTC"
-            >
-              <Input
-                id="autorun-start"
-                type="datetime-local"
-                value={startLocal}
-                onChange={(event) => setStartLocal(event.target.value)}
-              />
-            </Field>
-            <Field
-              label="End"
-              htmlFor="autorun-end"
-              required
-              className="min-w-0 flex-1"
-              error={timeError}
-              hint="Your local time — stored as UTC"
-            >
-              <Input
-                id="autorun-end"
-                type="datetime-local"
-                value={endLocal}
-                onChange={(event) => setEndLocal(event.target.value)}
-              />
-            </Field>
-          </div>
+          <AutorunWindowFields
+            startLocal={draft.startLocal}
+            endLocal={draft.endLocal}
+            live={live}
+            timeError={timeError}
+            onStart={(value) => patch({ startLocal: value })}
+            onEnd={(value) => patch({ endLocal: value })}
+          />
 
           <Field
             label="Start from"
@@ -432,7 +509,7 @@ export function AutorunFormDialog({
               ariaLabel="Start from"
               panelId="autorun-mode"
               active={mode}
-              onChange={setMode}
+              onChange={(next) => patch({ mode: next })}
               items={[
                 {
                   id: "profile",
@@ -446,18 +523,31 @@ export function AutorunFormDialog({
 
           <TabPanel panelId="autorun-mode" active={mode} className="flex flex-col gap-4">
             {mode === "profile" ? (
-              <>
+              <CatalogGate
+                query={profilesQuery}
+                errorMessage={PROFILE_LIST_FAILED}
+                loadingLabel="Loading profiles"
+                isEmpty={profiles.length === 0}
+                empty={
+                  <CatalogEmpty>
+                    No profiles yet — create one under Profiles, or start from an engine and
+                    resolver here.
+                  </CatalogEmpty>
+                }
+              >
                 <Field label="Profile" htmlFor="autorun-profile" required>
                   <Select
                     id="autorun-profile"
-                    value={profileId}
+                    value={draft.profileId}
                     disabled={live}
                     onChange={(event) => {
                       const next = event.target.value
-                      setProfileId(next)
                       const profile = profiles.find((item) => String(item.id) === next)
                       // The chain travels with the profile it was written for.
-                      setChain(profile === undefined ? [] : chainOf(profile))
+                      patch({
+                        profileId: next,
+                        chain: profile === undefined ? [] : chainOf(profile),
+                      })
                     }}
                   >
                     <option value="">Select a profile…</option>
@@ -468,62 +558,81 @@ export function AutorunFormDialog({
                     ))}
                   </Select>
                 </Field>
-              </>
+              </CatalogGate>
             ) : (
               <>
-                <Field label="Engine" htmlFor="autorun-engine" required>
-                  <Select
-                    id="autorun-engine"
-                    value={engineId}
-                    disabled={live}
-                    onChange={(event) => setEngineId(event.target.value)}
-                  >
-                    <option value="">Select an engine…</option>
-                    {engines.map((engine) => (
-                      <option key={engine.id} value={String(engine.id)}>
-                        {engine.name}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                {live ? (
-                  <Field label="Resolver" htmlFor="autorun-resolver">
-                    <Select id="autorun-resolver" value={resolverId} disabled>
-                      <option value="">Select a resolver…</option>
-                      {resolvers.map((item) => (
-                        <option key={item.id} value={String(item.id)}>
-                          {item.name}
+                <CatalogGate
+                  query={enginesQuery}
+                  errorMessage={ENGINE_LIST_FAILED}
+                  loadingLabel="Loading engines"
+                  isEmpty={engines.length === 0}
+                  empty={<CatalogEmpty>No engines are configured on this server.</CatalogEmpty>}
+                >
+                  <Field label="Engine" htmlFor="autorun-engine" required>
+                    <Select
+                      id="autorun-engine"
+                      value={draft.engineId}
+                      disabled={live}
+                      onChange={(event) => patch({ engineId: event.target.value })}
+                    >
+                      <option value="">Select an engine…</option>
+                      {engines.map((engine) => (
+                        <option key={engine.id} value={String(engine.id)}>
+                          {engine.name}
                         </option>
                       ))}
                     </Select>
                   </Field>
-                ) : engineId === "" ? null : (
-                  <SourceFields
-                    idPrefix="autorun"
-                    kindLabel="Primary source"
-                    resolvers={resolvers}
-                    value={{ resolverId: resolver?.id ?? null, resolverConfig }}
-                    onChange={(next) => {
-                      setResolverId(next.resolverId === null ? "" : String(next.resolverId))
-                      setResolverConfig(next.resolverConfig)
-                    }}
-                    browse={
-                      canBrowse ? (
-                        <div>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            icon={<IconSearch size={15} />}
-                            onClick={() => setBrowseOpen(true)}
-                          >
-                            Browse {resolver.name}…
-                          </Button>
-                        </div>
-                      ) : undefined
-                    }
-                  />
-                )}
+                </CatalogGate>
+                <CatalogGate
+                  query={resolversQuery}
+                  errorMessage={RESOLVER_LIST_FAILED}
+                  loadingLabel="Loading resolvers"
+                  isEmpty={resolvers.length === 0}
+                  empty={<CatalogEmpty>No resolvers are configured on this server.</CatalogEmpty>}
+                >
+                  {live ? (
+                    <Field label="Resolver" htmlFor="autorun-resolver">
+                      <Select id="autorun-resolver" value={draft.resolverId} disabled>
+                        <option value="">Select a resolver…</option>
+                        {resolvers.map((item) => (
+                          <option key={item.id} value={String(item.id)}>
+                            {item.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  ) : draft.engineId === "" ? null : (
+                    <SourceFields
+                      idPrefix="autorun"
+                      kindLabel="Primary source"
+                      resolvers={resolvers}
+                      value={{ resolverId: resolver?.id ?? null, resolverConfig: draft.resolverConfig }}
+                      onChange={(next) =>
+                        patch({
+                          resolverId: next.resolverId === null ? "" : String(next.resolverId),
+                          resolverConfig: next.resolverConfig,
+                        })
+                      }
+                      browse={
+                        canBrowse && resolver !== undefined ? (
+                          <div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className={COARSE_TARGET}
+                              icon={<IconSearch size={15} />}
+                              onClick={() => setBrowseOpen(true)}
+                            >
+                              Browse {resolver.name}…
+                            </Button>
+                          </div>
+                        ) : undefined
+                      }
+                    />
+                  )}
+                </CatalogGate>
               </>
             )}
 
@@ -532,22 +641,30 @@ export function AutorunFormDialog({
                 idPrefix="autorun"
                 catalog={catalog}
                 base={base}
-                value={chain}
-                onChange={setChain}
+                value={draft.chain}
+                onChange={(next) => patch({ chain: next })}
                 disabled={live}
               />
             )}
           </TabPanel>
 
           <Switch
-            label="Record this scheduled run"
-            checked={recording}
-            onChange={(event) => setRecording(event.target.checked)}
+            label="Record this run"
+            className="[@media(pointer:coarse)]:min-h-11"
+            checked={draft.recording}
+            onChange={(event) => patch({ recording: event.target.checked })}
           />
 
           {editing ? null : (
-            <AccessCreation resourceType="autorun" onChange={setAccess} busy={save.isPending} />
+            <AccessCreation
+              resourceType="autorun"
+              onChange={(next: AccessTarget) => patch({ access: next })}
+              busy={save.isPending}
+            />
           )}
+
+          {/* Clearance for the footer: a focused control stops above it, never flush. */}
+          <div aria-hidden="true" className="hidden h-36 shrink-0 max-sm:block" />
         </div>
       </Dialog>
 
@@ -556,7 +673,7 @@ export function AutorunFormDialog({
         onClose={() => setBrowseOpen(false)}
         resolver={resolver ?? null}
         onUse={(item) => {
-          setResolverConfig(item.config ?? {})
+          patch({ resolverConfig: item.config ?? {} })
           setBrowseOpen(false)
         }}
       />
@@ -571,6 +688,17 @@ export function AutorunFormDialog({
           setConfirmEnd(false)
           persist()
         }}
+      />
+
+      <ConfirmDialog
+        key={discardSeq.current}
+        open={discard !== null}
+        onClose={() => setDiscard(null)}
+        title="Discard this autorun?"
+        description={discard === null ? undefined : discardSentence(changes)}
+        confirmLabel="Discard"
+        cancelLabel="Keep editing"
+        onConfirm={discardDraft}
       />
     </>
   )

@@ -1,24 +1,25 @@
 import { useState, type FormEvent } from "react"
-import { useMutation } from "@tanstack/react-query"
+import { useMutation, useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { changePassword, getErrorMessage, logout, useAuthState } from "@/api"
+import { changePassword, fetchClients, fetchRegistrationRequests, fetchUsers, getErrorMessage, logout, useAuthState } from "@/api"
 import { ApiError } from "@/api/client"
+import { queryKeys, staleTimes } from "@/api/query-keys"
 import {
   Avatar,
-  Banner,
   Button,
   buttonClass,
   Field,
   IconLogout,
   IconSessions,
   IconSettings,
-  Input,
+  PasswordInput,
   Panel,
   PanelBody,
   PanelHead,
+  Skeleton,
+  StatLine,
   Tag,
   toast,
-  useFocusScope,
 } from "@/ui/components"
 import { Page } from "@/ui/views/shared/page"
 import { useSettingsSections } from "./sections"
@@ -26,8 +27,12 @@ import { useSettingsSections } from "./sections"
 export function SettingsView() {
   const sections = useSettingsSections()
   return (
-    <Page title="Settings" description="Manage your account.">
-      <AccountSection />
+    <Page title="Settings" description="Your account, your password, and where administration lives.">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <AccountCard />
+        <PasswordCard />
+        <SessionCard />
+      </div>
       <ConsoleDoorPanel />
       {sections.map(({ id, Component }) => (
         <Component key={id} />
@@ -47,29 +52,68 @@ export function SettingsView() {
  */
 function ConsoleDoorPanel() {
   const auth = useAuthState()
-  if (auth.auth?.user?.role !== "admin") return null
+  const isAdmin = auth.auth?.user?.role === "admin"
+
+  // The summary is the reason the door is worth opening: three numbers an admin
+  // acts on (pending approvals, active users, API clients). It is fetched only
+  // for admins — a non-admin would get a 403 that says nothing about this page.
+  const users = useQuery({
+    queryKey: queryKeys.users,
+    queryFn: fetchUsers,
+    staleTime: staleTimes.users,
+    enabled: isAdmin,
+  })
+  const clients = useQuery({
+    queryKey: queryKeys.clients,
+    queryFn: fetchClients,
+    staleTime: staleTimes.clients,
+    enabled: isAdmin,
+  })
+  const requests = useQuery({
+    queryKey: ["admin", "registration-requests"] as const,
+    queryFn: fetchRegistrationRequests,
+    staleTime: staleTimes.users,
+    enabled: isAdmin,
+  })
+
+  if (!isAdmin) return null
   const door = __ADMIN__
-    ? {
-        title: "Console",
-        blurb: "Sessions, presets, plugins and recordings.",
-        href: "/sessions",
-        icon: <IconSessions size={16} />,
-      }
+    ? { title: "Console", blurb: "Sessions, autoruns, plugins and recordings.", href: "/sessions", icon: <IconSessions size={16} /> }
     : {
         title: "Administration",
         blurb: "Approve sign-ups, manage users and API clients.",
         href: "/admin/settings",
         icon: <IconSettings size={16} />,
       }
+
+  const counts =
+    users.data === undefined || clients.data === undefined || requests.data === undefined
+      ? null
+      : [
+          plural(users.data.length, "user"),
+          `${requests.data.length} pending`,
+          plural(clients.data.length, "API client"),
+        ]
+  const failed = users.isError || clients.isError || requests.isError
+
   return (
     <Panel>
       <PanelHead title={door.title} />
       <PanelBody>
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-muted">{door.blurb}</span>
-          <a className={buttonClass({ variant: "secondary" })} href={door.href}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="text-ink-muted">{door.blurb}</span>
+            {failed ? (
+              <span className="text-sm text-ink-dim">Counts are unavailable right now.</span>
+            ) : counts !== null ? (
+              <StatLine items={counts} />
+            ) : (
+              <Skeleton width={230} height={14} />
+            )}
+          </div>
+          <a className={buttonClass({ variant: "secondary", size: "lg" })} href={door.href}>
             {door.icon}
-            <span data-slot="button-label">Open console</span>
+            <span data-slot="button-label">Open {door.title.toLowerCase()}</span>
           </a>
         </div>
       </PanelBody>
@@ -77,37 +121,64 @@ function ConsoleDoorPanel() {
   )
 }
 
-function AccountSection() {
-  const auth = useAuthState()
-  const navigate = useNavigate()
-  const user = auth.auth?.user ?? null
-  const client = auth.auth?.client ?? null
+function identityOf(auth: ReturnType<typeof useAuthState>["auth"]) {
+  const user = auth?.user ?? null
+  const client = auth?.client ?? null
   const displayName =
     user !== null && user.display_name !== ""
       ? user.display_name
       : (user?.username ?? client?.name ?? "Signed in")
-  const handle = user !== null ? `@${user.username}` : (client?.name ?? "")
-  const role = user?.role ?? (client !== null ? "api-client" : "unknown")
+  return {
+    displayName,
+    handle: user !== null ? `@${user.username}` : (client?.name ?? ""),
+    role: user?.role ?? (client !== null ? "api-client" : "unknown"),
+  }
+}
 
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`
+}
+
+function AccountCard() {
+  const auth = useAuthState()
+  const { displayName, handle, role } = identityOf(auth.auth)
+
+  return (
+    <Panel>
+      <PanelHead title="Account" />
+      <PanelBody>
+        <div className="flex items-center gap-3">
+          <Avatar name={displayName} />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-md font-semibold text-ink">{displayName}</div>
+            {handle !== "" ? (
+              <div className="truncate text-sm text-ink-muted [font-family:var(--font-mono)]">{handle}</div>
+            ) : null}
+          </div>
+          <Tag accent>{role}</Tag>
+        </div>
+        <p className="mt-3 text-sm text-ink-muted">
+          Your name and handle are shown in the sidebar and in every list that records who did something.
+        </p>
+      </PanelBody>
+    </Panel>
+  )
+}
+
+function PasswordCard() {
   const [oldPassword, setOldPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [confirm, setConfirm] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, string>>>({})
-  const scope = useFocusScope<HTMLFormElement>()
+  const [done, setDone] = useState(false)
 
   const change = useMutation({
     mutationFn: (input: { readonly oldPassword: string; readonly newPassword: string }) =>
       changePassword(input.oldPassword, input.newPassword),
     onSuccess: () => {
-      toast.success("Password changed", "Your session ended — the app will return to the sign-in screen.")
-    },
-  })
-
-  const signOut = useMutation({
-    mutationFn: () => logout(),
-    onSettled: () => {
-      void navigate({ to: "/login" })
+      setDone(true)
+      toast.success("Password changed", "Your other sessions were ended.")
     },
   })
 
@@ -116,6 +187,7 @@ function AccountSection() {
     if (change.isPending) return
     setError(null)
     setFieldErrors({})
+    setDone(false)
     if (newPassword !== confirm) {
       setError("Passwords do not match")
       return
@@ -133,91 +205,87 @@ function AccountSection() {
 
   return (
     <Panel>
-      <PanelHead title="Account" />
+      <PanelHead title="Password" />
       <PanelBody>
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center gap-3">
-            <Avatar name={displayName} />
-            <div className="min-w-0 flex-1">
-              <div className="text-base font-medium text-ink truncate">{displayName}</div>
-              {handle !== "" ? <div className="text-xs text-ink-dim [font-family:var(--font-mono)]">{handle}</div> : null}
-            </div>
-            <Tag accent>{role}</Tag>
-          </div>
-
-          <hr className="h-px bg-line-subtle border-none" />
-
-          <form
-            ref={scope.ref}
-            onKeyDown={scope.onKeyDown}
-            className="flex flex-col gap-4"
-            onSubmit={(event) => void onSubmit(event)}
-            noValidate
+        <form className="flex flex-col gap-4" onSubmit={(event) => void onSubmit(event)} noValidate>
+          <p className="text-sm text-ink-muted">At least 8 characters. Changing it ends your other sessions.</p>
+          <Field
+            label="Current password"
+            htmlFor="account-old-password"
+            required
+            error={fieldErrors.old_password ?? null}
           >
-            <h3>Change password</h3>
-            {error !== null ? <Banner kind="danger" title={error} /> : null}
-            <Field
-              label="Current password"
-              htmlFor="account-old-password"
-              required
-              error={fieldErrors.old_password ?? null}
-            >
-              <Input
-                id="account-old-password"
-                type="password"
-                autoComplete="current-password"
-                value={oldPassword}
-                onChange={(event) => setOldPassword(event.target.value)}
-              />
-            </Field>
-            <Field
-              label="New password"
-              htmlFor="account-new-password"
-              required
-              error={fieldErrors.new_password ?? null}
-            >
-              <Input
-                id="account-new-password"
-                type="password"
-                autoComplete="new-password"
-                value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
-              />
-            </Field>
-            <Field label="Confirm new password" htmlFor="account-confirm-password" required>
-              <Input
-                id="account-confirm-password"
-                type="password"
-                autoComplete="new-password"
-                value={confirm}
-                onChange={(event) => setConfirm(event.target.value)}
-              />
-            </Field>
-            <div className="flex items-center gap-3">
-              <Button
-                type="submit"
-                variant="primary"
-                loading={change.isPending}
-                disabled={oldPassword === "" || newPassword === "" || confirm === ""}
-              >
-                Change password
-              </Button>
-            </div>
-          </form>
+            <PasswordInput
+              id="account-old-password"
+              className="h-11"
+              autoComplete="current-password"
+              value={oldPassword}
+              onChange={(event) => setOldPassword(event.target.value)}
+            />
+          </Field>
+          <Field label="New password" htmlFor="account-new-password" required error={fieldErrors.new_password ?? null}>
+            <PasswordInput
+              id="account-new-password"
+              className="h-11"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+            />
+          </Field>
+          <Field label="Confirm new password" htmlFor="account-confirm-password" required>
+            <PasswordInput
+              id="account-confirm-password"
+              className="h-11"
+              autoComplete="new-password"
+              value={confirm}
+              onChange={(event) => setConfirm(event.target.value)}
+            />
+          </Field>
+          <p aria-live="polite" className="min-h-5 text-sm text-danger">
+            {error ?? ""}
+          </p>
+          <p aria-live="polite" className="min-h-5 text-sm text-success">
+            {done ? "Password updated. Use it the next time you sign in." : ""}
+          </p>
+          <Button
+            type="submit"
+            variant="primary"
+            loading={change.isPending}
+            disabled={oldPassword === "" || newPassword === "" || confirm === ""}
+          >
+            Update password
+          </Button>
+        </form>
+      </PanelBody>
+    </Panel>
+  )
+}
 
-          <hr className="h-px bg-line-subtle border-none" />
+function SessionCard() {
+  const navigate = useNavigate()
+  const signOut = useMutation({
+    mutationFn: () => logout(),
+    onSettled: () => {
+      void navigate({ to: "/login" })
+    },
+  })
 
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted">End this session on every device.</span>
-            <Button
-              variant="outline"
-              icon={<IconLogout size={16} />}
-              loading={signOut.isPending}
-              onClick={() => signOut.mutate()}
-            >
-              Sign out
-            </Button>
-          </div>
+  return (
+    <Panel>
+      <PanelHead title="Sessions" />
+      <PanelBody>
+        <p className="text-sm text-ink-muted">
+          Signing out ends this session on this device. Your recordings keep running on the server.
+        </p>
+        <div className="mt-4">
+          <Button
+            variant="outline"
+            icon={<IconLogout size={16} />}
+            loading={signOut.isPending}
+            onClick={() => signOut.mutate()}
+          >
+            Sign out
+          </Button>
         </div>
       </PanelBody>
     </Panel>

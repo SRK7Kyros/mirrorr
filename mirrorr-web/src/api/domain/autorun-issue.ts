@@ -47,6 +47,6 @@ export function flaggedCount(autoruns: readonly Pick<Autorun, "issue">[]): numbe
 export function flaggedNotice(count: number): string {
   if (count <= 0) return ""
   return count === 1
-    ? "1 scheduled recording needs a new profile — it will not run until you pick one."
-    : `${count} scheduled recordings need a new profile — they will not run until you pick one.`
+    ? "1 autorun needs a new profile — it will not run until you pick one."
+    : `${count} autoruns need a new profile — they will not run until you pick one.`
 }

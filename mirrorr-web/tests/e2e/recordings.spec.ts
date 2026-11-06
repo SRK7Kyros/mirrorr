@@ -19,6 +19,14 @@ function recording(overrides: Row = {}): Row {
   }
 }
 
+/** The shared card skeleton — one `EntityCard` per recording. */
+const CARD = '[data-slot="entity-card"]'
+
+/** Selection is a mode now: no checkbox exists on a card at rest. */
+async function enterSelectMode(page: import("@playwright/test").Page): Promise<void> {
+  await page.getByRole("button", { name: "Select", exact: true }).click()
+}
+
 test.describe("recordings", () => {
   test.beforeEach(async ({ api }) => {
     api.data.recordings = [
@@ -30,8 +38,9 @@ test.describe("recordings", () => {
 
   test("selects cards and deletes the whole selection at once", async ({ page, api }) => {
     await page.goto("/recordings")
-    await expect(page.locator(".session-card")).toHaveCount(3)
+    await expect(page.locator(CARD)).toHaveCount(3)
 
+    await enterSelectMode(page)
     await page.getByRole("checkbox", { name: "Select Practice 1" }).check()
     await page.getByRole("checkbox", { name: "Select The Race" }).check()
 
@@ -51,35 +60,48 @@ test.describe("recordings", () => {
 
   test("a card clears its selection when it is picked again", async ({ page }) => {
     await page.goto("/recordings")
-    const card = page.locator('.session-card[data-id="2"]')
+    await enterSelectMode(page)
+    const card = page.locator('[data-id="2"] [data-slot="entity-card"]')
     const box = page.getByRole("checkbox", { name: "Select Qualifying" })
 
     await box.check()
     await expect(card).toHaveAttribute("data-selected", "true")
 
     await box.uncheck()
-    await expect(card).toHaveAttribute("data-selected", "false")
+    await expect(card).not.toHaveAttribute("data-selected", "true")
     await expect(page.getByRole("region", { name: "Bulk actions" })).toBeHidden()
   })
 
   test("a phone keeps the bulk bar above the bottom nav", async ({ page }) => {
     await page.setViewportSize({ width: 402, height: 874 })
     await page.goto("/recordings")
+    await enterSelectMode(page)
     await page.getByRole("checkbox", { name: "Select Qualifying" }).check()
 
     const bar = page.getByRole("region", { name: "Bulk actions" })
     const nav = page.getByRole("navigation", { name: "Primary" })
     await expect(bar).toBeVisible()
 
-    const barBox = await bar.boundingBox()
-    const navBox = await nav.boundingBox()
-    if (barBox === null || navBox === null) throw new Error("the bulk bar or the nav is not laid out")
-    expect(barBox.y + barBox.height).toBeLessThanOrEqual(navBox.y)
+    // Polled: the bar and the FAB spring into place, so a one-shot box
+    // comparison is a race (measured flake ~1.6 px when the whole suite runs
+    // in parallel). The invariant is the settled gap, not the first frame.
+    await expect
+      .poll(
+        async () => {
+          const barBox = await bar.boundingBox()
+          const navBox = await nav.boundingBox()
+          if (barBox === null || navBox === null) return Number.POSITIVE_INFINITY
+          return Math.round((barBox.y + barBox.height - navBox.y) * 10) / 10
+        },
+        { message: "the bulk bar must end at or above the bottom nav" },
+      )
+      .toBeLessThanOrEqual(0)
   })
 
   test("a phone takes every recording from the head above the grid", async ({ page }) => {
     await page.setViewportSize({ width: 402, height: 874 })
     await page.goto("/recordings")
+    await enterSelectMode(page)
 
     const head = page.getByRole("checkbox", { name: "Select all recordings" })
     await expect(head).toBeInViewport()
@@ -102,7 +124,7 @@ test.describe("recordings", () => {
 
   test("the order control sorts the loaded cards, newest by default", async ({ page }) => {
     await page.goto("/recordings")
-    const cards = page.locator(".session-card")
+    const cards = page.locator(CARD)
     await expect(cards.first()).toContainText("The Race")
 
     await page.getByLabel("Sort recordings").selectOption("largest")
@@ -127,14 +149,14 @@ test.describe("recordings", () => {
     api.data.pageSize = 2
 
     await page.goto("/recordings")
-    await expect(page.locator(".session-card")).toHaveCount(2)
-    await expect(page.locator(".session-grid")).not.toContainText("The Race")
+    await expect(page.locator(CARD)).toHaveCount(2)
+    await expect(page.locator('[data-slot="card-grid"]')).not.toContainText("The Race")
 
     // The term goes to the server, so the third card is found without paging.
     await page.getByLabel("Search recordings").fill("race")
 
-    await expect(page.locator(".session-card")).toHaveCount(1)
-    await expect(page.locator(".session-card")).toContainText("The Race")
+    await expect(page.locator(CARD)).toHaveCount(1)
+    await expect(page.locator(CARD)).toContainText("The Race")
   })
 
   test("a term nobody matches offers a way back", async ({ page }) => {
@@ -143,6 +165,6 @@ test.describe("recordings", () => {
 
     await expect(page.getByText("No recording matches \u201cnothing-like-this\u201d.")).toBeVisible()
     await page.getByRole("button", { name: "Clear search" }).click()
-    await expect(page.locator(".session-card")).toHaveCount(3)
+    await expect(page.locator(CARD)).toHaveCount(3)
   })
 })

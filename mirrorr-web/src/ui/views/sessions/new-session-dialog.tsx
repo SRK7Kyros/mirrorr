@@ -1,22 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import {
-  createSession,
-  getErrorMessage,
-  useEngines,
-  useProfiles,
-  useResolvers,
-  type SessionCreateBody,
-} from "@/api"
+import { createSession, getErrorMessage, type SessionCreateBody } from "@/api"
 import { queryRoots } from "@/api/query-keys"
 import {
   Banner,
   Button,
+  ConfirmDialog,
   Dialog,
   Field,
-  Segmented,
   IconSearch,
+  QueryState,
+  Segmented,
   Select,
+  Skeleton,
   Switch,
   TabPanel,
   toast,
@@ -35,11 +31,22 @@ import {
   type ChainCatalog,
   type FallbackRung,
 } from "@/api/domain/fallback-chain"
-import {
-  AccessCreation,
-  useCreationAccessApplier,
-} from "@/ui/views/shared/resource-access-slot"
+import { AccessCreation, useCreationAccessApplier } from "@/ui/views/shared/resource-access-slot"
 import type { AccessTarget } from "@/api/domain/access-plan"
+import { useNewSessionCatalogs } from "./new-session-catalogs"
+import { ProfileSummary } from "./new-session-profile-summary"
+import { submitBlockedReason } from "./new-session-reason"
+
+const REASON_ID = "new-session-submit-reason"
+
+function fieldSkeleton(label: string) {
+  return (
+    <div className="flex flex-col gap-2" role="status" aria-label={label}>
+      <Skeleton width="5rem" height={12} />
+      <Skeleton width="100%" height={34} />
+    </div>
+  )
+}
 
 export function NewSessionDialog({
   open,
@@ -49,9 +56,10 @@ export function NewSessionDialog({
   readonly onClose: () => void
 }) {
   const queryClient = useQueryClient()
-  const profiles = useProfiles()
-  const engines = useEngines()
-  const resolvers = useResolvers()
+  const catalogs = useNewSessionCatalogs()
+  const profiles = catalogs.profiles.items
+  const engines = catalogs.engines.items
+  const resolvers = catalogs.resolvers.items
 
   const [mode, setMode] = useState<"profile" | "custom">("profile")
   const [profileId, setProfileId] = useState("")
@@ -63,9 +71,11 @@ export function NewSessionDialog({
   const [recording, setRecording] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [access, setAccess] = useState<AccessTarget>({})
+  const [discardOpen, setDiscardOpen] = useState(false)
   const applyCreation = useCreationAccessApplier()
 
   const openedRef = useRef(false)
+  const modeTouchedRef = useRef(false)
 
   const catalog = useMemo<ChainCatalog>(
     () => ({ profiles, engines, resolvers }),
@@ -79,6 +89,7 @@ export function NewSessionDialog({
     }
     if (openedRef.current) return
     openedRef.current = true
+    modeTouchedRef.current = false
     setError(null)
     setMode(profiles.length > 0 ? "profile" : "custom")
     setProfileId("")
@@ -88,7 +99,19 @@ export function NewSessionDialog({
     setChain([])
     setRecording(false)
     setAccess({})
+    setDiscardOpen(false)
   }, [open, profiles.length])
+
+  /**
+   * The default mode depends on whether any profile exists, and that answer
+   * arrives after the dialog opens. Opening early used to freeze "Engine +
+   * resolver" even once the profiles landed — the same defect `AUT-07` records
+   * for the autorun form. Re-evaluate until the operator picks a mode himself.
+   */
+  useEffect(() => {
+    if (!open || modeTouchedRef.current || catalogs.profiles.isLoading) return
+    setMode(catalogs.profiles.items.length > 0 ? "profile" : "custom")
+  }, [open, catalogs.profiles.isLoading, catalogs.profiles.items.length])
 
   const create = useMutation({
     mutationFn: async (body: SessionCreateBody) => {
@@ -126,9 +149,6 @@ export function NewSessionDialog({
     }
   }, [mode, chosenProfile, engineId, resolverId, resolverConfig])
 
-  // A rung that becomes a repeat when the capture before the chain moves — a
-  // different profile, a different own source — is dropped rather than left to
-  // block the save with a rung that can never advance.
   useEffect(() => {
     if (base === null) return
     setChain((previous) => {
@@ -138,7 +158,37 @@ export function NewSessionDialog({
   }, [base, catalog])
 
   const chainState = base === null ? null : resolveChain(chain, base, catalog)
-  const canSubmit = chainState !== null && chainState.problem === null
+  const blockedReason = submitBlockedReason({
+    mode,
+    profileId,
+    engineId,
+    resolverId,
+    profilesLoading: catalogs.profiles.isLoading,
+    profilesError: catalogs.profiles.isError,
+    enginesLoading: catalogs.engines.isLoading,
+    enginesError: catalogs.engines.isError,
+    resolversLoading: catalogs.resolvers.isLoading,
+    resolversError: catalogs.resolvers.isError,
+    chainProblem: chainState?.problem ?? null,
+  })
+  const canSubmit = blockedReason === null
+
+  // Only work that took typing or several steps asks before it is thrown away;
+  // picking a profile and cancelling is one click to redo, and a prompt there
+  // would teach the operator to dismiss prompts.
+  const hasWork =
+    chain.length > 0 ||
+    Object.keys(resolverConfig).length > 0 ||
+    Object.keys(access).length > 0
+
+  const requestClose = () => {
+    if (create.isPending) return
+    if (hasWork) {
+      setDiscardOpen(true)
+      return
+    }
+    onClose()
+  }
 
   const submit = () => {
     setError(null)
@@ -161,56 +211,79 @@ export function NewSessionDialog({
   }
 
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title="New session"
-      description="Start a capture now. A profile carries its own engine, resolver and retry policy."
-      size="xl"
-      busy={create.isPending}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={create.isPending}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            loading={create.isPending}
-            disabled={!canSubmit}
-            onClick={submit}
-          >
-            Start session
-          </Button>
-        </>
-      }
-    >
-      <div className="flex flex-col gap-4">
-        {error !== null ? <Banner kind="danger" title={error} /> : null}
+    <>
+      <Dialog
+        open={open}
+        onClose={requestClose}
+        title="New session"
+        description="Start a capture now. A profile carries its own engine, resolver and retry policy."
+        size="xl"
+        busy={create.isPending}
+        footer={
+          <div className="flex w-full flex-wrap items-center justify-end gap-x-3 gap-y-2">
+            {blockedReason !== null ? (
+              <p id={REASON_ID} className="min-w-0 flex-1 basis-full text-sm text-ink-dim sm:basis-auto">
+                {blockedReason}
+              </p>
+            ) : null}
+            <Button variant="ghost" onClick={requestClose} disabled={create.isPending}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              loading={create.isPending}
+              disabled={!canSubmit}
+              aria-describedby={blockedReason === null ? undefined : REASON_ID}
+              onClick={submit}
+            >
+              Start session
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-5">
+          {error !== null ? <Banner kind="danger" title={error} /> : null}
 
-        {/* Two columns only where the panel is wide enough for them. DOM order
-            stays the phone's order, so the grid placements below differ from it. */}
-        <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)] lg:grid-rows-[auto_1fr] lg:items-start lg:gap-5">
-          <div className="order-1 flex min-w-0 flex-col gap-4">
-            <Field label="Start from">
-              <Segmented
-                ariaLabel="Start from"
-                panelId="new-session-mode"
-                active={mode}
-                onChange={setMode}
-                items={[
-                  {
-                    id: "profile",
-                    label: "A profile",
-                    disabled: profiles.length === 0,
-                  },
-                  { id: "custom", label: "Engine + resolver" },
-                ]}
-              />
-            </Field>
+          <Field label="Start from">
+            <Segmented
+              ariaLabel="Start from"
+              panelId="new-session-mode"
+              active={mode}
+              onChange={(next) => {
+                modeTouchedRef.current = true
+                setMode(next)
+              }}
+              items={[
+                {
+                  id: "profile",
+                  label: "A profile",
+                  // A failed catalog is not an empty one: leave the tab reachable so
+                  // its error panel and Retry can actually be seen (`CMP-08`).
+                  disabled:
+                    !catalogs.profiles.isLoading &&
+                    !catalogs.profiles.isError &&
+                    profiles.length === 0,
+                },
+                { id: "custom", label: "Engine + resolver" },
+              ]}
+            />
+          </Field>
 
-            <TabPanel panelId="new-session-mode" active={mode} className="flex flex-col gap-4">
-              {mode === "profile" ? (
-                <>
+          <TabPanel panelId="new-session-mode" active={mode} className="flex flex-col gap-4">
+            {mode === "profile" ? (
+              <>
+                <QueryState
+                  query={catalogs.profiles}
+                  loading={fieldSkeleton("Loading profiles")}
+                  errorMessage="Could not load the profiles"
+                  isEmpty={profiles.length === 0}
+                  empty={
+                    <p className="text-base text-ink-dim">
+                      No profiles yet — start from an engine and a source, or build a profile on
+                      Profiles.
+                    </p>
+                  }
+                >
                   <Field
                     label="Profile"
                     htmlFor="new-session-profile"
@@ -237,9 +310,24 @@ export function NewSessionDialog({
                       ))}
                     </Select>
                   </Field>
-                </>
-              ) : (
-                <>
+                </QueryState>
+
+                {chosenProfile === null ? null : (
+                  <ProfileSummary
+                    profile={chosenProfile}
+                    engines={engines}
+                    resolvers={resolvers}
+                    recording={recording}
+                  />
+                )}
+              </>
+            ) : (
+              <>
+                <QueryState
+                  query={catalogs.engines}
+                  loading={fieldSkeleton("Loading engines")}
+                  errorMessage="Could not load the engines"
+                >
                   <Field label="Engine" htmlFor="new-session-engine" required>
                     <Select
                       id="new-session-engine"
@@ -254,7 +342,13 @@ export function NewSessionDialog({
                       ))}
                     </Select>
                   </Field>
-                  {engineId === "" ? null : (
+                </QueryState>
+                {engineId === "" ? null : (
+                  <QueryState
+                    query={catalogs.resolvers}
+                    loading={fieldSkeleton("Loading sources")}
+                    errorMessage="Could not load the sources"
+                  >
                     <SourceFields
                       idPrefix="new-session"
                       kindLabel="Primary source"
@@ -284,32 +378,30 @@ export function NewSessionDialog({
                       }
                       disabled={create.isPending}
                     />
-                  )}
-                </>
-              )}
-            </TabPanel>
-          </div>
-
-          <div className="order-2 min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1">
-            {base === null ? (
-              <div className="flex min-h-24 items-center justify-center rounded-sm border border-dashed border-line-subtle px-4 py-5 text-center text-sm text-dim">
-                {mode === "profile"
-                  ? "Pick a profile to see and edit the chain it falls back to."
-                  : "Pick an engine and a source to build its fallback chain."}
-              </div>
-            ) : (
-              <ChainEditor
-                idPrefix="new-session"
-                catalog={catalog}
-                base={base}
-                value={chain}
-                onChange={setChain}
-                disabled={create.isPending}
-              />
+                  </QueryState>
+                )}
+              </>
             )}
-          </div>
+          </TabPanel>
 
-          <div className="order-3 flex min-w-0 flex-col gap-4 lg:col-start-1 lg:row-start-2">
+          {base === null ? (
+            <div className="flex min-h-16 items-center rounded-sm border border-dashed border-line-subtle px-4 py-4 text-base text-ink-dim">
+              {mode === "profile"
+                ? "Pick a profile to see and edit the chain it falls back to."
+                : "Pick an engine and a source to build its fallback chain."}
+            </div>
+          ) : (
+            <ChainEditor
+              idPrefix="new-session"
+              catalog={catalog}
+              base={base}
+              value={chain}
+              onChange={setChain}
+              disabled={create.isPending}
+            />
+          )}
+
+          <div className="flex flex-col gap-4">
             <Switch
               label="Record this session"
               checked={recording}
@@ -319,17 +411,30 @@ export function NewSessionDialog({
             <AccessCreation resourceType="session" onChange={setAccess} busy={create.isPending} />
           </div>
         </div>
-      </div>
 
-      <DiscoveryDrawer
-        open={browseOpen}
-        onClose={() => setBrowseOpen(false)}
-        resolver={resolver ?? null}
-        onUse={(item) => {
-          setResolverConfig(item.config ?? {})
-          setBrowseOpen(false)
+        <DiscoveryDrawer
+          open={browseOpen}
+          onClose={() => setBrowseOpen(false)}
+          resolver={resolver ?? null}
+          onUse={(item) => {
+            setResolverConfig(item.config ?? {})
+            setBrowseOpen(false)
+          }}
+        />
+      </Dialog>
+
+      <ConfirmDialog
+        open={discardOpen}
+        onClose={() => setDiscardOpen(false)}
+        title="Discard this new session?"
+        description="Nothing has started yet. The fallbacks and access you set up here will be lost."
+        confirmLabel="Discard"
+        cancelLabel="Keep editing"
+        onConfirm={() => {
+          setDiscardOpen(false)
+          onClose()
         }}
       />
-    </Dialog>
+    </>
   )
 }

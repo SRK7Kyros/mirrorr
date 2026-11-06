@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
-import { IconCheck, IconCopy, IconExternal } from "@/ui/components"
+import { IconCheck, IconCopy, IconExternal, toast } from "@/ui/components"
+import { copyText } from "@/ui/lib/clipboard"
 import { cn } from "@/ui/lib/cn"
 
 /** A single labelled playback/source URL published by a session. */
@@ -60,12 +61,14 @@ function CopyButton({ value, label }: { readonly value: string; readonly label: 
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(value)
+      await copyText(value)
       setCopied(true)
       if (timer.current !== null) window.clearTimeout(timer.current)
       timer.current = window.setTimeout(() => setCopied(false), 1200)
     } catch {
-      // Clipboard unavailable (insecure context or denied) — the link still opens.
+      // Clipboard unavailable (insecure context or denied). Saying nothing is
+      // the worst option: the user clicks, sees no tick, and does not know why.
+      toast.error("Could not copy", "Clipboard access was denied — open the URL instead.")
     }
   }
 
@@ -99,11 +102,11 @@ export function SessionUrls({
     <ul className={cn("url-list flex flex-col gap-1 m-0 p-0 list-none", className)}>
       {urls.map((entry) => (
         <li key={`${entry.label}-${entry.url}`} className="flex items-center gap-2 min-w-0">
-          <span className="shrink-0 w-[4.5rem] text-2xs font-semibold tracking-[0.04em] uppercase text-ink-faint">
+          <span className="shrink-0 w-[4.5rem] text-2xs font-semibold tracking-[0.04em] uppercase text-dim">
             {entry.label}
           </span>
           <a
-            className="flex-1 inline-flex items-center gap-1 min-w-0 text-2xs text-ink-muted no-underline hover:text-brand mono text-truncate"
+            className="flex-1 inline-flex items-center gap-1 min-h-6 min-w-0 text-2xs text-ink-muted no-underline hover:text-brand mono text-truncate"
             href={entry.url}
             target="_blank"
             rel="noreferrer"

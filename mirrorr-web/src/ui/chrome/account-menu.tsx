@@ -10,6 +10,7 @@ import {
   MenuSeparator,
   useMenuDismiss,
 } from "@/ui/components";
+import { initials } from "@/ui/lib/format";
 import { HostSwitcher } from "./host-switcher";
 import { describeIdentity } from "./identity";
 
@@ -24,7 +25,7 @@ export function AccountMenu() {
       <button
         type="button"
         className="inline-flex p-0 rounded-full transition-[box-shadow] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:shadow-[0_0_0_2px_var(--border-strong)]"
-        aria-label="Account menu"
+        aria-label={`Account menu, ${initials(identity.name)}`}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
@@ -37,6 +38,9 @@ export function AccountMenu() {
         onClick={() => setOpen(false)}
       >
         <div className="py-2 px-3">
+          <div className="text-xs text-ink-dim">
+            {identity.isApiClient ? "Signed in as API client" : "Signed in as"}
+          </div>
           <div className="text-base font-medium text-ink truncate">
             {identity.name}
           </div>

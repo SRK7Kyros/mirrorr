@@ -87,6 +87,8 @@ export function fetchSession(id: number | string): Promise<Session> {
   return apiFetch<unknown>(`/sessions/${id}`).then((raw) => parseOrWarn(SessionSchema.parse, raw))
 }
 export interface SessionCreateBody {
+  /** Links a manual run to the schedule that produced it ("Run now"). */
+  readonly autorun_id?: number
   readonly profile_id?: number
   readonly fallback_chain?: readonly FallbackRung[]
   readonly engine_id?: number

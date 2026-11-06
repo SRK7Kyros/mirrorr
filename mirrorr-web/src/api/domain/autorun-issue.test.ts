@@ -36,7 +36,7 @@ describe("flaggedNotice", () => {
   })
 
   it("reads as one sentence for one or for many", () => {
-    expect(flaggedNotice(1)).toContain("1 scheduled recording needs")
-    expect(flaggedNotice(4)).toContain("4 scheduled recordings need")
+    expect(flaggedNotice(1)).toContain("1 autorun needs")
+    expect(flaggedNotice(4)).toContain("4 autoruns need")
   })
 })

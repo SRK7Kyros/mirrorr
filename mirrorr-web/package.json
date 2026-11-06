@@ -17,7 +17,10 @@
     "check:collisions": "bun scripts/check-collisions.mjs",
     "bundle:report": "bun scripts/bundle-report.mjs",
     "deploy:web": "bun scripts/deploy-web.mjs",
-    "deploy:preview": "MIRRORR_PREVIEW=1 bun run deploy:web"
+    "deploy:preview": "MIRRORR_PREVIEW=1 bun run deploy:web",
+    "gallery": "playwright test -c playwright.gallery.config.ts",
+    "test:a11y": "playwright test -c playwright.a11y.config.ts a11y.spec.ts",
+    "test:facts": "playwright test -c playwright.a11y.config.ts --project=v1440 fact-inventory.spec.ts"
   },
   "dependencies": {
     "@aparajita/capacitor-secure-storage": "^8.0.1",
@@ -43,6 +46,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@capacitor/cli": "^8.5.2",
     "@playwright/test": "1.63.0",
     "@testing-library/dom": "10.4.2",

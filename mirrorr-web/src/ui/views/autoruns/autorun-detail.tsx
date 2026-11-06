@@ -1,51 +1,44 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { Link } from "@tanstack/react-router"
-import { useQuery } from "@tanstack/react-query"
-import { ApiError, getErrorMessage, useEntityList, useNameMaps } from "@/api"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import type { NameMaps } from "@/api"
+import { ApiError, createSession, getErrorMessage, useEntityList, useNameMaps } from "@/api"
 import { fetchAutorun, fetchSessionPage } from "@/api/endpoints"
-import { queryKeys, resolveEntityName, staleTimes } from "@/api/query-keys"
+import { queryKeys, queryRoots, resolveEntityName, staleTimes } from "@/api/query-keys"
 import { getStatusDescriptor } from "@/api/status"
-import { isLive, isSpent } from "@/api/domain/filter-grammar"
-import {
-  COUNTDOWN_TICK_MS,
-  formatCountdown,
-  formatDateTime,
-  formatDuration,
-  parseNaiveUtc,
-} from "@/api/time"
+import { autorunIssue, type AutorunIssue } from "@/api/domain/autorun-issue"
 import { chainOf, mapNaming, rungLabel } from "@/api/domain/fallback-chain"
-import type { Session } from "@/api/schemas"
+import { isLive, isSpent } from "@/api/domain/filter-grammar"
+import { deriveRunState, type RunState } from "@/api/domain/run-state"
+import { COUNTDOWN_TICK_MS, formatCountdown, parseNaiveUtc } from "@/api/time"
+import type { Autorun, Session } from "@/api/schemas"
 import {
-  Banner,
   Button,
-  buttonClass,
   EmptyState,
   ErrorPanel,
   IconAutoruns,
-  IconClock,
-  JsonView,
+  IconEdit,
+  IconPlay,
   Panel,
   PanelBody,
-  PanelHead,
   SkeletonRows,
-  Stat,
   StatusChip,
   Tag,
+  buttonClass,
+  toast,
+  type QueryLike,
 } from "@/ui/components"
-import { useLiveDurationSeconds, useNowTick } from "@/ui/hooks"
+import { useNowTick } from "@/ui/hooks"
 import { Page } from "@/ui/views/shared/page"
-import { autorunIssue } from "@/api/domain/autorun-issue"
-import { AutorunActionsMenu } from "./autorun-actions"
+import { AccessButton } from "@/ui/views/shared/resource-access-slot"
+import { AutorunActionsMenu, sessionBodyFor } from "./autorun-actions"
+import { AutorunConfigPanel } from "./autorun-detail-config"
+import { LinkedRunPanel } from "./autorun-detail-linked-run"
+import { AutorunNotices, autorunNotices } from "./autorun-detail-notices"
+import { AutorunSchedulePanel, type ScheduleRetirement } from "./autorun-detail-schedule"
 import { AutorunFormDialog } from "./autorun-form-dialog"
 
-function KeyValue({ label, children }: { readonly label: string; readonly children: ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-dim">{label}</span>
-      <span className="mono text-truncate">{children}</span>
-    </div>
-  )
-}
+const TWO_COLUMNS = "grid items-start gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]"
 
 function isNotFound(error: unknown): boolean {
   return error instanceof ApiError && error.status === 404
@@ -56,77 +49,334 @@ function isForbidden(error: unknown): boolean {
 }
 
 /**
- * §5.6 — Scheduled recording detail. Identity · schedule window + countdown ·
- * config snapshot · linked run · retirement note. Every row action comes from
- * `STATUS_MAP.autorunActions` (spec §1.4) via `AutorunActionsMenu`; there is no
- * server "run now" endpoint, so that action composes a `POST /sessions/` body
- * from this autorun's captured config. The linked run comes from the session
- * list narrowed by `?autorun=` — a server-side filter, not a history scan
- * (spec §5.6 has no dedicated backlink endpoint).
+ * The detail frame — `← Back to autoruns` above the page's single `h1`. The
+ * back link sits outside `Page` on purpose: it is navigation, not a page
+ * action, and the title block stays one heading with its verbs.
  */
-export function AutorunDetailView({ autorunId }: { readonly autorunId: string }) {
+function DetailFrame({
+  title,
+  description,
+  actions,
+  children,
+}: {
+  readonly title: ReactNode
+  readonly description?: ReactNode
+  readonly actions?: ReactNode
+  readonly children: ReactNode
+}) {
+  return (
+    <div className="flex min-w-0 flex-1 flex-col">
+      <nav
+        aria-label="Breadcrumb"
+        className="mx-auto flex w-full max-w-[var(--content-max)] px-5 pt-6 max-sm:px-3 max-sm:pt-4"
+      >
+        <Link
+          to="/autoruns"
+          className="tab-stop inline-flex min-h-6 items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-ink"
+        >
+          <span aria-hidden="true">←</span>
+          Back to autoruns
+        </Link>
+      </nav>
+      <Page title={title} description={description} actions={actions}>
+        {children}
+      </Page>
+    </div>
+  )
+}
+
+/**
+ * Identity only — the numeric id and the slug. Profile, engine and resolver are
+ * configuration and appear once, in the Config panel (AUT-08: every value has
+ * exactly one home, so a name printed here could never be printed again).
+ */
+function DetailSubtitle({ autorun }: { readonly autorun: Autorun }) {
+  return (
+    <>
+      <span className="mono">#{autorun.id}</span>
+      <span aria-hidden="true"> · </span>
+      <span className="mono">{autorun.snake_case_name}</span>
+    </>
+  )
+}
+
+/**
+ * Header verbs come from `STATUS_MAP.autorunActions` — the same authority the
+ * card and the `⋯` menu read. A completed one-shot has no edit and no run-now,
+ * so the header shows neither rather than a button that would be refused.
+ * `Edit schedule` is the primary and is never labelled with a state.
+ */
+function DetailActions({
+  autorun,
+  issue,
+  runNowPending,
+  onEdit,
+  onRunNow,
+}: {
+  readonly autorun: Autorun
+  readonly issue: AutorunIssue | null
+  readonly runNowPending: boolean
+  readonly onEdit: () => void
+  readonly onRunNow: () => void
+}) {
+  const allowed = getStatusDescriptor(autorun.status).autorunActions
+  return (
+    <>
+      <StatusChip status={autorun.status} />
+      {issue === null ? null : <Tag title={issue.detail}>{issue.label}</Tag>}
+      {allowed.includes("edit") ? (
+        <Button
+          variant="primary"
+          size="lg"
+          className="min-h-11 min-w-11"
+          icon={<IconEdit size={15} />}
+          onClick={onEdit}
+        >
+          Edit schedule
+        </Button>
+      ) : null}
+      {allowed.includes("run-now") ? (
+        <Button
+          variant="secondary"
+          size="lg"
+          className="min-h-11 min-w-11"
+          icon={<IconPlay size={15} />}
+          loading={runNowPending}
+          onClick={onRunNow}
+          title="Starts a run now — this autorun still fires at its start time."
+        >
+          Run now
+        </Button>
+      ) : null}
+      <AccessButton resourceType="autorun" id={autorun.id} label={autorun.user_friendly_name} />
+      <AutorunActionsMenu autorun={autorun} />
+    </>
+  )
+}
+
+function retirementKind(state: RunState): ScheduleRetirement {
+  switch (state) {
+    case "scheduled":
+    case "starting":
+      return "upcoming"
+    case "live":
+    case "recording":
+      return "live"
+    case "completed":
+    case "failed":
+      return "retired"
+    default:
+      return "unknown"
+  }
+}
+
+export interface AutorunDetailBodyProps {
+  readonly autorun: Autorun
+  readonly names: NameMaps
+  /** Injected so the countdown and the notices are testable without a clock. */
+  readonly now: Date
+  readonly linked: Session | null
+  readonly sessions: QueryLike
+  readonly runNowPending: boolean
+  readonly onEdit: () => void
+  readonly onRunNow: () => void
+}
+
+/** Everything the page prints, assembled from props — no queries in here. */
+export function AutorunDetailBody({
+  autorun,
+  names,
+  now,
+  linked,
+  sessions,
+  runNowPending,
+  onEdit,
+  onRunNow,
+}: AutorunDetailBodyProps) {
+  const engine = resolveEntityName(autorun.engine_name, names.engines, autorun.engine_id)
+  const resolver = resolveEntityName(autorun.resolver_name, names.resolvers, autorun.resolver_id)
+  const profile = resolveEntityName(autorun.profile_name, names.profiles, autorun.profile_id)
+  const fallbacks = chainOf(autorun).map((rung) =>
+    rungLabel(
+      rung,
+      mapNaming({ engines: names.engines, resolvers: names.resolvers, profiles: names.profiles }),
+    ),
+  )
+  const issue = autorunIssue(autorun)
+  const run = deriveRunState({
+    status: autorun.status,
+    ...(autorun.recording === undefined ? {} : { recording: autorun.recording }),
+    ...(autorun.issue === undefined ? {} : { issue: autorun.issue }),
+  })
+  const startPassed =
+    autorun.status === "scheduled" && parseNaiveUtc(autorun.start_time).getTime() < now.getTime()
+  const countdown =
+    run.state === "scheduled" && !startPassed ? formatCountdown(autorun.start_time, now) : null
+  const notices = autorunNotices({ issue, startPassed, live: run.panels.live })
+  const spent = run.state === "completed" || run.state === "failed"
+
+  return (
+    <DetailFrame
+      title={autorun.user_friendly_name}
+      description={<DetailSubtitle autorun={autorun} />}
+      actions={
+        <DetailActions
+          autorun={autorun}
+          issue={issue}
+          runNowPending={runNowPending}
+          onEdit={onEdit}
+          onRunNow={onRunNow}
+        />
+      }
+    >
+      <AutorunNotices items={notices} />
+      <div className={TWO_COLUMNS} data-slot="autorun-columns">
+        <div className="flex min-w-0 flex-col gap-4" data-slot="autorun-main">
+          <AutorunSchedulePanel
+            startTime={autorun.start_time}
+            endTime={autorun.end_time}
+            countdown={countdown}
+            retirement={retirementKind(run.state)}
+          />
+        </div>
+        <div className="flex min-w-0 flex-col gap-4" data-slot="autorun-side">
+          <AutorunConfigPanel
+            autorun={autorun}
+            engine={engine}
+            resolver={resolver}
+            profile={profile}
+            fallbacks={fallbacks}
+          />
+          <LinkedRunPanel query={sessions} session={linked} spent={spent} />
+        </div>
+      </div>
+    </DetailFrame>
+  )
+}
+
+function DetailSkeleton() {
+  return (
+    <div className={TWO_COLUMNS}>
+      <Panel>
+        <PanelBody>
+          <SkeletonRows rows={4} cols={2} />
+        </PanelBody>
+      </Panel>
+      <div className="flex flex-col gap-4">
+        <Panel>
+          <PanelBody>
+            <SkeletonRows rows={3} cols={2} />
+          </PanelBody>
+        </Panel>
+        <Panel>
+          <PanelBody>
+            <SkeletonRows rows={2} cols={2} />
+          </PanelBody>
+        </Panel>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Data layer for the detail page: one record query, the run it spawned
+ * (`?autorun=`), and the two verbs the header offers. Everything it computes is
+ * handed to `AutorunDetailBody`, which renders and decides nothing.
+ */
+function AutorunDetailContent({ autorun }: { readonly autorun: Autorun }) {
   const names = useNameMaps()
   const now = useNowTick(COUNTDOWN_TICK_MS)
   const [editOpen, setEditOpen] = useState(false)
+  const queryClient = useQueryClient()
 
-  const query = useQuery({
-    queryKey: queryKeys.autorun(autorunId),
-    queryFn: () => fetchAutorun(autorunId),
-    staleTime: staleTimes.detail,
-    refetchInterval: (q) => (q.state.data !== undefined && isLive(q.state.data.status) ? 5000 : false),
-  })
-  const autorun = query.data
-
-  // The core narrows the session list to this autorun's runs (`?autorun=`),
-  // so the first page already carries the spawned run.
   const sessions = useEntityList<Session>({
-    queryKey: queryKeys.sessions({ autorun: autorunId }),
-    fetchPage: (cursor) => fetchSessionPage(cursor, undefined, { autorun: autorunId }),
+    queryKey: queryKeys.sessions({ autorun: autorun.id }),
+    fetchPage: (cursor) => fetchSessionPage(cursor, undefined, { autorun: autorun.id }),
   })
   const { hasMore, isFetching, loadingAll, loadAll } = sessions
 
   const linked = useMemo(() => {
-    if (autorun === undefined) return null
-    const matches = sessions.items.filter((session) => String(session.autorun_id) === String(autorun.id))
+    const matches = sessions.items.filter(
+      (session) => String(session.autorun_id) === String(autorun.id),
+    )
     matches.sort((a, b) => b.id - a.id)
     return matches[0] ?? null
-  }, [autorun, sessions.items])
+  }, [autorun.id, sessions.items])
 
-  const spent = autorun !== undefined && isSpent(autorun.status)
-  const live = autorun !== undefined && isLive(autorun.status)
-  const shouldFindRun = autorun !== undefined && (spent || live)
+  const runNow = useMutation({
+    mutationFn: () => createSession(sessionBodyFor(autorun)),
+    onSuccess: (session) => {
+      toast.success(
+        `Session #${session.id} started`,
+        "This autorun still fires at its start time.",
+      )
+      void queryClient.invalidateQueries({ queryKey: queryRoots.sessions })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sessions({ autorun: autorun.id }) })
+    },
+    onError: (error) =>
+      toast.error("Could not start a run now", getErrorMessage(error, "Request failed")),
+  })
 
   // Only reached if an autorun ever spawns more runs than one page holds.
+  const shouldFindRun = isSpent(autorun.status) || isLive(autorun.status)
   useEffect(() => {
     if (!shouldFindRun || linked !== null || loadingAll || isFetching || !hasMore) return
     void loadAll().catch(() => undefined)
   }, [shouldFindRun, linked, loadingAll, isFetching, hasMore, loadAll])
 
-  const linkedDuration = useLiveDurationSeconds(linked?.started_at, linked?.ended_at)
+  return (
+    <>
+      <AutorunDetailBody
+        autorun={autorun}
+        names={names}
+        now={now}
+        linked={linked}
+        sessions={sessions}
+        runNowPending={runNow.isPending}
+        onEdit={() => setEditOpen(true)}
+        onRunNow={() => runNow.mutate()}
+      />
+      <AutorunFormDialog open={editOpen} autorun={autorun} onClose={() => setEditOpen(false)} />
+    </>
+  )
+}
+
+/**
+ * Autorun detail (SCR-06). One `Schedule` panel replaces the old
+ * Status/Schedule/Config triple print — the header chip is the only status, the
+ * window and countdown live in one definition list, and the copied config sits
+ * in a collapsed disclosure. The linked run has four exclusive states, and the
+ * three warnings are one ordered list above the two columns.
+ */
+export function AutorunDetailView({ autorunId }: { readonly autorunId: string }) {
+  const query = useQuery({
+    queryKey: queryKeys.autorun(autorunId),
+    queryFn: () => fetchAutorun(autorunId),
+    staleTime: staleTimes.detail,
+    refetchInterval: (q) =>
+      q.state.data !== undefined && isLive(q.state.data.status) ? 5000 : false,
+  })
+  const autorun = query.data
 
   if (query.isLoading) {
     return (
-      <Page title={`Scheduled recording #${autorunId}`}>
-        <Panel>
-          <PanelBody>
-            <SkeletonRows rows={5} cols={3} />
-          </PanelBody>
-        </Panel>
-      </Page>
+      <DetailFrame title={`Autorun #${autorunId}`}>
+        <DetailSkeleton />
+      </DetailFrame>
     )
   }
 
   if (autorun === undefined) {
     return (
-      <Page title={`Scheduled recording #${autorunId}`}>
+      <DetailFrame title={`Autorun #${autorunId}`}>
         {isNotFound(query.error) ? (
           <EmptyState
             icon={<IconAutoruns size={22} />}
-            title="Scheduled recording gone"
+            title="Autorun gone"
             text="It may have been deleted from another client."
             action={
               <Link className={buttonClass({ variant: "outline" })} to="/autoruns">
-                Back to scheduled recordings
+                Back to autoruns
               </Link>
             }
           />
@@ -134,210 +384,15 @@ export function AutorunDetailView({ autorunId }: { readonly autorunId: string })
           <ErrorPanel
             message={
               isForbidden(query.error)
-                ? "Not your scheduled recording — it belongs to another user."
-                : getErrorMessage(query.error, "Could not load this scheduled recording")
+                ? "Not your autorun — it belongs to another user."
+                : getErrorMessage(query.error, "Could not load this autorun")
             }
             onRetry={() => void query.refetch()}
           />
         )}
-      </Page>
+      </DetailFrame>
     )
   }
 
-  const engine = resolveEntityName(autorun.engine_name, names.engines, autorun.engine_id)
-  const resolver = resolveEntityName(autorun.resolver_name, names.resolvers, autorun.resolver_id)
-  const profile = resolveEntityName(autorun.profile_name, names.profiles, autorun.profile_id)
-  const fallbacks = chainOf(autorun).map((rung) =>
-    rungLabel(
-      rung,
-      mapNaming({
-        engines: names.engines ?? new Map<number, string>(),
-        resolvers: names.resolvers ?? new Map<number, string>(),
-        profiles: names.profiles ?? new Map<number, string>(),
-      }),
-    ),
-  )
-  const countdown = spent ? "retired" : formatCountdown(autorun.start_time, now)
-  const issue = autorunIssue(autorun)
-  const startInPast =
-    autorun.status === "scheduled" && parseNaiveUtc(autorun.start_time).getTime() < now.getTime()
-  const hasResolverConfig =
-    autorun.resolver_config !== undefined && Object.keys(autorun.resolver_config).length > 0
-  const hasRetryConfig = autorun.retry_config !== undefined && Object.keys(autorun.retry_config).length > 0
-
-  return (
-    <Page
-      title={autorun.user_friendly_name}
-      description={`${engine} → ${resolver} · ${profile}`}
-      actions={
-        <>
-          <Link className={buttonClass({ variant: "ghost" })} to="/autoruns">
-            All scheduled recordings
-          </Link>
-          <AutorunActionsMenu autorun={autorun} />
-        </>
-      }
-    >
-      {issue === null ? null : (
-        <Banner
-          kind="warning"
-          title={issue.title}
-          action={
-            <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
-              Edit
-            </Button>
-          }
-        >
-          {issue.detail}
-        </Banner>
-      )}
-      {live ? (
-        <Banner
-          kind="warning"
-          title="Its run is live — config changes affect a future run, not the current one."
-        />
-      ) : null}
-      {startInPast ? (
-        <Banner kind="warning" title="Start time is in the past — the server will fire it immediately." />
-      ) : null}
-
-      <Panel>
-        <PanelHead
-          title="Status"
-          actions={
-            <>
-              <StatusChip status={autorun.status} />
-              <Tag title={autorun.snake_case_name}>{autorun.snake_case_name}</Tag>
-            </>
-          }
-        />
-        <PanelBody>
-          <div className="grid grid-cols-3 gap-4 max-sm:grid-cols-1">
-            <Stat
-              label="Countdown"
-              value={
-                <span className="flex items-center gap-3" style={{ gap: "var(--s-1)" }}>
-                  {!spent ? <IconClock size={14} /> : null}
-                  {countdown}
-                </span>
-              }
-            />
-            <Stat label="Start" value={formatDateTime(autorun.start_time)} />
-            <Stat label="End" value={formatDateTime(autorun.end_time)} />
-            <Stat label="Recording" value={autorun.recording === true ? "On" : "Off"} />
-            <Stat label="Profile" value={profile} />
-            {__ADMIN__ ? (
-              <Stat
-                label="Owner"
-                value={
-                  autorun.requester_user_token !== undefined && autorun.requester_user_token !== ""
-                    ? autorun.requester_user_token
-                    : "—"
-                }
-              />
-            ) : null}
-          </div>
-          <p className="text-dim" style={{ fontSize: "var(--fs-sm)" }}>
-            Times are stored as UTC — shown here in your local timezone.
-          </p>
-        </PanelBody>
-      </Panel>
-
-      <div className="grid grid-cols-2 gap-5 max-sm:grid-cols-1">
-        <div className="flex flex-col gap-4">
-          <Panel>
-            <PanelHead title="Schedule" actions={getStatusDescriptor(autorun.status).label} />
-            <PanelBody>
-              <div className="flex flex-col gap-2">
-                <KeyValue label="Start">{formatDateTime(autorun.start_time)}</KeyValue>
-                <KeyValue label="End">{formatDateTime(autorun.end_time)}</KeyValue>
-                <KeyValue label="Countdown">{countdown}</KeyValue>
-                <KeyValue label="Slug">{autorun.snake_case_name}</KeyValue>
-              </div>
-            </PanelBody>
-          </Panel>
-
-          <Panel>
-            <PanelHead title="Config snapshot" />
-            <PanelBody>
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-2">
-                  <KeyValue label="Engine">{engine}</KeyValue>
-                  <KeyValue label="Resolver">{resolver}</KeyValue>
-                  <KeyValue label="Profile">{profile}</KeyValue>
-                  <KeyValue label="Fallbacks">
-                    {fallbacks.length === 0 ? "—" : fallbacks.join(" → ")}
-                  </KeyValue>
-                  <KeyValue label="Retry mode">{autorun.retry_mode ?? "—"}</KeyValue>
-                  <KeyValue label="Recording">{autorun.recording === true ? "On" : "Off"}</KeyValue>
-                </div>
-                {hasResolverConfig && autorun.resolver_config !== undefined ? (
-                  <JsonView label="Resolver config" value={autorun.resolver_config} defaultOpen />
-                ) : null}
-                {hasRetryConfig && autorun.retry_config !== undefined ? (
-                  <JsonView label="Retry config" value={autorun.retry_config} defaultOpen />
-                ) : null}
-              </div>
-            </PanelBody>
-          </Panel>
-        </div>
-
-        <div className="flex flex-col gap-4">
-          <Panel>
-            <PanelHead title="Linked run" />
-            <PanelBody>
-              {linked === null ? (
-                <p className="text-dim">
-                  {spent
-                    ? "No run recorded."
-                    : "No run yet — it fires once at its start time."}
-                </p>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-3" style={{ gap: "var(--s-2)" }}>
-                    <StatusChip status={linked.status} />
-                    <Link
-                      className="text-ink font-medium hover:text-brand"
-                      to="/sessions/$sessionId"
-                      params={{ sessionId: String(linked.id) }}
-                    >
-                      Session #{linked.id}
-                    </Link>
-                  </div>
-                  <div className="flex items-center gap-3" style={{ gap: "var(--s-3)" }}>
-                    <span className="text-dim">
-                      {linked.started_at != null && linked.started_at !== ""
-                        ? `started ${formatDateTime(linked.started_at)}`
-                        : "Not started"}
-                    </span>
-                    {linkedDuration !== null ? (
-                      <span className="mono tnum">{formatDuration(linkedDuration)}</span>
-                    ) : null}
-                  </div>
-                  <Link
-                    className={buttonClass({ variant: "outline", size: "sm" })}
-                    to="/sessions/$sessionId"
-                    params={{ sessionId: String(linked.id) }}
-                  >
-                    Open session
-                  </Link>
-                </div>
-              )}
-            </PanelBody>
-          </Panel>
-
-          <Panel>
-            <PanelHead title="Retirement" />
-            <PanelBody>
-              <p className="text-dim">
-                Retired after its run — create a new scheduled recording to repeat.
-              </p>
-            </PanelBody>
-          </Panel>
-        </div>
-      </div>
-
-      <AutorunFormDialog open={editOpen} autorun={autorun} onClose={() => setEditOpen(false)} />
-    </Page>
-  )
+  return <AutorunDetailContent autorun={autorun} />
 }

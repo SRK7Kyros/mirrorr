@@ -9,6 +9,7 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { AdministrationSection } from "./admin-surface";
+import { deleteBlockReason } from "./ui/views/admin/guards";
 import type { OwnerTarget } from "@/api/endpoints/access";
 
 const api = vi.hoisted(() => ({
@@ -33,6 +34,7 @@ const api = vi.hoisted(() => ({
   revokeResourceUser: vi.fn(),
   updateGroup: vi.fn(),
   setResourceOwner: vi.fn(),
+  useAuthState: vi.fn(),
 }));
 
 vi.mock("@/api", () => api);
@@ -124,8 +126,36 @@ function groupsPanel(): HTMLElement {
   return section;
 }
 
+function usersPanel(): HTMLElement {
+  const heading = screen.getByRole("heading", { level: 2, name: "Users" });
+  const section = heading.closest("section");
+  if (section === null) throw new Error("Users panel missing");
+  return section;
+}
+
+async function openResourceAccess(label = "F1 Weekend"): Promise<void> {
+  const table = await within(resourcePanel()).findByRole("table");
+  fireEvent.click(
+    within(table).getByRole("button", { name: `Actions for ${label}` }),
+  );
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Manage access" }));
+}
+
+async function openGroupActions(name = "editors"): Promise<void> {
+  const table = await within(groupsPanel()).findByRole("table");
+  fireEvent.click(
+    within(table).getByRole("button", { name: `Actions for ${name}` }),
+  );
+}
+
 beforeEach(() => {
   vi.resetAllMocks();
+  api.useAuthState.mockReturnValue({
+    status: "authenticated",
+    auth: {
+      user: { id: 1, username: "kyros", role: "admin", display_name: "Kyros" },
+    },
+  });
   api.fetchClients.mockResolvedValue([]);
   api.fetchGroups.mockResolvedValue({ items: [], total: 0 });
   api.fetchRegistrationRequests.mockResolvedValue([]);
@@ -171,9 +201,9 @@ describe("ResourceAccessSection", () => {
 
     renderAdmin();
 
-    expect(
-      await within(resourcePanel()).findByText("Could not load resources"),
-    ).toBeTruthy();
+    const panel = resourcePanel();
+    expect(await within(panel).findByText("Something went wrong")).toBeTruthy();
+    expect(await within(panel).findByText("boom")).toBeTruthy();
   });
 
   it("renders a page with label, type, owner and viewer count", async () => {
@@ -217,14 +247,15 @@ describe("ResourceAccessSection", () => {
 
     renderAdmin();
 
-    await within(resourcePanel()).findByText("Streamlink");
+    const table = await within(resourcePanel()).findByRole("table");
+    await within(table).findByText("Streamlink");
     expect(
-      screen.queryByRole("button", { name: "Manage access for Streamlink" }),
+      within(table).queryByRole("button", { name: "Actions for Streamlink" }),
     ).toBeNull();
     expect(
-      screen.getByRole("button", { name: "Manage access for F1 Weekend" }),
+      within(table).getByRole("button", { name: "Actions for F1 Weekend" }),
     ).toBeTruthy();
-    expect(within(resourcePanel()).getByText("System")).toBeTruthy();
+    expect(within(table).getByText("System")).toBeTruthy();
   });
 
   it("crowns a co-owner through the dialog", async () => {
@@ -239,11 +270,7 @@ describe("ResourceAccessSection", () => {
 
     renderAdmin();
 
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Manage access for F1 Weekend",
-      }),
-    );
+    await openResourceAccess();
     fireEvent.click(
       await screen.findByRole("button", { name: "Make Alice the owner" }),
     );
@@ -283,11 +310,7 @@ describe("ResourceAccessSection", () => {
 
     renderAdmin();
 
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Manage access for F1 Weekend",
-      }),
-    );
+    await openResourceAccess();
     fireEvent.click(
       await screen.findByRole("button", { name: "Make Editors the owner" }),
     );
@@ -308,11 +331,7 @@ describe("ResourceAccessSection", () => {
 
     renderAdmin();
 
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Manage access for F1 Weekend",
-      }),
-    );
+    await openResourceAccess();
     fireEvent.click(
       within(await screen.findByTestId("access-catalog")).getByRole("option", {
         name: /Alice/,
@@ -352,11 +371,7 @@ describe("ResourceAccessSection", () => {
 
     renderAdmin();
 
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Manage access for F1 Weekend",
-      }),
-    );
+    await openResourceAccess();
     fireEvent.click(
       within(await screen.findByTestId("access-catalog")).getByRole("option", {
         name: /Alice/,
@@ -403,7 +418,7 @@ describe("GroupsSection", () => {
     const table = await within(groupsPanel()).findByRole("table");
     expect(within(table).getByText("Editors")).toBeTruthy();
     expect(within(table).getByText("@editors")).toBeTruthy();
-    expect(within(table).getByText("3")).toBeTruthy();
+    expect(within(table).getByText("3 members")).toBeTruthy();
     expect(within(table).getByText("@everyone")).toBeTruthy();
     expect(within(table).getByText("System")).toBeTruthy();
     expect(
@@ -412,11 +427,10 @@ describe("GroupsSection", () => {
       ),
     ).toBeTruthy();
     expect(
-      within(table).getAllByRole("button", { name: "Members" }),
+      within(table).getAllByRole("button", { name: /members of editors$/ }),
     ).toHaveLength(1);
-    expect(screen.queryByRole("button", { name: "Edit everyone" })).toBeNull();
     expect(
-      screen.queryByRole("button", { name: "Delete everyone" }),
+      screen.queryByRole("button", { name: "Actions for everyone" }),
     ).toBeNull();
   });
 
@@ -447,9 +461,8 @@ describe("GroupsSection", () => {
 
     renderAdmin();
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Edit editors" }),
-    );
+    await openGroupActions();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Edit group" }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.change(within(dialog).getByLabelText("Display name"), {
       target: { value: "Editors!" },
@@ -470,9 +483,8 @@ describe("GroupsSection", () => {
 
     renderAdmin();
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Delete editors" }),
-    );
+    await openGroupActions();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete group" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Delete group")).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
@@ -491,7 +503,10 @@ describe("GroupsSection", () => {
 
     renderAdmin();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Members" }));
+    const table = await within(groupsPanel()).findByRole("table");
+    fireEvent.click(
+      within(table).getByRole("button", { name: /members of editors$/ }),
+    );
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Select all" }));
     fireEvent.click(
@@ -501,5 +516,49 @@ describe("GroupsSection", () => {
     await waitFor(() =>
       expect(api.setGroupMembers).toHaveBeenCalledWith(2, ["kyros", "alice"]),
     );
+  });
+});
+
+describe("delete guards", () => {
+  it("refuses to delete the signed-in administrator", () => {
+    expect(
+      deleteBlockReason({ username: "kyros", role: "admin" }, USERS, "kyros"),
+    ).toBe("you cannot delete your own account");
+  });
+
+  it("refuses to delete the last administrator", () => {
+    expect(
+      deleteBlockReason(
+        { username: "alice", role: "admin" },
+        [{ username: "alice", role: "admin" }],
+        "kyros",
+      ),
+    ).toBe("the last administrator cannot be deleted");
+  });
+
+  it("allows deleting an administrator while another remains", () => {
+    expect(
+      deleteBlockReason(
+        { username: "alice", role: "admin" },
+        [
+          { username: "kyros", role: "admin" },
+          { username: "alice", role: "admin" },
+        ],
+        "kyros",
+      ),
+    ).toBeNull();
+  });
+
+  it("disables the menu item and explains why in the label", async () => {
+    renderAdmin();
+
+    const table = await within(usersPanel()).findByRole("table");
+    fireEvent.click(
+      within(table).getByRole("button", { name: "Actions for kyros" }),
+    );
+    const item = await screen.findByRole("menuitem", {
+      name: "Delete user — you cannot delete your own account",
+    });
+    expect((item as HTMLButtonElement).disabled).toBe(true);
   });
 });

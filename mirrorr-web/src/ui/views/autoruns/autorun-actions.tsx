@@ -30,8 +30,11 @@ import {
 import { AutorunFormDialog } from "./autorun-form-dialog"
 
 /** `POST /sessions/` body for "Run now" (spec §5.6 — no server run-now endpoint). */
-function sessionBodyFor(autorun: Autorun): SessionCreateBody {
+export function sessionBodyFor(autorun: Autorun): SessionCreateBody {
   return {
+    // Without this the run is orphaned: the schedule never sees it, and the
+    // "linked run" panel stays empty while the capture is clearly started.
+    autorun_id: autorun.id,
     engine_id: autorun.engine_id,
     resolver_id: autorun.resolver_id,
     recording: autorun.recording === true,
@@ -69,11 +72,11 @@ export function AutorunActionsMenu({ autorun }: { readonly autorun: Autorun }) {
     onSuccess: () => {
       removeFromInfiniteLists(queryClient, queryRoots.autoruns, autorun.id)
       queryClient.removeQueries({ queryKey: queryKeys.autorun(autorun.id) })
-      toast.success("Scheduled recording deleted", autorun.user_friendly_name)
+      toast.success("Autorun deleted", autorun.user_friendly_name)
       invalidate()
     },
     onError: (error) =>
-      toast.error("Could not delete the scheduled recording", getErrorMessage(error, "Request failed")),
+      toast.error("Could not delete the autorun", getErrorMessage(error, "Request failed")),
   })
 
   const runNow = useMutation({
@@ -136,7 +139,7 @@ export function AutorunActionsMenu({ autorun }: { readonly autorun: Autorun }) {
       <ConfirmDialog
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}
-        title="Delete this scheduled recording?"
+        title="Delete this autorun?"
         description="It will also stop and delete any running recording it started."
         confirmLabel="Delete"
         danger

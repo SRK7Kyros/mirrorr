@@ -37,7 +37,7 @@ const ORPHANED = autorun({
   issue: "profile-deleted",
 })
 
-test.describe("scheduled recordings", () => {
+test.describe("autoruns", () => {
   test.beforeEach(async ({ api }) => {
     api.data.autoruns = [ZULU, ALPHA, MIKE, SPENT]
     api.data.profiles = [
@@ -87,7 +87,8 @@ test.describe("scheduled recordings", () => {
   test("sets one profile across the whole selection", async ({ page, api }) => {
     await page.goto("/autoruns")
 
-    await page.getByLabel("Select all scheduled recordings").check()
+    await page.getByRole("button", { name: "Select", exact: true }).click()
+    await page.getByLabel("Select all autoruns").check()
 
     const bulk = page.getByRole("region", { name: "Bulk actions" })
     await expect(bulk).toContainText("4 selected items")
@@ -95,7 +96,7 @@ test.describe("scheduled recordings", () => {
     await bulk.getByRole("button", { name: "Set profile" }).click()
     const dialog = page.getByRole("dialog")
     await expect(
-      dialog.getByRole("heading", { name: "Set the profile on 4 scheduled recordings" }),
+      dialog.getByRole("heading", { name: "Set the profile on 4 autoruns" }),
     ).toBeVisible()
 
     await dialog.getByLabel("Profile").selectOption("2")
@@ -150,7 +151,8 @@ test.describe("scheduled recordings", () => {
     ]
     await page.goto("/autoruns")
 
-    await page.getByLabel("Select all scheduled recordings").check()
+    await page.getByRole("button", { name: "Select", exact: true }).click()
+    await page.getByLabel("Select all autoruns").check()
     await page
       .getByRole("region", { name: "Bulk actions" })
       .getByRole("button", { name: "Set profile" })
@@ -191,7 +193,8 @@ test.describe("scheduled recordings", () => {
     api.data.engines = [engine({ id: 1, name: "Streamlink" })]
     await page.goto("/autoruns")
 
-    await page.getByLabel("Select all scheduled recordings").check()
+    await page.getByRole("button", { name: "Select", exact: true }).click()
+    await page.getByLabel("Select all autoruns").check()
     await page
       .getByRole("region", { name: "Bulk actions" })
       .getByRole("button", { name: "Set profile" })
@@ -237,18 +240,22 @@ test.describe("scheduled recordings", () => {
 
     await flagged.getByRole("link", { name: "Orphaned" }).click()
 
-    const banner = page.locator("[role=status]", { hasText: "Its profile was deleted, so it will not run" })
-    await expect(banner).toBeVisible()
-    await expect(banner).toContainText("nothing starts it until you pick a profile again")
+    // The detail page prints one ordered notice list instead of stacked banners
+    // (AUT-08); the blocking reason is always the first item.
+    const notices = page.getByRole("region", { name: "Before you run it" })
+    await expect(notices).toBeVisible()
+    await expect(notices).toContainText("Its profile was deleted, so it will not run")
+    await expect(notices).toContainText("nothing starts it until you pick a profile again")
 
-    await banner.getByRole("button", { name: "Edit" }).click()
-    await expect(page.getByRole("dialog", { name: "Edit scheduled recording" })).toBeVisible()
+    await page.getByRole("button", { name: "Edit schedule" }).click()
+    await expect(page.getByRole("dialog", { name: "Edit autorun" })).toBeVisible()
   })
 
   test("a phone keeps the bulk bar clear of the bottom nav", async ({ page }) => {
     await page.setViewportSize({ width: 402, height: 874 })
     await page.goto("/autoruns")
-    await page.getByLabel("Select all scheduled recordings").check()
+    await page.getByRole("button", { name: "Select", exact: true }).click()
+    await page.getByLabel("Select all autoruns").check()
 
     const bar = page.getByRole("region", { name: "Bulk actions" })
     const nav = page.getByRole("navigation", { name: "Primary" })

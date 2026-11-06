@@ -34,7 +34,7 @@ const RESOLVERS = [
 
 async function openCreate(page: import("@playwright/test").Page) {
   await page.goto("/autoruns")
-  await page.getByRole("button", { name: "New scheduled recording" }).first().click()
+  await page.getByRole("button", { name: "New autorun" }).first().click()
   await expect(page.getByRole("dialog")).toBeVisible()
 }
 
@@ -130,9 +130,9 @@ test.describe("fallback chain", () => {
     await dialog.locator("#autorun-start").fill("2026-11-01T10:00")
     await dialog.locator("#autorun-end").fill("2026-11-01T12:00")
 
-    await dialog.getByRole("button", { name: "Create scheduled recording" }).click()
+    await dialog.getByRole("button", { name: "Create autorun" }).click()
 
-    await expect(page.getByText("Scheduled recording created")).toBeVisible()
+    await expect(page.getByText("Autorun created")).toBeVisible()
     const [post] = api.callsTo("/autoruns/").filter((call) => call.method === "POST")
     expect(post?.body).toMatchObject({
       user_friendly_name: "Race",

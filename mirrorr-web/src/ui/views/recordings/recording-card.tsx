@@ -1,27 +1,35 @@
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { probeMediaUrl } from "@/api";
 import type { Recording } from "@/api/schemas";
-import { formatBytes, formatDateTime, formatDuration } from "@/api/time";
+import { formatBytes, formatDuration } from "@/api/time";
 import {
   Button,
-  Checkbox,
-  IconButton,
+  buttonClass,
+  CardHeaderActions,
+  EntityCard,
   IconCopy,
-  IconExternal,
-  IconTrash,
+  IconDownload,
+  MediaFill,
+  RowActions,
   Tag,
+  TimeText,
   toast,
 } from "@/ui/components";
+import { copyText } from "@/ui/lib/clipboard";
 import { AccessButton } from "@/ui/views/shared/resource-access-slot";
-import { SessionPreviewPlayer } from "@/ui/views/sessions/session-preview-player";
-import { SessionUrls } from "@/ui/views/sessions/session-urls";
+import { stripOrigin } from "@/ui/views/sessions/session-urls";
 
 /**
- * Descendants that own their own click — a card click must not hijack them.
- * `[data-card-ignore]` is the preview player, never a navigation target.
+ * A finished capture as one `EntityCard` (§2.2a recipe for Recordings):
+ * `header` (slug tag · serve state · actions) · `media` (the file's own first
+ * frame, or a plate) · `hero` (duration) · `detail` (the internal path) ·
+ * `identity` (name · chain · profile · size · created · session) · `footer`
+ * (Download · Copy link). Every recording card is the same height, because the
+ * media box is always the same 16:9 region and only its fill changes.
  */
-const INTERACTIVE = "a, button, input, label, [role='menu'], [role='menuitem'], [data-card-ignore]";
+
+const HERO = "text-2xl leading-none font-semibold tabular-nums text-ink";
 
 /** Prefer the server's `media_served`; fall back to one cached HEAD probe. */
 function useMediaServed(recording: Recording): boolean | null {
@@ -41,166 +49,215 @@ function useMediaServed(recording: Recording): boolean | null {
   return served;
 }
 
+/**
+ * Copy never fails silently: a denied clipboard says so, because the user
+ * clicked, saw nothing, and has no other way to learn why.
+ */
 async function copyLink(url: string): Promise<void> {
   try {
-    await navigator.clipboard.writeText(url);
+    await copyText(url);
     toast.success("Link copied");
   } catch {
-    toast.error("Copy failed", "Select the link and copy it manually.");
+    toast.error(
+      "Could not copy the link",
+      "Clipboard access was denied — select the path and copy it manually.",
+    );
   }
 }
 
-function MediaHint({ recording }: { readonly recording: Recording }) {
+/** The one 16:9 fill this card can show. An unknown serve state reads as a plate. */
+function RecordingMedia({
+  recording,
+  served,
+}: {
+  readonly recording: Recording;
+  readonly served: boolean | null;
+}) {
+  if (served === true) {
+    return (
+      <MediaFill
+        fill="cover"
+        src={recording.content_url}
+        label={`Preview of ${recording.user_friendly_name}`}
+      />
+    );
+  }
+
   return (
-    <div className="flex items-center gap-3" style={{ gap: "var(--s-2)" }}>
-      <span className="text-dim" style={{ fontSize: "var(--fs-xs)" }}>
-        Media not served on this install — copy link instead
-      </span>
-      <Button
-        size="sm"
-        variant="ghost"
-        icon={<IconCopy size={13} />}
-        onClick={() => void copyLink(recording.content_url)}
-      >
-        Copy link
-      </Button>
-    </div>
+    <MediaFill
+      fill="plate"
+      label={served === null ? "Checking the file" : "File kept — not served"}
+      fields={[
+        formatDuration(recording.duration_seconds),
+        formatBytes(recording.size_bytes),
+        served === null
+          ? "Checking whether this install serves the file…"
+          : "The server is not serving this file — copy the link instead",
+      ]}
+    />
   );
 }
 
-/**
- * One finished capture as a media card: a hover/tap preview over the recorded
- * file, its metadata and the served URL. Clicking the card opens the file; a
- * pointer-less device uses the play button to preview.
- */
 export function RecordingCard({
   recording,
   onDelete,
   highlightRef,
+  selectMode = false,
   selected = false,
   onToggle,
 }: {
   readonly recording: Recording;
   readonly onDelete: (recording: Recording) => void;
   readonly highlightRef: (element: HTMLElement | null) => void;
+  readonly selectMode?: boolean;
   readonly selected?: boolean;
   readonly onToggle?: (id: number) => void;
 }) {
-  const [hovering, setHovering] = useState(false);
   const served = useMediaServed(recording);
-  const playable = served === true ? recording.content_url : null;
+  const nameId = `recording-${recording.id}-name`;
 
-  function openRecording(event: MouseEvent<HTMLElement>) {
-    if (served === false) return;
-    if ((event.target as HTMLElement).closest(INTERACTIVE) !== null) return;
-    if (window.getSelection()?.toString() !== "") return;
+  // A probe that says "not served" is a dead link, not a download: the card
+  // opens, and the footer offers a download, only when the file is served.
+  const openFile = (): void => {
     window.open(recording.content_url, "_blank", "noopener,noreferrer");
-  }
+  };
 
   return (
-    <article
+    <div
       ref={highlightRef}
       data-id={recording.id}
-      data-selected={selected}
-      className="session-card flex flex-col border border-line rounded-lg bg-surface-2 overflow-hidden cursor-pointer transition-[border-color,box-shadow] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:border-line-strong hover:shadow-elev-md data-[selected=true]:border-[color:var(--accent-line)] data-[selected=true]:shadow-[inset_2px_0_0_var(--accent)]"
-      onClick={openRecording}
-      onMouseEnter={() => setHovering(true)}
-      onMouseLeave={() => setHovering(false)}
-      onFocusCapture={() => setHovering(true)}
-      onBlurCapture={() => setHovering(false)}
+      className="h-full min-w-0 rounded-lg data-[highlight=true]:ring-2 data-[highlight=true]:ring-brand"
     >
-      <SessionPreviewPlayer
-        src={playable}
-        htmlUrl={null}
-        loop
-        hovering={hovering}
-        label={`recording #${recording.id}`}
-      >
-        <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 px-3 py-2 [background-image:linear-gradient(to_top,var(--overlay-scrim),transparent)] pointer-events-none">
-          <Tag>{recording.snake_case_name}</Tag>
-          <span className="tnum text-2xs font-semibold tracking-[0.06em] uppercase text-ink">
-            {formatDuration(recording.duration_seconds)}
-          </span>
-        </div>
-      </SessionPreviewPlayer>
-
-      <div className="flex flex-col gap-3 px-4 pt-3 pb-4">
-        <div className="flex items-center gap-2">
-          <a
-            className="font-semibold text-ink min-w-0 text-truncate"
-            href={recording.content_url}
-            target="_blank"
-            rel="noreferrer"
-            title={recording.user_friendly_name}
-          >
-            {recording.user_friendly_name}
-          </a>
-          <span className="shrink-0 mono tnum text-dim">
-            #{recording.id}
-          </span>
-          <span className="flex-1" />
-          {onToggle === undefined ? null : (
-            <Checkbox
-              aria-label={`Select ${recording.user_friendly_name}`}
-              checked={selected}
-              onChange={() => onToggle(recording.id)}
-            />
-          )}
-          <AccessButton
-            resourceType="recording"
-            id={recording.id}
-            label={recording.user_friendly_name}
-          />
-          <IconButton
-            label={`Open recording #${recording.id}`}
-            icon={<IconExternal size={16} />}
-            onClick={() =>
-              window.open(
-                recording.content_url,
-                "_blank",
-                "noopener,noreferrer",
-              )
-            }
-          />
-          <IconButton
-            label={`Delete recording #${recording.id}`}
-            icon={<IconTrash size={16} />}
-            onClick={() => onDelete(recording)}
-          />
-        </div>
-
-        <div className="session-card-source text-sm text-ink-muted [overflow-wrap:anywhere]">
-          {recording.resolver_name}
-          <span className="text-dim" aria-hidden="true">
-            {" → "}
-          </span>
-          {recording.engine_name}
-        </div>
-
-        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm text-dim">
-          <span className="min-w-0 flex-1 text-truncate">{recording.profile_name}</span>
-          {recording.session_id === null || recording.session_id === undefined ? null : (
-            <Link
-              className="shrink-0 whitespace-nowrap hover:text-ink"
-              to="/sessions/$sessionId"
-              params={{ sessionId: String(recording.session_id) }}
-              title={`Open session #${recording.session_id}`}
+      <EntityCard
+        labelledBy={nameId}
+        selected={selected}
+        onOpen={served === true ? openFile : undefined}
+        header={
+          <>
+            <CardHeaderActions
+              selectMode={selectMode}
+              selected={selected}
+              onToggleSelect={() => onToggle?.(recording.id)}
+              selectLabel={`Select ${recording.user_friendly_name}`}
             >
-              Session #{recording.session_id}
-            </Link>
-          )}
-          <span className="shrink-0 whitespace-nowrap tnum">
-            {formatBytes(recording.size_bytes)}
-          </span>
-          <span className="shrink-0 whitespace-nowrap">
-            {formatDateTime(recording.created_at)}
-          </span>
-        </div>
+              <Tag title="Recording slug">{recording.snake_case_name}</Tag>
+              {served === false ? (
+                <Tag title="This install is not serving the file">Not served</Tag>
+              ) : null}
+            </CardHeaderActions>
+            <AccessButton
+              resourceType="recording"
+              id={recording.id}
+              label={recording.user_friendly_name}
+            />
+            <RowActions
+              label={`Actions for recording #${recording.id}`}
+              actions={[
+                {
+                  label: `Delete recording #${recording.id}`,
+                  danger: true,
+                  onSelect: () => onDelete(recording),
+                },
+              ]}
+            />
+          </>
+        }
+        media={<RecordingMedia recording={recording} served={served} />}
+        hero={<span className={HERO}>{formatDuration(recording.duration_seconds)}</span>}
+        detail={
+          <div className="flex min-w-0 items-baseline gap-2">
+            <span className="shrink-0 text-2xs font-semibold tracking-[0.04em] uppercase text-dim">
+              File
+            </span>
+            <span
+              className="min-w-0 flex-1 truncate font-mono text-2xs text-ink-muted"
+              title={recording.content_url}
+            >
+              {stripOrigin(recording.content_url)}
+            </span>
+          </div>
+        }
+        identity={
+          <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex min-w-0 items-center gap-2">
+              {served === false ? (
+                <span
+                  id={nameId}
+                  className="inline-flex min-h-6 min-w-0 items-center truncate font-semibold text-ink"
+                  title={recording.user_friendly_name}
+                >
+                  {recording.user_friendly_name}
+                </span>
+              ) : (
+                <a
+                  id={nameId}
+                  className="inline-flex min-h-6 min-w-0 items-center truncate font-semibold text-ink hover:text-brand"
+                  href={recording.content_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={recording.user_friendly_name}
+                >
+                  {recording.user_friendly_name}
+                </a>
+              )}
+              <span className="shrink-0 font-mono text-xs tabular-nums text-dim">
+                {`#${recording.id}`}
+              </span>
+            </div>
 
-        {served === false ? <MediaHint recording={recording} /> : null}
+            <span className="truncate text-sm text-dim">
+              {recording.resolver_name}
+              <span aria-hidden="true">{" → "}</span>
+              {recording.engine_name}
+              <span aria-hidden="true">{" · "}</span>
+              {recording.profile_name}
+            </span>
 
-        <SessionUrls urls={[{ label: "File", url: recording.content_url }]} />
-      </div>
-    </article>
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm text-dim">
+              <span className="shrink-0 whitespace-nowrap tabular-nums">
+                {formatBytes(recording.size_bytes)}
+              </span>
+              <TimeText value={recording.created_at} className="shrink-0 whitespace-nowrap" />
+              {recording.session_id === null || recording.session_id === undefined ? null : (
+                <Link
+                  className="inline-flex min-h-6 shrink-0 items-center whitespace-nowrap hover:text-ink"
+                  to="/sessions/$sessionId"
+                  params={{ sessionId: String(recording.session_id) }}
+                  title={`Open session #${recording.session_id}`}
+                >
+                  {`Session #${recording.session_id}`}
+                </Link>
+              )}
+            </div>
+          </div>
+        }
+        footer={
+          <div className="flex w-full flex-wrap items-center gap-2">
+            {served === false ? null : (
+              <a
+                className={buttonClass({ variant: "outline", size: "sm" })}
+                href={recording.content_url}
+                download
+                target="_blank"
+                rel="noreferrer"
+                aria-label={`Download recording #${recording.id}`}
+              >
+                <IconDownload size={15} />
+                Download
+              </a>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={<IconCopy size={14} />}
+              aria-label={`Copy link for recording #${recording.id}`}
+              onClick={() => void copyLink(recording.content_url)}
+            >
+              Copy link
+            </Button>
+          </div>
+        }
+      />
+    </div>
   );
 }

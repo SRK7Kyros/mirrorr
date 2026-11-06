@@ -31,6 +31,8 @@ const VIEWPORTS = [
 
 export default defineConfig({
   testDir: "./tests/visual",
+  // The gallery writes files instead of asserting them; it has its own config.
+  testIgnore: ["gallery.spec.ts"],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   reporter: "list",

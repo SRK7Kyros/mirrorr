@@ -7,7 +7,7 @@ const BADGE_BASE =
 const BADGE_VARIANT = {
   accent: "bg-brand text-brand-ink",
   neutral: "bg-surface-4 text-ink-muted",
-  danger: "bg-danger text-white",
+  danger: "bg-danger text-danger-ink",
 } as const
 
 const TAG_BASE =

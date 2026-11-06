@@ -44,7 +44,7 @@ const BUTTON_VARIANT = {
     "border-line-strong bg-transparent text-ink font-medium [&:hover:not(:disabled)]:border-ink-faint [&:hover:not(:disabled)]:bg-surface-2",
   ghost:
     "border-transparent bg-transparent text-ink-muted font-medium [&:hover:not(:disabled)]:bg-surface-2 [&:hover:not(:disabled)]:text-ink",
-  danger: "border-transparent bg-danger text-white font-semibold [&:hover:not(:disabled)]:brightness-110",
+  danger: "border-transparent bg-danger text-danger-ink font-semibold [&:hover:not(:disabled)]:brightness-110",
   "danger-ghost":
     "border-line bg-transparent text-danger font-medium [&:hover:not(:disabled)]:border-danger [&:hover:not(:disabled)]:bg-danger-dim",
 } as const

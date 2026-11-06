@@ -21,11 +21,16 @@ test.describe("app shell", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Sessions" })).toBeVisible()
   })
 
-  test("an unknown path renders the not-found view", async ({ page }) => {
+  test("an unknown path renders the not-found view inside the shell", async ({ page }) => {
     await page.goto("/definitely-not-a-route")
 
-    await expect(page.getByRole("heading", { level: 1, name: "Not found" })).toBeVisible()
-    await expect(page.getByText("This page does not exist")).toBeVisible()
+    await expect(page.getByRole("heading", { level: 1, name: "Page not found" })).toBeVisible()
+    await expect(page.getByText("That address does not exist")).toBeVisible()
+    // The way out is the navigation the user already knows, not a bare link on
+    // a blank page: the sidebar and the top bar have to survive a 404.
+    await expect(page.getByRole("navigation").first()).toBeVisible()
+    await expect(page.getByRole("link", { name: "Back to sessions" })).toBeVisible()
+    await expect(page.getByRole("link", { name: "Browse recordings" })).toBeVisible()
   })
 
   test("an admin can reach the admin console from settings", async ({ page }) => {
@@ -34,7 +39,7 @@ test.describe("app shell", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible()
     // The admin console (registration queue, users, clients) is a second build;
     // this link is its only door — without it the queue is unreachable.
-    await expect(page.getByRole("link", { name: "Open console" })).toHaveAttribute("href", "/admin/settings")
+    await expect(page.getByRole("link", { name: "Open administration" })).toHaveAttribute("href", "/admin/settings")
   })
 
   test("the chrome takes its insets from the safe-area variables", async ({ page }) => {

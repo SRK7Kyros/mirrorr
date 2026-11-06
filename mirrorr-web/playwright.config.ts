@@ -17,6 +17,11 @@ const E2E_BASE_URL = `http://127.0.0.1:${E2E_PORT}`
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: true,
+  // Four parallel Chromiums plus a cold Vite transform stream saturate this
+  // host's four cores; at that load a page can be measured before React has
+  // mounted, which shows up as a lone "control not found" timeout that passes
+  // on rerun. Two workers cost ~2 min and make the gate mean something.
+  workers: process.env.CI ? 4 : 2,
   forbidOnly: !!process.env.CI,
   reporter: "list",
   use: {

@@ -8,6 +8,7 @@ import {
   formatDateTime,
   formatDateTimePair,
   formatDuration,
+  formatTimeZoneLabel,
   formatWindow,
   naiveUtcToDatetimeLocal,
   parseNaiveUtc,
@@ -112,5 +113,20 @@ describe("formatters", () => {
   it("returns null when either end is unparseable", () => {
     expect(formatWindow("nope", "2026-06-15T19:15:00")).toBeNull()
     expect(formatWindow("2026-06-15T19:15:00", "nope")).toBeNull()
+  })
+})
+
+describe("displayed times are local, and say so", () => {
+  const instant = new Date("2026-07-01T12:00:00Z")
+
+  it("names the viewer's zone, never a bare UTC claim, in a non-UTC zone", () => {
+    const label = formatTimeZoneLabel(instant, "Europe/Rome")
+    expect(label).not.toBe("UTC")
+    expect(label).not.toBe("GMT")
+    expect(label).toMatch(/CEST|GMT\+2|GMT\+02/)
+  })
+
+  it("falls back to the IANA zone name when the short name is empty", () => {
+    expect(formatTimeZoneLabel(instant, "UTC")).toMatch(/UTC|GMT/)
   })
 })

@@ -1,322 +1,311 @@
-import type { ReactNode } from "react";
-import { Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { ApiError, getErrorMessage, useNameMaps } from "@/api";
-import { fetchSession } from "@/api/endpoints";
-import { queryKeys, resolveEntityName, staleTimes } from "@/api/query-keys";
-import { getStatusDescriptor, isStarting } from "@/api/status";
-import { isLive } from "@/api/domain/filter-grammar";
-import { planLabel, mapNaming } from "@/api/domain/fallback-chain";
-import { formatDateTime, formatDuration } from "@/api/time";
+import { useEffect, useState } from "react"
+import { Link } from "@tanstack/react-router"
+import { useQuery } from "@tanstack/react-query"
+import { ApiError, useNameMaps } from "@/api"
+import { fetchSession } from "@/api/endpoints"
+import { deriveRunState } from "@/api/domain/run-state"
+import { isLive } from "@/api/domain/filter-grammar"
+import { queryKeys, staleTimes } from "@/api/query-keys"
+import type { Session } from "@/api/schemas"
 import {
   buttonClass,
   EmptyState,
-  ErrorPanel,
+  IconExternal,
   IconSessions,
-  JsonView,
   Panel,
   PanelBody,
   PanelHead,
+  QueryState,
   SkeletonRows,
-  Stat,
   StatusChip,
   Tag,
-} from "@/ui/components";
-import { useLiveDurationSeconds } from "@/ui/hooks";
-import { Page } from "@/ui/views/shared/page";
-import { SessionTimeline, toAttemptView, toCaptureView } from "./session-timeline";
-import { RemuxProgressBar } from "./remux-progress";
-import { SessionSaveProfileButton } from "./session-save-profile-button";
-import { SessionStopDeleteButton } from "./session-stop-delete-button";
-import { SessionRecordingButton } from "./session-recording-button";
-import { SessionPlayerFrame } from "./session-preview-player";
-import { SessionPlayer } from "./session-player";
-import { SessionStarting } from "./session-starting";
-import { SessionTelemetryReadout } from "./session-telemetry";
-import { sessionTitle } from "./session-title";
-import { SessionUrls, pickHtmlPlayerUrl, pickPlayableUrl, toSessionUrls } from "./session-urls";
+} from "@/ui/components"
+import { useLiveDurationSeconds } from "@/ui/hooks"
+import { Page } from "@/ui/views/shared/page"
+import { BackToSessionsLink, SessionOverflow, StopRecordingAction } from "./session-detail-actions"
+import {
+  SessionAccessPanel,
+  SessionConfigPanel,
+  SessionFactsPanel,
+  SessionStatusPanel,
+} from "./session-detail-facts"
+import {
+  failureReason,
+  fileEvidence,
+  headerSubtitle,
+  parseSessionId,
+  pendingFallbacks,
+  servedFileUrl,
+  sourcePanelMode,
+  timelineEmptyText,
+} from "./session-detail-model"
+import { SessionSourcePanel } from "./session-detail-source"
+import { capturedBytes } from "./session-media"
+import { SessionTimeline, toAttemptView, toCaptureView } from "./session-timeline"
+import { sessionTitle } from "./session-title"
+import { toSessionUrls } from "./session-urls"
 
-function KeyValue({
-  label,
-  children,
-}: {
-  readonly label: string;
-  readonly children: ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-dim">{label}</span>
-      <span className="mono text-truncate">{children}</span>
-    </div>
-  );
-}
+/**
+ * SCR-04 — one run, read through one derived state.
+ *
+ * The page used to answer "is it running?", "is there a file?" and "is the
+ * supervisor listening?" in four different panels, which is how a completed run
+ * ended up with a live-sources panel and a supervisor sentence under a
+ * `Completed` chip (SDR-01). `deriveRunState()` answers once; every branch below
+ * reads its answer and none of them re-derives it.
+ *
+ * Layout is two columns from 1024 px (`minmax(0,2fr) / minmax(280px,1fr)`), with
+ * the facts rail placed into column two from the same DOM order that puts it
+ * first on a phone — so the breakpoints never disagree about reading order.
+ */
+
+const COLUMNS =
+  "grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)] lg:items-start"
+const RAIL = "flex min-w-0 flex-col gap-5 lg:col-start-2 lg:row-start-1"
+const HISTORY = "flex min-w-0 flex-col gap-5 lg:col-start-1 lg:row-start-1"
 
 function isNotFound(error: unknown): boolean {
-  return error instanceof ApiError && error.status === 404;
+  return error instanceof ApiError && error.status === 404
 }
 
-export function SessionDetailView({
-  sessionId,
-}: {
-  readonly sessionId: string;
-}) {
-  const names = useNameMaps();
+function InvalidSessionId({ raw }: { readonly raw: string }) {
+  return (
+    <Page title="That is not a session id">
+      <EmptyState
+        icon={<IconSessions size={22} />}
+        title="The link points at something that is not a run"
+        text={
+          <>
+            A session id is a number, like <span className="mono">#104</span>. Nothing was deleted
+            — there is no session at <span className="mono">/sessions/{raw}</span> to open.
+          </>
+        }
+        action={
+          <Link
+            className={buttonClass({ variant: "outline", size: "lg", className: "min-h-11 min-w-11" })}
+            to="/sessions"
+          >
+            Back to sessions
+          </Link>
+        }
+      />
+    </Page>
+  )
+}
+
+function DetailSkeleton() {
+  return (
+    <div className={COLUMNS}>
+      <Panel className="lg:col-start-2 lg:row-start-1">
+        <PanelBody>
+          <SkeletonRows rows={5} cols={2} />
+        </PanelBody>
+      </Panel>
+      <Panel className="lg:col-start-1 lg:row-start-1">
+        <PanelBody>
+          <SkeletonRows rows={6} cols={1} />
+        </PanelBody>
+      </Panel>
+    </div>
+  )
+}
+
+export function SessionDetailView({ sessionId }: { readonly sessionId: string }) {
+  const id = parseSessionId(sessionId)
+  if (id === null) return <InvalidSessionId raw={sessionId} />
+  return <SessionDetail id={id} />
+}
+
+function SessionDetail({ id }: { readonly id: number }) {
+  const names = useNameMaps()
   const query = useQuery({
-    queryKey: queryKeys.session(sessionId),
-    queryFn: () => fetchSession(sessionId),
+    queryKey: queryKeys.session(id),
+    queryFn: () => fetchSession(String(id)),
     staleTime: staleTimes.detail,
     refetchInterval: (q) =>
       q.state.data !== undefined && isLive(q.state.data.status) ? 5000 : false,
-  });
-  const session = query.data;
-  const duration = useLiveDurationSeconds(
-    session?.started_at,
-    session?.ended_at,
-  );
+  })
+  const session = query.data
+  const duration = useLiveDurationSeconds(session?.started_at, session?.ended_at)
+  const [configOpen, setConfigOpen] = useState(false)
 
-  if (query.isLoading) {
+  const run =
+    session === undefined
+      ? null
+      : deriveRunState({
+          status: session.status,
+          recording: session.recording,
+          hasRecording: fileEvidence(session, toSessionUrls(session.session_urls)).kept,
+        })
+  const failed = run?.state === "failed"
+
+  useEffect(() => {
+    if (failed) setConfigOpen(true)
+  }, [failed])
+
+  const title = session === undefined ? `Session #${id}` : sessionTitle(session, names)
+
+  if (isNotFound(query.error)) {
     return (
-      <Page title={`Session #${sessionId}`}>
-        <Panel>
-          <PanelBody>
-            <SkeletonRows rows={5} cols={3} />
-          </PanelBody>
-        </Panel>
-      </Page>
-    );
-  }
-
-  if (session === undefined) {
-    return (
-      <Page title={`Session #${sessionId}`}>
-        {isNotFound(query.error) ? (
-          <EmptyState
-            icon={<IconSessions size={22} />}
-            title="Session gone"
-            text="It may have been deleted from another client."
-            action={
-              <Link className={buttonClass({ variant: "outline" })} to="/sessions">
-                Back to sessions
-              </Link>
-            }
-          />
-        ) : (
-          <ErrorPanel
-            message={getErrorMessage(
-              query.error,
-              "Could not load this session",
-            )}
-            onRetry={() => void query.refetch()}
-          />
-        )}
-      </Page>
-    );
-  }
-
-  const engine = resolveEntityName(
-    session.engine_name,
-    names.engines,
-    session.engine_id,
-  );
-  const resolver = resolveEntityName(
-    session.resolver_name,
-    names.resolvers,
-    session.resolver_id,
-  );
-  const profile = resolveEntityName(
-    session.profile_name,
-    names.profiles,
-    session.profile_id,
-  );
-  const urls = toSessionUrls(session.session_urls);
-  const playable = pickPlayableUrl(urls);
-  const playerUrl = pickHtmlPlayerUrl(urls);
-  const attempts = (session.attempts ?? [])
-    .map((raw, index) => toAttemptView(raw, index))
-    .sort((a, b) => b.index - a.index);
-  const captures = (session.captures ?? [])
-    .map((raw, index) => toCaptureView(raw, index))
-    .sort((a, b) => a.index - b.index);
-  // The plan's own first entry is the source running now, not a fallback —
-  // only what follows it is still owed.
-  const plan = session.capture_plan ?? [];
-  const planBase = {
-    engine_id: session.engine_id,
-    resolver_id: session.resolver_id,
-    resolver_config: session.resolver_config ?? {},
-    profile_id: session.profile_id ?? null,
-    profile_name: session.profile_name ?? "",
-  };
-  const planNaming = mapNaming({
-    engines: names.engines ?? new Map<number, string>(),
-    resolvers: names.resolvers ?? new Map<number, string>(),
-    profiles: names.profiles ?? new Map<number, string>(),
-  });
-  const pending = isLive(session.status)
-    ? plan
-        .slice(Math.max(captures.length, 1))
-        .map((entry) => planLabel(entry, planBase, planNaming))
-    : [];
-  const remuxing =
-    session.status === "remuxing" || session.status === "finalizing";
-  // Telemetry covers the attempt's own processes — remux/finalize sample nothing.
-  const attemptRunning = isLive(session.status) && !remuxing;
-  const starting = isStarting(session.status);
-  const retryCount = session.retry_attempts ?? 0;
-  const hasResolverConfig =
-    session.resolver_config !== undefined &&
-    Object.keys(session.resolver_config).length > 0;
-  const hasRetryConfig =
-    session.retry_config !== undefined &&
-    Object.keys(session.retry_config).length > 0;
-
-  return (
-    <Page
-      title={sessionTitle(session, names)}
-      description={`#${session.id} · ${engine} → ${resolver} · ${profile}`}
-      actions={
-        <>
-          <Link className={buttonClass({ variant: "ghost" })} to="/sessions">
-            All sessions
-          </Link>
-          <SessionSaveProfileButton session={session} size="md" />
-          <SessionRecordingButton session={session} size="md" />
-          <SessionStopDeleteButton session={session} size="md" />
-        </>
-      }
-    >
-      <Panel>
-        <PanelHead
-          title="Status"
-          actions={
-            <>
-              <StatusChip status={session.status} />
-              {retryCount > 0 ? <Tag accent>Retry {retryCount}</Tag> : null}
-            </>
+      <Page title={`No session #${id}`}>
+        <EmptyState
+          icon={<IconSessions size={22} />}
+          title={`Session #${id} is not here`}
+          text="It may have been deleted from another client, or it belongs to another account. A link to an id that is not a number gets its own page."
+          action={
+            <Link
+            className={buttonClass({ variant: "outline", size: "lg", className: "min-h-11 min-w-11" })}
+            to="/sessions"
+          >
+              Back to sessions
+            </Link>
           }
         />
-        <PanelBody>
-          <div className="grid grid-cols-3 gap-4 max-sm:grid-cols-1">
-            <Stat
-              label="Duration"
-              value={duration === null ? "—" : formatDuration(duration)}
-            />
-            <Stat
-              label="Started"
-              value={
-                session.started_at != null
-                  ? formatDateTime(session.started_at)
-                  : "Not started"
-              }
-            />
-            <Stat
-              label="Ended"
-              value={
-                session.ended_at != null
-                  ? formatDateTime(session.ended_at)
-                  : "—"
-              }
-            />
-            <Stat
-              label="Recording"
-              value={session.recording === true ? "On" : "Off"}
-            />
-            <Stat label="Retry attempts" value={retryCount} />
-            {__ADMIN__ ? (
-              <Stat
-                label="Owner"
-                value={
-                  session.requester_user_token !== undefined &&
-                  session.requester_user_token !== ""
-                    ? session.requester_user_token
-                    : "—"
-                }
-              />
-            ) : null}
-          </div>
-          {remuxing ? (
-            <RemuxProgressBar
-              sessionId={session.id}
-              className="flex flex-col gap-2"
-            />
-          ) : null}
-          {attemptRunning ? (
-            <SessionTelemetryReadout sessionId={session.id} className="mt-4" />
-          ) : null}
-        </PanelBody>
-      </Panel>
+      </Page>
+    )
+  }
 
-      <Panel>
-        <PanelHead title="Live sources" />
-        <PanelBody>
-          {starting || urls.length > 0 ? (
-            <div className="flex flex-col gap-4">
-              {starting ? (
-                <SessionStarting
-                  label={getStatusDescriptor(session.status).label}
-                  className="aspect-video w-full rounded-md"
-                />
-              ) : playable !== null ? (
-                <SessionPlayer src={playable} label={sessionTitle(session, names)} />
-              ) : playerUrl !== null ? (
-                <SessionPlayerFrame url={playerUrl} label={sessionTitle(session, names)} />
-              ) : null}
-              {urls.length > 0 ? <SessionUrls urls={urls} /> : null}
-            </div>
-          ) : (
-            <p className="text-dim">
-              Live URLs not configured (operator must set{" "}
-              <span className="mono">web_url</span>).
-            </p>
+  return (
+    <div className="flex min-w-0 flex-1 flex-col">
+      <nav
+        aria-label="Breadcrumb"
+        className="mx-auto flex w-full max-w-[var(--content-max)] px-5 pt-6 max-sm:px-3 max-sm:pt-4"
+      >
+        <BackToSessionsLink />
+      </nav>
+      <Page
+        title={title}
+        description={session === undefined ? undefined : headerSubtitle(session, names)}
+        actions={
+          session === undefined || run === null ? undefined : (
+            <SessionHeaderActions session={session} run={run} title={title} />
+          )
+        }
+      >
+        <QueryState
+          query={query}
+          loading={<DetailSkeleton />}
+          errorMessage="Could not load this session"
+        >
+          {session === undefined || run === null ? null : (
+            <SessionDetailBody
+              session={session}
+              run={run}
+              title={title}
+              durationSeconds={duration}
+              configOpen={configOpen}
+              onConfigToggle={setConfigOpen}
+            />
           )}
-        </PanelBody>
-      </Panel>
+        </QueryState>
+      </Page>
+    </div>
+  )
+}
 
-      <Panel>
-        {/* The status chip above already names the state; what only this panel
-            knows is how many sources the run has to fall back to. */}
-        <PanelHead
-          title="Timeline"
-          actions={plan.length > 1 ? <Tag>{plan.length} in the plan</Tag> : null}
+function SessionHeaderActions({
+  session,
+  run,
+  title,
+}: {
+  readonly session: Session
+  readonly run: NonNullable<ReturnType<typeof deriveRunState>>
+  readonly title: string
+}) {
+  const served = servedFileUrl(toSessionUrls(session.session_urls))
+  return (
+    <>
+      <StatusChip status={session.status} />
+      {run.verb === "stop" ? <StopRecordingAction session={session} label={title} /> : null}
+      {run.verb === "open-recording" && served !== null ? (
+        <a
+          className={buttonClass({ variant: "primary", size: "lg", className: "min-h-11 min-w-11" })}
+          href={served}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Open recording
+          <IconExternal size={14} />
+        </a>
+      ) : null}
+      <SessionOverflow session={session} label={title} live={run.panels.sources} />
+    </>
+  )
+}
+
+function SessionDetailBody({
+  session,
+  run,
+  title,
+  durationSeconds,
+  configOpen,
+  onConfigToggle,
+}: {
+  readonly session: Session
+  readonly run: NonNullable<ReturnType<typeof deriveRunState>>
+  readonly title: string
+  readonly durationSeconds: number | null
+  readonly configOpen: boolean
+  readonly onConfigToggle: (open: boolean) => void
+}) {
+  const names = useNameMaps()
+  const urls = toSessionUrls(session.session_urls)
+  const evidence = fileEvidence(session, urls)
+  const attempts = (session.attempts ?? [])
+    .map((raw, index) => toAttemptView(raw, index))
+    .sort((a, b) => b.index - a.index)
+  const captures = (session.captures ?? [])
+    .map((raw, index) => toCaptureView(raw, index))
+    .sort((a, b) => a.index - b.index)
+  const plan = session.capture_plan ?? []
+  const pending = pendingFallbacks(session, names, captures.length, run.panels.sources)
+
+  return (
+    <div className={COLUMNS}>
+      <div className={RAIL}>
+        <SessionStatusPanel session={session} run={run} reason={failureReason(session, attempts)} />
+        <SessionFactsPanel
+          session={session}
+          run={run}
+          durationSeconds={durationSeconds}
+          bytes={capturedBytes(session)}
         />
-        <PanelBody>
-          <SessionTimeline
-            captures={captures}
-            attempts={attempts}
-            pending={pending}
-          />
-        </PanelBody>
-      </Panel>
+        <SessionConfigPanel
+          session={session}
+          names={names}
+          open={configOpen}
+          onToggle={onConfigToggle}
+        />
+        <SessionAccessPanel session={session} title={title} />
+      </div>
 
-      <Panel>
-        <PanelHead title="Config snapshot" />
-        <PanelBody>
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <KeyValue label="Engine">{engine}</KeyValue>
-              <KeyValue label="Resolver">{resolver}</KeyValue>
-              <KeyValue label="Profile">{profile}</KeyValue>
-              <KeyValue label="Retry mode">
-                {session.retry_mode ?? "—"}
-              </KeyValue>
-            </div>
-            {hasResolverConfig && session.resolver_config !== undefined ? (
-              <JsonView
-                label="Resolver config"
-                value={session.resolver_config}
-                defaultOpen
-              />
-            ) : null}
-            {hasRetryConfig && session.retry_config !== undefined ? (
-              <JsonView
-                label="Retry config"
-                value={session.retry_config}
-                defaultOpen
-              />
-            ) : null}
-          </div>
-        </PanelBody>
-      </Panel>
-    </Page>
-  );
+      <div className={HISTORY}>
+        {sourcePanelMode(run, evidence) === "none" ? null : (
+          <SessionSourcePanel
+            session={session}
+            names={names}
+            run={run}
+            evidence={evidence}
+            attempts={attempts}
+            title={title}
+            durationSeconds={durationSeconds}
+          />
+        )}
+        <Panel>
+          <PanelHead
+            title="Timeline"
+            actions={plan.length > 1 ? <Tag>{plan.length} in the plan</Tag> : null}
+          />
+          <PanelBody>
+            <SessionTimeline
+              captures={captures}
+              attempts={attempts}
+              pending={pending}
+              empty={timelineEmptyText(run)}
+            />
+          </PanelBody>
+        </Panel>
+      </div>
+    </div>
+  )
 }

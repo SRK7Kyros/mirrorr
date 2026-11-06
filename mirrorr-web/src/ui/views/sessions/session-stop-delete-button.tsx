@@ -1,34 +1,28 @@
 import { useState } from "react"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { deleteSession, getErrorMessage, removeFromInfiniteLists, stopSession } from "@/api"
+import { useMutation } from "@tanstack/react-query"
+import { getErrorMessage, stopSession } from "@/api"
 import type { Session } from "@/api/schemas"
-import { queryKeys, queryRoots } from "@/api/query-keys"
 import { getStatusDescriptor } from "@/api/status"
-import { Button, ConfirmDialog, IconStop, IconTrash, toast, type ButtonSize } from "@/ui/components"
+import { Button, ConfirmDialog, ErrorPanel, IconStop, toast, type ButtonSize } from "@/ui/components"
+
+/** 44 px on a coarse pointer, the sizes above elsewhere (`plan.md` §2.5). */
+const COARSE_TARGET = "[@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
+
+/** The run's own title, quoted, when it has one. */
+function runName(session: Session): string | null {
+  const named = session.autorun_name ?? session.profile_name ?? ""
+  return named === "" ? null : `“${named}”`
+}
 
 /**
- * A ghost icon that fills red on every pointer interaction. Expressed at the
- * call site because the `ghost` variant already emits its own hover
- * background/text: the `data-slot=button` + `:not(:disabled)` in each variant
- * buys the specificity that makes the fill win deterministically rather than
- * depending on Tailwind's emitted order.
- */
-const DANGER_ICON = [
-  "[&[data-slot=button]:hover:not(:disabled)]:bg-danger",
-  "[&[data-slot=button]:hover:not(:disabled)]:border-danger",
-  "[&[data-slot=button]:hover:not(:disabled)]:text-danger-ink",
-  "[&[data-slot=button]:focus-visible:not(:disabled)]:bg-danger",
-  "[&[data-slot=button]:focus-visible:not(:disabled)]:border-danger",
-  "[&[data-slot=button]:focus-visible:not(:disabled)]:text-danger-ink",
-  "[&[data-slot=button]:active:not(:disabled)]:bg-danger",
-  "[&[data-slot=button]:active:not(:disabled)]:border-danger",
-  "[&[data-slot=button]:active:not(:disabled)]:text-danger-ink",
-].join(" ")
-
-/**
- * One icon for the session's terminal action: stop while it is live, delete
- * once it is spent. `STATUS_MAP.sessionActions` decides which — a status that
- * allows neither renders nothing.
+ * The live run's one terminal verb (`FLW-02`).
+ *
+ * A card used to show `Stop` and `Delete` as two glyphs whose difference was
+ * invisible; delete now lives in the `⋯` overflow (`session-delete-action.tsx`)
+ * and this button is the only terminal control a live card carries. It says
+ * what it does, states plainly that the file is kept, and confirms — naming the
+ * run — before the endpoint is called. Spent statuses get no button: their only
+ * terminal action is delete, which belongs in the overflow.
  */
 export function SessionStopDeleteButton({
   session,
@@ -37,78 +31,48 @@ export function SessionStopDeleteButton({
   readonly session: Session
   readonly size?: ButtonSize
 }) {
-  const queryClient = useQueryClient()
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  const actions = getStatusDescriptor(session.status).sessionActions
-
-  const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: queryRoots.sessions })
-    void queryClient.invalidateQueries({ queryKey: queryKeys.session(session.id) })
-  }
+  const [confirming, setConfirming] = useState(false)
+  const allowed = getStatusDescriptor(session.status).sessionActions.includes("stop")
+  const name = runName(session)
 
   const stop = useMutation({
     mutationFn: () => stopSession(session.id),
-    onSuccess: () => {
-      toast.success("Stopping session", `#${session.id}`)
-      invalidate()
-    },
-    onError: (error) => toast.error("Could not stop the session", getErrorMessage(error, "Request failed")),
+    onSuccess: () => toast.success("Stopping session", `#${session.id}`),
   })
 
-  const remove = useMutation({
-    mutationFn: () => deleteSession(session.id),
-    onSuccess: () => {
-      removeFromInfiniteLists(queryClient, queryRoots.sessions, session.id)
-      queryClient.removeQueries({ queryKey: queryKeys.session(session.id) })
-      toast.success("Session deleted", `#${session.id}`)
-      invalidate()
-    },
-    onError: (error) => toast.error("Could not delete the session", getErrorMessage(error, "Request failed")),
-  })
+  if (!allowed) return null
 
-  if (actions.includes("stop")) {
-    return (
-      <Button
-        variant="ghost"
-        size={size}
-        className={DANGER_ICON}
-        icon={<IconStop size={16} />}
-        aria-label={`Stop session #${session.id}`}
-        title="Stop"
-        loading={stop.isPending}
-        onClick={() => stop.mutate()}
-      />
-    )
-  }
-
-  if (!actions.includes("delete")) return null
+  const failure = stop.isError ? getErrorMessage(stop.error, "Could not stop the session") : null
 
   return (
     <>
       <Button
-        variant="ghost"
+        variant="secondary"
         size={size}
-        className={DANGER_ICON}
-        icon={<IconTrash size={16} />}
-        aria-label={`Delete session #${session.id}`}
-        title="Delete"
-        onClick={() => setConfirmDelete(true)}
-      />
+        className={COARSE_TARGET}
+        icon={<IconStop size={15} />}
+        aria-label={`Stop recording session #${session.id}`}
+        loading={stop.isPending}
+        onClick={() => setConfirming(true)}
+      >
+        Stop recording
+      </Button>
       <ConfirmDialog
-        open={confirmDelete}
-        onClose={() => setConfirmDelete(false)}
-        title={`Delete session #${session.id}?`}
-        description="This removes the session record. Recordings already written to disk are kept."
-        confirmLabel="Delete"
-        danger
+        open={confirming}
+        onClose={() => setConfirming(false)}
+        title={`Stop recording session #${session.id}?`}
+        description={
+          name === null
+            ? "The capture ends now and the file written so far is kept."
+            : `${name} ends its capture now. The file written so far is kept.`
+        }
+        confirmLabel="Stop recording"
         onConfirm={async () => {
-          try {
-            await remove.mutateAsync()
-          } catch {
-            // onError surfaced a toast; keep the dialog open for a retry.
-          }
+          await stop.mutateAsync()
         }}
-      />
+      >
+        {failure === null ? null : <ErrorPanel message={failure} />}
+      </ConfirmDialog>
     </>
   )
 }

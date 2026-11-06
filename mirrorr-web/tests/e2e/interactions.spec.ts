@@ -74,7 +74,7 @@ test.describe("new session dialog", () => {
     await expect(dialog.getByTestId("access-creation")).toHaveCount(0)
   })
 
-  test("a wide panel sets the chain beside the setup, a phone stacks it under", async ({ page }) => {
+  test("the fallback chain is a full-width row under the setup at every width", async ({ page }) => {
     const dialog = page.getByRole("dialog", { name: "New session" })
     const profileSelect = page.locator("#new-session-profile")
     const chain = dialog.locator("[data-chain-section]")
@@ -85,16 +85,19 @@ test.describe("new session dialog", () => {
     await profileSelect.selectOption("1")
     await expect(chain).toBeVisible()
 
-    // Side by side: the chain's left edge clears the profile field's right edge.
+    // The empty right-hand half of the old dialog is gone: the chain is its own
+    // row, spanning the form, below the picker rather than beside it.
     await expect
       .poll(async () => {
         const chainBox = await chain.boundingBox()
         const profileBox = await profileSelect.boundingBox()
         if (chainBox === null || profileBox === null) return false
-        return chainBox.x > profileBox.x + profileBox.width - 8
+        const below = chainBox.y > profileBox.y + profileBox.height - 8
+        const sameRow = Math.abs(chainBox.x - profileBox.x) < 2
+        return below && sameRow
       })
       .toBe(true)
-    expect((await dialog.boundingBox())!.width).toBeGreaterThan(900)
+    expect((await dialog.boundingBox())!.width).toBeGreaterThan(700)
 
     await page.setViewportSize({ width: 375, height: 812 })
 
@@ -352,21 +355,44 @@ test.describe("new session dialog", () => {
 })
 
 test.describe("inline forms", () => {
-  test("Tab cycles the account form and Escape hands focus back out of it", async ({ page }) => {
+  test("the account form takes Tab in document order and never traps focus", async ({ page }) => {
     await page.goto("/settings")
 
     const current = page.getByLabel("Current password")
+    const next = page.locator("#account-new-password")
     const confirm = page.getByLabel("Confirm new password")
+    const submit = page.getByRole("button", { name: "Update password" })
 
-    await confirm.focus()
+    // Each password field owns a reveal toggle, so the order is
+    // field → its toggle → next field.
+    const reveals = page.getByRole("button", { name: "Show password" })
+    // The submit stays disabled (and therefore out of the tab order) until the
+    // three fields carry a value, so fill them first.
+    await current.fill("hunter2-old")
+    await next.fill("hunter2-new")
+    await confirm.fill("hunter2-new")
+    await current.focus()
     await page.keyboard.press("Tab")
-    await expect(current).toBeFocused()
-
-    await page.keyboard.press("Shift+Tab")
+    await expect(reveals.nth(0)).toBeFocused()
+    await page.keyboard.press("Tab")
+    await expect(next).toBeFocused()
+    await page.keyboard.press("Tab")
+    await expect(reveals.nth(1)).toBeFocused()
+    await page.keyboard.press("Tab")
     await expect(confirm).toBeFocused()
-
-    await page.keyboard.press("Escape")
+    await page.keyboard.press("Tab")
+    await expect(reveals.nth(2)).toBeFocused()
+    await page.keyboard.press("Tab")
+    await expect(submit).toBeFocused()
+    await page.keyboard.press("Tab")
+    // Past the submit the form releases the keyboard: this is a page-level
+    // form, not a modal, so focus continues into the rest of the page.
+    await expect(submit).not.toBeFocused()
     await expect(page.getByRole("button", { name: "Sign out" })).toBeFocused()
+
+    await current.focus()
+    await page.keyboard.press("Escape")
+    await expect(current).toBeFocused()
   })
 
   test("the shell is not text-selectable, the fields are", async ({ page }) => {

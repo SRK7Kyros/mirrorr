@@ -27,6 +27,22 @@ export function toNaiveUtc(date: Date): string {
   )
 }
 
+/**
+ * Short label for the zone the *displayed* times are in ("CEST", "GMT+2").
+ *
+ * Every user-facing datetime is rendered in the viewer's zone. Printing a
+ * literal "UTC" beside it — as the cards used to — states the opposite of what
+ * the clock shows. Pass `timeZone` explicitly only in tests.
+ */
+export function formatTimeZoneLabel(date: Date = new Date(), timeZone?: string): string {
+  const options: Intl.DateTimeFormatOptions = { timeZoneName: "short" }
+  if (timeZone !== undefined) options.timeZone = timeZone
+  const label = new Intl.DateTimeFormat(undefined, options)
+    .formatToParts(date)
+    .find((part) => part.type === "timeZoneName")?.value
+  return label !== undefined && label !== "" ? label : Intl.DateTimeFormat().resolvedOptions().timeZone
+}
+
 const DATE_TIME = new Intl.DateTimeFormat(undefined, {
   month: "short",
   day: "numeric",

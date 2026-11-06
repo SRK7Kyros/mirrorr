@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import {
   elapsedSeconds,
   formatBytes,
@@ -328,12 +329,15 @@ export function SessionTimeline({
   captures,
   attempts,
   pending,
+  empty,
   className,
 }: {
   readonly captures: readonly CaptureView[]
   readonly attempts: readonly AttemptView[]
   /** Sources the session will still try if the current one drops out. */
   readonly pending: readonly string[]
+  /** What to say when there is no history yet — a terminal run is never "waiting". */
+  readonly empty?: ReactNode
   readonly className?: string
 }) {
   const groups = groupTimeline(captures, attempts)
@@ -351,7 +355,7 @@ export function SessionTimeline({
   return (
     <div className={cn("flex flex-col gap-2", className)}>
       {groups.length === 0 ? (
-        <p className="text-dim">Waiting for the supervisor — attempt 1 not started yet.</p>
+        <p className="text-dim">{empty ?? "Waiting for the supervisor — attempt 1 not started yet."}</p>
       ) : (
         <ol
           className="flex flex-col gap-2 m-0 p-0 list-none max-h-[560px] overflow-y-auto"

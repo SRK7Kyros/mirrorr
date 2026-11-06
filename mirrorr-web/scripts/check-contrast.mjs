@@ -133,7 +133,17 @@ const PAIRS = [
     bg: tok("--surface-2"),
     claim: 1.58,
     gate: "info",
-    note: "control boundary — identified by its label, not the hairline",
+    note: "divider tier — not a control boundary",
+  },
+  {
+    n: 45,
+    label: "--control-border on --bg-sunken",
+    fg: tok("--control-border"),
+    bg: tok("--bg-sunken"),
+    claim: 4.0,
+    gate: "min",
+    floor: 3,
+    note: "WCAG 1.4.11: the boundary of a form field must reach 3:1",
   },
 ]
 

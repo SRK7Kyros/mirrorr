@@ -18,6 +18,10 @@ const ITEM_CLASS =
 export function BottomNav() {
   const matchRoute = useMatchRoute();
   const { open, setOpen, wrapRef } = useMenuDismiss();
+  // `More` is a door, not a destination, so it used to show nothing when the
+  // page behind it was one of its own items (CMP-17): the tab bar read as if
+  // you were nowhere.
+  const overflowActive = MOBILE_OVERFLOW.some((item) => matchRoute({ to: item.to }) !== false);
 
   return (
     <nav
@@ -55,9 +59,11 @@ export function BottomNav() {
             type="button"
             className={cn(
               ITEM_CLASS,
-              "w-[calc(var(--bottomnav-h)_-_var(--s-2))] flex-none text-ink-muted hover:text-ink",
+              "w-[calc(var(--bottomnav-h)_-_var(--s-2))] flex-none",
+              overflowActive ? "text-brand" : "text-ink-muted hover:text-ink",
             )}
             aria-label="More navigation"
+            aria-current={overflowActive ? "page" : undefined}
             aria-haspopup="menu"
             aria-expanded={open}
             onClick={() => setOpen((value) => !value)}
