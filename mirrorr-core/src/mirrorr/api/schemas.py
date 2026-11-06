@@ -92,6 +92,9 @@ class FallbackSource(BaseModel):
 
 
 class CreateSessionRequest(BaseModel):
+    # Set by the console's "Run now": the session is a manual run of a schedule
+    # and must remain linked to it, or the schedule's run history lies.
+    autorun_id: int | None = None
     profile_id: int | None = None
     fallback_chain: list[FallbackRung] | None = None
     fallback_profile_ids: list[int] | None = None

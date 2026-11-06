@@ -884,8 +884,17 @@ async def create_session(item: CreateSessionRequest, db: AsyncSession = Depends(
         raise HTTPException(status_code=400, detail=f"Resolver {resolver_id} not found")
     if not auth.user:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    autorun_id = None
+    if item.autorun_id is not None:
+        autorun = await crud.get_by_id(db, Autorun, item.autorun_id)
+        if not autorun:
+            raise HTTPException(status_code=400, detail=f"Autorun {item.autorun_id} not found")
+        if not await has_capability(db, auth, autorun, Capability.VIEW):
+            raise HTTPException(status_code=403, detail="Not your autorun")
+        autorun_id = autorun.id
     payload = Session(
         id=await crud.next_free_id(db, Session),
+        autorun_id=autorun_id,
         profile_id=item.profile_id,
         engine_id=engine_id,
         resolver_id=resolver_id,
