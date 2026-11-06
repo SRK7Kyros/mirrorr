@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8" />
+<title>Mirrorr — Sessions (card proposal v2)</title>
+<style>
+  :root {
+    --bg:#0a0a0c; --surface-1:#121216; --surface-2:#18181d; --surface-3:#1f1f26;
+    --border:#2a2a32; --border-subtle:#202027; --border-strong:#3a3a45;
+    --text:#ededf0; --text-muted:#9b9ba6; --text-dim:#909099;
+    --accent:#00e676; --accent-dim:rgba(0,230,118,.14);
+    --success:#3fb950; --warning:#e3b341; --danger:#f85149; --info:#58a6ff; --neutral:#8b949e;
+    --font-ui:system-ui,-apple-system,"Segoe UI",sans-serif;
+    --font-mono:ui-monospace,"SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font-ui);-webkit-font-smoothing:antialiased}
+  .app{display:flex;min-height:100vh}
+  .side{width:236px;flex:none;border-right:1px solid var(--border-subtle);background:#0c0c0f}
+  .brand{display:flex;align-items:center;gap:10px;padding:16px 16px 20px}
+  .mark{width:30px;height:30px;border-radius:9px;border:1px solid var(--accent);display:grid;place-items:center;color:var(--accent);font-size:13px}
+  .brand b{font-size:15px;display:block;letter-spacing:-.01em}
+  .brand span{font-size:9px;letter-spacing:.18em;color:var(--text-dim);text-transform:uppercase}
+  .grp{padding:10px 12px 4px;font-size:10px;letter-spacing:.16em;color:var(--text-dim);text-transform:uppercase}
+  .nav{display:flex;flex-direction:column;gap:2px;padding:0 8px}
+  .nav a{display:flex;align-items:center;padding:8px 10px;border-radius:6px;color:var(--text-muted);text-decoration:none;font-size:13px}
+  .nav a.on{background:var(--accent-dim);color:var(--text);box-shadow:inset 2px 0 0 var(--accent)}
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .top{height:52px;flex:none;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
+  .crumb{font-size:12px;color:var(--text-dim)}
+  .crumb a{color:var(--text-muted);text-decoration:none}
+  .topright{display:flex;align-items:center;gap:14px}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--success);border:1px solid var(--border);border-radius:999px;padding:4px 10px}
+  .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+  .avatar{width:26px;height:26px;border-radius:50%;background:var(--surface-3);border:1px solid var(--border);display:grid;place-items:center;font-size:10px;color:var(--text-muted)}
+  .content{max-width:1240px;width:100%;margin:0 auto;padding:24px 24px 64px}
+  .head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+  h1{margin:0;font-size:24px;letter-spacing:-.02em;font-weight:700}
+  .sub{margin:6px 0 0;font-size:13px;color:var(--text-muted)}
+  .btn{display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:6px;font-size:13px;font-weight:600;border:1px solid transparent;cursor:pointer}
+  .btn-primary{background:var(--accent);color:#00220e}
+  .band{margin-top:18px;display:flex;align-items:center;gap:22px;padding:11px 16px;border:1px solid var(--border);border-radius:10px;background:var(--surface-1);font-size:12px;color:var(--text-muted)}
+  .band b{color:var(--text);font-weight:600;font-size:13px;font-variant-numeric:tabular-nums}
+  .band .item{display:flex;align-items:baseline;gap:7px;white-space:nowrap}
+  .band .sp{flex:1}
+  .toolbar{display:flex;align-items:center;gap:12px;margin-top:16px}
+  .seg{display:inline-flex;background:var(--surface-2);border:1px solid var(--border);border-radius:7px;padding:3px;gap:2px}
+  .seg button{border:0;background:transparent;color:var(--text-muted);font:inherit;font-size:12px;padding:5px 12px;border-radius:5px;cursor:pointer}
+  .seg button.on{background:var(--surface-3);color:var(--text)}
+  .search{flex:1;max-width:320px;height:32px;border:1px solid var(--border-strong);border-radius:6px;background:var(--surface-1);color:var(--text-dim);font-size:12px;display:flex;align-items:center;padding:0 10px;gap:8px}
+  .spacer{flex:1}
+  .count{font-size:12px;color:var(--text-dim)}
+  .tbtn{height:32px;padding:0 11px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer}
+
+  .grid{margin-top:14px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:stretch}
+  .card{position:relative;display:flex;flex-direction:column;background:var(--surface-1);border:1px solid var(--border);border-radius:10px;overflow:hidden;text-decoration:none;color:inherit}
+  .card:hover{border-color:var(--border-strong);background:#15151a}
+
+  .strip{position:relative;height:88px;flex:none;padding:9px 11px;display:flex;flex-direction:column;justify-content:space-between;
+         background:var(--surface-2);border-bottom:1px solid var(--border-subtle);overflow:hidden}
+  .strip::before{content:"";position:absolute;inset:0;opacity:.16;
+    background:radial-gradient(120% 140% at 18% 0%, var(--tone) 0%, transparent 62%)}
+  .strip.live{--tone:#3fb950;background:#101614}
+  .strip.fail{--tone:#f85149;background:#171011}
+  .strip.done{--tone:#58a6ff;background:#101418}
+  .strip.sched{--tone:#58a6ff;background:#101217}
+  .strip.warn{--tone:#e3b341;background:#161410}
+  .frame{position:absolute;inset:0;background:linear-gradient(120deg,#1b3a30 0%,#12261f 45%,#0e1a16 100%)}
+  .frame.cool{background:linear-gradient(120deg,#1b2f3a 0%,#12212b 45%,#0e161c 100%)}
+  .frame::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,rgba(255,255,255,.035) 0 1px,transparent 1px 6px)}
+  /* media slot present: the frame is the strip. Same four slots, on a scrim. */
+  .strip.media{height:auto;aspect-ratio:16/9;background:#0b1210}
+  .strip.media::before{opacity:.55}
+  .strip.media::after{content:"";position:absolute;inset:auto 0 0 0;height:58px;background:linear-gradient(180deg,transparent,rgba(6,8,7,.78))}
+  /* plate: the media box with no frame. Never empty — glyph + metric + a line of why. */
+  .strip.plate{height:auto;aspect-ratio:16/9;background:var(--surface-1)}
+  .strip.plate::before{opacity:.30}
+  .glyph{position:absolute;inset:0;display:grid;place-items:center;z-index:1;font-size:32px;line-height:1;font-variant-emoji:text;
+         color:var(--tone);opacity:.42}
+  /* remux: the detail lives INSIDE the media box, so the card cannot grow */
+  .pbar{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.09);z-index:3}
+  .pbar i{display:block;height:100%;background:var(--info)}
+  .play{position:absolute;inset:0;display:grid;place-items:center;z-index:1}
+  .play i{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-size:12px;
+          border:1px solid rgba(255,255,255,.22);background:rgba(6,8,7,.42);color:#e8e8ee}
+
+  .srow{position:relative;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;z-index:2}
+  .status{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;padding:2px 7px;border-radius:4px;
+          background:rgba(8,8,10,.66);border:1px solid rgba(255,255,255,.07)}
+  .status .dot{width:6px;height:6px}
+  .running{color:var(--success)} .scheduled{color:var(--info)} .spent{color:var(--neutral)} .failedc{color:var(--danger)} .warnc{color:var(--warning)}
+  .act{display:flex;gap:6px;align-items:center}
+  .kebab{width:26px;height:26px;border-radius:5px;display:grid;place-items:center;color:#b9b9c4;background:transparent}
+  .box{width:13px;height:13px;border:1px solid var(--border-strong);border-radius:3px;background:rgba(8,8,10,.55)}
+
+  .hero{position:relative;z-index:2;display:flex;align-items:flex-end;justify-content:space-between;gap:10px}
+  .hero .big{font-size:17px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums;line-height:1.1}
+  .hero .lbl{font-size:9px;letter-spacing:.11em;text-transform:uppercase;color:var(--text-dim);
+             display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-width:34ch}
+  .facts{display:flex;gap:14px;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;flex:none}
+  .facts span b{display:block;font-size:11.5px;font-weight:600;color:var(--text-muted);line-height:1.3}
+  .facts span i{font-style:normal;font-size:9px;letter-spacing:.09em;text-transform:uppercase;color:var(--text-dim)}
+  
+
+  .body{padding:10px 11px 12px;display:flex;flex-direction:column;gap:3px}
+  .title{font-size:13.5px;font-weight:600;letter-spacing:-.005em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .meta{font-size:11.5px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .meta .mono{font-family:var(--font-mono);color:var(--text-dim);font-size:11px}
+  .cap{margin:32px 0 10px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-dim)}
+  /* narrow cards: facts get their own line so a real reason is never truncated to 90px */
+  @media (max-width:900px){
+    /* row 1: headline + facts, row 2: the reason at full width — never truncated to 90px */
+    .hero{flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:4px 10px}
+    .hero>div:first-child{display:contents}
+    .hero .big{order:1}
+    .facts{order:2;gap:16px}
+    .hero .lbl{order:3;flex:1 0 100%;max-width:none}
+    /* the play badge sits centre; lift it clear of the fact row at narrow card widths */
+    .play{transform:translateY(-16px)}
+    .play i{width:34px;height:34px;font-size:10px}
+  }
+  @media (max-width:1100px){ .grid{grid-template-columns:repeat(2,minmax(0,1fr))} .band{flex-wrap:wrap;row-gap:6px} .band .sp{display:none} .search{max-width:none;flex-basis:100%;order:3} .toolbar{flex-wrap:wrap;row-gap:10px} .head{flex-wrap:wrap;row-gap:12px} }
+  @media (max-width:767px){ .side{display:none} .content{padding:18px 14px 40px} .grid{grid-template-columns:1fr}
+    .head{flex-direction:column;align-items:stretch} .band{flex-wrap:wrap;row-gap:6px} .band .item{white-space:normal} }
+</style>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><div class="mark">◎</div><div><b>Mirrorr</b><span>Control room</span></div></div>
+    <div class="grp">Record</div>
+    <nav class="nav"><a class="on" href="#">Sessions</a><a href="#">Autoruns</a><a href="#">Recordings</a></nav>
+    <div class="grp">Configure</div>
+    <nav class="nav"><a href="#">Profiles</a><a href="#">Plugins</a><a href="#">Import / Export</a><a href="#">Settings</a></nav>
+  </aside>
+
+  <div class="main">
+    <div class="top">
+      <div class="crumb"><a href="#">Record</a> / Sessions</div>
+      <div class="topright"><span class="pill"><i class="dot"></i>Live</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9b9ba6" stroke-width="1.8"><path d="M18 8a6 6 0 10-12 0c0 7-3 8-3 8h18s-3-1-3-8"/></svg>
+        <div class="avatar">KY</div></div>
+    </div>
+
+    <div class="content">
+      <div class="head">
+        <div><h1>Sessions</h1><p class="sub">Live and recent capture runs. Search reaches the whole history.</p></div>
+        <button class="btn btn-primary">＋ New session</button>
+      </div>
+
+      <div class="band">
+        <div class="item"><b style="color:var(--success)">3</b> live</div>
+        <div class="item"><b>6</b> total</div>
+        <div class="item"><b style="color:var(--warning)">1</b> failed in 24 h</div>
+        <div class="item"><b>60 GB</b> free</div>
+        <div class="sp"></div>
+        <div class="item">next autorun <b style="font-size:12px">none pending</b></div>
+      </div>
+
+      <div class="toolbar">
+        <div class="seg"><button>Live</button><button>Spent</button><button class="on">All</button></div>
+        <div class="search">⌕&nbsp; Filter by id, profile, engine…</div>
+        <div class="spacer"></div>
+        <button class="tbtn">Sort: newest</button>
+        <button class="tbtn">Select</button>
+        <div class="count">6 sessions</div>
+      </div>
+
+      <div class="grid">
+        <a class="card" href="#">
+          <div class="strip live media"><div class="frame"></div>
+            <div class="play"><i>▶</i></div>
+            <div class="srow"><span class="status running"><i class="dot"></i>Recording</span>
+              <span class="act"><span class="kebab"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></span></span></div>
+            <div class="hero"><div><div class="big">0:42:11</div><div class="lbl">elapsed</div></div>
+              <div class="facts"><span><i>file</i><b>1.2 GB</b></span></div></div>
+          </div>
+          <div class="body"><div class="title">F1 Practice — Sky F1</div>
+            <div class="meta">Wide IPTV → streamlink · <span class="mono">#106</span></div></div>
+        </a>
+
+        <a class="card" href="#">
+          <div class="strip live plate">
+            <div class="glyph">◍</div>
+            <div class="srow"><span class="status running"><i class="dot"></i>Starting</span>
+              <span class="act"><span class="kebab"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></span></span></div>
+            <div class="hero"><div><div class="big">0:04</div><div class="lbl">waiting for engine</div></div>
+              <div class="facts"><span><i>attempt</i><b>1</b></span><span><i>engine</i><b>ffmpeg</b></span></div></div>
+          </div>
+          <div class="body"><div class="title">Morning News</div>
+            <div class="meta">News Feed → ffmpeg · <span class="mono">#103</span></div></div>
+        </a>
+
+        <a class="card" href="#">
+          <div class="strip fail plate">
+            <div class="glyph">✕</div>
+            <div class="srow"><span class="status failedc"><i class="dot"></i>Failed</span>
+              <span class="act"><span class="kebab"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></span></span></div>
+            <div class="hero"><div><div class="big">4:00</div><div class="lbl">resolver timeout · 504 twice</div></div>
+              <div class="facts"><span><i>attempts</i><b>2</b></span><span><i>captured</i><b>0 B</b></span></div></div>
+          </div>
+          <div class="body"><div class="title">Wide IPTV → Streamlink</div>
+            <div class="meta">Oct 12, 12:00 PM · <span class="mono">#105</span></div></div>
+        </a>
+
+        <a class="card" href="#">
+          <div class="strip done media"><div class="frame cool"></div>
+            <div class="play"><i>▶</i></div>
+            <div class="srow"><span class="status spent"><i class="dot"></i>Completed</span>
+              <span class="act"><span class="kebab"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></span></span></div>
+            <div class="hero"><div><div class="big">2:30:00</div><div class="lbl">published</div></div>
+              <div class="facts"><span><i>file</i><b>1.8 GB</b></span><span><i>ended</i><b>6:00 PM</b></span></div></div>
+          </div>
+          <div class="body"><div class="title">F1 weekend</div>
+            <div class="meta">Wide IPTV → streamlink · <span class="mono">#104</span></div></div>
+        </a>
+
+        <a class="card" href="#">
+          <div class="strip sched plate">
+            <div class="glyph"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3.2 2"/></svg></div>
+            <div class="srow"><span class="status scheduled"><i class="dot"></i>Scheduled</span>
+              <span class="act"><span class="kebab"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></span></span></div>
+            <div class="hero"><div><div class="big">in 3 d</div><div class="lbl">starts 09:00</div></div>
+              <div class="facts"><span><i>window</i><b>2 h 00 m</b></span></div></div>
+          </div>
+          <div class="body"><div class="title">Autorun1</div>
+            <div class="meta">autorun-1 · Wide IPTV → streamlink</div></div>
+        </a>
+
+        <a class="card" href="#">
+          <div class="strip done media"><div class="frame cool"></div>
+            <div class="play"><i>▶</i></div>
+            <div class="pbar"><i style="width:62%"></i></div>
+            <div class="srow"><span class="status spent"><i class="dot"></i>Stopped by you</span>
+              <span class="act"><span class="kebab"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></span></span></div>
+            <div class="hero"><div><div class="big">0:12:04</div><div class="lbl">remuxing 3 of 5 segments</div></div>
+              <div class="facts"><span><i>file</i><b>192 MB</b></span></div></div>
+          </div>
+          <div class="body"><div class="title">F1 weekend</div>
+            <div class="meta">Sky F1 → streamlink · <span class="mono">#101</span></div></div>
+        </a>
+      </div>
+
+      <div class="cap">One height, six real states. Where there is a file, the box shows its first frame; where there is none, it says why (server 504, 2 attempts, 0 B captured), when it starts, or what is left to remux. Nothing in the box is decoration.</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8" />
+<title>Mirrorr — Autoruns (card proposal v3)</title>
+<style>
+  :root{
+    --bg:#0a0a0c;--surface-1:#121216;--surface-2:#18181d;--surface-3:#1f1f26;
+    --border:#2a2a32;--border-subtle:#202027;--border-strong:#3a3a45;
+    --text:#ededf0;--text-muted:#9b9ba6;--text-dim:#909099;
+    --accent:#00e676;--accent-dim:rgba(0,230,118,.14);
+    --success:#3fb950;--warning:#e3b341;--danger:#f85149;--info:#58a6ff;--neutral:#8b949e;
+    --font-ui:system-ui,-apple-system,"Segoe UI",sans-serif;
+    --font-mono:ui-monospace,"SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font-ui);-webkit-font-smoothing:antialiased}
+  .app{display:flex;min-height:100vh}
+  .side{width:236px;flex:none;border-right:1px solid var(--border-subtle);background:#0c0c0f}
+  .brand{display:flex;align-items:center;gap:10px;padding:16px 16px 20px}
+  .mark{width:30px;height:30px;border-radius:9px;border:1px solid var(--accent);display:grid;place-items:center;color:var(--accent);font-size:13px}
+  .brand b{font-size:15px;display:block;letter-spacing:-.01em}
+  .brand span{font-size:9px;letter-spacing:.18em;color:var(--text-dim);text-transform:uppercase}
+  .grp{padding:10px 12px 4px;font-size:10px;letter-spacing:.16em;color:var(--text-dim);text-transform:uppercase}
+  .nav{display:flex;flex-direction:column;gap:2px;padding:0 8px}
+  .nav a{display:flex;align-items:center;padding:8px 10px;border-radius:6px;color:var(--text-muted);text-decoration:none;font-size:13px}
+  .nav a.on{background:var(--accent-dim);color:var(--text);box-shadow:inset 2px 0 0 var(--accent)}
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .top{height:52px;flex:none;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
+  .crumb{font-size:12px;color:var(--text-dim)}
+  .crumb a{color:var(--text-muted);text-decoration:none}
+  .topright{display:flex;align-items:center;gap:14px}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--success);border:1px solid var(--border);border-radius:999px;padding:4px 10px}
+  .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+  .avatar{width:26px;height:26px;border-radius:50%;background:var(--surface-3);border:1px solid var(--border);display:grid;place-items:center;font-size:10px;color:var(--text-muted)}
+  .content{max-width:1240px;width:100%;margin:0 auto;padding:24px 24px 64px}
+  .head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+  h1{margin:0;font-size:24px;letter-spacing:-.02em;font-weight:700}
+  .sub{margin:6px 0 0;font-size:13px;color:var(--text-muted)}
+  .btn{display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:6px;font-size:13px;font-weight:600;border:1px solid transparent;cursor:pointer;white-space:nowrap}
+  .btn-primary{background:var(--accent);color:#00220e}
+  .toolbar{display:flex;align-items:center;gap:12px;margin-top:16px}
+  .seg{display:inline-flex;background:var(--surface-2);border:1px solid var(--border);border-radius:7px;padding:3px;gap:2px}
+  .seg button{border:0;background:transparent;color:var(--text-muted);font:inherit;font-size:12px;padding:5px 12px;border-radius:5px;cursor:pointer}
+  .seg button.on{background:var(--surface-3);color:var(--text)}
+  .search{flex:1;max-width:320px;height:32px;border:1px solid var(--border-strong);border-radius:6px;background:var(--surface-1);color:var(--text-dim);font-size:12px;display:flex;align-items:center;padding:0 10px;gap:8px}
+  .spacer{flex:1}
+  .count{font-size:12px;color:var(--text-dim)}
+  .note{margin-top:14px;font-size:12px;color:var(--text-dim);display:flex;justify-content:space-between}
+  .tbtn{height:32px;padding:0 11px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer}
+  .grid{margin-top:12px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:start}
+  .card{position:relative;display:flex;flex-direction:column;background:var(--surface-1);border:1px solid var(--border);border-radius:10px;overflow:hidden;text-decoration:none;color:inherit}
+  .card:hover{border-color:var(--border-strong);background:#15151a}
+  .card.flag{border-color:rgba(227,179,65,.35)}
+
+  .strip{position:relative;height:96px;flex:none;padding:9px 11px;display:flex;flex-direction:column;justify-content:space-between;background:var(--surface-2);border-bottom:1px solid var(--border-subtle);overflow:hidden}
+  .strip::before{content:"";position:absolute;inset:0;opacity:.15;background:radial-gradient(120% 140% at 18% 0%,var(--tone) 0%,transparent 62%)}
+  .strip.live{--tone:#3fb950;background:#101614}
+  .strip.sched{--tone:#58a6ff;background:#101217}
+  .strip.flag{--tone:#e3b341;background:#161410}
+  .strip.done{--tone:#8b949e;background:#121316}
+  .srow{position:relative;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;z-index:2}
+  .status{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;padding:2px 7px;border-radius:4px;background:rgba(8,8,10,.66);border:1px solid rgba(255,255,255,.07)}
+  .status .dot{width:6px;height:6px}
+  .running{color:var(--success)}.scheduled{color:var(--info)}.spent{color:var(--neutral)}.warnc{color:var(--warning)}
+  .kebab{width:26px;height:26px;border-radius:5px;display:grid;place-items:center;color:#b9b9c4}
+  .hero{position:relative;z-index:2;display:flex;align-items:flex-end;justify-content:space-between;gap:10px}
+  .hero .big{font-size:19px;font-weight:600;letter-spacing:-.015em;font-variant-numeric:tabular-nums;line-height:1.05}
+  .hero .lbl{font-size:10px;color:var(--text-dim);margin-top:2px}
+  .facts{display:flex;gap:14px;font-variant-numeric:tabular-nums;text-align:right}
+  .facts span b{display:block;font-size:11.5px;font-weight:600;color:var(--text-muted);line-height:1.3}
+  .facts span i{font-style:normal;font-size:9px;letter-spacing:.09em;text-transform:uppercase;color:var(--text-dim)}
+  .body{padding:10px 11px 12px;display:flex;flex-direction:column;gap:3px}
+  /* detail slot — the schedule window. Owns the times; hero owns the countdown. */
+  .window{padding:9px 11px 10px;border-bottom:1px solid var(--border-subtle);background:var(--surface-2);
+          display:flex;flex-direction:column;gap:4px}
+  .wrow{display:flex;align-items:baseline;justify-content:space-between;gap:10px;font-size:11.5px;
+        color:var(--text-muted);font-variant-numeric:tabular-nums}
+  .wrow b{color:var(--text);font-weight:600}
+  .dim{color:var(--text-dim);font-weight:500}
+  .wmeta{font-size:10.5px;color:var(--text-dim);font-variant-numeric:tabular-nums}
+  .title{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .meta{font-size:11.5px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .meta .mono{font-family:var(--font-mono);color:var(--text-dim);font-size:11px}
+  .warnline{color:var(--warning)}
+  @media (max-width:1100px){
+    .side{width:200px}
+    .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .toolbar{flex-wrap:wrap;row-gap:10px}
+    .search{order:3;flex-basis:100%;max-width:none;height:34px}
+    .note{flex-direction:column;gap:4px}
+    .head{flex-wrap:wrap;row-gap:12px}
+  }
+  .hero>div:first-child{flex:1;min-width:0}
+  @media (max-width:767px){
+    .side{display:none}
+    .content{padding:18px 14px 40px}
+    .grid{grid-template-columns:1fr}
+    .head{flex-direction:column;align-items:stretch}
+    .tbtn,.seg,.count{flex:none}
+    .toolbar{gap:8px}
+  }
+</style>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><div class="mark">◎</div><div><b>Mirrorr</b><span>Control room</span></div></div>
+    <div class="grp">Record</div>
+    <nav class="nav"><a href="#">Sessions</a><a class="on" href="#">Autoruns</a><a href="#">Recordings</a></nav>
+    <div class="grp">Configure</div>
+    <nav class="nav"><a href="#">Profiles</a><a href="#">Plugins</a><a href="#">Import / Export</a><a href="#">Settings</a></nav>
+  </aside>
+
+  <div class="main">
+    <div class="top">
+      <div class="crumb"><a href="#">Record</a> / Autoruns</div>
+      <div class="topright"><span class="pill"><i class="dot"></i>Live</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9b9ba6" stroke-width="1.8"><path d="M18 8a6 6 0 10-12 0c0 7-3 8-3 8h18s-3-1-3-8"/></svg>
+        <div class="avatar">KY</div></div>
+    </div>
+
+    <div class="content">
+      <div class="head">
+        <div>
+          <h1>Autoruns</h1>
+          <p class="sub"><b style="color:var(--text)">5</b> autoruns · 1 running · 2 upcoming · <span class="warnline">1 needs attention</span></p>
+        </div>
+        <button class="btn btn-primary">＋ New autorun</button>
+      </div>
+
+      <div class="toolbar">
+        <div class="seg"><button class="on">Upcoming</button><button>Live</button><button>Spent</button><button>All</button></div>
+        <div class="search">⌕&nbsp; Filter by name, slug, engine…</div>
+        <div class="spacer"></div>
+        <button class="tbtn">Sort: soonest</button>
+        <button class="tbtn">Select</button>
+        <div class="count">5 autoruns</div>
+      </div>
+      <div class="note"><span>Each autorun runs once, then retires.</span><span>Times shown in Europe/Rome (UTC+2)</span></div>
+
+      <div class="grid">
+        <a class="card" href="#">
+          <div class="strip live">
+            <div class="srow"><span class="status running"><i class="dot"></i>Running</span>
+              <span class="kebab"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></span></div>
+            <div class="hero"><div><div class="big">1h 08m</div><div class="lbl">left</div></div>
+              <div class="facts"><span><i>recording</i><b>3.1 GB</b></span></div></div>
+          </div>
+          <div class="window">
+            <div class="wrow"><span>Starts</span><b>Mon 12 Oct · 09:00</b></div>
+            <div class="wrow"><span>Ends</span><b>11:30</b></div>
+            <div class="wmeta">2 h 30 m · Europe/Rome</div>
+          </div>
+          <div class="body"><div class="title">F1 Practice — Sky F1</div>
+            <div class="meta"><span class="mono">f1-practice-sky</span> · F1 weekend → streamlink</div></div>
+        </a>
+
+        <a class="card" href="#">
+          <div class="strip sched">
+            <div class="srow"><span class="status scheduled"><i class="dot"></i>Scheduled</span>
+              <span class="kebab"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></span></div>
+            <div class="hero"><div><div class="big">in 3 d 4 h</div><div class="lbl">Mon 12 Oct</div></div>
+              <div class="facts"><span><i>profile</i><b class="dim">not set</b></span><span><i>engine</i><b>streamlink</b></span></div></div>
+          </div>
+          <div class="window">
+            <div class="wrow"><span>Starts</span><b>09:00</b></div>
+            <div class="wrow"><span>Ends</span><b>11:00</b></div>
+            <div class="wmeta">2 h 00 m · Europe/Rome</div>
+          </div>
+          <div class="body"><div class="title">Wide IPTV → Streamlink</div>
+            <div class="meta"><span class="mono">autorun-1</span> · no profile</div></div>
+        </a>
+
+        <a class="card flag" href="#">
+          <div class="strip flag">
+            <div class="srow"><span class="status warnc"><i class="dot"></i>Scheduled · needs attention</span>
+              <span class="kebab"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></span></div>
+            <div class="hero"><div><div class="big">in 4 d 9 h</div><div class="lbl">Tue 13 Oct</div></div></div>
+          </div>
+          <div class="window">
+            <div class="wrow"><span>Starts</span><b>14:00</b></div>
+            <div class="wrow"><span>Ends</span><b>16:00</b></div>
+            <div class="wmeta">2 h 00 m · Europe/Rome</div>
+          </div>
+          <div class="body"><div class="title">Qualifying — ESPN</div>
+            <div class="meta"><span class="mono">qualifying-espn</span> · <span class="warnline">profile deleted — will not run</span></div></div>
+        </a>
+
+        <a class="card" href="#">
+          <div class="strip sched">
+            <div class="srow"><span class="status scheduled"><i class="dot"></i>Scheduled</span>
+              <span class="kebab"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></span></div>
+            <div class="hero"><div><div class="big">in 6 d</div><div class="lbl">Wed 15 Oct</div></div>
+              <div class="facts"><span><i>profile</i><b>Sprint</b></span></div></div>
+          </div>
+          <div class="window">
+            <div class="wrow"><span>Starts</span><b>20:00</b></div>
+            <div class="wrow"><span>Ends</span><b>22:30</b></div>
+            <div class="wmeta">2 h 30 m · Europe/Rome</div>
+          </div>
+          <div class="body"><div class="title">Sprint — Wide IPTV</div>
+            <div class="meta"><span class="mono">sprint-wide</span> · Sprint → streamlink</div></div>
+        </a>
+
+        <a class="card" href="#">
+          <div class="strip done">
+            <div class="srow"><span class="status spent"><i class="dot"></i>Completed</span>
+              <span class="kebab"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></span></div>
+            <div class="hero"><div><div class="big">1:00:00</div><div class="lbl">ran 3 d ago · retired</div></div>
+              <div class="facts"><span><i>file</i><b>1.4 GB</b></span></div></div>
+          </div>
+          <div class="window">
+            <div class="wrow"><span>Ran</span><b>Fri 09 Oct · 09:00</b></div>
+            <div class="wrow"><span>Ended</span><b>10:00</b></div>
+            <div class="wmeta">1 h 00 m · Europe/Rome</div>
+          </div>
+          <div class="body"><div class="title">Race — Sky F1</div>
+            <div class="meta"><span class="mono">race-sky</span> · Race → streamlink</div></div>
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
