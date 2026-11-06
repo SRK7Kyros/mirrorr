@@ -1,5 +1,12 @@
 # Feasibility audit — rebuild `mirrorr-web` on shadcn/ui + Tailwind CSS at ≥98% visual fidelity
 
+> **Historical record — marked 5 Nov 2026.** The migration **completed**; its own §7 says
+> "migration complete on `poc/tailwind-shadcn`" with 52/52 zero-diff screenshots, and the app now
+> ships Tailwind v4 + shadcn. The line below still reads "audit + POC in progress" and is kept only
+> so the record is intact — do not act on it. One thing here is still live and adopted: §1's
+> measurement contract, *fidelity is only definable once baselines exist*, which is plan P0 in
+> `ux-audit/plan.md`.
+
 Status: **audit + POC in progress.** Date: 2026-10-11 (rev. 2).
 Rev. 2 corrects the shadcn theming/dark-mode stance (§4, §4.1, §7, §10); the POC runs on branch `poc/tailwind-shadcn`.
 Supersedes the conflicting predecessors `.omo/drafts/greenfield-web-ui-spec.md` ("Tailwind, no shadcn") and

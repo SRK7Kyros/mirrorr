@@ -1,5 +1,12 @@
 # Resolver Sources & Interactive Discovery
 
+> **§6 note — 5 Nov 2026.** §6.2 below records a deliberate decision: the **Profiles|Sources tab
+> switcher was deleted on 8 Oct 2026** and replaced by two stacked `Section`s under
+> `Page title="Presets"`. **That decision stands.** The redesign keeps two stacked sections; it
+> only removes the competing create buttons and the `CONFIG {}` column (`ux-audit/plan.md` §4).
+> Do not reintroduce tabs. Everything else here — §3 data model, §4 plugin contract, §5 API, §6.3
+> discovery, §6.5 one-dialog-two-kinds — is current and authoritative.
+
 Design spec — **implemented** (P1–P4 + P5 pickers). Import/export bundles deferred (§7).
 Core landed as `cb49cec`; web landed as the matching `mirrorr-web` commit. Deviations
 from the draft are noted inline and summarised in §8.

@@ -7,6 +7,19 @@ Tokens are law; prose is context. Values override moods.
 
 ## 0. Design Read
 
+> **Design-language override — 5 Nov 2026 (operative).** This section and §1–§4 describe a
+> **light, frosted-white** system (`#FFFFFF` surface, `#1856FF` blue, Plus Jakarta Sans) that
+> **never shipped**. The console that exists is **dark** — `--bg:#0a0a0c`, `--accent:#00e676`,
+> 13 px system UI, mono uppercase micro-labels — defined in
+> `mirrorr-web/src/ui/styles/tokens.css`, and **that file is now the visual law**, not §1 below.
+> Read §0–§4 as the history of a rejected direction; do not restyle the app to it.
+> Two further overrides: the law "no three-equal-cards" (:25, :353, :1225) is **superseded for
+> operational card grids** (a repeated grid of N entities is not a hero composition — see
+> `ux-audit/plan.md` §2.2a); and the shell in §3/§7 no longer matches the app or the plan.
+> **What still governs is §5.4–§5.14 behavioural detail (ChainEditor, locked hazards, delete
+> rules, access editor), §1.4 status bindings, §6 state matrices and §8 measurements.**
+> Full layer map: `ux-audit/doc-audit.md`.
+
 One line: A light, cold-daylight **glass control deck** for a live-stream recorder —
 frosted acrylic chrome floating over the product's own stream media, with every
 reading surface opaque, so an operator watches machines make bytes through a
@@ -450,6 +463,15 @@ anatomy and glass placement differ.
 
 ## 5. Per-view structure
 
+> **Layout override — 5 Nov 2026 (operative, supersedes the row/table language below and in §7).**
+> The three *operational* surfaces — **Sessions**, **Scheduled recordings**, **Recordings** — are
+> **card grids by product intent**, not tables. Every "row anatomy", "row shows" and "table
+> treatment" instruction in §5.3, §5.5, §5.7 (and the `Tables` row of §7) is **superseded**:
+> a future agent must not convert these pages to tables. Card anatomy, grid density, breakpoints
+> and status placement are defined in `docs/ux-audit/plan.md` §2.2 and that document wins.
+> **Profiles, Sources, Plugins and the admin tables remain lists** (they already are) — only the
+> three operational surfaces above are card grids.
+
 One table per surface. "Data reads" names only endpoints that exist (Part 3).
 Status vocabulary and actions come from §1.4. All lists use cursor pagination
 (`PAGE_SIZE` 50, `has_more` → "Load more"; envelope `{items, next_cursor, has_more}`).
@@ -532,7 +554,7 @@ Status vocabulary and actions come from §1.4. All lists use cursor pagination
 |---|---|
 | Data reads | `GET /autoruns/{id}`, WS as 5.5; its spawned session (if any) via `GET /sessions/` filtered client-side on `autorun_id` |
 | Panels | identity (names + slug), schedule window + countdown, config snapshot, linked run (or "No run yet — it fires once at start time"), history note: "Retired after its run — create a new scheduled recording to repeat" |
-| Primary action | "Run now" — client-composed: `POST /sessions/` with this autorun's engine/resolver/config/retry (+ `recording:true` when set). There is no server "run now" endpoint (API 13.10.8); the button is labelled and documented as sugar |
+| Primary action | "Run now" — client-composed: `POST /sessions/` with this autorun's engine/resolver/config/retry (+ `recording:true` when set) **and `autorun_id`**, the one server addition made for it (Nov 6 2026): the create validates the caller can see that autorun and persists the link, so the schedule's run history no longer lies. There is still no server "run now" endpoint (API 13.10.8); the button is labelled and documented as sugar |
 | Hazards (locked) | while status ∈ {active, recording, terminating, remuxing, finalizing}: config fields disabled with label "Changes affect a future run, not the current one."; editing `end_time` of a live run raises confirm "Moving the end time earlier may stop the running recording."; `start_time` in the past is allowed (backfill trigger) but warns "Start time is in the past — the server will fire it immediately." |
 | Flagged | a warning `Banner` above the schedule — same title as the card, the detail explaining the copied config is intact and **saving clears it**, action "Edit" opening the form (Oct 25 2026) |
 | Empty | never (detail of an existing row) |
@@ -754,6 +776,7 @@ Breakpoints (page frame only): `--bp-compact` <768px, `--bp-medium` 768–1279px
 | Variant A shell | topbar 56px + stage + bottom glass tab bar (acrylic 0.55/40, radius 8, 16px inset, 5 items ≥44px) | 72px icon rail (tooltips) + topbar + stage | 240px acrylic rail + topbar + stage |
 | Variant B shell | capsule → full-width top bar; spine → opaque dark bottom tab bar; reel 220px tiles; work-log below | spine 64px + capsule + horizontal reel (16:9, scroll-snap) + work-log | spine + capsule + instrument band + wall 380–460px + work-log |
 | Tables | row-cards (each row becomes a card: chip + title + 2-col metric grid) — container query <42rem | full table, secondary columns hidden (engine/resolver move to row detail) | full table, sticky dark header |
+| Card surfaces (**Sessions / Scheduled / Recordings** — intent, see §5 override) | 1 column; strip 88–96 px, body 2 lines | 2 columns | 3 columns; equal heights; `⋯` only, no resting checkbox |
 | Forms | fieldsets stack, dialog → full-screen sheet (radius 0 top), primary action pinned bottom ≥44px | 2-column field grid | 2–3 column field grid, measure 68ch on help |
 | Instrument cards (A tally / B band) | 2 plates stacked, spans 1fr/1fr but heights differ (asymmetric) | 2 plates, 1.6fr/1fr | 3 plates, 2fr/1.2fr/1fr |
 | Wall/reel (B) | reel horizontal | reel horizontal | wall vertical mosaic (hero 2×2 + small tiles) |
@@ -1159,7 +1182,9 @@ no new npm dependency. Offline installs render the fallback stack; the type
 scale is unchanged.
 
 11.15 **"Run now" is client-composed** `POST /sessions/` (API 13.10.8) and is
-labelled as sugar; no endpoint is invented.
+labelled as sugar; no endpoint is invented. `POST /sessions/` accepts an
+optional `autorun_id` (Nov 6 2026) which it capability-checks and persists, so
+a manual run stays linked to the schedule it came from.
 
 11.16 **Autoruns are one-shot**: no recurrence UI anywhere (no cron, no weekday
 pickers). "Spent vs upcoming" is a client-side filter; the default view is All

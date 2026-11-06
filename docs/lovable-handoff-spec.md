@@ -1,5 +1,12 @@
 # Mirrorr — Lovable.dev Build Handoff
 
+> **DEAD — do not implement (marked 5 Nov 2026).** This is a build prompt for constructing the
+> console from scratch in Lovable.dev with React Router and a light glass token set. The console
+> **exists**, on TanStack Router + Tailwind v4 + shadcn, in a **dark** visual language. Nothing in
+> §3–§8 is implementable; every screen here is "instrument plates + table". Keep the document only
+> as a plain-language feature checklist (§4 data model, §5 status system, §8 flows) and read
+> `ux-audit/plan.md` for structure. See `ux-audit/doc-audit.md` §2 (C1, C3).
+
 **What this is:** a prompt-ready specification for building a Mirrorr web client in
 [Lovable.dev](https://lovable.dev). It is derived from `docs/general-client-specification.md`
 (the authoritative feature contract for *any* Mirrorr client) plus the visual direction in

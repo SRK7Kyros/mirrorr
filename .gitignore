@@ -7,3 +7,8 @@
 # host-specific deploy values (rendered into the unit/nginx conf by deploy.sh)
 deploy/mirrorr.local.env
 .env
+
+# local tool state and plugin runtime artifacts
+.serena/
+mirrorr-core/companion:*.log
+mirrorr-core/*.lock

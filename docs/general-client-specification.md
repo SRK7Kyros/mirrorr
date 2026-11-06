@@ -5,6 +5,16 @@
 **Scope:** The complete, authoritative feature contract — what features must exist, exactly how they must behave, and what the API allows. It deliberately does NOT prescribe UX/UI (that stays with the client).
 **Contract source:** `mirrorr-core` v0.1.0 (OpenAPI dump + `src/mirrorr` source verification, Sep 2026).
 
+> **Scope note — 5 Nov 2026.** This document owns **backend behaviour only**. It is not, and can
+> never be cited as, a design or layout authority. Two cautions before trusting a field list:
+> `AutorunResponse` (:209) is missing `orphan_policy`, `fallback_chain`, `fallback_profile_names`,
+> **`issue`**, `engine_name`, `resolver_name`, `profile_name`, **`next_run_at`**, `last_run_at`;
+> `SessionResponse` (:175) is missing `engine_name`, `resolver_name`, `profile_name`,
+> `autorun_name`, `recording_progress`. `mirrorr-core/src/mirrorr/api/schemas.py` wins on any
+> disagreement — `next_run_at` feeds every countdown and `issue` drives the "Needs attention"
+> state, so a client built from the shapes below would silently lose two features.
+> Layer map: `ux-audit/doc-audit.md`.
+
 ---
 
 ## 0. Architecture Overview
@@ -814,7 +824,7 @@ This subsection collects facts an implementer discovers only by reading the serv
 - `login`: 10/min per IP; `register`: 5/min; `status`: 30/min. After restart they reset. Client must handle `429` with a retryable backoff toast (not a permanent error) and *not* hammer `GET /auth/status` on boot loops.
 
 #### 13.10.8 No "run now" for autoruns — client composes it
-There is no `POST /autoruns/{id}/run`. The UI "Run now" is sugar: `POST /sessions/` with the autorun's `engine_id/resolver_id/resolver_config/retry_*` (and `recording:true` if applicable). The spec forbids inventing a server endpoint; the client just wires two calls.
+There is no `POST /autoruns/{id}/run`. The UI "Run now" is sugar: `POST /sessions/` with the autorun's `engine_id/resolver_id/resolver_config/retry_*` (and `recording:true` if applicable) plus **`autorun_id`**, which `POST /sessions/` accepts since 6 Nov 2026 — it capability-checks that the caller can view the autorun and persists the link, so the schedule's run history includes manual runs. The spec forbids inventing a server endpoint; the client just wires two calls.
 
 #### 13.10.9 WS events are enriched — but only for non-deleted subjects
 `_EventsRelay` calls `_fetch_entity` only when subject ∉ {`*.deleted`}; deleted frames carry the raw emit payload (`id`, maybe `requester_user_token`), **no entity**. Also `_fetch_entity` can return `None` on a race (entity deleted between event and fetch) — the frame then keeps the bare emit payload and `data` may be missing. Clients must handle "no data on updated/started" gracefully (refetch via GET, don't crash).
