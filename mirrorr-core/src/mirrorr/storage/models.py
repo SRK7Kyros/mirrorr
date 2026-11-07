@@ -169,6 +169,10 @@ class Session(SQLModel, table=True):
     # Absolute path to the session folder; lets API read logs/progress even
     # after the supervisor process exits. Set by the supervisor on start.
     session_folder: str | None = Field(default=None)
+    # Every folder this session has written into — its own and one per fallback
+    # capture. ``session_folder`` only names the one in use, so a session that
+    # fell back (or died mid-capture) left the earlier folders on disk for good.
+    session_folders: list[str] = Field(default_factory=list, sa_column=Column(SAJSON))
     # Latest remux progress as published on session.<id>.remux.progress.
     recording_progress: dict[str, Any] | None = Field(default=None, sa_column=Column(SAJSON))
     # Set by the scheduler: one autorun slot can spawn at most one session.

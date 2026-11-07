@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import asyncio
 import shutil
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterable
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -364,23 +364,32 @@ async def _kept_artifacts(settings: MirrorrSettings) -> list[Path]:
     return [Path(raw).resolve() for raw in rows if raw]
 
 
-async def remove_session_folder(
+async def remove_session_folders(
     settings: MirrorrSettings,
-    session_folder: Path | str | None,
+    folders: Iterable[Path | str | None],
 ) -> None:
-    """Remove a session's content folder and everything in it.
+    """Remove every content folder a session wrote into.
 
     A folder holding a kept recording's artifact is left alone — remux moves a
     finished session's folder under ``recordings/``, and that is not ours to
     remove.
     """
-    target = _content_folder(settings, session_folder)
-    if target is None:
-        return
-    if any(p == target or target in p.parents for p in await _kept_artifacts(settings)):
-        return  # something kept lives in there
+    kept = await _kept_artifacts(settings)
+    for raw in folders:
+        target = _content_folder(settings, raw)
+        if target is None or any(p == target or target in p.parents for p in kept):
+            continue  # outside the content dir, or something kept lives in there
+        await asyncio.to_thread(shutil.rmtree, target, True)
 
-    await asyncio.to_thread(shutil.rmtree, target, True)
+
+def session_folders_of(session: Session) -> list[str]:
+    """Every folder this session wrote into, most specific last.
+
+    ``session_folder`` names only the folder in use, so a run that fell back —
+    or died mid-capture — left its earlier folders named nowhere.
+    """
+    folders = [*(session.session_folders or []), session.session_folder]
+    return list(dict.fromkeys(f for f in folders if f))
 
 
 async def remove_recording_folder(
@@ -424,9 +433,13 @@ async def delete_session(
     from mirrorr.api.routers.crud import _cleanup_related_records
 
     # 1. Delete from DB first — if this fails, we don't touch the folder
+    folders: list[str] = []
     try:
         async with _get_db_factory(settings) as db_factory:
             async with db_factory() as db:
+                row = await crud.get_by_id(db, Session, session_id)
+                if row:
+                    folders = session_folders_of(row)
                 # Same cleanup as the API delete path (_cascade_delete_session):
                 # subscriptions, notifications and view grants all go with the row.
                 await _cleanup_related_records(db, ResourceType.SESSION, session_id)
@@ -435,8 +448,8 @@ async def delete_session(
         logger.error(f"Failed to delete session {session_id} from DB — folder preserved: {e}")
         return  # Abort: don't delete folder or emit events
 
-    # 2. DB delete succeeded — now remove the folder
-    await remove_session_folder(settings, session_folder)
+    # 2. DB delete succeeded — now remove the folders
+    await remove_session_folders(settings, [*folders, session_folder])
 
     # 3. Emit events
     _nc = _resolve_nc(nc)

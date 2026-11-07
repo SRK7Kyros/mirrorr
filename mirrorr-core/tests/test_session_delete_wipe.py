@@ -1,10 +1,12 @@
-"""A deleted session must not leave its content folder behind.
+"""A deleted session must not leave its content folders behind.
 
 Nothing removed ``Session.session_folder`` on the API delete path, so a deleted
 session's HLS tree stayed on disk until the hourly housekeeping sweep — and the
 next session for the same profile had to take a new numbered folder (F1, F1_2,
-…). ``session_lifecycle.remove_session_folder()`` is that one place now, for the
-API deleter and for the supervisor's own finalize paths.
+…). A session that fell back wrote into one folder per capture while the row
+named only the last one, so the earlier trees survived even the delete that did
+run. ``session_lifecycle.remove_session_folders()`` is that one place now, for
+the API deleter and for the supervisor's own finalize paths.
 """
 
 from __future__ import annotations
@@ -19,7 +21,7 @@ from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 
 from mirrorr.di import container
-from mirrorr.services.session_lifecycle import delete_session, remove_session_folder
+from mirrorr.services.session_lifecycle import delete_session, remove_session_folders
 from mirrorr.startup.config import MirrorrSettings
 from mirrorr.storage import crud
 from mirrorr.storage.enums import SessionStatus
@@ -107,6 +109,24 @@ def test_deleting_a_session_removes_its_folder(tmp_path):
     assert not folder.exists()
 
 
+def test_deleting_a_session_removes_every_folder_it_wrote_into(tmp_path):
+    primary = _folder(tmp_path, "F1_2")
+    capture = _folder(tmp_path, "F1_2_capture2")
+
+    def seed(db):
+        row = _session(str(capture))
+        row.session_folders = [str(primary), str(capture)]
+        db.add(row)
+
+    async def work():
+        await delete_session(container.settings, 1, nc=AsyncMock())
+
+    _scenario(tmp_path, seed, work)
+
+    assert not primary.exists()
+    assert not capture.exists()
+
+
 def test_a_folder_a_kept_recording_lives_in_is_never_removed(tmp_path):
     folder = _folder(tmp_path, "recordings", "f1")
 
@@ -115,7 +135,7 @@ def test_a_folder_a_kept_recording_lives_in_is_never_removed(tmp_path):
         db.add(_recording(str(folder)))
 
     async def work():
-        await remove_session_folder(container.settings, folder)
+        await remove_session_folders(container.settings, [folder])
 
     _scenario(tmp_path, seed, work)
 
@@ -127,8 +147,7 @@ def test_the_reserved_roots_themselves_are_never_removed(tmp_path):
     autoruns = _folder(tmp_path, "autoruns")
 
     async def work():
-        await remove_session_folder(container.settings, recordings)
-        await remove_session_folder(container.settings, autoruns)
+        await remove_session_folders(container.settings, [recordings, autoruns])
 
     _scenario(tmp_path, lambda db: None, work)
 
@@ -142,8 +161,7 @@ def test_a_folder_outside_the_content_dir_is_never_removed(tmp_path):
     (outside / "stream.m3u8").write_text("#EXTM3U\n")
 
     async def work():
-        await remove_session_folder(container.settings, outside)
-        await remove_session_folder(container.settings, tmp_path / "content")
+        await remove_session_folders(container.settings, [outside, tmp_path / "content"])
 
     _scenario(tmp_path, lambda db: None, work)
 
