@@ -55,6 +55,7 @@ from mirrorr.api.schemas import (
 from mirrorr.storage.models import Session, Autorun, Recording, Profile, Engine, Resolver, ResolverSource, ResourceAccess, ResourceOwnerGroup, ResourceOwnerUser, ResolverProbe
 from mirrorr.services.permissions import access_predicate, has_capability
 from mirrorr.services.session_helpers import build_session_urls
+from mirrorr.services.session_lifecycle import session_folders_of
 from mirrorr.storage.enums import SessionStatus, ResourceType, AutorunStatus, Capability
 from mirrorr.storage import crud
 from mirrorr.storage.models import EventSubscription, Notification
@@ -144,18 +145,18 @@ async def _cascade_delete_session(db: AsyncSession, session_id: int) -> dict[str
     return counts
 
 
-async def _reclaim_session(session_id: int, session_folder: str | None) -> None:
-    """Stop the supervisor serving a deleted session, then remove its folder.
+async def _reclaim_session(session_id: int, folders: list[str]) -> None:
+    """Stop the supervisor serving a deleted session, then remove its folders.
 
-    Order matters: the run has to be over before its folder goes, or the media
+    Order matters: the run has to be over before its folders go, or the media
     processes keep writing into a directory we are removing.
     """
     from mirrorr.di import container
     from mirrorr.event_bus.handlers.handlers import _kill_supervisor
-    from mirrorr.services.session_lifecycle import remove_session_folder
+    from mirrorr.services.session_lifecycle import remove_session_folders
 
     await _kill_supervisor(session_id)
-    await remove_session_folder(container.settings, session_folder)
+    await remove_session_folders(container.settings, folders)
 
 
 async def _cascade_delete_autorun(db: AsyncSession, autorun_id: int) -> dict[str, int]:
@@ -164,11 +165,11 @@ async def _cascade_delete_autorun(db: AsyncSession, autorun_id: int) -> dict[str
     counts: dict[str, int] = {"autoruns": 1}
     sess = (await db.exec(select(Session).where(Session.autorun_id == autorun_id))).all()
     for s in sess:
-        folder = s.session_folder
+        folders = session_folders_of(s)
         sub = await _cascade_delete_session(db, s.id)
         for k, v in sub.items():
             counts[k] = counts.get(k, 0) + v
-        await _reclaim_session(s.id, folder)
+        await _reclaim_session(s.id, folders)
         await _safe_emit(MirrorrEvent.SESSION_DELETED(id=s.id))
     counts["sessions"] = counts.get("sessions", 0) + len(sess)
 
@@ -223,11 +224,11 @@ async def _cascade_delete_profile(db: AsyncSession, profile_id: int) -> dict[str
     own_sess = [s for s in sess if derived_by_owner(s)]
     detached = await detach([s for s in sess if not derived_by_owner(s)])
     for s in own_sess:
-        folder = s.session_folder
+        folders = session_folders_of(s)
         sub = await _cascade_delete_session(db, s.id)
         for k, v in sub.items():
             counts[k] = counts.get(k, 0) + v
-        await _reclaim_session(s.id, folder)
+        await _reclaim_session(s.id, folders)
         await _safe_emit(MirrorrEvent.SESSION_DELETED(id=s.id))
     counts["sessions"] = counts.get("sessions", 0) + len(own_sess)
 
@@ -645,7 +646,7 @@ def _session_urls(s: Session) -> list[dict[str, str]]:
 def _serialize_session(s: Session) -> dict:
     # `session_folder` is a server filesystem path — never expose it to a client.
     return {
-        **s.model_dump(mode="json", exclude={"session_folder"}),
+        **s.model_dump(mode="json", exclude={"session_folder", "session_folders"}),
         "session_urls": _session_urls(s),
         "engine_name": _name_of(getattr(s, "engine", None)),
         "resolver_name": _name_of(getattr(s, "resolver", None)),
@@ -932,9 +933,9 @@ async def delete_session(id: int, db: AsyncSession = Depends(_get_db), auth: Aut
         except HTTPException as e:
             if e.status_code != 504:
                 raise
-    folder = obj.session_folder
+    folders = session_folders_of(obj)
     counts = await _cascade_delete_session(db, id)
-    await _reclaim_session(id, folder)
+    await _reclaim_session(id, folders)
     await _safe_emit(MirrorrEvent.SESSION_DELETED(id=id))
     return DeleteResultResponse(status="deleted", deleted=counts)
 

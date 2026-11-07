@@ -82,6 +82,7 @@ def test_each_capture_writes_into_its_own_folder(tmp_path):
 
     assert sup.session_folder == primary.parent / f"{primary.name}_capture2"
     assert sup.segments_folder.parent == sup.session_folder
+    assert sup._folders == [primary, sup.session_folder]
     assert sup._capture_settings["profile_name"] == "F1 UK"
 
 

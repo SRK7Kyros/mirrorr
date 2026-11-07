@@ -473,7 +473,7 @@ def _get_model_map() -> dict[str, type]:
 # crud._serialize_session / _serialize_recording). The relay fans out to every
 # VIEW holder, not only the owner, so it cannot vary the payload per principal
 # and must strip these unconditionally.
-_WS_HIDDEN_FIELDS = frozenset({"requester_user_token", "session_folder", "disk_path"})
+_WS_HIDDEN_FIELDS = frozenset({"requester_user_token", "session_folder", "session_folders", "disk_path"})
 
 
 async def _fetch_entity(subject: str, entity_id: int) -> dict | None:

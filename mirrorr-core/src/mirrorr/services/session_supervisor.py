@@ -153,8 +153,8 @@ class SessionSupervisor:
             )
             self.session_folder = roots[0] / f"session-{self.session_id}"
         self._primary_folder = self.session_folder
-        self.logs_folder = self.session_folder / "logs"
-        self.segments_folder = self.session_folder / "segments"
+        self._folders: list[Path] = [Path(f) for f in getattr(session, "session_folders", None) or []]
+        self._use_folder(self.session_folder)
         if self.session.recording:
             self._recording = self._make_recorder()
 
@@ -248,6 +248,8 @@ class SessionSupervisor:
         self.session_folder = folder
         self.logs_folder = folder / "logs"
         self.segments_folder = folder / "segments"
+        if folder not in self._folders:
+            self._folders.append(folder)
         if self._recording:
             self._recording.use_folder(folder)
 
@@ -457,6 +459,7 @@ class SessionSupervisor:
             status=SessionStatus.INITIALIZING,
             session_urls=build_session_urls(self.session_folder, self.segments_folder, self.settings),
             session_folder=str(self.session_folder),
+            session_folders=[str(f) for f in self._folders],
             nc=self._nc,
         )
 
