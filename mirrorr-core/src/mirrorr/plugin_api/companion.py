@@ -51,19 +51,36 @@ class CompanionSpec:
     config: BaseModel
 
 
+_siblings: dict[str, tuple[tuple[str, int, int], Any]] = {}
+_siblings_lock = threading.RLock()
+
+
 def sibling(module_file: str, name: str) -> Any:
     """Import ``<name>.py`` next to a JIT-loaded plugin.
 
     Plugins are loaded by path, not as a package, so a resolver cannot
-    ``from . import`` its companion module. Re-executed on every call so a
-    redeploy picks up the new source.
+    ``from . import`` its companion module. Re-executed when the source
+    changed, reused when it did not: several rings of one plugin load the same
+    shared module, and two executions of it would define two ``Target`` classes
+    and two ``MintRefused`` classes, so an exception raised in one ring would
+    slip through another ring's ``except``.
     """
     path = Path(module_file).with_name(f"{name}.py")
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
+    try:
+        info = path.stat()
+        stamp = (str(path), info.st_mtime_ns, info.st_size)
+    except OSError:
+        stamp = (str(path), 0, 0)
+    with _siblings_lock:
+        cached = _siblings.get(name)
+        if cached and cached[0] == stamp and sys.modules.get(name) is cached[1]:
+            return cached[1]
+        spec = importlib.util.spec_from_file_location(name, path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+        _siblings[name] = (stamp, module)
+        return module
 
 
 def _source_hash(cls: type) -> str:
@@ -83,7 +100,7 @@ class Companion(ABC):
         self.port = port
         self.lock_path = lock_path
         self.started_at = time.time()
-        self.code_hash = _source_hash(type(self))
+        self.code_hash = type(self).source_hash()
 
     # ── contract ──────────────────────────────────────────────────────
 

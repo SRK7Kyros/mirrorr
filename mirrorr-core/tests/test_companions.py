@@ -81,6 +81,15 @@ def test_sibling_loads_sibling_module(tmp_path):
     assert sibling(str(tmp_path / "loader.py"), "mod_a").VALUE == 42
 
 
+def test_sibling_is_one_module_while_the_source_is_unchanged(tmp_path):
+    path = tmp_path / "mod_b.py"
+    path.write_text("class Boom(Exception):\n    pass\n")
+    first = sibling(str(tmp_path / "loader.py"), "mod_b")
+    assert sibling(str(tmp_path / "loader.py"), "mod_b") is first
+    path.write_text("class Boom(Exception):\n    pass\n# changed shape\n")
+    assert sibling(str(tmp_path / "loader.py"), "mod_b") is not first
+
+
 def test_companion_names_must_be_unique():
     validate = _companion_validator()
     spec = CompanionSpec(_Comp, _Cfg())
