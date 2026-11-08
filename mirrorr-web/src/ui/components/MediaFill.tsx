@@ -39,6 +39,12 @@ export type MediaFillProps =
       readonly fields: readonly ReactNode[]
       readonly label: string
       readonly tone?: "neutral" | "warning" | "danger" | "success"
+      /**
+       * A plate that stands in for a player keeps the 16:9 box, so the layout
+       * does not jump when the player mounts. A plate with no player behind it
+       * is a band: a 16:9 hole for two lines is height nobody asked for.
+       */
+      readonly compact?: boolean
       readonly pin?: ReactNode
       readonly className?: string
     }
@@ -65,11 +71,17 @@ export function MediaFill(props: MediaFillProps) {
     )
   }
 
+  const band = props.fill === "plate" && props.compact === true
+
   return (
     <div
       data-slot="media-fill"
       data-fill={props.fill}
-      className={cn("relative aspect-video w-full overflow-hidden bg-sunken", props.className)}
+      className={cn(
+        "relative w-full overflow-hidden bg-sunken",
+        band ? null : "aspect-video",
+        props.className,
+      )}
     >
       {props.fill === "cover" ? (
         <video
@@ -86,7 +98,8 @@ export function MediaFill(props: MediaFillProps) {
       ) : (
         <div
           className={cn(
-            "flex h-full w-full flex-col justify-between gap-2 border p-3",
+            "flex w-full flex-col justify-between gap-2 border p-3",
+            band ? "min-h-[5.25rem]" : "h-full",
             PLATE_TONE[props.tone ?? "neutral"],
           )}
         >

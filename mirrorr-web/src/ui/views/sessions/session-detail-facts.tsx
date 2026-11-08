@@ -25,10 +25,16 @@ import { RemuxProgressBar } from "./remux-progress"
 import { SessionTelemetryReadout } from "./session-telemetry"
 
 /**
- * The right-hand rail of SCR-04: Status, Facts, Config, Access — one home per
+ * The right-hand rail of SCR-04: Run, Timeline, Config, Access — one home per
  * value. The status chip stays in the header, so nothing here repeats the label;
  * and the full engine → resolver → profile chain lives only in Config, which is
  * what lets the header subtitle be the two words SDR-04 asks for.
+ *
+ * Run used to be two panels — a `Status` holding one sentence and a `Facts`
+ * holding seven rows — so the same question ("is it healthy, and how far along?")
+ * cost two panel heads and read as two unrelated answers. They are one panel
+ * because they are one answer; the heading count is also what lets the rail hold
+ * the timeline without towering over the player.
  */
 
 function FactRow({ label, children }: { readonly label: string; readonly children: ReactNode }) {
@@ -40,55 +46,37 @@ function FactRow({ label, children }: { readonly label: string; readonly childre
   )
 }
 
-export function SessionStatusPanel({
+export function SessionRunPanel({
   session,
   run,
   reason,
-}: {
-  readonly session: Session
-  readonly run: RunStateView
-  readonly reason: string
-}) {
-  return (
-    <Panel>
-      <PanelHead title="Status" />
-      <PanelBody>
-        <div className="flex flex-col gap-3">
-          <p className="text-md leading-normal text-ink-muted">{stateSentence(run)}</p>
-          {run.state === "failed" ? (
-            <Banner kind="danger" title={reason}>
-              {FAILED_FIX}
-            </Banner>
-          ) : null}
-          {run.state === "finalising" ? (
-            <RemuxProgressBar sessionId={session.id} className="flex flex-col gap-2" />
-          ) : null}
-          {run.panels.live && run.state !== "finalising" ? (
-            <SessionTelemetryReadout sessionId={session.id} />
-          ) : null}
-        </div>
-      </PanelBody>
-    </Panel>
-  )
-}
-
-export function SessionFactsPanel({
-  session,
-  run,
   durationSeconds,
   bytes,
 }: {
   readonly session: Session
   readonly run: RunStateView
+  readonly reason: string
   readonly durationSeconds: number | null
   readonly bytes: number | null
 }) {
   const retries = session.retry_attempts ?? 0
   return (
     <Panel>
-      <PanelHead title="Facts" />
-      <PanelBody>
-        <dl className="m-0 flex flex-col gap-2">
+      <PanelHead title="Run" />
+      <PanelBody className="@container flex flex-col gap-4">
+        <p className="text-md leading-normal text-ink-muted">{stateSentence(run)}</p>
+        {run.state === "failed" ? (
+          <Banner kind="danger" title={reason}>
+            {FAILED_FIX}
+          </Banner>
+        ) : null}
+        {run.state === "finalising" ? (
+          <RemuxProgressBar sessionId={session.id} className="flex flex-col gap-2" />
+        ) : null}
+        {run.panels.live && run.state !== "finalising" ? (
+          <SessionTelemetryReadout sessionId={session.id} />
+        ) : null}
+        <dl className="m-0 flex flex-col gap-2 border-t border-line-subtle pt-3 @2xl:grid @2xl:grid-cols-3 @2xl:gap-x-8 @2xl:gap-y-2 @5xl:grid-cols-5">
           <FactRow label={durationLabel(run)}>
             {durationSeconds === null ? "—" : formatDuration(durationSeconds)}
           </FactRow>
@@ -159,9 +147,9 @@ export function SessionConfigPanel({
             <IconChevronRight size={14} className={cn("shrink-0", open && "rotate-90")} />
           </span>
         </summary>
-        <PanelBody>
+        <PanelBody className="@container">
           <div className="flex flex-col gap-4">
-            <dl className="m-0 flex flex-col gap-2">
+            <dl className="m-0 flex flex-col gap-2 @2xl:grid @2xl:grid-cols-2 @2xl:gap-x-8">
               <FactRow label="Engine">
                 <span className="mono">
                   {engine === "" ? "—" : engine} · #{session.engine_id}
