@@ -185,7 +185,7 @@ export function timelineEmptyText(run: RunStateView): string {
   return "No attempt was recorded."
 }
 
-/** Attempts the record holds, for the Facts panel. */
+/** Attempts the record holds, for the Run panel. */
 export function attemptsUsed(session: Session): number {
   return attemptCount(session)
 }

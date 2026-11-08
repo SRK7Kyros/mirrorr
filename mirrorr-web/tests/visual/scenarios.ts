@@ -270,8 +270,22 @@ export const SCENARIOS: readonly Scenario[] = [
   },
   { name: "session-detail", path: "/sessions/101", data: { sessions: SESSIONS } },
   {
+    // The state the page exists for: a live run with a published playlist, so
+    // the player — not a plate — owns the 16:9 box.
+    name: "session-detail-live",
+    path: "/sessions/101",
+    data: { sessions: [{ ...SESSIONS[0]!, session_urls: [{ label: "M3U8", url: "/content/sessions/101/stream.m3u8" }] }] },
+  },
+  {
     name: "session-detail-completed",
     path: "/sessions/104",
+    data: { sessions: SESSIONS },
+  },
+  {
+    // Config opens itself on a failed run (SDR-02), so this is the only state
+    // that photographs the expanded snapshot.
+    name: "session-detail-failed",
+    path: "/sessions/105",
     data: { sessions: SESSIONS },
   },
   {

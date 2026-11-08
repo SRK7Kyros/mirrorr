@@ -277,7 +277,7 @@ Choose bundle (one segmented `File · Paste · URL`, one dropzone) → preview (
 
 ### SCR-04 · Session detail
 
-Header: title + `StatusPill` + current verb + `⋯`. Two columns ≥1024: player + timeline left, `Status`/`Facts`/`Config`/`Access` right. Terminal runs lose "Live sources" and the supervisor sentence. Delete in the overflow with "stops and deletes" copy.
+Header: title + `StatusPill` + current verb + `⋯`. Two columns ≥1024 when the panel has a 16:9 box to show: player left, and the whole rail right — `Run` (status sentence + facts, one panel), `Timeline`, `Config`, `Access` — so the two heights match instead of leaving a column of empty page under three short panels. With no player (failed, no file, no published stream) one column: the compact `Stream` band, then the same rail. Terminal runs lose "Live sources" and the supervisor sentence. Delete in the overflow with "stops and deletes" copy.
 
 ### SCR-06 · Autorun detail
 

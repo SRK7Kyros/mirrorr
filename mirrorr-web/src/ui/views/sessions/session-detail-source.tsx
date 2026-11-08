@@ -10,13 +10,33 @@ import { SessionPlayerFrame } from "./session-preview-player"
 import { SessionRecordingButton } from "./session-recording-button"
 import { SessionStarting } from "./session-starting"
 import type { AttemptView } from "./session-timeline"
-import { SessionUrls, pickHtmlPlayerUrl, pickPlayableUrl, toSessionUrls } from "./session-urls"
+import {
+  SessionUrls,
+  pickHtmlPlayerUrl,
+  pickPlayableUrl,
+  toSessionUrls,
+  type SessionUrl,
+} from "./session-urls"
 
 function DirectMedia({ src, label }: { readonly src: string; readonly label: string }) {
   return (
     <div className="aspect-video w-full overflow-hidden rounded-md bg-sunken">
       <video className="h-full w-full" src={src} controls preload="metadata" aria-label={label} />
     </div>
+  )
+}
+
+/**
+ * Whether the source panel draws a 16:9 box — the starting gate, the player,
+ * the embedded `player.html`, or a direct media element. When it does not, the
+ * panel is a compact band and has no height to balance against the rail.
+ */
+export function sourceFillsBox(run: RunStateView, urls: readonly SessionUrl[]): boolean {
+  return (
+    run.state === "starting" ||
+    pickPlayableUrl(urls) !== null ||
+    pickHtmlPlayerUrl(urls) !== null ||
+    directMediaUrl(urls) !== null
   )
 }
 
@@ -90,6 +110,7 @@ export function SessionSourcePanel({
       return (
         <MediaFill
           fill="plate"
+          compact
           tone="warning"
           label="No source to show"
           fields={[
@@ -103,6 +124,7 @@ export function SessionSourcePanel({
     return (
       <MediaFill
         fill="plate"
+        compact
         tone={plate.tone}
         label={plate.label}
         fields={plate.fields}

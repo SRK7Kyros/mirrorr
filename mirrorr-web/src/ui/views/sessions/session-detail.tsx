@@ -26,8 +26,7 @@ import { BackToSessionsLink, SessionOverflow, StopRecordingAction } from "./sess
 import {
   SessionAccessPanel,
   SessionConfigPanel,
-  SessionFactsPanel,
-  SessionStatusPanel,
+  SessionRunPanel,
 } from "./session-detail-facts"
 import {
   failureReason,
@@ -39,7 +38,7 @@ import {
   sourcePanelMode,
   timelineEmptyText,
 } from "./session-detail-model"
-import { SessionSourcePanel } from "./session-detail-source"
+import { SessionSourcePanel, sourceFillsBox } from "./session-detail-source"
 import { capturedBytes } from "./session-media"
 import { SessionTimeline, toAttemptView, toCaptureView } from "./session-timeline"
 import { sessionTitle } from "./session-title"
@@ -54,15 +53,20 @@ import { toSessionUrls } from "./session-urls"
  * `Completed` chip (SDR-01). `deriveRunState()` answers once; every branch below
  * reads its answer and none of them re-derives it.
  *
- * Layout is two columns from 1024 px (`minmax(0,2fr) / minmax(280px,1fr)`), with
- * the facts rail placed into column two from the same DOM order that puts it
- * first on a phone — so the breakpoints never disagree about reading order.
+ * Layout is two columns from 1024 px (`minmax(0,2fr) / minmax(300px,1fr)`): the
+ * player owns the wide column and the whole rail — Run, Timeline, Config, Access
+ * — sits beside it, which is what keeps the two heights close instead of leaving
+ * a column of empty page under three short panels. The rail is one element, so a
+ * run with no player to show (failed, or finished with no file) stacks the same
+ * panels down a single column rather than opening a hole where the video would
+ * have been.
  */
 
 const COLUMNS =
-  "grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)] lg:items-start"
+  "grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)] lg:items-start"
 const RAIL = "flex min-w-0 flex-col gap-5 lg:col-start-2 lg:row-start-1"
 const HISTORY = "flex min-w-0 flex-col gap-5 lg:col-start-1 lg:row-start-1"
+const STACKED = "flex min-w-0 flex-col gap-5"
 
 function isNotFound(error: unknown): boolean {
   return error instanceof ApiError && error.status === 404
@@ -96,16 +100,25 @@ function InvalidSessionId({ raw }: { readonly raw: string }) {
 function DetailSkeleton() {
   return (
     <div className={COLUMNS}>
-      <Panel className="lg:col-start-2 lg:row-start-1">
-        <PanelBody>
-          <SkeletonRows rows={5} cols={2} />
-        </PanelBody>
-      </Panel>
-      <Panel className="lg:col-start-1 lg:row-start-1">
-        <PanelBody>
-          <SkeletonRows rows={6} cols={1} />
-        </PanelBody>
-      </Panel>
+      <div className={HISTORY}>
+        <Panel>
+          <PanelBody>
+            <SkeletonRows rows={6} cols={1} />
+          </PanelBody>
+        </Panel>
+      </div>
+      <div className={RAIL}>
+        <Panel>
+          <PanelBody>
+            <SkeletonRows rows={5} cols={2} />
+          </PanelBody>
+        </Panel>
+        <Panel>
+          <PanelBody>
+            <SkeletonRows rows={3} cols={1} />
+          </PanelBody>
+        </Panel>
+      </div>
     </div>
   )
 }
@@ -259,53 +272,70 @@ function SessionDetailBody({
     .sort((a, b) => a.index - b.index)
   const plan = session.capture_plan ?? []
   const pending = pendingFallbacks(session, names, captures.length, run.panels.sources)
+  const hasSource = sourcePanelMode(run, evidence) !== "none"
+  const tallMedia = hasSource && sourceFillsBox(run, urls)
+
+  // One rail, in the order an operator asks: what is it doing, what has it
+  // done, what is it made of, who can see it. With no player to sit beside —
+  // a failed run, a run with no file, a run that published no stream — the same
+  // rail stacks down one column rather than leaving a half page of nothing.
+  const rail = (
+    <>
+      <SessionRunPanel
+        session={session}
+        run={run}
+        reason={failureReason(session, attempts)}
+        durationSeconds={durationSeconds}
+        bytes={capturedBytes(session)}
+      />
+      <Panel>
+        <PanelHead
+          title="Timeline"
+          actions={plan.length > 1 ? <Tag>{plan.length} in the plan</Tag> : null}
+        />
+        <PanelBody>
+          <SessionTimeline
+            captures={captures}
+            attempts={attempts}
+            pending={pending}
+            empty={timelineEmptyText(run)}
+          />
+        </PanelBody>
+      </Panel>
+      <SessionConfigPanel
+        session={session}
+        names={names}
+        open={configOpen}
+        onToggle={onConfigToggle}
+      />
+      <SessionAccessPanel session={session} title={title} />
+    </>
+  )
+  const source = hasSource ? (
+    <SessionSourcePanel
+      session={session}
+      names={names}
+      run={run}
+      evidence={evidence}
+      attempts={attempts}
+      title={title}
+      durationSeconds={durationSeconds}
+    />
+  ) : null
+
+  if (!tallMedia) {
+    return (
+      <div className={STACKED}>
+        {source}
+        {rail}
+      </div>
+    )
+  }
 
   return (
     <div className={COLUMNS}>
-      <div className={RAIL}>
-        <SessionStatusPanel session={session} run={run} reason={failureReason(session, attempts)} />
-        <SessionFactsPanel
-          session={session}
-          run={run}
-          durationSeconds={durationSeconds}
-          bytes={capturedBytes(session)}
-        />
-        <SessionConfigPanel
-          session={session}
-          names={names}
-          open={configOpen}
-          onToggle={onConfigToggle}
-        />
-        <SessionAccessPanel session={session} title={title} />
-      </div>
-
-      <div className={HISTORY}>
-        {sourcePanelMode(run, evidence) === "none" ? null : (
-          <SessionSourcePanel
-            session={session}
-            names={names}
-            run={run}
-            evidence={evidence}
-            attempts={attempts}
-            title={title}
-            durationSeconds={durationSeconds}
-          />
-        )}
-        <Panel>
-          <PanelHead
-            title="Timeline"
-            actions={plan.length > 1 ? <Tag>{plan.length} in the plan</Tag> : null}
-          />
-          <PanelBody>
-            <SessionTimeline
-              captures={captures}
-              attempts={attempts}
-              pending={pending}
-              empty={timelineEmptyText(run)}
-            />
-          </PanelBody>
-        </Panel>
-      </div>
+      <div className={HISTORY}>{source}</div>
+      <div className={RAIL}>{rail}</div>
     </div>
   )
 }

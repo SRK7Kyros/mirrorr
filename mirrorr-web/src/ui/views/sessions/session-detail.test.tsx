@@ -375,6 +375,25 @@ describe("SessionDetailView states", () => {
     await screen.findByText(/Stops the recording, then deletes the run/i)
   })
 
+  it("answers state and numbers in one Run panel, with the history beside the player", async () => {
+    endpoints.fetchSession.mockResolvedValue(
+      session({ status: "recording", recording: true, started_at: "2026-10-13T21:09:00" }),
+    )
+
+    renderDetail()
+
+    const panel = ((await screen.findByRole("heading", { name: "Run" })).closest(
+      "section",
+    ) as HTMLElement)
+    expect(within(panel).getByText(/engine is capturing this stream/)).not.toBeNull()
+    expect(within(panel).getByText("Attempts")).not.toBeNull()
+    expect(within(panel).getByText("Size")).not.toBeNull()
+
+    const rail = panel.parentElement as HTMLElement
+    expect(within(rail).getByRole("heading", { name: "Timeline" })).not.toBeNull()
+    expect(within(rail).getByRole("heading", { name: "Config" })).not.toBeNull()
+  })
+
   it("keeps the full chain in a collapsed Config disclosure and the subtitle to profile → engine (SDR-04)", async () => {
     endpoints.fetchSession.mockResolvedValue(session({ status: "active" }))
 
