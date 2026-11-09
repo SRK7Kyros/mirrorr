@@ -185,7 +185,9 @@ async function performRefresh(): Promise<void> {
     return
   }
   const error = await toApiError(response)
-  if (error.status === 401) notifyAuthExhausted()
+  // 400 is the pre-Nov-9 core's "Refresh token required": the request carries no
+  // body, so the only thing it can be missing is the cookie — same verdict as 401.
+  if (error.status === 401 || error.status === 400) notifyAuthExhausted()
   throw error
 }
 
@@ -211,8 +213,9 @@ export async function apiFetch<T>(path: string, init: ApiFetchInit = {}): Promis
   }
 
   if (response.status === 401 && init.skipAuthRefresh !== true) {
-    if (init.isRetry === true) {
-      // Second 401 after a successful refresh — one logout, no retry storm.
+    if (init.isRetry === true || authExhaustedLatched) {
+      // Second 401 after a successful refresh, or a session already declared
+      // gone — one logout, no retry storm against /auth/refresh.
       notifyAuthExhausted()
     } else {
       await refreshSession()

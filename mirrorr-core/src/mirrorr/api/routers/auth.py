@@ -508,7 +508,7 @@ async def refresh(
         rt_str = request.cookies.get(REFRESH_TOKEN_COOKIE)
 
     if not rt_str:
-        raise HTTPException(status_code=400, detail="Refresh token required")
+        raise HTTPException(status_code=401, detail="Refresh token required")
 
     payload = decode_refresh_token(rt_str)
     if not payload or "username" not in payload:

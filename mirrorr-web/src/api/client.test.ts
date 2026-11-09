@@ -76,6 +76,27 @@ describe("apiFetch", () => {
     expect(handler).toHaveBeenCalledTimes(1)
   })
 
+  it("treats a 400 from /auth/refresh as an exhausted session, not a query error", async () => {
+    const handler = vi.fn()
+    setAuthExhaustedHandler(handler)
+    let refreshCount = 0
+    const fetchMock: FetchMock = vi.fn(async (input: string) => {
+      const url = String(input)
+      if (url.endsWith("/auth/refresh")) {
+        refreshCount += 1
+        return jsonResponse(400, { detail: "Refresh token required" })
+      }
+      return jsonResponse(401, { detail: "Not authenticated" })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const results = await Promise.allSettled([apiFetch("/sessions/"), apiFetch("/overview")])
+
+    expect(results.every((result) => result.status === "rejected")).toBe(true)
+    expect(refreshCount).toBe(1)
+    expect(handler).toHaveBeenCalledTimes(1)
+  })
+
   it("parses FastAPI 422 detail arrays into fieldErrors", async () => {
     vi.stubGlobal(
       "fetch",
