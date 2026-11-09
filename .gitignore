@@ -6,3 +6,4 @@
 
 # host-specific deploy values (rendered into the unit/nginx conf by deploy.sh)
 deploy/mirrorr.local.env
+.env
